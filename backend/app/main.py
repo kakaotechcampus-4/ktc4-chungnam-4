@@ -1,6 +1,9 @@
 from fastapi import FastAPI
 
+from app.api.v1.router import api_router
+
 app = FastAPI(title="아이담 API")
+app.include_router(api_router, prefix="/api/v1")
 
 
 @app.get("/health")
