@@ -1,0 +1,9 @@
+# TODO(상균): domains/agents 흐름 검증에 필요한 최소 패키지만 추가했다.
+# 다른 도메인(FastAPI 앱 기동, DB, 인증 등)에 필요한 패키지는 각 담당자가 추가한다.
+fastapi>=0.115
+pydantic>=2.9
+celery>=5.4
+redis>=5.0
+anthropic>=0.39
+pytest>=8.3
+httpx>=0.27

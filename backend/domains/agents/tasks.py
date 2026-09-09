@@ -1,9 +1,21 @@
-# TODO(eun): backend/celery_app.py에 celery_app 인스턴스가 아직 없어 import 에러 발생 중 — 완성 후 해소
+"""Celery task 정의. 로직은 두지 않고 service.py 호출만 한다 (CLAUDE.md §6.3).
+
+# TODO(A): 시그니처(job_id, request_data)는 상균이 router.py와 연결하기 위해 임시로 정한
+#   형태다. 실제 근거 조회(현재는 fixtures 고정값)를 리포지토리로 교체할 때 재확인.
+"""
+
+from __future__ import annotations
+
 from celery_app import celery_app
+from domains.agents.schemas import GenerationRequest
+from domains.agents.service import run_generation_job
 
 
 @celery_app.task(bind=True, max_retries=2, soft_time_limit=60)
-def generate_drafts(self, job_id: str, child_id: str) -> None:
-    # TODO(eun): domains/agents/service.py가 아직 빈 파일 — 근거수집→초안생성→Critic 검증
-    # 오케스트레이션 함수(예: orchestrate_drafts)가 생기면 여기서 호출만 하고 로직은 옮기지 않기
-    pass
+def generate_drafts(self, job_id: str, request_data: dict) -> dict:
+    request = GenerationRequest.model_validate(request_data)
+    # TODO(C): 실제 근거 저장소 연동 전까지는 고정 fixture 근거 풀을 사용한다.
+    from tests.agents.fixtures.evidence import SAMPLE_EVIDENCE_POOL
+
+    result = run_generation_job(job_id=job_id, request=request, evidence_pool=SAMPLE_EVIDENCE_POOL)
+    return result.model_dump(mode="json")
