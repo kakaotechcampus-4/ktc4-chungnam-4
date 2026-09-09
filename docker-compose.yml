@@ -1,32 +1,4 @@
-services:
-  postgres:
-    image: postgres:16
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: ktc4
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+name: aidam
 
-  redis:
-    image: redis:7
-    ports:
-      - "6379:6379"
-
-  api:
-    build: ./backend
-    ports:
-      - "8000:8000"
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ktc4
-      REDIS_URL: redis://redis:6379/0
-    depends_on:
-      - postgres
-      - redis
-    volumes:
-      - ./backend:/app
-
-volumes:
-  postgres_data:
+include:
+  - backend/docker-compose.yml
