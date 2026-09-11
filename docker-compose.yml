@@ -1,0 +1,4 @@
+name: aidam
+
+include:
+  - backend/docker-compose.yml
