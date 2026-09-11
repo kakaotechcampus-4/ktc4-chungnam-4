@@ -1,16 +1,13 @@
-import os
-
 import anthropic
 
-# TODO(eun): core/config.py의 Settings가 생기면 os.getenv 대신 core.config.settings로 교체
-_ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+from core.config import get_settings
 
-# TODO(eun): 테크스펙엔 "Claude Sonnet 계열"이라고만 되어 있고 정확한 모델 스냅샷은 미정 — 팀 확정 필요
-_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5")
+# 테크스펙엔 "Claude Sonnet 계열"이라고만 되어 있어, 나중에 모델명이 바뀔 수 있음
+_MODEL = get_settings().anthropic_model
 
 
 def call_claude(prompt: str) -> str:
-    client = anthropic.Anthropic(api_key=_ANTHROPIC_API_KEY)
+    client = anthropic.Anthropic(api_key=get_settings().anthropic_api_key.get_secret_value())
     message = client.messages.create(
         model=_MODEL,
         max_tokens=1024,
