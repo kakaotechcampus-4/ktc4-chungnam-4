@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     postgres_password: SecretStr
     postgres_db: str = "ktc4"
 
+    anthropic_api_key: SecretStr
+    # 테크스펙엔 "Claude Sonnet 계열"이라고만 되어 있어, 나중에 모델명이 바뀔 수 있음
+    anthropic_model: str = "claude-sonnet-5"
+
     @field_validator("postgres_password")
     @classmethod
     def require_configured_password(cls, value: SecretStr) -> SecretStr:

@@ -1,3 +1,5 @@
+import uuid
+
 from sqlalchemy import JSON, Column, DateTime, Float, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -7,7 +9,7 @@ from core.base import Base
 class EvidenceBundle(Base):
     __tablename__ = "evidence_bundles"
 
-    id = Column(UUID(as_uuid=True), primary_key=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     child_id = Column(UUID(as_uuid=True), nullable=False)
     date = Column(DateTime(timezone=True), nullable=False)
     media_refs = Column(JSON, nullable=False)
@@ -19,7 +21,7 @@ class EvidenceBundle(Base):
 class SentenceEvidence(Base):
     __tablename__ = "sentence_evidences"
 
-    id = Column(UUID(as_uuid=True), primary_key=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     draft_id = Column(UUID(as_uuid=True), nullable=False)
     sentence_index = Column(Integer, nullable=False)
     source_media_id = Column(UUID(as_uuid=True), nullable=False)
@@ -30,7 +32,7 @@ class SentenceEvidence(Base):
 class VerificationResult(Base):
     __tablename__ = "verification_results"
 
-    id = Column(UUID(as_uuid=True), primary_key=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     draft_id = Column(UUID(as_uuid=True), nullable=False)
     # TODO(eun): check_type 저장 값 도메인 확정 필요
     check_type = Column(String, nullable=False)
