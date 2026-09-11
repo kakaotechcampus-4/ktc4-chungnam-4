@@ -45,6 +45,7 @@ python3 backend/scripts/init_env.py
 
 - `backend/.env.example`을 바탕으로 `backend/.env`를 생성합니다.
 - DB 비밀번호를 임의로 생성하며 화면에 출력하지 않습니다.
+- 예시 파일의 `POSTGRES_PASSWORD` 항목과 치환 문구를 검사하며, 누락·변경·중복 시 `.env`를 쓰기 전에 오류로 종료합니다.
 - 내용이 있는 기존 `.env`는 덮어쓰지 않습니다.
 - `.env`는 각자 관리하며 Git에 포함하지 않습니다.
 
