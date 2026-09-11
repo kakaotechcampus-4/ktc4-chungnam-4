@@ -1,8 +1,7 @@
 from sqlalchemy import JSON, Column, DateTime, Float, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 
-# TODO(eun): core/database.py에 Base가 아직 없어 import 에러 발생 중 — 엄태은 작업 완료 후 해소
-from core.database import Base
+from core.base import Base
 
 
 class EvidenceBundle(Base):

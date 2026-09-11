@@ -184,7 +184,8 @@ backend/
 ├── main.py                  # FastAPI 시작점, 헬스체크
 ├── core/
 │   ├── config.py            # 환경변수 로딩 및 검증
-│   └── database.py          # 공통 Base, 엔진, 세션
+│   ├── base.py              # DB 설정 없이 가져올 수 있는 공통 Base
+│   └── database.py          # DB 엔진, 세션
 ├── domains/                 # 도메인별 구현 위치
 │   ├── auth/
 │   ├── organization/
@@ -244,7 +245,7 @@ router.py → service.py → models.py
 **모델에서 가져올 공통 Base**
 
 ```python
-from core.database import Base
+from core.base import Base
 ```
 
 **라우터에서 사용할 DB 세션 의존성**
