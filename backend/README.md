@@ -88,6 +88,8 @@ flowchart LR
     end
 ```
 
+API·PostgreSQL 컨테이너의 `TZ`와 PostgreSQL의 `timezone`·`log_timezone`은 `Asia/Seoul`로 설정합니다. 기존 컨테이너에도 적용하려면 `docker compose up -d --wait api postgres`로 재생성합니다. 이 설정은 호스트 PC나 EC2 운영체제의 타임존을 변경하지 않습니다.
+
 각 팀원의 DB는 **각자 노트북에 따로 생성**됩니다. 로컬 DB가 팀원의 DB나 AWS DB와 자동으로 공유되지는 않습니다. PostgreSQL의 호스트 포트는 공개하지 않습니다.
 
 팀 아키텍처 그림의 최종 개발 구성에는 호스트에서 실행하는 FastAPI·워커와 Docker의 DB·Redis가 포함됩니다. **이 README의 명령은 현재 구현된 API+DB 컨테이너 구성을 기준으로 합니다.** 실행 방식을 변경할 때 Compose와 이 문서를 함께 갱신합니다.
