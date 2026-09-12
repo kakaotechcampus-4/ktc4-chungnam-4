@@ -7,6 +7,7 @@ services:
     env_file:
       - .env
     environment:
+      TZ: Asia/Seoul
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
     ports:
@@ -28,7 +29,9 @@ services:
 
   postgres:
     image: postgres:16
+    command: ["postgres", "-c", "timezone=Asia/Seoul", "-c", "log_timezone=Asia/Seoul"]
     environment:
+      TZ: Asia/Seoul
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run python3 scripts/init_env.py in backend first}
       POSTGRES_DB: ${POSTGRES_DB:-ktc4}

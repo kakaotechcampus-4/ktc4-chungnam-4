@@ -45,6 +45,7 @@ python3 backend/scripts/init_env.py
 
 - `backend/.env.example`을 바탕으로 `backend/.env`를 생성합니다.
 - DB 비밀번호를 임의로 생성하며 화면에 출력하지 않습니다.
+- 예시 파일의 `POSTGRES_PASSWORD` 항목과 치환 문구를 검사하며, 누락·변경·중복 시 `.env`를 쓰기 전에 오류로 종료합니다.
 - 내용이 있는 기존 `.env`는 덮어쓰지 않습니다.
 - `.env`는 각자 관리하며 Git에 포함하지 않습니다.
 
@@ -86,6 +87,8 @@ flowchart LR
         db --> volume["DB 데이터 볼륨"]
     end
 ```
+
+API·PostgreSQL 컨테이너의 `TZ`와 PostgreSQL의 `timezone`·`log_timezone`은 `Asia/Seoul`로 설정합니다. 기존 컨테이너에도 적용하려면 `docker compose up -d --wait api postgres`로 재생성합니다. 이 설정은 호스트 PC나 EC2 운영체제의 타임존을 변경하지 않습니다.
 
 각 팀원의 DB는 **각자 노트북에 따로 생성**됩니다. 로컬 DB가 팀원의 DB나 AWS DB와 자동으로 공유되지는 않습니다. PostgreSQL의 호스트 포트는 공개하지 않습니다.
 
@@ -184,7 +187,8 @@ backend/
 ├── main.py                  # FastAPI 시작점, 헬스체크
 ├── core/
 │   ├── config.py            # 환경변수 로딩 및 검증
-│   └── database.py          # 공통 Base, 엔진, 세션
+│   ├── base.py              # DB 설정 없이 가져올 수 있는 공통 Base
+│   └── database.py          # DB 엔진, 세션
 ├── domains/                 # 도메인별 구현 위치
 │   ├── auth/
 │   ├── organization/
@@ -244,7 +248,7 @@ router.py → service.py → models.py
 **모델에서 가져올 공통 Base**
 
 ```python
-from core.database import Base
+from core.base import Base
 ```
 
 **라우터에서 사용할 DB 세션 의존성**
