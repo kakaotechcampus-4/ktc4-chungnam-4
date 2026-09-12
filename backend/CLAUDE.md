@@ -30,6 +30,13 @@ router.py  →  service.py  →  models.py
 - `repositories/` 별도 레이어는 두지 않습니다(7주 일정에 과함) — DB 접근은 `service.py`에 흡수.
 - 유일한 예외는 `agents/service.py`. 여기서만 최상위 `tools/`, `prompts/`를 추가로 호출합니다.
 - 도메인 간 호출은 FK 참조까지. 다른 도메인의 `service.py`를 직접 부르기 전에 팀에 알리세요.
+
+  ```python
+  from domains.organization.models import Child        # ❌ 남의 도메인 models
+  from domains.organization.service import get_child   # ✅ 합의된 service 함수
+  ```
+
+- 도메인 간 FK는 미리 합의합니다 — `face↔Child`, `media↔Child`, `agents↔organization/media`, `audit↔전체`.
 - 의존 방향 자동 검사는 도입 예정입니다. 현재 `.importlinter`는 빈 파일이며 검사 규칙과 실행 절차는 아직 구성되지 않았습니다.
 
 ## 최상위 목표 구조 (미구현 항목 포함)
@@ -47,12 +54,9 @@ backend/
 └── .importlinter  docker-compose.yml  requirements.txt  .env
 ```
 
-## 절대 규칙 (위반 시 머지 불가)
+## 절대 규칙
 
-- **H-1** 미승인 초안은 검수 권한이 있는 교사의 저장·조회·수정을 허용합니다. 학부모 공개와 외부 공유·복사·전송은 교사 승인(`status == approved`)과 대상 원아 접근 권한 검사를 통과해야 하며, 공개 경로는 단일 게이트 함수로 모읍니다. 검수용 초안 보관과 승인본 공개를 구분하며, 초안 보관 기간은 별도 정책으로 확정합니다.
-- **H-2** 외부 멀티모달 LLM에는 비식별 텍스트와 동의 원아의 활동 사진·영상 프레임을 전달할 수 있습니다. 실명은 `CHILD_A` 토큰으로 치환하고, 실명·생년월일·학부모 정보·얼굴 임베딩과 실명↔토큰 매핑은 LLM에 보내지 않습니다. 이미지는 교사가 업로드 대상으로 확정하고 미식별·미동의 얼굴 블러를 완료한 것만 사용합니다. 아이 1명·하루 기준 프레임 수는 3~5장 권장으로 제한하되 정확한 상한은 확정 예정입니다.
-- **H-3** 얼굴 임베딩 등록용 원본 사진은 브라우저에서 벡터를 추출한 뒤 폐기하며 서버·S3로 보내지 않습니다. 활동 사진·영상은 별도 미디어 흐름으로, 교사 확정과 미식별·미동의 얼굴 블러를 마친 업로드 대상만 S3에 전송합니다. 얼굴 검출·임베딩 계산은 브라우저 온디바이스에서 수행합니다.
-- **H-4** 열람은 `AccessLog`, 파기는 `DeletionLog`에. 반대로 stdout 로그에 실명·연락처·토큰·임베딩 값을 찍지 않습니다.
+루트 [../CLAUDE.md](../CLAUDE.md) §1의 H-1~H-4를 따릅니다. 위반 시 다른 리뷰 의견과 무관하게 머지 불가입니다.
 
 ## 공통 컨벤션
 
@@ -62,11 +66,76 @@ backend/
 - **테스트에서 LLM을 실제로 호출하지 않습니다.** 응답은 픽스처로 고정.
 - 미확정 사항은 지우지 말고 `# TODO(이름): ...`로 남깁니다.
 
-## 이번 주 순서
+## 코드 스타일
 
-1. API 목록 확정 (도메인별 표, 동의 처리 포함 회의)
-2. `docker-compose.yml` + 도메인 폴더 뼈대 7개
-3. 도메인별 `models.py` 골격 — 도메인 간 FK 미리 합의 (face↔Child, media↔Child, agents↔organization/media, audit↔전체)
-4. `core/config.py`, `core/database.py` — DB 연결 확인
-5. 도메인별 `router.py` 껍데기 (audit은 router 없음)
-6. AI 호출 테스트 1개 (`domains/agents/llm.py`)
+- 들여쓰기 스페이스 4칸, 줄 길이 100자, 문자열 큰따옴표. **Ruff 하나로** 린트+포맷 (Black/isort/flake8 안 씀).
+- **모든 함수에 타입 힌트를 붙입니다.** 반환형 포함.
+- 파일·모듈 `snake_case`, 클래스 `PascalCase`, 불리언은 `is_`/`has_`/`can_`.
+- 주석은 한국어. 코드로 설명되는 내용은 주석 대신 이름을 고칩니다.
+
+## 스키마와 예외
+
+- 요청·응답은 전부 Pydantic. `dict`를 그대로 주고받지 않습니다.
+- 네이밍: `ChildCreateRequest`, `ChildResponse`, `DraftListResponse`.
+- **ORM 모델을 API 응답으로 직접 반환하지 않습니다.** 반드시 스키마로 변환 (내부 필드 유출 방지).
+- 도메인 예외는 `core/exceptions.py`에 정의하고 전역 핸들러에서 HTTP로 변환합니다.
+- `except Exception: pass` 금지. 삼켜야 하면 사유를 주석으로 남기고 로그를 남깁니다.
+- 승인·동의·권한 검사 실패는 **조용히 빈 값을 반환하지 말고** 명시적 에러 코드로 올립니다.
+
+## API 규약
+
+| 항목 | 규칙 |
+|---|---|
+| 베이스 경로 | `/api/v1` |
+| URL | 소문자 kebab-case, 복수 명사 — `/api/v1/children/{child_id}/drafts` |
+| 상태 전이 | 서브리소스 — `POST /drafts/{id}/approve` |
+| 시간 | **UTC ISO 8601**. 타임존 변환은 프론트에서 |
+| 필드명 | JSON도 `snake_case` (변환 레이어를 없앰) |
+| ID | 문자열 UUID |
+| 페이지네이션 | `?limit=&cursor=` (커서 기반) |
+
+성공 응답은 리소스를 그대로 반환합니다. `{ "data": ... }` 래핑을 하지 않습니다.
+
+```json
+{ "error": { "code": "DRAFT_NOT_APPROVED", "message": "승인되지 않은 초안은 노출할 수 없습니다.", "detail": null } }
+```
+
+- `code`는 UPPER_SNAKE_CASE. 프론트는 `code`로 분기하고 `message`는 그대로 보여줍니다.
+- 400 검증 / 401 미인증 / 403 권한 없음 / 404 없음 / 409 상태 충돌 / 422 Pydantic / 500 서버.
+- **BE가 계약을 먼저 냅니다.** 엔드포인트 스켈레톤 + OpenAPI를 올리면 FE가 타입을 생성해 MSW로 개발합니다.
+- 응답 스키마에서 필드를 삭제·개명하면 PR 제목에 `[BREAKING]`을 붙이고 FE 리드를 리뷰어로 지정합니다.
+
+## DB
+
+- 테이블은 snake_case 복수형(`children`, `draft_documents`), PK는 `id`(UUID, **모델에 default 지정**), FK는 `<단수>_id`.
+- 시간 컬럼은 전부 `timestamptz`, **UTC로 저장**합니다. 컨테이너·DB 타임존은 `Asia/Seoul`이지만 저장은 UTC입니다.
+- 상태 컬럼은 문자열 enum, 값은 소문자 snake_case (`draft`, `verified`, `approved`, `unclassified`).
+- **미승인 원본은 처리 후 즉시 파기하고 `DeletionLog`를 남깁니다** (NFR-04). 영구 저장은 교사 승인본만.
+- 승인본에 포함된 사진은 **졸업 후 1년**까지 보관합니다 (NFR-03). 기한은 `MediaAsset.retention_expires_at`.
+- **`AccessLog`·`DeletionLog`는 append-only입니다.** 로그 자체에는 update·delete를 만들지 않습니다.
+- 마이그레이션은 전부 Alembic. **DB에 직접 DDL을 치지 않습니다.** 파일명은 `<revision>_add_draft_documents_status.py`처럼 읽히게.
+- **얼굴 임베딩은 AES 암호화 후 `bytea`로 저장하고, pgvector를 쓰지 않습니다.** 유사도는 담당 반의 등록·동의 원아만 조회해 메모리에서 계산합니다 (반당 6명 규모).
+- **동의 철회(FR-22)는 한 트랜잭션 안에서** — ① `ConsentRecord.revoked_at` ② `FaceEmbedding` **물리 삭제**(소프트 삭제 금지) ③ `EmbeddingLifecycleLog`에 `consent_revoked`(벡터 값 없이) ④ `DeletionLog`.
+
+<!-- 임베딩은 이전에 pgvector였음. 09/03 결정으로 암호화 bytea. 테크스펙 데이터모델 ② FaceEmbedding -->
+
+## 비동기 · Celery
+
+- Celery로 보내는 것은 **LLM 호출을 포함하는 파이프라인 4~7단계만**. 로그인·목록 조회·승인·게시판은 전부 동기입니다. "혹시 느릴까봐" 큐에 넣지 않습니다.
+- task는 **멱등**하게 씁니다. 같은 `job_id`로 두 번 실행돼도 결과가 같아야 합니다.
+- 재시도 상한 2회, 타임아웃 60초. **상한 초과 항목은 예외를 던지지 않고 미분류함으로 보냅니다.**
+
+```python
+@celery_app.task(bind=True, max_retries=2, soft_time_limit=60)
+def generate_drafts(self, job_id: str, child_id: str) -> None:
+    orchestrate_drafts(job_id=job_id, child_id=child_id)  # 로직은 서비스에
+```
+
+## 필수 테스트 (없으면 머지 불가)
+
+1. 미승인 초안이 학부모 노출 API로 나가지 않는다 (H-1, FR-08)
+2. LLM 요청 payload에 실명이 포함되지 않는다 (H-2)
+3. 재시도 상한 초과 시 예외가 아니라 미분류함으로 떨어진다
+4. 모든 열람 API 호출이 `AccessLog`를 남긴다 (NFR-05)
+
+- **프로덕션 코드가 `tests/`를 import하지 않습니다.** 픽스처가 필요하면 테스트 쪽에서 주입합니다.
