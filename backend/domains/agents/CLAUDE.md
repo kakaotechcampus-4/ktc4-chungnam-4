@@ -3,32 +3,42 @@
 담당: 한상균 (AI 리드)
 
 > **H-2가 직접 걸리는 도메인입니다.** LLM으로 나가는 모든 경로가 여기 있습니다.
-
-## 소유 테이블
-
-| 테이블 | 핵심 필드 | 메모 |
-|---|---|---|
-| `EvidenceBundle` | id, child_id, date, media_refs, transcript_refs, context_lookup | 한 아이의 하루치 근거 |
-| `SentenceEvidence` | id, source_timestamp, source_text | 초안 문장 ↔ 근거 연결 (FR-07) |
-| `VerificationResult` | id, check_type, sentence_index, result, detail, checked_at | Critic(7단계) 검증 로그 |
-
-`DraftDocument`는 `documents` 소유입니다. 여기선 생성만 하고 소유하지 않습니다.
+> 테이블·트랜잭션·API 규약은 `backend/CLAUDE.md`를 따릅니다. 여기엔 LLM 관련 규칙만 둡니다.
 
 ## 요구사항
 
-- FR-05 음성메모·STT 맥락으로 초안 작성 · FR-06 이중 초안 · FR-07 문장별 근거 확인 · FR-18 프롬프트 수정 요청
+FR-05 음성·STT 맥락으로 초안 작성 · FR-06 이중 초안 · FR-07 문장별 근거 · FR-18 프롬프트 수정 요청
 
-## 규칙
+소유 테이블: `EvidenceBundle` `SentenceEvidence` `VerificationResult`
+`DraftDocument`는 `documents` 소유입니다. 여기선 생성만 하고 소유하지 않습니다.
+
+## 1. LLM에 넘기기 전
 
 - **실명은 3단계에서 `CHILD_A` 토큰으로 치환한 뒤 넘깁니다** (H-2). 매핑 테이블은 서버 내부에만 둡니다.
-- **Critic(에이전트4)은 반드시 별도 세션으로 호출합니다.** 앞 단계 히스토리를 넘기지 않는 게 검증의 전제입니다.
-- 에이전트 출력은 자유 텍스트로 받지 않고 **구조화된 JSON**으로 받아 Pydantic으로 검증합니다. 파싱 실패는 재시도 대상.
+- 초안 근거는 **영상·음성 발화가 1차, 사진은 맥락 보강**입니다 (NFR-08, NFR-09). 문장별 근거로 교사에게 보여주는 것은 **영상 시각 + 원문 발화**입니다 (FR-07).
+  <!-- 영상 중간 프레임을 근거로 쓸지는 미정. docs/open-questions.md 참고 -->
+- **규칙으로 되는 건 LLM에 맡기지 않습니다.** 동의 확인·귀속 판정·비식별화·노출은 전부 코드입니다.
+
+## 2. 에이전트 구현
+
 - 에이전트 1~4는 각각 하나의 모듈, 하나의 진입 함수 `run(...) -> Result`.
-- **규칙으로 되는 건 LLM에 맡기지 않습니다.** 동의 확인·귀속 판정·비식별화·노출은 코드입니다.
-- `tools/`는 순수 함수로 DB 조회만 하고 판단하지 않습니다. 판단은 LLM 또는 `service.py`의 몫.
-- 모든 LLM 호출은 Langfuse에 기록합니다. trace 이름은 `pipeline.<단계>.<에이전트>`. **실명이 없어야 합니다.**
-- 도구 호출 로그는 테스트 전략의 "경로 판정" 근거이므로 **호출 여부·순서를 확인 가능한 형태**로 남깁니다.
+- **Critic(에이전트4)은 반드시 별도 세션으로 호출합니다.** 앞 단계 히스토리를 넘기지 않는 게 검증의 전제입니다 — 같은 컨텍스트에서는 자기 실수를 못 봅니다.
+- 출력은 자유 텍스트로 받지 않고 **구조화된 JSON**으로 받아 Pydantic으로 검증합니다. 파싱 실패는 재시도 대상.
+- `tools/`는 **순수 함수로 DB 조회만** 하고 판단하지 않습니다. 판단은 LLM 또는 `service.py`의 몫.
 - LLM 키는 `core/config.py`의 `Settings`에서 받습니다. `os.getenv`를 직접 쓰지 않습니다.
+
+## 3. 프롬프트
+
+- 코드 문자열에 하드코딩하지 않고 `backend/prompts/*.md`에 둡니다.
+- 파일명: `agent1_evidence.md` `agent2_observation_log.md` `agent3_parent_note.md` `agent4_critic.md`
+- 각 파일 상단에 **입력 변수 목록과 기대 출력 형식**을 적습니다.
+- **프롬프트 수정은 코드 수정과 동일하게 PR로 리뷰합니다.** 문체·톤이 바뀌면 산출물 품질이 바로 바뀝니다.
+
+## 4. 관측
+
+- 모든 LLM 호출을 Langfuse에 기록합니다. trace 이름은 `pipeline.<단계>.<에이전트>`. **실명이 없어야 합니다** (H-2).
+- 도구 호출 로그는 테스트 전략의 **"경로 판정"** 근거입니다. 호출 여부·순서를 확인 가능한 형태로 남깁니다.
+  결과가 맞아도 도구를 거치지 않았다면 가장 위험한 실패로 봅니다.
 
 ## 미정
 

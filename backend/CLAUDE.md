@@ -31,16 +31,32 @@ backend/
 
 **의존 방향**
 
+```mermaid
+flowchart LR
+  subgraph D["domains/&lt;도메인&gt;"]
+    R[router.py] --> S[service.py] --> M[models.py]
+  end
+  S --> T[tools/]
+  S --> P[prompts/]
+  S -. "다른 도메인은 service 함수로만" .-> S2["다른 도메인 service.py"]
+  M --> B["core/base.py (Base)"]
 ```
-router → service → models
-           ↓
-      tools / prompts
-```
+
+<!-- 도메인 간 화살표를 그리지 않은 이유: 어느 도메인이 어느 도메인을 부르는지 아직 정해지지 않았습니다.
+     실제 호출이 생기면 그때 이 그래프에 채웁니다. 미리 그리면 그것도 YAGNI 위반입니다. -->
 
 - `router`에 비즈니스 로직을 쓰지 않습니다.
 - `service`는 `Request`·`Response`를 모릅니다 (FastAPI 의존 금지).
 - **도메인끼리 직접 import하지 않습니다.** 다른 도메인이 필요하면 그쪽 `service` 함수만 호출합니다.
+
+  ```python
+  from domains.organization.models import Child        # ❌ 남의 도메인 models
+  from domains.organization.service import get_child   # ✅ service 함수
+  ```
+
 - `core/base.py`의 `Base`만 import해도 DB 엔진이 뜨지 않아야 합니다. `tests/test_model_imports.py`가 이걸 검사합니다.
+- 요청자 정보는 **`CurrentUser` 의존성으로만** 받습니다. 계정 테이블을 도메인에서 직접 조회하지 않습니다.
+- `AccessLog`·`DeletionLog`는 **`audit` 서비스의 기록 함수로만** 씁니다. 로그 모델을 직접 import하지 않습니다.
 
 <!-- 09/11 멘토 리뷰: import 시점에 create_engine이 실행되던 문제로 base.py 분리 -->
 
@@ -61,6 +77,8 @@ router → service → models
 - 도메인 예외는 `core/exceptions.py`에 정의하고 전역 핸들러에서 HTTP로 변환합니다.
 - `except Exception: pass` 금지. 삼켜야 하면 사유를 주석으로 남기고 로그를 남깁니다.
 - 승인·동의·권한 검사 실패는 **조용히 빈 값을 반환하지 말고** 명시적 에러 코드로 올립니다.
+- **에이전트(LLM) 출력은 자유 텍스트로 받지 않고 구조화된 JSON으로 받아 Pydantic으로 검증합니다.** 파싱 실패는 재시도 대상입니다.
+- `tools/`는 **순수 함수**로 DB 조회만 하고 판단하지 않습니다. 판단은 LLM 또는 `service.py`의 몫입니다.
 
 ## 4. API 규약
 
@@ -92,9 +110,13 @@ router → service → models
 - 테이블은 snake_case 복수형(`children`, `draft_documents`), PK는 `id`(UUID, **모델에 default 지정**), FK는 `<단수>_id`.
 - 시간 컬럼은 전부 `timestamptz`, **UTC로 저장**합니다. 컨테이너·DB 타임존은 `Asia/Seoul`이지만 저장은 UTC입니다.
 - 상태 컬럼은 문자열 enum, 값은 소문자 snake_case (`draft`, `verified`, `approved`, `unclassified`).
-- **개인정보·로그성 테이블은 물리 삭제하지 않습니다.** 파기는 `DeletionLog` 기록과 함께 (NFR-04).
+- **미승인 원본은 처리 후 즉시 파기하고 `DeletionLog`를 남깁니다** (NFR-04). 영구 저장은 교사 승인본만.
+- 승인본에 포함된 사진은 **졸업 후 1년**까지 보관합니다 (NFR-03). `MediaAsset.retention_expires_at` = `Child.graduated_at` + 1년.
+- **`AccessLog`·`DeletionLog`는 append-only입니다.** 로그 자체에는 update·delete를 만들지 않습니다.
 - 마이그레이션은 전부 Alembic. **DB에 직접 DDL을 치지 않습니다.** 파일명은 `<revision>_add_draft_documents_status.py`처럼 읽히게.
 - **얼굴 임베딩은 AES 암호화 후 `bytea`로 저장하고, pgvector를 쓰지 않습니다.** 유사도는 담당 반의 재원·동의 원아만 조회해 메모리에서 계산합니다 (반당 6명 규모).
+
+- **동의 철회(FR-22)는 한 트랜잭션 안에서** 처리합니다 — ① `ConsentRecord.revoked_at` 기록 ② `FaceEmbedding` **물리 삭제**(소프트 삭제 금지) ③ `EmbeddingLifecycleLog`에 `consent_revoked`(벡터 값 없이) ④ `DeletionLog` 기록.
 
 <!-- 이전 규칙은 pgvector였음. 09/03 결정으로 암호화 bytea. 테크스펙 데이터모델 ② FaceEmbedding -->
 
