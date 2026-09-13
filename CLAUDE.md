@@ -38,6 +38,8 @@
 | 의미 | 코드에서 쓰는 말 | 쓰지 않는 말 |
 |---|---|---|
 | 원아 | `child` | kid, student, baby |
+| 어린이집(원) | `center` | kindergarten, daycare, organization(도메인 이름과 구분) |
+| 어린이집 가입 코드 | `center_code` | center_id(PK와 혼동), 기관코드, 어린이집 아이디 |
 | 반 | `class_` / `klass` (Python 예약어 회피) | group, room |
 | 관찰일지 | `observation_log` | journal, diary |
 | 알림장 | `parent_note` | notice(공지와 혼동), letter |
