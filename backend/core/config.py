@@ -28,8 +28,10 @@ class Settings(BaseSettings):
 
     # AI를 호출하지 않는 API·worker도 키 없이 시작할 수 있어야 합니다.
     anthropic_api_key: SecretStr = SecretStr("")
-    # 테크스펙엔 "Claude Sonnet 계열"이라고만 되어 있고, 나중에 모델명이 바뀔 수 있음
-    anthropic_model: str = "claude-sonnet-5"
+    # 카테캠 Elice AI Cloud 게이트웨이 경유 — Anthropic 공식 엔드포인트가 아님 (OpenAI 호환 스펙)
+    anthropic_base_url: str = "https://mlapi.run/e9a5f41b-fdda-44f2-9545-ed88c458da53"
+    # 게이트웨이의 모델 ID 형식(제공자/모델명)을 그대로 사용
+    anthropic_model: str = "anthropic/claude-sonnet-5"
 
     @field_validator("postgres_password")
     @classmethod
