@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -23,8 +23,19 @@ class SentenceEvidenceResponse(BaseModel):
     draft_id: str
     sentence_index: int
     source_media_id: str
-    source_timestamp: float
+    source_timestamp: float | None  # 사진 근거는 시간 구간이 없을 수 있음 (PR #7 계약)
     source_text: str
+
+
+VerificationCheckType = Literal[
+    "missing_evidence_ref",
+    "invalid_evidence_ref",
+    "plan_as_observed_fact",
+    "wrong_child_evidence",
+    "wrong_date_evidence",
+    "critic_content",
+    "critic_response_error",
+]
 
 
 class VerificationResultResponse(BaseModel):
@@ -32,10 +43,8 @@ class VerificationResultResponse(BaseModel):
 
     id: str
     draft_id: str
-    # TODO(eun): check_type 저장 값 도메인(한글 vs 영문 snake_case) 확정 필요
-    check_type: str
+    check_type: VerificationCheckType  # PR #7의 VerificationCheckType 채택
     sentence_index: int | None  # 영역스타일 검사는 문서 전체 대상이라 null
-    # TODO(eun): result 타입(bool vs "pass"/"fail" 문자열) 확정 필요
-    result: str
+    result: bool  # PR #7의 passed: bool과 맞춤
     detail: str | None
     checked_at: datetime
