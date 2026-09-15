@@ -4,8 +4,8 @@
 
 이 문서는 **처음 실행하는 팀원과 도메인 구현을 시작하는 팀원**을 위한 공통 개발 안내입니다.
 
-> **현재 구현 범위:** FastAPI 실행, PostgreSQL 연결, 환경변수 관리, 공통 DB 세션, 헬스체크와 환경 테스트.
-> 현재 Compose는 **백엔드 API와 PostgreSQL 두 서비스**를 실행합니다. 도메인 API·Alembic 마이그레이션·Redis·Celery는 아직 구현하지 않았습니다. AWS 서버 설치·배포는 접속 후 검증이 필요합니다.
+> **현재 구현 범위:** FastAPI 실행, PostgreSQL 연결, 환경변수 관리, 공통 DB 세션, 헬스체크, Redis·Celery 연습 작업과 테스트.
+> 현재 Compose는 **API·PostgreSQL·Redis·worker**를 실행합니다. 도메인 API·Alembic 마이그레이션·실제 AI 파이프라인은 아직 연결하지 않았습니다. AWS 서버 설치·배포는 접속 후 검증이 필요합니다.
 
 ## 바로가기
 
@@ -200,9 +200,9 @@ backend/
 ├── tools/                   # AI 도구 구현 위치
 ├── prompts/                 # AI 프롬프트 구현 위치
 ├── tests/                   # 공통 환경 및 도메인별 테스트
-├── scripts/                 # 환경변수 생성, Ubuntu 서버 준비
+├── scripts/                 # 환경변수 생성, Ubuntu 준비, Celery 연습
 ├── alembic/                 # 마이그레이션 예정 위치
-├── celery_app.py            # 워커 시작점 예정 위치
+├── celery_app.py            # Celery 공통 설정과 연습 작업 등록
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.in          # 직접 사용하는 런타임 의존성
@@ -370,3 +370,170 @@ curl --fail http://127.0.0.1:8000/health/db
 
 **현재 API는 서버 내부의 `127.0.0.1`에만 열립니다.** 공인 IP 접속, Nginx·HTTPS, 프론트·워커 연결, GitHub Actions 자동 배포는 후속 작업입니다.
 
+
+## Redis·Celery worker 따라가기 (BE A)
+
+이번 범위는 Redis·worker 기반과 모델을 호출하지 않는 연습 작업입니다.
+`domains/agents/`는 수정하지 않습니다. 실제 AI task와 service 연결은 BE D가 담당합니다.
+
+### 읽는 순서와 파일 역할
+
+| 파일 | 역할 |
+| --- | --- |
+| `core/config.py` | Redis 접수함·결과 저장 주소와 결과 만료 시간을 환경변수에서 읽음 |
+| `.env.example` | 새 설정의 이름·예시·단위 안내. 실제 `.env`는 덮어쓰지 않음 |
+| `celery_app.py` | Celery 앱 생성, 작업 모듈 등록, 상태·직렬화·시간대 설정 |
+| `scripts/celery_smoke.py` | 연습 함수와 접수·조회·자동 검증 CLI |
+| `docker-compose.yml` | 같은 백엔드 코드로 API와 worker를 각각 실행하고 Redis 연결 |
+| `.dockerignore` | 기존 scripts 제외 규칙에서 celery_smoke.py만 이미지에 포함 |
+| `requirements.in` | celery[redis] 직접 의존성 추가 |
+| `requirements.txt`, `requirements-dev.txt` | uv pip compile로 설치 버전 고정 |
+| `tests/test_celery_smoke.py` | 정상·의도한 실패·잘못된 입력·대기 범위 검사 |
+
+### 1. 설정: 접수함과 결과 저장 공간
+
+- `CELERY_BROKER_URL`: 작업 메시지를 보낼 곳. Compose에서는 `redis://redis:6379/0`.
+- `CELERY_RESULT_BACKEND`: 실행 상태와 반환값을 읽고 쓸 곳. Compose에서는 `redis://redis:6379/1`.
+- `/0`과 `/1`은 같은 Redis 서버 안의 논리적 DB 번호입니다. 별도 Redis 두 대가 아닙니다.
+- `CELERY_RESULT_EXPIRES`: 기본 86400초(1일). 연습용 결과 만료 설정이며 실제 문서 보관 정책과 다릅니다.
+- 기존 `.env`에 새 항목이 없어도 기본값으로 실행됩니다. 다른 주소가 필요하면 설정을 추가합니다.
+- `.env.example`의 localhost는 별도 로컬 Redis용입니다. 현재 Compose는 Redis 포트를 호스트에
+  공개하지 않으므로 아래 제출·조회 명령은 컨테이너 안에서 실행합니다.
+
+공통 Settings는 DB 비밀번호를 요구하므로 `init_env.py`로 `.env`를 준비합니다.
+AI 키는 기본값이 빈 문자열이어서 없어도 연습 가능합니다. 실제 AI 호출에는 유효한 키가 필요합니다.
+이 연습은 DB·AI를 호출하지 않습니다.
+
+### 2. Celery 앱과 worker는 무엇이 다른가?
+
+`celery_app.py`의 Celery 객체는 접수자와 worker가 공유하는 설정입니다.
+이 파일을 import하는 것만으로 worker가 실행되지는 않습니다.
+
+Compose의 worker 명령은 다음과 같습니다.
+
+```bash
+celery -A celery_app:celery_app worker --loglevel=INFO --concurrency=1
+```
+
+- `-A celery_app:celery_app`: celery_app.py 안의 celery_app 객체를 사용.
+- `worker`: Redis를 감시하다가 받은 작업을 실행하는 프로세스 시작.
+- `--concurrency=1`: 작은 팀 서버를 고려한 초기값. 한 번에 작업 하나 실행.
+- API와 worker는 같은 Dockerfile의 코드를 사용하지만, 실행 명령과 프로세스가 다릅니다.
+- worker는 Redis의 healthcheck 통과 후 시작합니다. 연습에 DB가 필요하지 않아 postgres는 의존하지 않습니다.
+
+Celery 앱은 `scripts.celery_smoke`만 등록합니다. 비어 있는 실제 AI 작업이 성공으로 처리되는 것을
+피하기 위해 `domains.agents.tasks`는 아직 등록하지 않습니다. D의 작업 구현 후 include 목록에
+추가하는 연결 작업을 함께 진행하면 됩니다.
+
+`task_track_started=True`는 STARTED 상태를 저장합니다. 메시지·결과는 JSON만 사용합니다.
+Celery 시간대는 Asia/Seoul, UTC 처리는 활성화합니다. worker는 작업을 과도하게 미리 가져오지 않도록
+prefetch를 1로 둡니다. 연습 작업은 60초에 soft timeout, 65초에 강제 timeout이며,
+종료 시 70초 유예합니다. 이번 연습 작업에는 자동 재시도가 없습니다.
+
+### 3. 실행하기
+
+아래 명령은 모두 저장소의 `backend/`에서 실행합니다. EC2에서는 Docker 명령 앞에 sudo를 붙입니다.
+
+```bash
+python3 scripts/init_env.py
+docker compose up -d --build redis worker
+docker compose ps
+docker compose logs --tail=50 worker
+```
+
+worker 로그의 등록 작업에 `aidam.practice`가 있고 `ready`가 보이면 준비 완료입니다.
+코드를 수정한 뒤에는 `--build`로 이미지를 다시 만들어야 합니다. API·DB도 필요하면
+서비스 이름 없이 `docker compose up -d --build`를 실행합니다.
+
+### 4. 접수 → 조회 → 성공
+
+```bash
+docker compose exec worker python -m scripts.celery_smoke submit --delay-seconds 3
+```
+
+`{"task_id": "..."}`를 반환합니다. 출력된 ID를 다음 명령에 넣습니다.
+
+```bash
+docker compose exec worker python -m scripts.celery_smoke status --task-id 여기에-ID
+```
+
+처음에는 PENDING 또는 STARTED, 완료 후에는 다음 형태입니다.
+
+```json
+{"task_id": "...", "state": "SUCCESS", "result": {"message": "작업 완료"}}
+```
+
+`practice.delay({"message": "test"})`는 Redis에 작업을 접수하고 ID를 반환합니다.
+실행 완료를 기다리지 않습니다. worker가 나중에 `practice()`를 실행하여 결과를 Redis에 씁니다.
+`status()`는 `AsyncResult(task_id)`를 새로 만들어 ID만으로 조회합니다. 원래 접수 객체가 필요 없습니다.
+실제 업무의 API 주소나 접수 핸들러는 이번 범위에 포함하지 않습니다.
+
+### 5. 의도한 실패 확인
+
+```bash
+docker compose exec worker python -m scripts.celery_smoke submit --fail
+```
+
+출력 ID로 status 명령을 실행하면 FAILURE와 `Intentional practice failure`가 나옵니다.
+함수가 예외를 발생시키면 Celery가 실패를 기록합니다. worker 자체는 계속 다른 작업을 처리합니다.
+오류 로그가 찍히는 것은 이 테스트에서 기대한 동작입니다.
+
+| 상태 | 뜻 |
+| --- | --- |
+| PENDING | 아직 결과 기록 없음. 대기 중일 수도, 없는 ID나 만료된 결과일 수도 있음 |
+| STARTED | worker 실행 중 |
+| SUCCESS | 정상 완료. result에 반환값 |
+| FAILURE | 예외 발생. 연습 CLI는 고정 오류 메시지를 표시 |
+
+PENDING은 접수 존재를 보장하지 않습니다. 실제 서비스의 작업 소유권·존재 확인·영구 상태·결과 저장은
+BE D의 작업 모델/API에서 구현해야 합니다. Redis 결과만으로 사용자 접근 권한을 판정하면 안 됩니다.
+
+### 6. 대기 상태를 확실히 관찰하기
+
+빠른 작업은 PENDING·STARTED를 놓칠 수 있습니다. worker를 정지한 상태에서 접수하면 대기를 확인할 수 있습니다.
+
+```bash
+docker compose stop worker
+docker compose run --rm --no-deps worker python -m scripts.celery_smoke submit
+docker compose run --rm --no-deps worker python -m scripts.celery_smoke status --task-id 여기에-ID
+docker compose start worker
+docker compose exec worker python -m scripts.celery_smoke status --task-id 여기에-ID
+```
+
+`compose run ... python`은 작업을 제출/조회하는 일회성 프로세스이며 worker 소비자는 실행하지 않습니다.
+따라서 정지 중에는 PENDING이고, worker를 다시 시작하면 저장된 작업을 처리합니다.
+
+### 7. 자동 검증과 정리
+
+```bash
+docker compose exec worker python -m scripts.celery_smoke verify
+```
+
+실제 `.delay()`로 작업 두 개를 전송하여 STARTED, 성공 반환값, 실패와 ID 기반 조회를 검사합니다.
+eager 모드에서는 오류를 내며 검증을 거부합니다. `get(timeout=30)`은 이 자동 검사에서만 결과를
+기다리는 용도입니다. 실제 비동기 접수 API에서는 완료까지 기다리는 get을 호출하지 않습니다.
+
+개발 의존성을 설치한 환경에서 함수 테스트와 기존 테스트를 함께 실행합니다.
+환경변수는 공통 Settings를 충족시키는 테스트 전용 값이며 실제 AI 호출은 없습니다.
+
+```bash
+POSTGRES_PASSWORD=test-only python -m pytest
+```
+
+정리할 때는 다음 명령으로 정지합니다. 볼륨 데이터는 유지됩니다.
+
+```bash
+docker compose stop worker redis
+```
+
+Redis의 AOF와 볼륨은 컨테이너 교체에 대비한 저장 장치이며 백업을 대체하지 않습니다.
+실제 AI의 장애 재시도·중복 실행 방지·재생성 횟수·미분류 처리와 업무 DB 저장은 D·AI 리더와 별도 연결합니다.
+
+### 이번 구현의 검증 결과
+
+- Python 3.12: 기존 16개 + 신규 9개, 총 25개 테스트 통과.
+- Compose 설정 검사와 실제 worker 이미지 빌드 통과.
+- 실제 Redis·worker: STARTED → SUCCESS, 의도한 FAILURE 확인.
+- worker 정지 중 제출한 ID가 PENDING이고, 재시작 후 같은 ID로 SUCCESS 조회됨을 확인.
+- 테스트 환경은 별도 Compose 프로젝트로 분리했으며 검증 후 worker·Redis를 정지.
+- Ruff는 실행 환경에 설치되어 있지 않아 미실행. 기존 테스트 라이브러리의 폐기 예정 경고 2건 발생.

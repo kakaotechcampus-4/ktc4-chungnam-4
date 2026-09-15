@@ -7,5 +7,6 @@ __pycache__
 .pytest_cache
 .git
 tests
-scripts
+scripts/*
+!scripts/celery_smoke.py
 README.md

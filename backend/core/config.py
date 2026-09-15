@@ -22,8 +22,13 @@ class Settings(BaseSettings):
     postgres_password: SecretStr
     postgres_db: str = "ktc4"
 
-    anthropic_api_key: SecretStr
-    # 테크스펙엔 "Claude Sonnet 계열"이라고만 되어 있어, 나중에 모델명이 바뀔 수 있음
+    celery_broker_url: str = "redis://localhost:6379/0" #작업을 보낼 Redis 주소
+    celery_result_backend: str = "redis://localhost:6379/1" #상태/결과를 저장할 Redis 주소
+    celery_result_expires: int = Field(default=86400, gt=0)
+
+    # AI를 호출하지 않는 API·worker도 키 없이 시작할 수 있어야 합니다.
+    anthropic_api_key: SecretStr = SecretStr("")
+    # 테크스펙엔 "Claude Sonnet 계열"이라고만 되어 있고, 나중에 모델명이 바뀔 수 있음
     anthropic_model: str = "claude-sonnet-5"
 
     @field_validator("postgres_password")
