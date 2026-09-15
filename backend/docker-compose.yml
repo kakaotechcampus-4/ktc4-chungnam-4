@@ -10,6 +10,8 @@ services:
       TZ: Asia/Seoul
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     depends_on:
@@ -37,6 +39,24 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Seoul
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    command: ["celery", "-A", "celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=1"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    stop_grace_period: 70s
     restart: unless-stopped
 
   postgres:

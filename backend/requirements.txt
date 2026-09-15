@@ -1,20 +1,35 @@
+amqp==5.3.1
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1
+billiard==4.2.4
+celery==5.6.3
 click==8.5.0
+click-didyoumean==0.3.1
+click-plugins==1.1.1.2
+click-repl==0.3.0
 fastapi==0.141.1
 greenlet==3.5.5 ; platform_machine == 'AMD64' or platform_machine == 'WIN32' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'ppc64le' or platform_machine == 'win32' or platform_machine == 'x86_64'
 h11==0.16.0
 idna==3.19
+kombu==5.6.2
+packaging==26.3
+prompt-toolkit==3.0.53
 psycopg==3.3.5
 psycopg-binary==3.3.5 ; implementation_name != 'pypy'
 pydantic==2.13.5
 pydantic-core==2.46.5
 pydantic-settings==2.15.0
+python-dateutil==2.9.0.post0
 python-dotenv==1.2.3
+redis==6.4.0
+six==1.17.0
 sqlalchemy==2.0.52
 starlette==1.6.0
 typing-extensions==4.16.0
 typing-inspection==0.4.4
-tzdata==2026.3 ; sys_platform == 'win32'
+tzdata==2026.3
+tzlocal==5.4.4
 uvicorn==0.52.4
+vine==5.1.0
+wcwidth==0.8.3
