@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     celery_result_backend: str = "redis://localhost:6379/1" #상태/결과를 저장할 Redis 주소
     celery_result_expires: int = Field(default=86400, gt=0)
 
+    # 얼굴 임베딩 AES 키 (NFR-01). base64로 인코딩한 32바이트.
+    # TODO(donggeon): KMS 연동 전까지 쓰는 로컬 키입니다. 키 관리 방식 확정 후 교체.
+    face_embedding_key: SecretStr | None = None
+    face_embedding_key_ref: str = "local-dev-1"  # FaceEmbedding.key_ref에 저장되는 키 식별자
+
     # AI를 호출하지 않는 API·worker도 키 없이 시작할 수 있어야 합니다.
     anthropic_api_key: SecretStr = SecretStr("")
     # 테크스펙엔 "Claude Sonnet 계열"이라고만 되어 있고, 나중에 모델명이 바뀔 수 있음
