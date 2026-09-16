@@ -2,6 +2,8 @@ from openai import OpenAI
 
 from core.config import get_settings
 
+# 테크스펙엔 "Claude Sonnet 계열"이라고만 되어 있고, 나중에 모델명이 바뀔 수 있음
+# 게이트웨이의 모델 ID 형식(제공자/모델명)을 그대로 사용
 _MODEL = get_settings().anthropic_model
 
 
