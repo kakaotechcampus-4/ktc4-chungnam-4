@@ -1,6 +1,6 @@
 # AI 모듈 공통 데이터 계약
 
-`backend/tools/contracts.py`에 정의된 타입에 대한 설명. tools/, prompts/(팀원 A/B/C, AI 리더)는 이 타입만 주고받고, 임의의 dict를 새로 만들지 않는다.
+`backend/tools/contracts.py`에 정의된 타입에 대한 설명. tools/, prompts/(팀원 A=진하님/B=유진님/C=태은님, AI 리더)는 이 타입만 주고받고, 임의의 dict를 새로 만들지 않는다.
 
 ## 이 문서와 `domains/agents/schemas.py`의 관계
 
@@ -40,7 +40,7 @@
 ## 아직 팀과 맞춰야 할 것
 
 1. **활동계획·배경자료 구분**: 활동계획은 `EvidenceItem(source_type="activity_plan")`으로 구성하여 문장별 참조를 추적하는 방향으로 정리한다. 실제 관찰 근거와는 구분하며, 발달지침·페르소나 등 배경자료는 별도 맥락으로 유지한다. 활동계획 원본 ID의 연결 필드와 배경자료의 구체적인 형식은 태은님(AI 근거 통합·관찰일지·알림장 생성 담당)·정은님과 합의한다.
-2. **사진 처리 정책 불일치**: 로컬 CLAUDE.md는 블러 중심 정책, Notion 최신 워크플로우는 혼합 동의 사진 전체를 AI 분석에서 제외. `EvidenceItem` 생성 이전 단계(팀원 A)의 필터링 기준에 영향을 주므로 최신 정책으로 확정 후 반영.
+2. **사진 처리 정책 불일치**: 로컬 CLAUDE.md는 블러 중심 정책, Notion 최신 워크플로우는 혼합 동의 사진 전체를 AI 분석에서 제외. `EvidenceItem` 생성 이전 단계(진하님, 팀원 A)의 필터링 기준에 영향을 주므로 최신 정책으로 확정 후 반영.
 3. **미병합 브랜치 `feat/agents-generation-pipeline`**: 9/9에 작성된 로컬 전체 파이프라인 프로토타입(`domains/agents/evidence.py`, `service.py` 등)이 이 계약의 초기 버전에 해당한다. 이 계약(`tools/contracts.py`)로 이름·구조를 정리했으므로, 그 브랜치의 로직을 `tools/`, `prompts/`, `domains/agents/service.py`로 재배치하거나 브랜치를 정리(삭제/보존 결정)할 필요가 있다.
 
 
@@ -75,8 +75,8 @@ Critic 응답은 전송용 사본의 ID로 검사한 후 서버 ID로 복원한�
 
 ### 팀원 착수 범위와 남은 합의
 
-B는 EvidenceItem에 맞춘 관찰·STT 정규화, 태은님은 근거 구성·DraftDocument 출력을 시작할 수 있다.
-A→B의 동의 판정·원본 구간 입력 계약, B의 빈 결과·오류 상태는 아직 확정 전이다. 태은님의 맥락 묶음은
+유진님(B)은 EvidenceItem에 맞춘 관찰·STT 정규화, 태은님(C)은 근거 구성·DraftDocument 출력을 시작할 수 있다.
+진하님(A)→유진님(B)의 동의 판정·원본 구간 입력 계약, 유진님의 빈 결과·오류 상태는 아직 확정 전이다. 태은님의 맥락 묶음은
 활동계획을 `EvidenceItem(source_type="activity_plan")`으로 포함하는 방향으로 정리됐고, 원본 ID
 연결 필드·배경자료의 구체적인 형식은 태은님·정은님과 합의한다.
 현재 검증 코드는 고정 응답으로 테스트한 초안이며 실제 Critic 품질과 서비스 통합은 별도 확인한다.
