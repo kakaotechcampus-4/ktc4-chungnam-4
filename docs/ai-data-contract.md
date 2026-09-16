@@ -4,14 +4,16 @@
 
 ## 이 문서와 `domains/agents/schemas.py`의 관계
 
-`domains/agents/schemas.py`는 **API 응답 형식**(`EvidenceBundleResponse` 등, ORM에서 변환)이고, `tools/contracts.py`는 **AI 모듈 내부 입출력 형식**이다. 둘은 필드 구조가 다르며, 저장 시점에 변환이 필요하다. 특히 아래 차이는 agents 담당(정은)과 맞춰야 한다.
+`domains/agents/schemas.py`는 **API 응답 형식**(`EvidenceBundleResponse` 등, ORM에서 변환)이고, `tools/contracts.py`는 **AI 모듈 내부 입출력 형식**이다. 둘은 필드 구조가 다르며, 저장 시점에 변환이 필요하다. 특히 아래 차이는 agents 담당(정은님)과 맞춰야 한다.
+
+아래 ORM 열은 PR 작성 당시 구조이며, 정은님의 변경 회신은 '필요한 조정' 열에 별도로 표시한다.
 
 | 항목 | `tools/contracts.py` | `domains/agents/models.py`(ORM) | 필요한 조정 |
 | --- | --- | --- | --- |
-| 문장-근거 관계 | `DraftSentence.evidence_ids: list[str]` (다대다) | `SentenceEvidence`가 행 1개당 출처 1개(`source_media_id`, `source_timestamp` 단일 컬럼) | 문장이 여러 근거를 참조할 수 있어야 함 — 문장별 여러 행을 쓰는 방식도 가능하며, 근거 ID·버전 연결과 유일성 규칙을 합의해야 함 |
-| 시간 정보 | `EvidenceItem.start_ms`/`end_ms`가 선택(Optional) | `SentenceEvidence.source_timestamp`가 `nullable=False` | 사진 근거는 시간 구간이 없을 수 있음 — nullable로 변경 필요 |
-| 검증 결과 값 도메인 | `VerificationCheckType`(7종 enum), `passed: bool` | `check_type: String`, `result: String` (자유 문자열, TODO(eun) 상태) | 이 문서의 enum 값을 `VerificationResult` 컬럼 값 도메인으로 채택 제안 |
-| 재생성 필요 여부 | `DecisionResult.decision`(pass/regenerate/retry_critic/needs_teacher_review)로 별도 표현 | 저장 컬럼 없음 | 문서(초안) 단위로 저장할지, 매 요청마다 재계산할지 정은과 결정 필요 |
+| 문장-근거 관계 | `DraftSentence.evidence_ids: list[str]` (다대다) | `SentenceEvidence`가 행 1개당 출처 1개(`source_media_id`, `source_timestamp` 단일 컬럼) | 문장이 여러 근거를 참조할 수 있어야 함 — 문장별 여러 행을 쓰는 방식도 가능하며, 근거 ID·버전 연결과 유일성 규칙을 합의해야 함. **정은님이 "문장당 여러 행" 방식으로 진행 가능하다고 회신(9/16, KST) — 근거 ID·버전 연결과 유일성 규칙은 추가 합의 필요** |
+| 시간 정보 | `EvidenceItem.start_ms`/`end_ms`가 선택(Optional) | `SentenceEvidence.source_timestamp`가 `nullable=False` | 사진 근거는 시간 구간이 없을 수 있음 — nullable로 변경 필요. **정은님이 nullable로 반영 완료라고 회신(9/16, KST) — 통합 시 실제 코드 정합성 확인 예정** |
+| 검증 결과 값 도메인 | `VerificationCheckType`(7종 enum), `passed: bool` | `check_type: String`, `result: String` (자유 문자열, TODO(eun) 상태) | 이 문서의 enum 값을 `VerificationResult` 컬럼 값 도메인으로 채택 제안. **정은님이 `check_type` 7종 채택 및 `result`의 Boolean 변경을 반영했다고 회신(9/16, KST) — 통합 시 실제 코드 정합성 확인 예정** |
+| 재생성 필요 여부 | `DecisionResult.decision`(pass/regenerate/retry_critic/needs_teacher_review)로 별도 표현 | 저장 컬럼 없음 | **저장 제안(미확정): `domains/agents/`에서 초안 ID·버전별 최종 판정과 사유를 저장한다. 문서 재생성 횟수와 Critic 재검사 횟수는 별도로 관리한다. 구체적인 저장 모델·필드는 정은님과 합의 후 확정한다.** |
 
 ## 핵심 타입
 
@@ -37,7 +39,7 @@
 
 ## 아직 팀과 맞춰야 할 것
 
-1. **`context_lookup`(활동계획·지침) 구조**: 이 계약에는 아직 포함하지 않았다. `EvidenceItem(source_type="activity_plan")`으로 개별 근거화할지, 별도 컨텍스트 객체로 둘지 C·정은과 확정 필요.
+1. **활동계획·배경자료 구분**: 활동계획은 `EvidenceItem(source_type="activity_plan")`으로 구성하여 문장별 참조를 추적하는 방향으로 정리한다. 실제 관찰 근거와는 구분하며, 발달지침·페르소나 등 배경자료는 별도 맥락으로 유지한다. 활동계획 원본 ID의 연결 필드와 배경자료의 구체적인 형식은 태은님(AI 근거 통합·관찰일지·알림장 생성 담당)·정은님과 합의한다.
 2. **사진 처리 정책 불일치**: 로컬 CLAUDE.md는 블러 중심 정책, Notion 최신 워크플로우는 혼합 동의 사진 전체를 AI 분석에서 제외. `EvidenceItem` 생성 이전 단계(팀원 A)의 필터링 기준에 영향을 주므로 최신 정책으로 확정 후 반영.
 3. **미병합 브랜치 `feat/agents-generation-pipeline`**: 9/9에 작성된 로컬 전체 파이프라인 프로토타입(`domains/agents/evidence.py`, `service.py` 등)이 이 계약의 초기 버전에 해당한다. 이 계약(`tools/contracts.py`)로 이름·구조를 정리했으므로, 그 브랜치의 로직을 `tools/`, `prompts/`, `domains/agents/service.py`로 재배치하거나 브랜치를 정리(삭제/보존 결정)할 필요가 있다.
 
@@ -60,19 +62,22 @@
 - 빈 본문·빈 문서·중복 문장 ID·0 이하 버전·음수 및 역전 시간 구간은 거부한다.
   시간은 원본 기준 밀리초다. 사진은 생략할 수 있고, STT가 한쪽 시간만 제공하면
   없는 값을 추측해서 채우지 않는다.
-- 근거 부족은 빈 정상 초안으로 표현하지 않는다. C의 근거 준비 단계에서 생성하지 않고
-  백엔드에 부족 상태를 전달해야 한다. 구체적인 부족 상태 계약은 C·agents와 합의한다.
+- 근거 부족은 빈 정상 초안으로 표현하지 않는다. 태은님(AI 근거 통합·관찰일지·알림장 생성 담당)의
+  근거 준비 단계에서 생성하지 않고 백엔드에 부족 상태를 전달해야 한다. 구체적인 부족 상태 계약은
+  태은님·정은님과 합의한다.
 
 ### 내부 ID와 LLM 입력
 
-내부 계약의 child_id·evidence_id는 서버 식별자다. C와 백엔드가 LLM 전송용 사본에
+내부 계약의 child_id·evidence_id는 서버 식별자다. 태은님과 백엔드가 LLM 전송용 사본에
 원아 토큰과 임시 근거 ID를 적용하고 문장 본문·근거 본문의 개인정보도 제거한다.
 Critic 응답은 전송용 사본의 ID로 검사한 후 서버 ID로 복원한다. 매핑은 외부로 보내지 않는다.
-매핑 생성·보관·복원은 백엔드, 제공된 매핑을 이용한 입력 가공은 C가 담당한다.
+매핑 생성·보관·복원은 백엔드, 제공된 매핑을 이용한 입력 가공은 태은님이 담당한다.
 
 ### 팀원 착수 범위와 남은 합의
 
-B는 EvidenceItem에 맞춘 관찰·STT 정규화, C는 근거 구성·DraftDocument 출력을 시작할 수 있다.
-A→B의 동의 판정·원본 구간 입력 계약, B의 빈 결과·오류 상태, C의 맥락 묶음은 아직 확정 전이다.
+B는 EvidenceItem에 맞춘 관찰·STT 정규화, 태은님은 근거 구성·DraftDocument 출력을 시작할 수 있다.
+A→B의 동의 판정·원본 구간 입력 계약, B의 빈 결과·오류 상태는 아직 확정 전이다. 태은님의 맥락 묶음은
+활동계획을 `EvidenceItem(source_type="activity_plan")`으로 포함하는 방향으로 정리됐고, 원본 ID
+연결 필드·배경자료의 구체적인 형식은 태은님·정은님과 합의한다.
 현재 검증 코드는 고정 응답으로 테스트한 초안이며 실제 Critic 품질과 서비스 통합은 별도 확인한다.
 호출 가능한 예제는 `backend/tests/agents/fixtures/verification_flow.py`에 있다.
