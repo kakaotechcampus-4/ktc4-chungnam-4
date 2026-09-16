@@ -126,17 +126,27 @@ def publish_drafts(
 ) -> PublishResponse:
     # TODO(한상균): draft별로 독립 처리 — 하나 실패해도 나머지는 진행하고 결과에
     #   status="failed"+error_code로 표시한다. (request_id, draft_id) 조합이 이미
-    #   있으면 기존 회차를 그대로 반환(멱등). 각 draft마다 버전 비교+갱신은 모듈
-    #   docstring의 원자적 UPDATE 패턴으로(WHERE status==APPROVED AND
-    #   version==expected_version) — rowcount==0이면 상태 불일치인지 버전 충돌인지
-    #   구분해 error_code에 담는다. 통과 시 DocumentPublication 새 회차
-    #   (round_number += 1, published_version=갱신된 version) 생성,
-    #   revoke_deadline = published_at + timedelta(hours=24) 계산. status는
-    #   APPROVED로 유지한다 — 바꾸지 않는다 (게이트는 status==APPROVED + 활성
-    #   게시 회차 존재로 판단). round_number>=2(재게시)면 RevisionLog에
-    #   action=resend를 남긴다 — 테크스펙 action enum에 최초 게시에 대응하는 값이
-    #   없어(edit/approve/revoke/resend뿐), 최초 게시(round_number==1)는 로그하지
-    #   않는다(approved_at으로 갈음).
+    #   있으면 기존 회차를 그대로 반환(멱등, revoke_deadline 재계산·연장 없음).
+    #
+    #   활성 게시 회차가 있으면(revoked_at is null인 DocumentPublication 존재) 새
+    #   요청ID라도 새 회차를 만들지 않는다 — 기존 회차를 먼저 회수하고 재승인한
+    #   문서만 재게시할 수 있다. 이 검사가 없으면 새 request_id로 반복 게시해서
+    #   사실상 회수 기한을 계속 연장할 수 있다. rowcount==0이 됐을 때 상태
+    #   불일치·버전 충돌·활성 회차 존재 중 어느 사유인지 구분해 error_code에 담는다.
+    #
+    #   각 draft마다 버전 비교+갱신은 모듈 docstring의 원자적 UPDATE 패턴으로
+    #   (WHERE status==APPROVED AND version==expected_version). 통과 시
+    #   DocumentPublication 새 회차(round_number += 1, published_version=갱신된
+    #   version) 생성, revoke_deadline = published_at + timedelta(hours=24) 계산.
+    #   status는 APPROVED로 유지한다 — 바꾸지 않는다 (게이트는 status==APPROVED +
+    #   활성 게시 회차 존재로 판단).
+    #
+    #   최초 게시 이력과 시각은 DocumentPublication(published_at)에 기록한다.
+    #   approved_at은 승인 시각이며 게시 시각을 대신하지 않는다 — 승인과 게시가
+    #   분리된 이 설계에서는 둘이 다른 시점일 수 있다. round_number>=2(재게시)면
+    #   RevisionLog에 action=resend를 남긴다 — 테크스펙 action enum에 최초 게시에
+    #   대응하는 값이 없어(edit/approve/revoke/resend뿐), 최초 게시(round_number==1)를
+    #   RevisionLog에도 남길지는 별도로 결정한다.
     raise NotImplementedError
 
 
