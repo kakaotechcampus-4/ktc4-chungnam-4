@@ -1,7 +1,7 @@
 # 아이담 백엔드
 
 영상·사진·음성에서 모은 맥락으로 원아의 하루를 기록하는 AI 알림장·관찰일지 서비스의 백엔드입니다.
-실행 방법·환경설정은 [README.md](README.md)를 보세요. 이 문서는 **구조와 규칙**만 다룹니다.
+실행 방법·환경설정은 [README.md](README.md)를 보세요. 이 문서는 **구조와 규칙**만 다룹니다. 절대 규칙(H-1~H-4)은 [../CLAUDE.md](../CLAUDE.md)를 보세요.
 
 ## 도메인 7개
 
@@ -44,7 +44,7 @@ router.py  →  service.py  →  models.py
 ```
 backend/
 ├── main.py            API 시작점
-├── celery_app.py      [예정] Worker 시작점 — 현재 파일 없음
+├── celery_app.py      Worker 시작점 (PR #9). 현재 include는 연습 작업만 등록돼 있음
 ├── domains/           위 7개 (각 폴더의 CLAUDE.md 참고)
 ├── tools/             [예정·AI 담당] 활동계획조회·발달지침조회 등 순수 함수
 ├── prompts/           [예정·AI 담당] 에이전트별 프롬프트
