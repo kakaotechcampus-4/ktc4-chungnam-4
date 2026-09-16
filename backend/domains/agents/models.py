@@ -1,9 +1,34 @@
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import JSON, Boolean, Column, DateTime, Float, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 
 from core.base import Base
+
+
+class Job(Base):
+    """orchestrate_drafts 요청 1건을 추적하는 레코드.
+
+    Celery task는 재시도마다 새 task ID를 받지만, 같은 요청이면 Job은 하나입니다.
+    target_date는 EvidenceBundle.date(NOT NULL)를 채울 때 씁니다.
+    """
+
+    __tablename__ = "jobs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    child_id = Column(UUID(as_uuid=True), nullable=False)
+    target_date = Column(DateTime(timezone=True), nullable=False)
+    # pending / running / succeeded / failed
+    status = Column(String, nullable=False, default="pending")
+    retry_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
 
 class EvidenceBundle(Base):

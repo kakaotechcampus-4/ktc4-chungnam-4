@@ -9,7 +9,7 @@ from typing import TypedDict
 from sqlalchemy.orm import Session
 
 from core.database import SessionLocal
-from domains.agents.models import EvidenceBundle, SentenceEvidence, VerificationResult
+from domains.agents.models import EvidenceBundle, Job, SentenceEvidence, VerificationResult
 
 MAX_GENERATION_ATTEMPTS = 2
 
@@ -24,7 +24,8 @@ class GeneratedSentence(TypedDict):
 
 def orchestrate_drafts(job_id: str, child_id: str) -> None:
     with SessionLocal() as session:
-        bundle = _collect_evidence(session, child_id)
+        job = _get_job(session, job_id)
+        bundle = _collect_evidence(session, child_id, job.target_date)
 
         for _ in range(MAX_GENERATION_ATTEMPTS):
             sentences = _generate_draft(bundle)
@@ -34,9 +35,18 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
         _send_to_unclassified(session, job_id, child_id)
 
 
-def _collect_evidence(session: Session, child_id: str) -> EvidenceBundle:
-    # TODO(eun): organization.Child, media.MediaAsset/TranscriptSegment 도메인이
-    # 준비되면 실제 미디어·발달 맥락을 조회해서 EvidenceBundle을 구성합니다.
+def _get_job(session: Session, job_id: str) -> Job:
+    job = session.get(Job, job_id)
+    if job is None:
+        raise ValueError(f"Job {job_id} not found")
+    return job
+
+
+def _collect_evidence(session: Session, child_id: str, target_date: datetime) -> EvidenceBundle:
+    # TODO(eun): organization.Child 준비되면 발달 맥락을 조회해서 EvidenceBundle을 구성합니다.
+    # 미디어는 MediaAsset을 여기서 직접 조회하지 않고 media.service.collect_media_for_llm(
+    # session, child_id, target_date)를 호출해서 받습니다 — 동의 필터링(H-2)이 그 함수 안에서
+    # 이미 처리되어 있어야 하므로 이 함수에서 규칙을 복제하지 않습니다 (PR #12 리뷰, 김동건).
     raise NotImplementedError("media/organization 도메인 완료 후 연결 예정")
 
 
