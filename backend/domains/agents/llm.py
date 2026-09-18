@@ -11,7 +11,7 @@ def call_claude(prompt: str) -> str:
     settings = get_settings()
     client = OpenAI(
         api_key=settings.anthropic_api_key.get_secret_value(),
-        base_url=settings.anthropic_base_url,
+        base_url=settings.llm_gateway_base_url,
     )
     response = client.chat.completions.create(
         model=_MODEL,
