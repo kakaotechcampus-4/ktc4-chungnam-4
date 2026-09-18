@@ -25,7 +25,7 @@ class SentenceEvidence(Base):
     draft_id = Column(UUID(as_uuid=True), nullable=False)
     sentence_index = Column(Integer, nullable=False)
     source_media_id = Column(UUID(as_uuid=True), nullable=False)
-    source_timestamp = Column(Float, nullable=False)
+    source_timestamp = Column(Float, nullable=True)  # 사진 근거는 시간 구간이 없을 수 있음 (PR #7 계약)
     source_text = Column(String, nullable=False)
 
 
