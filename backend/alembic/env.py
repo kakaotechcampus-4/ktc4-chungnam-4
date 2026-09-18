@@ -12,8 +12,8 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 
-# 도메인 모델 합의 후 이 위치에 명시적으로 import해야 metadata에 테이블이 등록됩니다.
-# 지금은 공통 실행 기반만 준비하며 도메인 모델과 초기 revision을 추가하지 않습니다.
+# TODO(태은): 도메인별 모델 취합 후 모델 모듈을 명시적으로 import합니다.
+# 모델을 import해야 Base.metadata에 테이블이 등록됩니다.
 target_metadata = Base.metadata
 
 
