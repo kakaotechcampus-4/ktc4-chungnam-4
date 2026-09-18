@@ -89,7 +89,10 @@ class EvidenceItem(ContractModel):
     @model_validator(mode="after")
     def validate_evidence(self):
         has_time_field = self.start_ms is not None or self.end_ms is not None
-        if self.source_type in (SourceType.PHOTO_OBSERVATION, SourceType.ACTIVITY_PLAN) and has_time_field:
+        if (
+            self.source_type in (SourceType.PHOTO_OBSERVATION, SourceType.ACTIVITY_PLAN)
+            and has_time_field
+        ):
             raise ValueError(f"{self.source_type} evidence must not have start_ms/end_ms")
         if self.source_type == SourceType.ACTIVITY_PLAN and self.media_id is not None:
             raise ValueError("activity_plan evidence must not have media_id")
@@ -207,9 +210,15 @@ class DecisionResult(ContractModel):
 class CriticSentenceResult(ContractModel):
     sentence_id: NonEmpty
     verdict: Literal["pass", "fail"]
-    reason_code: Literal["ok", "unsupported_claim", "assumed_emotion_or_intent",
-                         "wrong_child_mixed", "overgeneralized_group_evidence",
-                         "teacher_note_as_child_speech", "plan_as_fact"]
+    reason_code: Literal[
+        "ok",
+        "unsupported_claim",
+        "assumed_emotion_or_intent",
+        "wrong_child_mixed",
+        "overgeneralized_group_evidence",
+        "teacher_note_as_child_speech",
+        "plan_as_fact",
+    ]
     detail: NonEmpty
     evidence_ids: list[NonEmpty]
 
