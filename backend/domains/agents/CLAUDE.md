@@ -2,16 +2,16 @@
 
 모인 자료로 관찰일지·알림장 초안을 만들고 검증합니다. 담당: 정은 (AI 리드와 협업). 공통 규칙은 [../../CLAUDE.md](../../CLAUDE.md).
 
-## 파일 (목표 구조·구현 예정 포함)
+## 파일 (현재 구현 상태)
 
-| 파일 | 내용 |
-| --- | --- |
-| `models.py` | `EvidenceBundle`, `SentenceEvidence`, `VerificationResult` |
-| `schemas.py` | 파이프라인 요청·응답 |
-| `router.py` | 직접 API가 필요한 경우만 (예: 수동 재생성 요청) |
-| `service.py` | 근거수집 → 초안생성 → Critic 검증 오케스트레이션 |
-| `llm.py` | LLM 직접 호출 |
-| `tasks.py` | Celery 파이프라인 실행 |
+| 파일 | 내용 | 상태 |
+| --- | --- | --- |
+| `models.py` | `EvidenceBundle`, `SentenceEvidence`, `VerificationResult` | 완료 (`check_type`/`result` 값 도메인은 PR #7 계약과 맞춤) |
+| `schemas.py` | 파이프라인 요청·응답 | 완료 (`context_lookup` 구조만 미정 — organization/media 확정 후) |
+| `router.py` | 직접 API가 필요한 경우만 (예: 수동 재생성 요청) | 보류 — API 목록 확정 회의 전까지 손대지 않음 |
+| `service.py` | 근거수집 → 초안생성 → Critic 검증 오케스트레이션 | 부분 구현. `orchestrate_drafts`/`_verify_and_record`는 동작. `_collect_evidence`/`_generate_draft`는 organization/media/AI팀 tools·prompts 대기 중이라 `NotImplementedError` |
+| `llm.py` | LLM 직접 호출 | 완료 (카테캠 Elice AI Cloud 게이트웨이 경유, `openai` SDK + 커스텀 `base_url`. Anthropic 공식 API 아님) |
+| `tasks.py` | Celery 파이프라인 실행 | 완료 — `service.orchestrate_drafts` 호출 |
 
 ## 규칙
 
@@ -31,6 +31,8 @@
 - `tasks.py`는 호출만 하고 로직을 갖지 않습니다. 오케스트레이션은 `service.py`에.
 - 재시도 상한을 넘기면 예외로 터뜨리지 말고 documents의 미분류함으로 떨어뜨립니다.
 - 생성 문장은 `SentenceEvidence`로 근거(미디어·타임스탬프·원문)를 남깁니다. 근거 없는 문장은 통과시키지 않습니다.
+- 검증 판정(`VerificationResult.check_type`)은 PR #7의 `VerificationCheckType` 7종(`missing_evidence_ref`, `invalid_evidence_ref`, `plan_as_observed_fact`, `wrong_child_evidence`, `wrong_date_evidence`, `critic_content`, `critic_response_error`)을 그대로 씁니다. `result`는 bool.
+- 지금 `_verify_and_record`는 문장 하나라도 실패하면 초안 전체를 반려하는 임시 로직입니다. `tools/verification/decision.py`(PR #7)의 `decide()`(pass/regenerate/retry_critic/needs_teacher_review)가 준비되면 그걸로 교체합니다.
 - 여기서 만든 것은 항상 **초안**입니다. 교사 검수를 위한 초안 저장·조회는 허용하되 학부모 공개·외부 공유는 승인 전 금지합니다. 승인 상태를 이 도메인에서 바꾸지 않습니다 (H-1).
 - 테스트에서 LLM을 실제로 호출하지 않습니다. 응답은 픽스처로 고정.
 - 모델 스냅샷·API 키는 `core/config.py`의 `Settings`에서 읽습니다.
