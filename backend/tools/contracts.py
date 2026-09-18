@@ -68,6 +68,12 @@ class EvidenceItem(ContractModel):
     child_ids가 텅 비어 있으면(assignment_status == NEEDS_CONFIRMATION) 대상 미확정
     근거이며, 근거 준비 단계(tools/evidence/builder.py, C 담당)에서 생성 후보에서
     제외해야 한다.
+
+    media_id·start_ms/end_ms 허용 여부는 source_type마다 다르다(PR #15 리뷰 반영).
+    photo_observation·activity_plan은 시간 구간이 없는 근거이므로 start_ms/end_ms를
+    채우면 거부한다. activity_plan은 미디어에서 온 근거가 아니므로 media_id도 없어야
+    한다. 그 외 source_type은 media_id가 반드시 있어야 하며, start_ms/end_ms는
+    STT처럼 한쪽만 제공되거나 둘 다 없어도 된다(추측해서 채우지 않는다).
     """
 
     evidence_id: NonEmpty
@@ -82,6 +88,16 @@ class EvidenceItem(ContractModel):
 
     @model_validator(mode="after")
     def validate_evidence(self):
+        has_time_field = self.start_ms is not None or self.end_ms is not None
+        if (
+            self.source_type in (SourceType.PHOTO_OBSERVATION, SourceType.ACTIVITY_PLAN)
+            and has_time_field
+        ):
+            raise ValueError(f"{self.source_type} evidence must not have start_ms/end_ms")
+        if self.source_type == SourceType.ACTIVITY_PLAN and self.media_id is not None:
+            raise ValueError("activity_plan evidence must not have media_id")
+        if self.source_type != SourceType.ACTIVITY_PLAN and self.media_id is None:
+            raise ValueError(f"{self.source_type} evidence requires media_id")
         if self.start_ms is not None and self.end_ms is not None and self.end_ms <= self.start_ms:
             raise ValueError("end_ms must be greater than start_ms")
         if len(self.child_ids) != len(set(self.child_ids)):
@@ -194,9 +210,15 @@ class DecisionResult(ContractModel):
 class CriticSentenceResult(ContractModel):
     sentence_id: NonEmpty
     verdict: Literal["pass", "fail"]
-    reason_code: Literal["ok", "unsupported_claim", "assumed_emotion_or_intent",
-                         "wrong_child_mixed", "overgeneralized_group_evidence",
-                         "teacher_note_as_child_speech", "plan_as_fact"]
+    reason_code: Literal[
+        "ok",
+        "unsupported_claim",
+        "assumed_emotion_or_intent",
+        "wrong_child_mixed",
+        "overgeneralized_group_evidence",
+        "teacher_note_as_child_speech",
+        "plan_as_fact",
+    ]
     detail: NonEmpty
     evidence_ids: list[NonEmpty]
 
