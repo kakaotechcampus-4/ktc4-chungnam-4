@@ -33,8 +33,10 @@ class Settings(BaseSettings):
 
     # AI를 호출하지 않는 API·worker도 키 없이 시작할 수 있어야 합니다.
     anthropic_api_key: SecretStr = SecretStr("")
-    # 테크스펙엔 "Claude Sonnet 계열"이라고만 되어 있고, 나중에 모델명이 바뀔 수 있음
-    anthropic_model: str = "claude-sonnet-5"
+    # 기수·팀별로 게이트웨이 주소가 달라 default를 비워둠 — 반드시 .env에서 설정
+    llm_gateway_base_url: str = ""
+    # 게이트웨이의 모델 ID 형식(제공자/모델명)을 그대로 사용
+    anthropic_model: str = "anthropic/claude-sonnet-5"
 
     @field_validator("postgres_password")
     @classmethod
