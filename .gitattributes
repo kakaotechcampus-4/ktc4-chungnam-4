@@ -1,0 +1,13 @@
+# 텍스트 파일은 저장소에 LF로 저장합니다.
+# Windows에서 CRLF로 저장해도 커밋 시 변환되므로, 개행만 바뀐 대량 diff가 생기지 않습니다.
+* text=auto eol=lf
+
+# 바이너리는 Git이 내용을 건드리지 않게 합니다. 개행 변환이 파일을 망가뜨립니다.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.pdf  binary
+*.onnx binary
+*.woff binary
+*.woff2 binary
