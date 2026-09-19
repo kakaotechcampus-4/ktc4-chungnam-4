@@ -68,3 +68,20 @@
 # 이 아래는 팀이 자유롭게 쓰세요. 파트별 자동 리뷰어 지정 예시:
 #   /backend/   @member-a @member-b
 #   /frontend/  @member-c
+
+# 공용 파일 (도메인에 안 걸리는 것들) — 아래 도메인 규칙보다 위에 둬야 override 됨
+/backend/core/            @EomTeaEun
+/backend/.env.example     @EomTeaEun
+/backend/celery_app.py    @EomTeaEun
+/backend/requirements.in  @EomTeaEun
+/backend/requirements.txt @EomTeaEun
+
+# 도메인별 — 위 공용 규칙보다 아래라서 겹치면 이게 우선
+/backend/domains/auth/          @EomTeaEun
+/backend/domains/organization/  @NANA6719
+/backend/domains/face/          @EatRawLife
+/backend/domains/media/         @EatRawLife
+/backend/domains/agents/        @Eun0503
+/backend/domains/documents/     @Copi-stud
+/backend/domains/audit/         @Copi-stud
+
