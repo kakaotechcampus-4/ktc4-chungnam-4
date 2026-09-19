@@ -23,7 +23,7 @@ router.py  →  service.py  →  models.py
 - `service.py`: `Request`·`Response`를 모릅니다(FastAPI import 금지). 함수만 직접 불러서 테스트되게.
 - `repositories/` 별도 레이어는 두지 않습니다(7주 일정에 과함) — DB 접근은 `service.py`에 흡수.
 - 유일한 예외는 `agents/service.py`. 여기서만 최상위 `tools/`, `prompts/`를 추가로 호출합니다.
-- 도메인 간 호출은 FK 참조까지. 다른 도메인의 `service.py`를 직접 부르기 전에 팀에 알리세요.
+- 도메인 간 호출은 FK 참조까지. 다른 도메인의 `service.py`가 필요하면 **issue를 만들어 담당자에게 함수를 요청**하세요.
 
   ```python
   from domains.organization.models import Child        # ❌ 남의 도메인 models
