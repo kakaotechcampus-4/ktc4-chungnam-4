@@ -336,26 +336,21 @@ uv pip compile requirements-dev.in --universal --python-version 3.12 --constrain
 
 ## 7. 브랜치와 PR
 
-**팀 내부 작업은 `feature/*` → `develop` PR로 반영합니다.** `develop`에 직접 push하지 않습니다.
+**브랜치 이름·커밋 메시지·PR 규약의 원본은 스킬 파일입니다.** 여기에 사본을 두지 않습니다 — 두 벌이 되면 한 벌이 낡습니다.
 
-공통 환경 설정이 `develop`에 병합된 뒤, 새 작업을 시작할 때의 예시입니다. `feature/auth-login`은 실제 작업에 맞는 이름으로 바꿉니다. 브랜치를 바꾸기 전 진행 중인 변경 사항을 정리합니다.
+- [브랜치 만들기](../.claude/skills/create-branch/SKILL.md) — `<타입>/<파트>/<작업내용>`, `develop`에서 분기
+- [커밋](../.claude/skills/commit/SKILL.md) — Conventional Commits, 커밋 분리
+- [PR·리뷰](../.claude/skills/pr/SKILL.md) — 요구사항 ID, 분량, 리뷰어 지정, 리뷰 태그
 
-```bash
-git switch develop
-git pull --ff-only origin develop
-git switch -c feature/auth-login
-```
+Claude Code를 쓰면 `/create-branch` `/commit` `/pr`로 호출됩니다. 손으로 할 때는 위 링크를 읽으세요.
+전원이 지킬 금지(=`develop` 직접 push 금지 등)는 루트 [CLAUDE.md](../CLAUDE.md) §Git에 있습니다.
 
-PR에는 다음 내용을 적습니다.
+### 백엔드에서만 추가로 챌 것
 
-- 구현한 기능과 관련 API
-- 실행한 테스트와 결과
-- 새 환경변수·패키지·DB 구조 변경
-- 다른 도메인 담당자가 함께 확인해야 할 부분
-
-공통 파일인 `main.py`, `core/`, Compose, 의존성 파일을 변경할 때는 A에게 변경 목적을 공유합니다. 자신의 도메인 외 파일을 바꿔야 하면 해당 담당자와 영향 범위를 맞춥니다.
-
-PR 전에는 관련 테스트, `git diff --check`, `.env` 등 개인 설정 파일이 포함되지 않았는지 확인합니다. 멘토 리뷰용 `develop` → `main` PR은 팀 내부 PR과 별도입니다.
+- **공통 파일**을 변경할 때는 BE 리드(엄태은)에게 목적을 공유합니다 — `main.py`, `core/`, `celery_app.py`, Compose, `requirements*`.
+- 자신의 도메인 외 파일을 바꿔야 하면 해당 담당자와 영향 범위를 맞춥니다 (담당자는 §4).
+- PR 전에 관련 테스트, `git diff --check`, `.env` 등 개인 설정 파일이 섞이지 않았는지 확인합니다.
+- 새 환경변수·패키지·DB 구조 변경이 있으면 PR 본문에 적습니다. `.env.example`도 같이 갱신합니다.
 
 ## 8. 자주 발생하는 문제
 

@@ -23,7 +23,7 @@ class SentenceEvidenceResponse(BaseModel):
     draft_id: str
     sentence_index: int
     source_media_id: str
-    source_timestamp: float
+    source_timestamp: float | None  # 사진 근거는 시간 구간이 없을 수 있음 (PR #7 계약)
     source_text: str
 
 
