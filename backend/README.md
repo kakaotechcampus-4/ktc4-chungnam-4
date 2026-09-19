@@ -5,7 +5,7 @@
 이 문서는 **처음 실행하는 팀원과 도메인 구현을 시작하는 팀원**을 위한 공통 개발 안내입니다.
 
 > **현재 구현 범위:** FastAPI 실행, PostgreSQL 연결, 환경변수 관리, 공통 DB 세션, 헬스체크, Redis·Celery 연습 작업과 테스트.
-> 현재 Compose는 **API·PostgreSQL·Redis·worker**를 실행합니다. 도메인 API·Alembic 마이그레이션·실제 AI 파이프라인은 아직 연결하지 않았습니다. AWS 서버 설치·배포는 접속 후 검증이 필요합니다.
+> 현재 Compose는 **API·PostgreSQL·Redis·worker**를 실행합니다. Alembic 실행 기반은 구성되어 있으며, 도메인 API·초기 스키마 migration·실제 AI 파이프라인은 아직 연결하지 않았습니다. AWS 서버 설치·배포는 접속 후 검증이 필요합니다.
 
 ## 바로가기
 
@@ -201,7 +201,8 @@ backend/
 ├── prompts/                 # AI 프롬프트 구현 위치
 ├── tests/                   # 공통 환경 및 도메인별 테스트
 ├── scripts/                 # 환경변수 생성, Ubuntu 준비, Celery 연습
-├── alembic/                 # 마이그레이션 예정 위치
+├── alembic/                 # 실행 환경·revision 템플릿·versions/
+├── alembic.ini              # Alembic 경로·로그 설정
 ├── celery_app.py            # Celery 공통 설정과 연습 작업 등록
 ├── Dockerfile
 ├── docker-compose.yml
@@ -266,7 +267,38 @@ DbSession = Annotated[Session, Depends(get_db)]
 
 라우터 함수에서 `db: DbSession`으로 받아 서비스에 전달합니다. 서비스는 저장 단위에 맞춰 `commit()`과 필요한 `rollback()`을 처리합니다. `get_db`는 세션을 생성하고 요청이 끝나면 닫으며, 자동 커밋하지 않습니다.
 
-현재 서버 시작 시 테이블을 자동 생성하지 않습니다. Alembic은 아직 설정되지 않았으므로 `alembic upgrade head`를 실행할 수 있는 상태가 아닙니다. 모델·FK 변경은 관련 담당자와 맞추고, 마이그레이션 도입과 함께 반영합니다.
+현재 서버 시작 시 테이블을 자동 생성하지 않습니다. Alembic 실행 기반만 구성되어 있으며
+`alembic/versions/`에는 아직 revision이 없습니다. 따라서 `upgrade head`로 업무 테이블이 생성되지는 않습니다.
+
+`alembic.ini`는 경로·로그만 설정하고, `alembic/env.py`가 기존 `core.config.get_settings().database_url`과
+`core.base.Base.metadata`를 사용합니다. DB 비밀번호를 ini에 복사하지 않습니다.
+API용 엔진을 import하지 않고 migration용 일회성 연결(NullPool)을 생성·정리합니다.
+
+Docker에서 확인하려면 `backend/`에서 실행합니다. 기존 `.env`가 필요하며 EC2에서는 Docker 앞에 sudo를 붙입니다.
+
+```bash
+python3 scripts/init_env.py
+docker compose build api
+docker compose up -d postgres
+docker compose run --rm --no-deps api alembic heads
+docker compose run --rm --no-deps api alembic current
+```
+
+- `heads`: 코드에 있는 최신 revision 조회. 현재 revision이 없으므로 출력이 없는 것이 정상입니다.
+- `current`: DB에 접속해 적용된 revision 조회. 초기 상태에서는 revision 번호가 없습니다.
+- `history`: 코드의 migration 이력 조회.
+- `upgrade head --sql`: DB에 접속하지 않고 적용 SQL 출력.
+- `upgrade head`: 실제 DB에 revision 적용. 현재는 업무 테이블 없이 Alembic 관리 테이블만 생길 수 있습니다.
+
+로컬 가상환경은 `requirements-dev.txt` 설치 후 `python -m alembic ...`으로 실행합니다.
+기존 Compose는 PostgreSQL 포트를 호스트에 공개하지 않으므로 DB 접속 명령은 위 컨테이너 방식이 기본입니다.
+저장소 루트에서는 `python -m alembic -c backend/alembic.ini heads`처럼 설정 파일을 지정할 수 있습니다.
+
+도메인별 모델·FK가 합의되면 `alembic/env.py`의 안내 위치에 모델 모듈을 명시적으로 import한 뒤
+`revision --autogenerate`로 초기 migration을 생성하고 검토합니다. Base를 import하는 것만으로
+도메인 모델이 자동 등록되지는 않습니다. 현재는 미등록 상태의 자동 생성을 오류로 차단합니다.
+일부 모델만 등록한 경우까지 판별하지는 못하므로, 전체 모델 등록 여부는 담당자가 검토해야 합니다.
+
 
 라우터 구현 후에는 `main.py`에 등록해야 Swagger와 API 경로에 노출됩니다. 실제 API 경로는 합의된 API 명세를 따릅니다.
 

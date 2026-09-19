@@ -1,5 +1,4 @@
 """backend에서 python -m scripts.celery_smoke로 실행하는 Redis·worker 연습."""
-#실제 Redis와 실제 Worker 에 작업을 보내는 실행 확인 코드
 
 import argparse
 import json

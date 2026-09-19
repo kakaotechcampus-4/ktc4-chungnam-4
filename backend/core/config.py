@@ -22,11 +22,12 @@ class Settings(BaseSettings):
     postgres_password: SecretStr
     postgres_db: str = "ktc4"
 
-    celery_broker_url: str = "redis://localhost:6379/0" #작업을 보낼 Redis 주소
-    celery_result_backend: str = "redis://localhost:6379/1" #상태/결과를 저장할 Redis 주소
+    celery_broker_url: str = "redis://localhost:6379/0"  # 작업을 보낼 Redis 주소
+    celery_result_backend: str = "redis://localhost:6379/1"  # 상태·결과를 저장할 Redis 주소
     celery_result_expires: int = Field(default=86400, gt=0)
 
-    # AI를 호출하지 않는 API·worker도 키 없이 시작할 수 있어야 합니다.
+    # TODO(태은): AI 기능 배포 전에는 키 누락을 차단하도록 필수값 검증을 추가합니다.
+    # Redis·worker 연습은 AI 호출 없이 실행하므로 현재는 빈 값을 허용합니다.
     anthropic_api_key: SecretStr = SecretStr("")
     # 기수·팀별로 게이트웨이 주소가 달라 default를 비워둠 — 반드시 .env에서 설정
     llm_gateway_base_url: str = ""

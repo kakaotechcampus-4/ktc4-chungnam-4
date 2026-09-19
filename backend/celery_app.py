@@ -8,7 +8,8 @@ celery_app = Celery(
     "aidam",
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
-    # D의 실제 작업은 구현 완료 후 등록합니다. 지금은 연습 작업만 실행합니다.
+    # TODO(태은): 실제 AI 작업 구현 완료 후 include에 domains.agents.tasks를 등록합니다.
+    # 현재는 Redis·worker 연결 검증용 연습 작업만 등록합니다.
     include=["scripts.celery_smoke"],
 )
 celery_app.conf.update(
