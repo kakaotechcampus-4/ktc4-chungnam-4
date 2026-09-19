@@ -68,3 +68,26 @@
 # 이 아래는 팀이 자유롭게 쓰세요. 파트별 자동 리뷰어 지정 예시:
 #   /backend/   @member-a @member-b
 #   /frontend/  @member-c
+
+# ── 공용 파일 → BE 리드 ──
+# 도메인 규칙보다 위에 둡니다. CODEOWNERS 는 "마지막으로 일치한 줄"이 이기므로,
+# 아래 도메인 규칙이 겹칠 때 override 됩니다.
+/backend/core/              @EomTeaEun
+/backend/.env.example       @EomTeaEun
+/backend/celery_app.py      @EomTeaEun
+/backend/requirements.in    @EomTeaEun
+/backend/requirements.txt   @EomTeaEun
+/backend/requirements-dev.in    @EomTeaEun
+/backend/requirements-dev.txt   @EomTeaEun
+
+# ── 도메인별 담당자 ──
+# 담당자 원본은 backend/README.md §폴더 구조와 담당 범위 입니다.
+/backend/domains/auth/          @EomTeaEun
+/backend/domains/organization/  @NANA6719
+/backend/domains/face/          @EatRawLife
+/backend/domains/media/         @EatRawLife
+/backend/domains/agents/        @Eun0503
+/backend/domains/documents/     @Copi-stud
+/backend/domains/audit/         @Copi-stud
+
+# /frontend/  ← 담당 미정 (docs/open-questions.md §E)
