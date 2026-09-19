@@ -60,6 +60,7 @@
 
 ## E. 문서 관리
 
+- [ ] **CODEOWNERS 자동 리뷰어 지정 적용** (09/19 결정, 아직 미적용) — `.github/CODEOWNERS`의 `[팀 자유 영역]`이 비어 있습니다. 공용 파일(`backend/core/`, `.env.example`, `celery_app.py`, `requirements.*`) → BE 리드, `backend/domains/<도메인>/` → 각 담당자. 공용을 위, 도메인을 아래 둡니다(마지막 일치 줄이 이김). **저장소 동작이 바뀌는 설정 변경이라 문서 PR과 분리해 별도 PR로 올립니다**
 - [ ] **`/frontend/` CODEOWNERS 담당 미정** — 송유진(`@syujin2323`) 단독인지 김진하(`@wlsgk7779`)를 함께 넣는지. 2명을 넣으면 모든 프론트 PR에 2명이 리뷰어로 붙는데, CODEOWNERS 파일 자체가 경고한 패턴입니다 — "`operators`(4명)를 쓰면 3명에게 영구 미처리 알림이 남고, 그러면 진짜 신호도 같이 무시된다". 백엔드 쪽은 09/19에 반영 완료(아래 결정 기록)
 - [ ] **CODEOWNERS로 `develop` 머지를 막을지** — CODEOWNERS 단독으로는 아무것도 강제하지 않습니다. `feat/*→develop` PR에서는 **리뷰어 자동 지정까지**이고, 실제 차단은 `main`에만 걸립니다(운영진 영역이라 팀이 못 바꿈). develop까지 막으려면 develop 브랜치 보호 규칙이 따로 필요한데 저장소 설정이라 팀 합의·권한 확인이 먼저입니다
 
@@ -108,7 +109,6 @@
 - 타임존: 컨테이너·DB는 `Asia/Seoul`, **저장은 UTC** → `backend/CLAUDE.md` §DB
 - 도메인 용어 표 → 루트 §도메인 용어
 - 도메인별 담당자 → `backend/README.md` §폴더 구조와 담당 범위 (09/18 확인)
-- 도메인·공용 파일 **자동 리뷰어 지정** (09/19) → `.github/CODEOWNERS` [팀 자유 영역]. 공용 파일은 BE 리드, 도메인은 담당자. 겹치면 아래 도메인 규칙이 이김
 - **리뷰 1명 승인 후 작성자가 직접 머지**, PR 전 `develop` 최신화 (09/19) → `.claude/skills/pr`
 - **회의 결과 문서 PR은 참석자 1명이 바로 승인** (09/19) → `docs/doc-management.md` §원칙 ②
 - **CI는 GitHub Actions**, 배포는 단계마다 서버 확인 후 진행 (09/19) → `.claude/skills/deploy`
