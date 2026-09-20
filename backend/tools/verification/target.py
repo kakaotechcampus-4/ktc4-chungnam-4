@@ -18,16 +18,27 @@ from tools.contracts import (
 
 
 def validate_target(
-    document: DraftDocument, evidence_by_id: dict[str, EvidenceItem], *, request: GenerationRequest
+    document: DraftDocument,
+    evidence_by_id: dict[str, EvidenceItem],
+    *,
+    request: GenerationRequest,
 ) -> list[VerificationIssue]:
     """문장이 참조한 근거가 문서의 대상 원아·날짜와 일치하는지 검사한다."""
     issues: list[VerificationIssue] = []
     if document.child_id != request.child_id:
-        issues.append(VerificationIssue(check_type=VerificationCheckType.WRONG_CHILD_EVIDENCE,
-                                        reason="요청과 문서의 대상 원아가 다릅니다."))
+        issues.append(
+            VerificationIssue(
+                check_type=VerificationCheckType.WRONG_CHILD_EVIDENCE,
+                reason="요청과 문서의 대상 원아가 다릅니다.",
+            )
+        )
     if document.record_date != request.record_date:
-        issues.append(VerificationIssue(check_type=VerificationCheckType.WRONG_DATE_EVIDENCE,
-                                        reason="요청과 문서의 날짜가 다릅니다."))
+        issues.append(
+            VerificationIssue(
+                check_type=VerificationCheckType.WRONG_DATE_EVIDENCE,
+                reason="요청과 문서의 날짜가 다릅니다.",
+            )
+        )
 
     for sentence in document.sentences:
         for evidence_id in sentence.evidence_ids:

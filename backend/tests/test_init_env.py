@@ -43,7 +43,10 @@ def test_generates_password_only_in_password_entry(script: Path) -> None:
         if line.startswith("POSTGRES_PASSWORD=")
     )
     assert password and password != PLACEHOLDER
-    assert generated == comment + "POSTGRES_USER=postgres\n" + f"POSTGRES_PASSWORD={password}\n"
+    assert (
+        generated
+        == comment + "POSTGRES_USER=postgres\n" + f"POSTGRES_PASSWORD={password}\n"
+    )
     assert password not in result.stdout + result.stderr
     assert (root / ".env").stat().st_mode & 0o777 == 0o600
 
@@ -57,7 +60,13 @@ def test_generates_password_only_in_password_entry(script: Path) -> None:
         f"# {PASSWORD_ENTRY}POSTGRES_USER=postgres\n",
         PASSWORD_ENTRY + "POSTGRES_PASSWORD=another-value\n",
     ],
-    ids=["missing-key", "changed-placeholder", "empty-value", "comment-only", "duplicate-key"],
+    ids=[
+        "missing-key",
+        "changed-placeholder",
+        "empty-value",
+        "comment-only",
+        "duplicate-key",
+    ],
 )
 def test_invalid_template_does_not_create_env(script: Path, template: str) -> None:
     root = script.parents[1]

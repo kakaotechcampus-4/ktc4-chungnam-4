@@ -24,7 +24,9 @@ def test_practice_bounds_delay(delay: float) -> None:
         practice.run({"message": "test"}, delay_seconds=delay)
 
 
-def test_common_settings_allow_worker_without_ai_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_common_settings_allow_worker_without_ai_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from core.config import Settings
 
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)

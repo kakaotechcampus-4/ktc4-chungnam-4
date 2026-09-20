@@ -11,7 +11,9 @@ def _document() -> DraftDocument:
         child_id="child_A",
         record_date=RECORD_DATE,
         sentences=[
-            DraftSentence(sentence_id="s_01", text="탑을 만들었다", evidence_ids=["ev_001"]),
+            DraftSentence(
+                sentence_id="s_01", text="탑을 만들었다", evidence_ids=["ev_001"]
+            ),
             DraftSentence(sentence_id="s_02", text="양보했다", evidence_ids=["ev_001"]),
         ],
     )
@@ -20,8 +22,20 @@ def _document() -> DraftDocument:
 def test_모든_문장이_pass면_전체_통과한다():
     raw = json.dumps(
         [
-            {"sentence_id": "s_01", "verdict": "pass", "reason_code": "ok", "detail": "근거 확인", "evidence_ids": ["ev_001"]},
-            {"sentence_id": "s_02", "verdict": "pass", "reason_code": "ok", "detail": "근거 확인", "evidence_ids": ["ev_001"]},
+            {
+                "sentence_id": "s_01",
+                "verdict": "pass",
+                "reason_code": "ok",
+                "detail": "근거 확인",
+                "evidence_ids": ["ev_001"],
+            },
+            {
+                "sentence_id": "s_02",
+                "verdict": "pass",
+                "reason_code": "ok",
+                "detail": "근거 확인",
+                "evidence_ids": ["ev_001"],
+            },
         ]
     )
 
@@ -34,7 +48,13 @@ def test_모든_문장이_pass면_전체_통과한다():
 def test_문장_하나가_fail이면_전체_실패하고_사유를_담는다():
     raw = json.dumps(
         [
-            {"sentence_id": "s_01", "verdict": "pass", "reason_code": "ok", "detail": "근거 확인", "evidence_ids": ["ev_001"]},
+            {
+                "sentence_id": "s_01",
+                "verdict": "pass",
+                "reason_code": "ok",
+                "detail": "근거 확인",
+                "evidence_ids": ["ev_001"],
+            },
             {
                 "sentence_id": "s_02",
                 "verdict": "fail",
@@ -105,20 +125,37 @@ def test_판정하지_않은_문장이_있으면_응답_오류로_처리한다()
 import pytest
 
 
-@pytest.mark.parametrize("change", [
-    {"sentence_id": []}, {"verdict": []}, {"evidence_ids": ["missing"]},
-    {"evidence_ids": "ev_001"}, {"reason_code": "unknown"}, {"detail": " "},
-])
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"sentence_id": []},
+        {"verdict": []},
+        {"evidence_ids": ["missing"]},
+        {"evidence_ids": "ev_001"},
+        {"reason_code": "unknown"},
+        {"detail": " "},
+    ],
+)
 def test_잘못된_필드가_예외없이_응답오류가_된다(change):
-    entry = dict(sentence_id="s_01", verdict="pass", reason_code="ok",
-                 detail="근거 확인", evidence_ids=["ev_001"])
+    entry = dict(
+        sentence_id="s_01",
+        verdict="pass",
+        reason_code="ok",
+        detail="근거 확인",
+        evidence_ids=["ev_001"],
+    )
     entry.update(change)
     result = parse_critic_response(json.dumps([entry]), _document())
     assert result.issues[0].check_type == VerificationCheckType.CRITIC_RESPONSE_ERROR
 
 
 def test_중복_판정은_오류():
-    entry = dict(sentence_id="s_01", verdict="pass", reason_code="ok",
-                 detail="근거 확인", evidence_ids=["ev_001"])
+    entry = dict(
+        sentence_id="s_01",
+        verdict="pass",
+        reason_code="ok",
+        detail="근거 확인",
+        evidence_ids=["ev_001"],
+    )
     result = parse_critic_response(json.dumps([entry, entry]), _document())
     assert result.issues[0].check_type == VerificationCheckType.CRITIC_RESPONSE_ERROR

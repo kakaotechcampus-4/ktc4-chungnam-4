@@ -26,8 +26,8 @@ router.py  →  service.py  →  models.py
 - 도메인 간 호출은 FK 참조까지. 다른 도메인의 `service.py`를 직접 부르기 전에 팀에 알리세요.
 
   ```python
-  from domains.organization.models import Child        # ❌ 남의 도메인 models
-  from domains.organization.service import get_child   # ✅ 합의된 service 함수
+  from domains.organization.models import Child  # ❌ 남의 도메인 models
+  from domains.organization.service import get_child  # ✅ 합의된 service 함수
   ```
 
 - 도메인 간 FK는 미리 합의합니다 — `face↔Child`, `media↔Child`, `agents↔organization/media`, `audit↔전체`.

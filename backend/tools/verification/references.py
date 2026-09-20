@@ -52,7 +52,9 @@ def validate_references(
                 continue
             referenced.append(evidence)
 
-        if referenced and all(item.source_type == SourceType.ACTIVITY_PLAN for item in referenced):
+        if referenced and all(
+            item.source_type == SourceType.ACTIVITY_PLAN for item in referenced
+        ):
             issues.append(
                 VerificationIssue(
                     sentence_id=sentence.sentence_id,
