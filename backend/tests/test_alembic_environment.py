@@ -37,6 +37,8 @@ def test_offline_sql_runs_from_another_directory(tmp_path: Path) -> None:
         capture_output=True,
         text=True,
         timeout=30,
+        # 실패도 검사 대상이라 예외 대신 returncode로 확인합니다.
+        check=False,
     )
     assert result.returncode == 0, result.stderr
     assert "test@:/#% password" not in result.stdout + result.stderr

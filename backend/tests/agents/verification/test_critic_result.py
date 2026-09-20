@@ -137,25 +137,25 @@ import pytest
     ],
 )
 def test_잘못된_필드가_예외없이_응답오류가_된다(change):
-    entry = dict(
-        sentence_id="s_01",
-        verdict="pass",
-        reason_code="ok",
-        detail="근거 확인",
-        evidence_ids=["ev_001"],
-    )
+    entry = {
+        "sentence_id": "s_01",
+        "verdict": "pass",
+        "reason_code": "ok",
+        "detail": "근거 확인",
+        "evidence_ids": ["ev_001"],
+    }
     entry.update(change)
     result = parse_critic_response(json.dumps([entry]), _document())
     assert result.issues[0].check_type == VerificationCheckType.CRITIC_RESPONSE_ERROR
 
 
 def test_중복_판정은_오류():
-    entry = dict(
-        sentence_id="s_01",
-        verdict="pass",
-        reason_code="ok",
-        detail="근거 확인",
-        evidence_ids=["ev_001"],
-    )
+    entry = {
+        "sentence_id": "s_01",
+        "verdict": "pass",
+        "reason_code": "ok",
+        "detail": "근거 확인",
+        "evidence_ids": ["ev_001"],
+    }
     result = parse_critic_response(json.dumps([entry, entry]), _document())
     assert result.issues[0].check_type == VerificationCheckType.CRITIC_RESPONSE_ERROR

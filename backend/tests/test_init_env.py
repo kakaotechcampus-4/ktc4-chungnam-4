@@ -24,6 +24,8 @@ def run_script(script: Path) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         timeout=10,
+        # 스크립트가 실패하는 경우도 테스트가 직접 검사합니다.
+        check=False,
     )
 
 
