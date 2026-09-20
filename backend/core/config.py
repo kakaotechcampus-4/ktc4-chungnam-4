@@ -22,9 +22,17 @@ class Settings(BaseSettings):
     postgres_password: SecretStr
     postgres_db: str = "ktc4"
 
-    anthropic_api_key: SecretStr
-    # 테크스펙엔 "Claude Sonnet 계열"이라고만 되어 있어, 나중에 모델명이 바뀔 수 있음
-    anthropic_model: str = "claude-sonnet-5"
+    celery_broker_url: str = "redis://localhost:6379/0"  # 작업을 보낼 Redis 주소
+    celery_result_backend: str = "redis://localhost:6379/1"  # 상태·결과를 저장할 Redis 주소
+    celery_result_expires: int = Field(default=86400, gt=0)
+
+    # TODO(태은): AI 기능 배포 전에는 키 누락을 차단하도록 필수값 검증을 추가합니다.
+    # Redis·worker 연습은 AI 호출 없이 실행하므로 현재는 빈 값을 허용합니다.
+    anthropic_api_key: SecretStr = SecretStr("")
+    # 기수·팀별로 게이트웨이 주소가 달라 default를 비워둠 — 반드시 .env에서 설정
+    llm_gateway_base_url: str = ""
+    # 게이트웨이의 모델 ID 형식(제공자/모델명)을 그대로 사용
+    anthropic_model: str = "anthropic/claude-sonnet-5"
 
     @field_validator("postgres_password")
     @classmethod

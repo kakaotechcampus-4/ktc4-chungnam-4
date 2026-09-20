@@ -26,6 +26,18 @@
 
 <!-- 두 방법 사이에서 고른 게 있다면 왜 이걸 골랐는지. 없으면 지워도 됩니다. -->
 
+## 팀 규약 확인
+
+<!-- 규약 원본은 .claude/skills/pr/SKILL.md 입니다. 여기에 규약을 옮겨 적지 마세요 — 두 벌이 되면 한 벌이 낡습니다. -->
+
+- [ ] 관련 요구사항 ID를 본문에 적었습니다 (`FR-04`, `NFR-06`). 못 적겠으면 근거부터 확인합니다
+- [ ] 변경 300줄 이하 (넘으면 나눌 수 있는지 검토했습니다)
+- [ ] 마이그레이션이 있으면 `docs/테크스펙.md`의 ERD도 갱신했습니다
+- [ ] 응답 스키마에서 필드를 삭제·개명했다면 제목에 `[BREAKING]`을 붙이고 FE 리드를 리뷰어로 넣었습니다
+- [ ] 리뷰 코멘트는 `[must]` / `[ask]` / `[nit]`로 구분합니다
+
+자세한 규약: [`.claude/skills/pr/SKILL.md`](../.claude/skills/pr/SKILL.md) · [`commit`](../.claude/skills/commit/SKILL.md) · [`create-branch`](../.claude/skills/create-branch/SKILL.md)
+
 ## 지난 리뷰 반영 (재리뷰 요청일 때만)
 
 <!--
