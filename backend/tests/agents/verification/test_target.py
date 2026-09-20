@@ -1,5 +1,11 @@
 from tests.agents.fixtures.evidence import EVIDENCE_BY_ID, RECORD_DATE
-from tools.contracts import GenerationRequest, DocType, DraftDocument, DraftSentence, VerificationCheckType
+from tools.contracts import (
+    DocType,
+    DraftDocument,
+    DraftSentence,
+    GenerationRequest,
+    VerificationCheckType,
+)
 from tools.verification.target import validate_target
 
 

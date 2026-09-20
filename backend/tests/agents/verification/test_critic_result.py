@@ -104,6 +104,7 @@ def test_판정하지_않은_문장이_있으면_응답_오류로_처리한다()
 
 import pytest
 
+
 @pytest.mark.parametrize("change", [
     {"sentence_id": []}, {"verdict": []}, {"evidence_ids": ["missing"]},
     {"evidence_ids": "ev_001"}, {"reason_code": "unknown"}, {"detail": " "},

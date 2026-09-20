@@ -13,13 +13,14 @@ import json
 from pydantic import ValidationError
 
 from tools.contracts import (
-    DraftDocument,
     CriticSentenceResult,
-    VerificationStage,
+    DraftDocument,
     VerificationCheckType,
     VerificationIssue,
     VerificationResult,
+    VerificationStage,
 )
+
 
 def parse_critic_response(raw_response: str, document: DraftDocument) -> VerificationResult:
     """Critic 응답 문자열을 VerificationResult로 정규화한다.

@@ -1,9 +1,9 @@
 """백엔드 연결 예제. 외부 호출 없이 전달받은 Critic 응답만 사용한다."""
 from tools.contracts import VerificationResult, VerificationStage
-from tools.verification.references import validate_references
-from tools.verification.target import validate_target
 from tools.verification.critic_result import parse_critic_response
 from tools.verification.decision import decide
+from tools.verification.references import validate_references
+from tools.verification.target import validate_target
 
 
 def verify_example(document, evidence_by_id, request, critic_response, regeneration_count=0):

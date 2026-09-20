@@ -1,10 +1,9 @@
-from pathlib import Path
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
-
 
 PLACEHOLDER = "replace-with-a-generated-password"
 PASSWORD_ENTRY = f"POSTGRES_PASSWORD={PLACEHOLDER}\n"

@@ -1,7 +1,14 @@
 import pytest
+
 from tools.contracts import (
-    Decision, DocType, DraftDocument, DraftSentence, VerificationCheckType,
-    VerificationIssue, VerificationResult, VerificationStage,
+    Decision,
+    DocType,
+    DraftDocument,
+    DraftSentence,
+    VerificationCheckType,
+    VerificationIssue,
+    VerificationResult,
+    VerificationStage,
 )
 from tools.verification.decision import decide
 

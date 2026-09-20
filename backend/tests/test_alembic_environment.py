@@ -4,9 +4,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+
+from alembic import command
 
 BACKEND = Path(__file__).resolve().parents[1]
 

@@ -4,8 +4,12 @@ RETRY_CRITIC은 백엔드의 별도 제한된 재검사 정책으로 처리한�
 재검사 상한 소진 시 백엔드는 교사 확인으로 전달하며 문서 재생성 횟수는 늘리지 않는다.
 """
 from tools.contracts import (
-    Decision, DecisionResult, DraftDocument, VerificationCheckType,
-    VerificationResult, VerificationStage,
+    Decision,
+    DecisionResult,
+    DraftDocument,
+    VerificationCheckType,
+    VerificationResult,
+    VerificationStage,
 )
 
 MAX_REGENERATIONS = 2

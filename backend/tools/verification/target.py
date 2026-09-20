@@ -10,8 +10,8 @@ from __future__ import annotations
 from tools.contracts import (
     AssignmentStatus,
     DraftDocument,
-    GenerationRequest,
     EvidenceItem,
+    GenerationRequest,
     VerificationCheckType,
     VerificationIssue,
 )

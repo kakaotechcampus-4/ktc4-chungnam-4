@@ -1,8 +1,8 @@
 """Create a private .env once without printing the generated password."""
 
-from pathlib import Path
 import os
 import secrets
+from pathlib import Path
 
 
 def main() -> None:
