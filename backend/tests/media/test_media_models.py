@@ -28,6 +28,7 @@ def _asset(**overrides) -> MediaAsset:
         "type": "photo",
         "captured_at": datetime.now(UTC),
         "storage_url": "s3://bucket/key",
+        "size_bytes": 3_500_000,
         "storage_tier": "original",
     }
     values.update(overrides)

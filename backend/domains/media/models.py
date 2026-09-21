@@ -1,12 +1,9 @@
 import uuid
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, String, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, Float, ForeignKey, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 
 from core.base import Base
-
-# TODO(donggeon): size_bytes는 테크스펙에 없는 필드라 아직 넣지 않았습니다.
-# 완료 통지 검증에 크기 확인이 필요하면 테크스펙부터 고친 뒤 추가합니다.
 
 
 class MediaAsset(Base):
@@ -27,6 +24,8 @@ class MediaAsset(Base):
     type = Column(String, nullable=False)  # photo / video / voice_memo
     captured_at = Column(DateTime(timezone=True), nullable=False)  # UTC 저장
     storage_url = Column(String, nullable=False)  # 학부모 열람과 초안 맥락 추출이 같은 객체를 공유
+    # 완료 통지를 믿지 않고 S3에 직접 물어본(HeadObject) 실제 크기. 통지가 오기 전엔 행을 만들지 않으므로 NOT NULL
+    size_bytes = Column(BigInteger, nullable=False)
     storage_tier = Column(String, nullable=False, default="original")  # original / degraded / deleted
     model_version = Column(String, nullable=True)  # 로컬 분류에 쓴 모델 버전. 교사 기기마다 다를 수 있음
 
