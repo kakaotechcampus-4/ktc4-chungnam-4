@@ -233,6 +233,27 @@ backend/
 **A·B·C 같은 기호로 부르지 않습니다.** AI 역할표에도 A·B·C가 있는데 이 표와 매핑이 다릅니다(AI 역할 C는 엄태은, 위 도메인 표의 C는 김동건). 두 표를 나란히 보면 반드시 헷갈리므로 실명으로만 적습니다.
 
 
+### 도메인이 소유하는 테이블
+
+데이터 모델 원본은 `docs/테크스펙.md` §데이터 모델입니다. 아래는 그 테이블이 **어느 도메인의 `models.py`에 들어가는지**만 정리한 것입니다.
+
+
+| 도메인            | 담당  | 테이블                                                                                     |
+| -------------- | --- | --------------------------------------------------------------------------------------- |
+| `auth`         | 엄태은 | Account, Teacher, Parent                                                                  |
+| `organization` | 이한나 | Center, Class, Child, ParentChildRelation, ConsentRecord, TeacherPersona, PersonaFeedback, EducationPlan |
+| `face`         | 김동건 | FaceEmbedding, EmbeddingLifecycleLog                                                      |
+| `media`        | 김동건 | MediaAsset, MediaChildLink, TranscriptSegment                                             |
+| `agents`       | 정은  | EvidenceBundle, SentenceEvidence, VerificationResult                                      |
+| `documents`    | 한상균 | DraftDocument, RevisionLog, UnclassifiedItem, Notice                                      |
+| `audit`        | 한상균 | AccessLog, DeletionLog                                                                    |
+
+
+- **남의 도메인 테이블을 직접 쿼리하지 않습니다.** 도메인 간에는 FK 참조까지만 하고, 필요한 조회·변경은 issue로 담당자에게 함수를 요청합니다 ([CLAUDE.md](CLAUDE.md) §계층 규칙).
+- `Child`는 전 도메인이 FK로 참조하는 중심 엔티티입니다. PK 타입·이름 변경은 face·media·agents 담당에게 먼저 알립니다.
+- `AccessLog`·`DeletionLog`는 다른 도메인에서 직접 INSERT하지 않고 audit의 서비스 함수를 통합니다(H-4).
+
+
 도메인 내부는 `models.py`, `schemas.py`, `router.py`, `service.py`를 기본으로 사용합니다. `**audit`에는 현재 `router.py`와 `schemas.py`가 없습니다.** 도메인별 상세 기능은 확정된 기능·API·ERD 명세를 따릅니다.
 
 ## 5. 공통 코드 사용 방법
