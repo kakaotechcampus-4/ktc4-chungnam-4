@@ -223,7 +223,13 @@ def _record_sentence_evidence(
     """통과한 초안의 문장별 근거를 남긴다 (FR-07).
 
     문장 하나가 근거를 여러 개 참조하면 (draft_id, sentence_index)가 같은 행을 여러 개
-    만든다 — 이 테이블엔 그 조합에 unique 제약이 없어 구조적으로 가능하다.
+    만든다 (정은-한상균 합의 9/16). evidence_id를 함께 저장해 같은 문장에 같은 근거가
+    중복으로 안 들어가게 (draft_id, sentence_index, evidence_id) unique 제약을 건다
+    (models.py SentenceEvidence — ai-data-contract.md "근거 ID·버전 연결과 유일성
+    규칙", 정은-한상균 합의 09/22).
+
+    활동계획 근거(source_type=activity_plan)는 media가 없어 source_media_id가
+    None이 된다 — models.py에서 nullable로 바꿔뒀다.
 
     source_timestamp는 EvidenceItem.start_ms(밀리초)를 초 단위로 바꾼 값이다 — "근거
     클릭 시 원본 영상 3초 재생"(테크스펙 SentenceEvidence)에서 재생 시작 지점으로 쓸
@@ -236,6 +242,7 @@ def _record_sentence_evidence(
                 SentenceEvidenceRow(
                     draft_id=document.draft_id,
                     sentence_index=index,
+                    evidence_id=evidence_id,
                     source_media_id=evidence.media_id,
                     source_timestamp=(
                         evidence.start_ms / 1000 if evidence.start_ms is not None else None

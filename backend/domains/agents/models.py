@@ -1,7 +1,7 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, Float, Integer, String
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 
 from core.base import Base
@@ -52,12 +52,29 @@ class EvidenceBundle(Base):
 
 
 class SentenceEvidence(Base):
+    """문장 하나가 근거를 여러 개 참조하면 (draft_id, sentence_index)가 같은 행을
+    여러 개 만든다 — 정은-한상균 합의(9/16, ai-data-contract.md "문장-근거 관계").
+
+    evidence_id는 tools.contracts.EvidenceItem.evidence_id를 그대로 저장한다 —
+    같은 문장에 같은 근거가 중복으로 안 들어가게 (draft_id, sentence_index,
+    evidence_id)에 unique 제약을 건다 (ai-data-contract.md "근거 ID·버전 연결과
+    유일성 규칙", 정은-한상균 합의 09/22).
+    """
+
     __tablename__ = "sentence_evidences"
+    __table_args__ = (
+        UniqueConstraint(
+            "draft_id", "sentence_index", "evidence_id", name="uq_sentence_evidence_ref"
+        ),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     draft_id = Column(UUID(as_uuid=True), nullable=False)
     sentence_index = Column(Integer, nullable=False)
-    source_media_id = Column(UUID(as_uuid=True), nullable=False)
+    evidence_id = Column(String, nullable=False)
+    # 활동계획 근거는 media가 없다 — source_activity_plan_id는 EvidenceBundle이
+    # 이미 갖고 있어(테크스펙 데이터 모델 ④) 여기 중복으로 안 둔다.
+    source_media_id = Column(UUID(as_uuid=True), nullable=True)
     source_timestamp = Column(
         Float, nullable=True
     )  # 사진 근거는 시간 구간이 없을 수 있음 (PR #7 계약)

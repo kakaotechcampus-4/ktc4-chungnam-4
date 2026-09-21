@@ -81,6 +81,7 @@ def test_verify_and_record_모든_검증을_통과하면_PASS를_반환하고_�
 
     sentence_rows = [obj for obj in session.added if isinstance(obj, service.SentenceEvidenceRow)]
     assert len(sentence_rows) == 1
+    assert sentence_rows[0].evidence_id == "ev_001"
     assert sentence_rows[0].source_media_id == EVIDENCE_CHILD_A.media_id
     assert sentence_rows[0].source_timestamp == EVIDENCE_CHILD_A.start_ms / 1000
     assert sentence_rows[0].source_text == EVIDENCE_CHILD_A.text
