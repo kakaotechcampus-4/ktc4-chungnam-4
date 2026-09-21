@@ -222,6 +222,16 @@ backend/
 | D · 정은  | `agents`             | AI 파이프라인, 작업 실행, LLM 연동     |
 | E · 한상균 | `documents`, `audit` | 문서 검토·승인·열람, 접근·파기 기록       |
 
+`tools/`와 `prompts/`는 도메인 바깥이라 위 표가 덮지 않습니다. 담당은 아래와 같습니다.
+
+| 담당  | 폴더                                                     | 역할                    |
+| --- | ------------------------------------------------------ | --------------------- |
+| 송유진 | `tools/perception/`, `prompts/perception/`               | 사진 분석·STT 결과 정규화      |
+| 엄태은 | `tools/evidence/`, `tools/generation/`, `prompts/generation/` | 근거 묶음 구성, 관찰일지·알림장 생성 |
+| 한상균 | `tools/verification/`, `prompts/verification/`           | 코드 검증, Critic, 재생성 판정 |
+
+**A·B·C 같은 기호로 부르지 않습니다.** AI 역할표에도 A·B·C가 있는데 이 표와 매핑이 다릅니다(AI 역할 C는 엄태은, 위 도메인 표의 C는 김동건). 두 표를 나란히 보면 반드시 헷갈리므로 실명으로만 적습니다.
+
 
 ### 도메인이 소유하는 테이블
 

@@ -75,7 +75,7 @@ router.py  →  service.py  →  models.py
 - 시간 컬럼은 전부 `timestamptz`, **UTC로 저장**합니다. 컨테이너·DB 타임존은 `Asia/Seoul`이지만 저장은 UTC입니다.
 - 상태 컬럼은 문자열 enum, 값은 소문자 snake_case (`draft`, `verified`, `approved`, `unclassified`).
 - **미승인 원본은 처리 후 즉시 파기하고 `DeletionLog`를 남깁니다** (NFR-04). 영구 저장은 교사 승인본만.
-- 승인본에 포함된 사진은 **졸업 후 1년**까지 보관합니다 (NFR-03). 기한은 `MediaAsset.retention_expires_at`.
+- **학부모 접근은 그 원아의 졸업 후 1년**까지입니다 (NFR-03). `MediaAsset`에 만료일 컬럼을 두지 않고 `Child.graduated_at`으로 조회 시점에 판정합니다 — 한 사진에 졸업일이 다른 원아가 여럿이면 만료일이 한 값으로 정해지지 않기 때문입니다. **파기는 귀속된 원아가 전원 만료된 사진만** 배치로 삭제합니다 (NFR-03-b, 09/19).
 - **`AccessLog`·`DeletionLog`는 append-only입니다.** 로그 자체에는 update·delete를 만들지 않습니다.
 - 마이그레이션은 전부 Alembic. **DB에 직접 DDL을 치지 않습니다.** 파일명은 `<revision>_add_draft_documents_status.py`처럼 읽히게.
 - **얼굴 임베딩은 AES 암호화 후 `bytea`로 저장하고, pgvector를 쓰지 않습니다.** 유사도는 담당 반의 등록·동의 원아만 조회해 메모리에서 계산합니다 (반당 6명 규모).
