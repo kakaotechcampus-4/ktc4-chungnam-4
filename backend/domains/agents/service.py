@@ -25,7 +25,9 @@ from tools.verification.target import validate_target
 MAX_CRITIC_RETRIES = 1
 
 GeneratedDraft = tuple[
-    contracts.DraftDocument, dict[str, contracts.EvidenceItem], contracts.GenerationRequest
+    contracts.DraftDocument,
+    dict[str, contracts.EvidenceItem],
+    contracts.GenerationRequest,
 ]
 
 
@@ -71,7 +73,9 @@ def _verify_with_critic_retry(
     상한을 다 쓰고도 Critic 응답 오류가 계속되면, 이 초안을 포기하고 재생성으로
     넘긴다 — CLAUDE.md에 이 경우의 처리가 정해져 있지 않아 내린 판단이다.
     """
-    result = _verify_and_record(session, document, evidence_by_id, request, regeneration_count)
+    result = _verify_and_record(
+        session, document, evidence_by_id, request, regeneration_count
+    )
     for critic_retry_count in range(1, MAX_CRITIC_RETRIES + 1):
         if result.decision != contracts.Decision.RETRY_CRITIC:
             return result
@@ -141,7 +145,10 @@ def _verify_and_record(
     tests/agents/fixtures/verification_flow.py의 verify_example과 같다.
     """
     code_checks = (
-        (contracts.VerificationStage.REFERENCES, validate_references(document, evidence_by_id)),
+        (
+            contracts.VerificationStage.REFERENCES,
+            validate_references(document, evidence_by_id),
+        ),
         (
             contracts.VerificationStage.TARGET,
             validate_target(document, evidence_by_id, request=request),
@@ -206,7 +213,9 @@ def _record_verification_issues(
                     draft_id=document.draft_id,
                     check_type=issue.check_type.value,
                     sentence_index=(
-                        sentence_index_by_id.get(issue.sentence_id) if issue.sentence_id else None
+                        sentence_index_by_id.get(issue.sentence_id)
+                        if issue.sentence_id
+                        else None
                     ),
                     result=False,
                     detail=issue.reason,
@@ -245,7 +254,9 @@ def _record_sentence_evidence(
                     evidence_id=evidence_id,
                     source_media_id=evidence.media_id,
                     source_timestamp=(
-                        evidence.start_ms / 1000 if evidence.start_ms is not None else None
+                        evidence.start_ms / 1000
+                        if evidence.start_ms is not None
+                        else None
                     ),
                     source_text=evidence.text,
                 )

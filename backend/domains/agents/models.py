@@ -1,7 +1,16 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, Float, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID
 
 from core.base import Base
@@ -102,7 +111,9 @@ class DraftDecisionLog(Base):
     reason = Column(String, nullable=False)
     regeneration_count = Column(Integer, nullable=False)
     critic_retry_count = Column(Integer, nullable=False, default=0)
-    checked_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
+    checked_at = Column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
 
 
 class VerificationResult(Base):
