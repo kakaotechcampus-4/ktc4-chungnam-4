@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Boolean, Column, DateTime, Float, String
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 
 from core.base import Base
@@ -49,11 +49,13 @@ class MediaChildLink(Base):
     """
 
     __tablename__ = "media_child_links"
+    # 같은 사진에 같은 원아를 두 번 귀속시키지 않습니다 — 중복 행이 생기면 근거 개수가 어긋납니다
+    __table_args__ = (UniqueConstraint("media_id", "child_id", name="uq_media_child"),)
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    # TODO(donggeon): media_assets.id·children.id로 ForeignKey 연결
-    media_id = Column(UUID(as_uuid=True), nullable=False)
-    child_id = Column(UUID(as_uuid=True), nullable=False)
+    media_id = Column(UUID(as_uuid=True), ForeignKey("media_assets.id"), nullable=False)
+    # TODO(donggeon): organization.Child 생성 후 ForeignKey("children.id") 연결 (합의된 FK)
+    child_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     # face_recognition(로컬 자동) / manual(로컬 수동). 09/15 호명 교차검증 폐기로 자동은 얼굴 단독입니다
     method = Column(String, nullable=False)
     # 자동 분류일 때만 채웁니다. manual이면 null — 자동 분류 정확도 계산의 기준이 됩니다
@@ -70,8 +72,7 @@ class TranscriptSegment(Base):
     __tablename__ = "transcript_segments"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    # TODO(donggeon): MediaAsset 확정 후 ForeignKey("media_assets.id") 연결
-    media_id = Column(UUID(as_uuid=True), nullable=False)
+    media_id = Column(UUID(as_uuid=True), ForeignKey("media_assets.id"), nullable=False, index=True)
     # TODO(donggeon): 인식 실패("멘트 없음") 건에 구간 값이 있는지 미정이라 우선 nullable
     start_time = Column(Float, nullable=True)  # 초 단위
     end_time = Column(Float, nullable=True)

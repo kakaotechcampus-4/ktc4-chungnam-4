@@ -81,3 +81,16 @@ def test_귀속_방법은_비워둘_수_없다(db: Session) -> None:
 
     with pytest.raises(IntegrityError):
         db.commit()
+
+
+def test_같은_사진에_같은_원아는_두_번_귀속되지_않는다(db: Session) -> None:
+    asset = _asset()
+    db.add(asset)
+    db.commit()
+    child_id = uuid.uuid4()
+    db.add(MediaChildLink(media_id=asset.id, child_id=child_id, method="manual"))
+    db.commit()
+
+    db.add(MediaChildLink(media_id=asset.id, child_id=child_id, method="face_recognition"))
+    with pytest.raises(IntegrityError):
+        db.commit()
