@@ -93,16 +93,25 @@ class EvidenceItem(ContractModel):
             self.source_type in (SourceType.PHOTO_OBSERVATION, SourceType.ACTIVITY_PLAN)
             and has_time_field
         ):
-            raise ValueError(f"{self.source_type} evidence must not have start_ms/end_ms")
+            raise ValueError(
+                f"{self.source_type} evidence must not have start_ms/end_ms"
+            )
         if self.source_type == SourceType.ACTIVITY_PLAN and self.media_id is not None:
             raise ValueError("activity_plan evidence must not have media_id")
         if self.source_type != SourceType.ACTIVITY_PLAN and self.media_id is None:
             raise ValueError(f"{self.source_type} evidence requires media_id")
-        if self.start_ms is not None and self.end_ms is not None and self.end_ms <= self.start_ms:
+        if (
+            self.start_ms is not None
+            and self.end_ms is not None
+            and self.end_ms <= self.start_ms
+        ):
             raise ValueError("end_ms must be greater than start_ms")
         if len(self.child_ids) != len(set(self.child_ids)):
             raise ValueError("duplicate child_ids")
-        if not self.child_ids and self.assignment_status != AssignmentStatus.NEEDS_CONFIRMATION:
+        if (
+            not self.child_ids
+            and self.assignment_status != AssignmentStatus.NEEDS_CONFIRMATION
+        ):
             raise ValueError("confirmed evidence requires child_ids")
         return self
 

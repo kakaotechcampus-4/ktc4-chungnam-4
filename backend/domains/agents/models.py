@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import JSON, Boolean, Column, DateTime, Float, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
@@ -22,12 +22,14 @@ class Job(Base):
     # pending / running / succeeded / failed
     status = Column(String, nullable=False, default="pending")
     retry_count = Column(Integer, nullable=False, default=0)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
     )
 
 
@@ -50,7 +52,9 @@ class SentenceEvidence(Base):
     draft_id = Column(UUID(as_uuid=True), nullable=False)
     sentence_index = Column(Integer, nullable=False)
     source_media_id = Column(UUID(as_uuid=True), nullable=False)
-    source_timestamp = Column(Float, nullable=True)  # 사진 근거는 시간 구간이 없을 수 있음 (PR #7 계약)
+    source_timestamp = Column(
+        Float, nullable=True
+    )  # 사진 근거는 시간 구간이 없을 수 있음 (PR #7 계약)
     source_text = Column(String, nullable=False)
 
 
@@ -63,7 +67,9 @@ class VerificationResult(Base):
     # plan_as_observed_fact, wrong_child_evidence, wrong_date_evidence, critic_content,
     # critic_response_error
     check_type = Column(String, nullable=False)
-    sentence_index = Column(Integer, nullable=True)  # 영역스타일 검사는 문서 전체라 null
+    sentence_index = Column(
+        Integer, nullable=True
+    )  # 영역스타일 검사는 문서 전체라 null
     # PR #7의 passed: bool과 맞춤
     result = Column(Boolean, nullable=False)
     detail = Column(String, nullable=True)

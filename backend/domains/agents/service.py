@@ -3,13 +3,18 @@
 tasks.py는 이 모듈의 orchestrate_drafts만 호출합니다 (CLAUDE.md: tasks.py는 로직을 갖지 않음).
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TypedDict
 
 from sqlalchemy.orm import Session
 
 from core.database import SessionLocal
-from domains.agents.models import EvidenceBundle, Job, SentenceEvidence, VerificationResult
+from domains.agents.models import (
+    EvidenceBundle,
+    Job,
+    SentenceEvidence,
+    VerificationResult,
+)
 
 MAX_GENERATION_ATTEMPTS = 2
 
@@ -42,7 +47,9 @@ def _get_job(session: Session, job_id: str) -> Job:
     return job
 
 
-def _collect_evidence(session: Session, child_id: str, target_date: datetime) -> EvidenceBundle:
+def _collect_evidence(
+    session: Session, child_id: str, target_date: datetime
+) -> EvidenceBundle:
     # TODO(eun): organization.Child 준비되면 발달 맥락을 조회해서 EvidenceBundle을 구성합니다.
     # 미디어는 MediaAsset을 여기서 직접 조회하지 않고 media.service.collect_media_for_llm(
     # session, child_id, target_date)를 호출해서 받습니다 — 동의 필터링(H-2)이 그 함수 안에서
@@ -77,7 +84,7 @@ def _verify_and_record(session: Session, sentences: list[GeneratedSentence]) -> 
                 check_type="missing_evidence_ref",
                 sentence_index=sentence["sentence_index"],
                 result=passed,
-                checked_at=datetime.now(timezone.utc),
+                checked_at=datetime.now(UTC),
             )
         )
         all_passed = all_passed and passed

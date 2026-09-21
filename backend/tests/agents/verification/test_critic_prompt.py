@@ -10,7 +10,11 @@ def test_프롬프트에_문장과_근거_텍스트가_포함된다():
         doc_type=DocType.OBSERVATION_LOG,
         child_id="child_A",
         record_date=RECORD_DATE,
-        sentences=[DraftSentence(sentence_id="s_01", text="탑을 만들었다", evidence_ids=["ev_001"])],
+        sentences=[
+            DraftSentence(
+                sentence_id="s_01", text="탑을 만들었다", evidence_ids=["ev_001"]
+            )
+        ],
     )
 
     prompt = build_critic_prompt(document, EVIDENCE_BY_ID)
@@ -24,7 +28,11 @@ def test_존재하지_않는_근거_참조는_프롬프트에서_제외한다():
         doc_type=DocType.OBSERVATION_LOG,
         child_id="child_A",
         record_date=RECORD_DATE,
-        sentences=[DraftSentence(sentence_id="s_01", text="지어낸 근거", evidence_ids=["ev_999"])],
+        sentences=[
+            DraftSentence(
+                sentence_id="s_01", text="지어낸 근거", evidence_ids=["ev_999"]
+            )
+        ],
     )
 
     prompt = build_critic_prompt(document, EVIDENCE_BY_ID)
@@ -39,7 +47,9 @@ def test_공동_근거는_shared_with_others로_표시된다():
         child_id="child_A",
         record_date=RECORD_DATE,
         sentences=[
-            DraftSentence(sentence_id="s_01", text="함께 정리했다", evidence_ids=["ev_003"])
+            DraftSentence(
+                sentence_id="s_01", text="함께 정리했다", evidence_ids=["ev_003"]
+            )
         ],
     )
 

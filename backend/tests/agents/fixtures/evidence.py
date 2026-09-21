@@ -93,4 +93,6 @@ SAMPLE_EVIDENCE_POOL: list[EvidenceItem] = [
     EVIDENCE_ACTIVITY_PLAN,
 ]
 
-EVIDENCE_BY_ID: dict[str, EvidenceItem] = {item.evidence_id: item for item in SAMPLE_EVIDENCE_POOL}
+EVIDENCE_BY_ID: dict[str, EvidenceItem] = {
+    item.evidence_id: item for item in SAMPLE_EVIDENCE_POOL
+}

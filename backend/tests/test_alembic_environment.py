@@ -4,9 +4,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+
+from alembic import command
 
 BACKEND = Path(__file__).resolve().parents[1]
 
@@ -17,17 +18,27 @@ def test_revision_history_starts_empty() -> None:
 
 
 def test_offline_sql_runs_from_another_directory(tmp_path: Path) -> None:
-    env = dict(os.environ, POSTGRES_PASSWORD="test@:/#% password", POSTGRES_HOST="invalid")
+    env = dict(
+        os.environ, POSTGRES_PASSWORD="test@:/#% password", POSTGRES_HOST="invalid"
+    )
     result = subprocess.run(
         [
-            sys.executable, "-m", "alembic", "-c", str(BACKEND / "alembic.ini"),
-            "upgrade", "head", "--sql",
+            sys.executable,
+            "-m",
+            "alembic",
+            "-c",
+            str(BACKEND / "alembic.ini"),
+            "upgrade",
+            "head",
+            "--sql",
         ],
         cwd=tmp_path,
         env=env,
         capture_output=True,
         text=True,
         timeout=30,
+        # 실패도 검사 대상이라 예외 대신 returncode로 확인합니다.
+        check=False,
     )
     assert result.returncode == 0, result.stderr
     assert "test@:/#% password" not in result.stdout + result.stderr
