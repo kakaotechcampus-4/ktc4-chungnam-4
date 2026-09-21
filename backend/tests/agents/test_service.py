@@ -1,12 +1,13 @@
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Self
 
 # Test collection must not depend on a developer's .env or running PostgreSQL.
 os.environ.setdefault("POSTGRES_PASSWORD", "test-only-password")
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-only-key")
 
-from domains.agents import service  # noqa: E402
+from domains.agents import service
 
 
 class FakeSession:
@@ -20,7 +21,7 @@ class FakeSession:
     def commit(self) -> None:
         self.committed = True
 
-    def __enter__(self) -> "FakeSession":
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *exc: object) -> bool:
@@ -45,7 +46,9 @@ def test_verify_and_record_passes_when_all_sentences_have_evidence() -> None:
 
     assert service._verify_and_record(session, sentences) is True
     assert session.committed
-    results = [obj for obj in session.added if isinstance(obj, service.VerificationResult)]
+    results = [
+        obj for obj in session.added if isinstance(obj, service.VerificationResult)
+    ]
     assert len(results) == 2
     assert all(result.result is True for result in results)
 
@@ -55,7 +58,9 @@ def test_verify_and_record_fails_when_a_sentence_has_no_evidence_ref() -> None:
     sentences = [_sentence(source_media_id="")]
 
     assert service._verify_and_record(session, sentences) is False
-    results = [obj for obj in session.added if isinstance(obj, service.VerificationResult)]
+    results = [
+        obj for obj in session.added if isinstance(obj, service.VerificationResult)
+    ]
     assert results[0].result is False
     assert results[0].check_type == "missing_evidence_ref"
 
@@ -65,19 +70,25 @@ def test_verify_and_record_fails_on_empty_draft() -> None:
 
 
 def _fake_job(**overrides: object) -> service.Job:
-    job = service.Job(target_date=datetime(2026, 9, 16, tzinfo=timezone.utc))
+    job = service.Job(target_date=datetime(2026, 9, 16, tzinfo=UTC))
     for key, value in overrides.items():
         setattr(job, key, value)
     return job
 
 
-def test_orchestrate_drafts_falls_back_to_unclassified_after_max_attempts(monkeypatch) -> None:
+def test_orchestrate_drafts_falls_back_to_unclassified_after_max_attempts(
+    monkeypatch,
+) -> None:
     unclassified_calls: list[tuple[str, str]] = []
 
     monkeypatch.setattr(service, "SessionLocal", FakeSession)
     monkeypatch.setattr(service, "_get_job", lambda session, job_id: _fake_job())
-    monkeypatch.setattr(service, "_collect_evidence", lambda session, child_id, target_date: object())
-    monkeypatch.setattr(service, "_generate_draft", lambda bundle: [_sentence(source_media_id="")])
+    monkeypatch.setattr(
+        service, "_collect_evidence", lambda session, child_id, target_date: object()
+    )
+    monkeypatch.setattr(
+        service, "_generate_draft", lambda bundle: [_sentence(source_media_id="")]
+    )
     monkeypatch.setattr(
         service,
         "_send_to_unclassified",
@@ -95,7 +106,9 @@ def test_orchestrate_drafts_returns_early_on_success(monkeypatch) -> None:
 
     monkeypatch.setattr(service, "SessionLocal", FakeSession)
     monkeypatch.setattr(service, "_get_job", lambda session, job_id: _fake_job())
-    monkeypatch.setattr(service, "_collect_evidence", lambda session, child_id, target_date: object())
+    monkeypatch.setattr(
+        service, "_collect_evidence", lambda session, child_id, target_date: object()
+    )
     monkeypatch.setattr(service, "_generate_draft", lambda bundle: [_sentence()])
     monkeypatch.setattr(service, "_send_to_unclassified", _fail_if_called)
 
