@@ -70,8 +70,9 @@ def _verify_with_critic_retry(
 ) -> contracts.DecisionResult:
     """RETRY_CRITIC만 MAX_CRITIC_RETRIES만큼 별도로 재시도한다.
 
-    상한을 다 쓰고도 Critic 응답 오류가 계속되면, 이 초안을 포기하고 재생성으로
-    넘긴다 — CLAUDE.md에 이 경우의 처리가 정해져 있지 않아 내린 판단이다.
+    상한을 다 쓰고도 Critic 응답 오류가 계속되면 NEEDS_TEACHER_REVIEW로 넘긴다.
+    Critic 응답 오류는 초안 문장 내용이 아니라 Critic 쪽 문제라 재생성으로는
+    해결되지 않는다 (PR #33 리뷰, EatRawLife).
     """
     result = _verify_and_record(
         session, document, evidence_by_id, request, regeneration_count
@@ -90,7 +91,7 @@ def _verify_with_critic_retry(
 
     if result.decision == contracts.Decision.RETRY_CRITIC:
         return contracts.DecisionResult(
-            decision=contracts.Decision.REGENERATE,
+            decision=contracts.Decision.NEEDS_TEACHER_REVIEW,
             reason="Critic 재시도 상한에 도달했습니다.",
             issues=result.issues,
         )
