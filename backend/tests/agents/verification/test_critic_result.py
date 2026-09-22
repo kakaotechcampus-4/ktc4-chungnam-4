@@ -11,9 +11,7 @@ def _document() -> DraftDocument:
         child_id="child_A",
         record_date=RECORD_DATE,
         sentences=[
-            DraftSentence(
-                sentence_id="s_01", text="탑을 만들었다", evidence_ids=["ev_001"]
-            ),
+            DraftSentence(sentence_id="s_01", text="탑을 만들었다", evidence_ids=["ev_001"]),
             DraftSentence(sentence_id="s_02", text="양보했다", evidence_ids=["ev_001"]),
         ],
     )

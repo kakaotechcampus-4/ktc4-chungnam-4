@@ -25,10 +25,7 @@ def decide(
 ) -> DecisionResult:
     if type(regeneration_count) is not int or regeneration_count < 0:
         raise ValueError("regeneration_count must be a non-negative integer")
-    if (
-        type(max_regenerations) is not int
-        or not 0 <= max_regenerations <= MAX_REGENERATIONS
-    ):
+    if type(max_regenerations) is not int or not 0 <= max_regenerations <= MAX_REGENERATIONS:
         raise ValueError("max_regenerations must be between 0 and 2")
     if regeneration_count > max_regenerations:
         raise ValueError("regeneration_count exceeds limit")

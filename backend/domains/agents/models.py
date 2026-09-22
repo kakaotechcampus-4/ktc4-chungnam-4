@@ -31,9 +31,7 @@ class Job(Base):
     # pending / running / succeeded / failed
     status = Column(String, nullable=False, default="pending")
     retry_count = Column(Integer, nullable=False, default=0)
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
-    )
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -111,9 +109,7 @@ class DraftDecisionLog(Base):
     reason = Column(String, nullable=False)
     regeneration_count = Column(Integer, nullable=False)
     critic_retry_count = Column(Integer, nullable=False, default=0)
-    checked_at = Column(
-        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
-    )
+    checked_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
 
 
 class VerificationResult(Base):
@@ -125,9 +121,7 @@ class VerificationResult(Base):
     # plan_as_observed_fact, wrong_child_evidence, wrong_date_evidence, critic_content,
     # critic_response_error
     check_type = Column(String, nullable=False)
-    sentence_index = Column(
-        Integer, nullable=True
-    )  # 영역스타일 검사는 문서 전체라 null
+    sentence_index = Column(Integer, nullable=True)  # 영역스타일 검사는 문서 전체라 null
     # PR #7의 passed: bool과 맞춤
     result = Column(Boolean, nullable=False)
     detail = Column(String, nullable=True)

@@ -18,9 +18,7 @@ def test_revision_history_starts_empty() -> None:
 
 
 def test_offline_sql_runs_from_another_directory(tmp_path: Path) -> None:
-    env = dict(
-        os.environ, POSTGRES_PASSWORD="test@:/#% password", POSTGRES_HOST="invalid"
-    )
+    env = dict(os.environ, POSTGRES_PASSWORD="test@:/#% password", POSTGRES_HOST="invalid")
     result = subprocess.run(
         [
             sys.executable,

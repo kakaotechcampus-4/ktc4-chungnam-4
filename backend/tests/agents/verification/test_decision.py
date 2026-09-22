@@ -50,9 +50,7 @@ def test_모든_검사_통과():
 )
 def test_재생성_상한(count, expected):
     assert (
-        decide(
-            results(VerificationCheckType.CRITIC_CONTENT), count, document=DOCUMENT
-        ).decision
+        decide(results(VerificationCheckType.CRITIC_CONTENT), count, document=DOCUMENT).decision
         == expected
     )
 
@@ -64,10 +62,7 @@ def test_마지막_재생성도_검증_통과시_통과():
 @pytest.mark.parametrize("subset", [[], [0], [0, 1], [0, 0, 2]])
 def test_누락과_중복은_통과하지_않는다(subset):
     checks = results()
-    assert (
-        decide([checks[i] for i in subset], 0, document=DOCUMENT).decision
-        != Decision.PASS
-    )
+    assert decide([checks[i] for i in subset], 0, document=DOCUMENT).decision != Decision.PASS
 
 
 @pytest.mark.parametrize(
@@ -77,16 +72,12 @@ def test_누락과_중복은_통과하지_않는다(subset):
 def test_다른_초안_결과_차단(changes):
     checks = results()
     checks[0] = checks[0].model_copy(update=changes)
-    assert (
-        decide(checks, 0, document=DOCUMENT).decision == Decision.NEEDS_TEACHER_REVIEW
-    )
+    assert decide(checks, 0, document=DOCUMENT).decision == Decision.NEEDS_TEACHER_REVIEW
 
 
 def test_Critic_오류는_문서_재생성과_분리():
     assert (
-        decide(
-            results(VerificationCheckType.CRITIC_RESPONSE_ERROR), 2, document=DOCUMENT
-        ).decision
+        decide(results(VerificationCheckType.CRITIC_RESPONSE_ERROR), 2, document=DOCUMENT).decision
         == Decision.RETRY_CRITIC
     )
 

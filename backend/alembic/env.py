@@ -17,9 +17,7 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
-def require_registered_models(
-    migration_context: Any, revision: Any, directives: list[Any]
-) -> None:
+def require_registered_models(migration_context: Any, revision: Any, directives: list[Any]) -> None:
     """모델 등록 전 자동 생성으로 잘못된 migration을 남기지 않습니다."""
     if not target_metadata.tables:
         raise CommandError(
