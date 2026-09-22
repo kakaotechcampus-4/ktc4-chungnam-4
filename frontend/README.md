@@ -17,6 +17,7 @@ pnpm dev
 ```
 
 - 개발 서버는 MSW 목 API가 기본으로 켜져 있어요. 끄려면 `.env.development.local`에 `VITE_USE_MSW=false`를 두세요.
+- 목을 끄면 `/api` 요청은 로컬 백엔드(`http://127.0.0.1:8000`)로 넘어가요. 다른 주소면 `API_PROXY_TARGET=http://... pnpm dev`로 띄우세요.
 - MSW는 서비스 워커를 써서 `localhost`에서만 동작해요. 사설 IP로 접속하면 목이 켜지지 않아요.
 
 ## 검사
@@ -47,7 +48,7 @@ frontend/src/
 ├── components/ui/       # shadcn 생성물
 ├── components/common/   # 공통 컴포넌트 (PageHeader, FocusCard, BrandLogo)
 ├── api/<도메인>.ts      # 요청 함수와 queryOptions (예정)
-├── lib/                 # utils(cn), datetime(한국 날짜·표기). api-client는 (예정)
+├── lib/                 # api-client, datetime(한국 날짜·표기), utils(cn)
 ├── types/api-draft/     # 인터페이스 명세를 옮긴 임시 타입 (예정)
 ├── styles/tokens.css    # 디자인 토큰
 ├── mocks/               # browser.ts, server.ts, handlers/, fixtures/(예정)
