@@ -52,7 +52,8 @@ router.py  →  service.py  →  models.py
 - 파일·모듈 `snake_case`, 클래스 `PascalCase`, 불리언은 `is_`/`has_`/`can_`.
 - 주석은 한국어. 코드로 설명되는 내용은 주석 대신 이름을 고칩니다.
 - 반은 `class_` 또는 `klass`로 씁니다 — `class`가 Python 예약어입니다 (루트 §도메인 용어).
-- 코드 변경을 마치면 `ruff check --fix && ruff format`을 돌리고 결과를 보고합니다. **아직 설치·설정되지 않았습니다** — `docs/open-questions.md` A 참고.
+- 코드 변경을 마치면 `ruff check --fix && ruff format`을 돌리고 결과를 보고합니다. 설정은 `backend/ruff.toml`이 원본입니다.
+- **PR을 올리면 `ruff check` · `ruff format --check` · `pytest`가 자동으로 돕니다** (`.github/workflows/ci.yml`). 셋 중 하나라도 실패한 상태로 머지하지 않습니다. 설치·실행 절차와 실패했을 때 읽는 법은 `backend/README.md` §린트와 포맷.
 
 ## 스키마와 예외
 
