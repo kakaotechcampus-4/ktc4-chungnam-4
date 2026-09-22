@@ -99,7 +99,7 @@
 - **원아별 하루 일과를 먼저 만들고 그걸 입력으로 초안 생성** (09/19, 토큰 절감) → 테크스펙 FR-27·파이프라인 5·6단계
 - **영상의 미동의 원아 확인은 교사가 직접** (09/19) → 테크스펙 §공통 규칙. 보조 기능은 could
 - **일정·식단 기능 제외** (09/19) → 테크스펙 §스펙 아웃
-- `EvidenceBundle.source_activity_plan_id`는 **FK 없이 UUID nullable + TODO**, `context_lookup`은 `developmental_guideline`·`persona` **고정 키 JSON** (09/19) → 테크스펙 데이터 모델 ④
+- `EvidenceBundle.source_activity_plan_id`는 **FK 없이 UUID nullable + TODO**, `context_lookup`은 `developmental_guideline`·`teacher_persona` **고정 키 JSON** (09/19 결정, 09/22 이슈 #16 코멘트 반영해 `persona`→`teacher_persona` 개명 — 원아 성향이 아니라 교사 문체) → 테크스펙 데이터 모델 ④
 
 **온디바이스 · 파이프라인**
 
