@@ -1,9 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { createBrowserRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
 
 import { AppProviders } from "@/app/AppProviders";
-import { router } from "@/app/router";
+import { routes } from "@/app/router";
 
 import "./index.css";
 
@@ -22,6 +23,8 @@ if (!rootElement) throw new Error("#root 요소가 없습니다.");
 void enableMocking()
   .catch((error: unknown) => console.warn("[MSW] 목 서버를 켜지 못했습니다.", error))
   .finally(() => {
+    // 라우터는 목 서버가 켜진 뒤에 만듭니다. 만드는 순간 첫 주소의 loader가 돕니다.
+    const router = createBrowserRouter(routes);
     createRoot(rootElement).render(
       <StrictMode>
         <AppProviders>
