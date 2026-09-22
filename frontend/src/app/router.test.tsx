@@ -1,12 +1,11 @@
-import { act, render, screen } from "@testing-library/react";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import { act, screen } from "@testing-library/react";
+
+import { renderRoutes } from "@/test/render";
 
 import { routes } from "./router";
 
 function renderAt(path: string) {
-  const router = createMemoryRouter(routes, { initialEntries: [path] });
-  render(<RouterProvider router={router} />);
-  return router;
+  return renderRoutes(routes, { initialEntry: path }).router;
 }
 
 describe("routes", () => {

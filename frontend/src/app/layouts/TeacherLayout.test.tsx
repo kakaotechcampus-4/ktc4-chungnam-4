@@ -1,14 +1,14 @@
-import { render, screen, within } from "@testing-library/react";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import { screen, within } from "@testing-library/react";
+
+import { renderRoutes } from "@/test/render";
 
 import { TeacherLayout } from "./TeacherLayout";
 
 function renderAt(path: string) {
-  const router = createMemoryRouter(
+  return renderRoutes(
     [{ path: "/t", Component: TeacherLayout, children: [{ path: "*", element: <p>본문</p> }] }],
-    { initialEntries: [path] },
+    { initialEntry: path },
   );
-  render(<RouterProvider router={router} />);
 }
 
 describe("TeacherLayout", () => {
