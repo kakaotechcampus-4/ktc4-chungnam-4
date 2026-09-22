@@ -17,7 +17,7 @@
 - 한 화면에서만 쓰면 `pages/<화면>/components/`, 두 화면 이상이면 올립니다 — **상태나 API 호출을 가지면 `features/<기능>/`, 순수 표현이면 `components/common/`**. 올릴 때는 이슈로 먼저 알립니다.
 - **빈 폴더와 빈 파일을 미리 만들지 않습니다.** 쓰는 PR에서 만듭니다.
 - 페이지 폴더는 `pages/<kebab-case>/`, 진입 컴포넌트는 폴더당 하나이고 `PascalCase.tsx`입니다 (`pages/landing/LandingPage.tsx`).
-- 라우트는 지금은 `app/router.tsx`에 한 줄 추가합니다(리뷰어에 FE 리드). 영역별 `app/routes/<영역>.ts`로 쪼갠 뒤에는 그 영역을 맡은 사람만 고치고 `router.tsx`는 조립만 합니다.
+- 라우트는 내 영역의 `app/routes/<영역>.ts`에 `{ path, Component }`로 등록합니다. 그 파일은 담당만 고치고, `router.tsx`는 조립만 합니다(FE 리드). 경로는 레이아웃 자리 기준 상대 경로입니다(교사는 `/t` 아래 `"today"`).
 - 주소는 교사 `/t/*`, 학부모 `/p/*`, 공개는 최상위(`/`, `/login`)입니다.
 
 ## 화면 만들기
@@ -26,7 +26,7 @@
 - Figma에 안이 두 개인 화면은 **원안으로 먼저** 만들고, 첫 줄 주석에 두 노드를 다 적습니다. 어느 안으로 갈지는 팀이 정합니다.
 - 함수 컴포넌트와 훅만 씁니다. 한 파일에 컴포넌트 하나(같이 쓰이는 아주 작은 서브 컴포넌트는 예외), props는 `interface XxxProps`로 파일 상단에 선언합니다.
 - 스타일은 Tailwind 유틸리티를 씁니다. **hex와 임의 값(`w-[437px]`)을 직접 쓰지 않습니다.** 색·글자 크기·폭은 `styles/tokens.css`의 토큰(`bg-canvas`, `text-body`, `max-w-app` 등)을 쓰고, 없는 값이 필요하면 FE 리드에게 요청합니다.
-- 교사 화면의 제목 줄은 `PageHeader`, 흰 카드 한 장으로 끝나는 화면은 `FocusCard`를 씁니다.
+- 교사 화면은 `TeacherLayout`(내비와 1200 폭)이 감쌉니다. 페이지는 제목 줄 `PageHeader`부터 시작하고, 흰 카드 한 장으로 끝나는 화면은 `FocusCard`를 씁니다.
 - 클래스를 합칠 때는 `@/lib/utils`의 `cn`을 씁니다. `"cn"` 패키지를 직접 쓰면 `text-body` 같은 토큰이 지워집니다(ESLint가 막습니다).
 
 ## 데이터
