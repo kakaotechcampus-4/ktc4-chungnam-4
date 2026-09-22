@@ -52,6 +52,7 @@ jobs:
             backend/domains/agents/        Eun0503
             backend/domains/documents/     Copi-stud
             backend/domains/audit/         Copi-stud
+            frontend/                      syujin2323
           # ────────────────────────────────────────────────────
         run: |
           set -euo pipefail
