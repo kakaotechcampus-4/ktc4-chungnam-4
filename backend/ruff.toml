@@ -11,3 +11,7 @@
 
 # Dockerfile(python:3.12-slim)과 의존성 컴파일 대상에 맞춥니다.
 target-version = "py312"
+
+# backend/CLAUDE.md §코드 스타일에 팀이 정해둔 값입니다. ruff 기본값은 88이라
+# 명시하지 않으면 문서와 어긋납니다.
+line-length = 100
