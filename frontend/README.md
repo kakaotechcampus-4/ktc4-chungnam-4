@@ -49,9 +49,9 @@ frontend/src/
 ├── components/common/   # 공통 컴포넌트 (PageHeader, FocusCard, BrandLogo)
 ├── api/<도메인>.ts      # 요청 함수와 queryOptions (예정)
 ├── lib/                 # api-client, datetime(한국 날짜·표기), utils(cn)
-├── types/api-draft/     # 인터페이스 명세를 옮긴 임시 타입 (예정)
+├── types/api-draft/     # API 문서 v0를 옮긴 임시 타입
 ├── styles/tokens.css    # 디자인 토큰
-├── mocks/               # browser.ts, server.ts, handlers/, fixtures/(예정)
+├── mocks/               # browser·server, handlers/(자동 수집), http.ts, scenario.ts. fixtures/는 (예정)
 ├── test/                # setup.ts, render.tsx
 └── workers/             # Web Worker, 온디바이스 모델 (예정)
 ```
@@ -81,9 +81,17 @@ frontend/src/
 - `/t`는 대시보드로 갑니다. 등록하지 않은 주소는 404가 뜹니다.
 - 로그인·온보딩 레이아웃은 원안과 후보 A 두 가지이고, `app/layouts/PublicLayout.tsx`의 기본값 한 줄로 바꿉니다.
 
+## 목 데이터
+
+- 핸들러는 `src/mocks/handlers/<도메인>.ts`에 `export const handlers = [...]`로 둡니다. 자동으로 모이니 `index.ts`는 고치지 않습니다. `handlers/` 안에는 핸들러 파일만 둡니다(`handlers` export가 없으면 에러가 납니다).
+- 경로는 `apiPath("/classes")`, 에러는 `errorResponse(403, "CLASS_ACCESS_DENIED", "…")`, 목록은 `listResponse(items)`로 만듭니다(`mocks/http.ts`).
+- 빈 상태·실패를 브라우저에서 보려면 주소에 `?mock=<도메인>.<상태>`를 붙입니다. 예: `/t/children?mock=organization.children-empty`. 화면을 옮겨도 유지되고, `?mock=`을 붙이거나 탭을 닫으면 꺼집니다. 핸들러에서는 `isMockScenario("organization.children-empty")`로 나눕니다.
+- 테스트는 시나리오 대신 `server.use(...)`로 그 테스트의 응답만 바꿉니다.
+- 목이 없는 API 요청은 브라우저 콘솔에 `[MSW] Warning: intercepted a request without a matching request handler`로 뜹니다.
+
 ## API 타입
 
-- 지금은 BE에 라우터가 없어서 타입을 `types/api-draft/<도메인>.ts`에 손으로 씁니다. 인터페이스 명세(노션)를 먼저 고치고 타입을 맞춥니다.
+- 지금은 BE에 라우터가 없어서 타입을 `types/api-draft/<도메인>.ts`에 손으로 씁니다. 인터페이스 명세(API 문서 v0, 확정 후 노션으로 옮김)를 먼저 고치고 타입을 맞춥니다.
 - BE 라우터가 생기면 OpenAPI에서 `types/api.ts`를 생성하고, 도메인별로 `api-draft`를 생성 타입의 별칭으로 바꾼 뒤 `api-draft`를 지웁니다.
 
 ## 자주 막히는 것
