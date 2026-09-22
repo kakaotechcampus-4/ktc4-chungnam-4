@@ -45,9 +45,7 @@ def _load_key(key_ref: str) -> bytes:
         raise EmbeddingKeyNotConfigured("FACE_EMBEDDING_KEY is not set")
 
     try:
-        key = base64.b64decode(
-            settings.face_embedding_key.get_secret_value(), validate=True
-        )
+        key = base64.b64decode(settings.face_embedding_key.get_secret_value(), validate=True)
     except binascii.Error as error:
         # .env.example의 안내 문구가 그대로 들어온 경우가 대부분입니다. 위 `is None` 검사는
         # 값이 "있으므로" 통과하고 여기서 터지므로, 무엇을 해야 하는지 메시지로 알려줍니다.
@@ -90,9 +88,7 @@ def decrypt_embedding(embedding_enc: bytes, key_ref: str) -> list[float]:
 
     version = embedding_enc[0]
     if version != _FORMAT_VERSION:
-        raise EmbeddingDecryptionFailed(
-            f"Unsupported embedding format version: {version}"
-        )
+        raise EmbeddingDecryptionFailed(f"Unsupported embedding format version: {version}")
 
     key = _load_key(key_ref)
     nonce = embedding_enc[1:_HEADER_SIZE]
@@ -100,14 +96,10 @@ def decrypt_embedding(embedding_enc: bytes, key_ref: str) -> list[float]:
         plaintext = AESGCM(key).decrypt(nonce, embedding_enc[_HEADER_SIZE:], None)
     except InvalidTag as error:
         # 위조·훼손·키 불일치를 구분하지 않습니다. 구분 정보를 주면 공격자에게 단서가 됩니다
-        raise EmbeddingDecryptionFailed(
-            "Stored embedding failed integrity check"
-        ) from error
+        raise EmbeddingDecryptionFailed("Stored embedding failed integrity check") from error
 
     if len(plaintext) % _FLOAT_SIZE != 0:
-        raise EmbeddingDecryptionFailed(
-            "Decrypted embedding length is not a multiple of float32"
-        )
+        raise EmbeddingDecryptionFailed("Decrypted embedding length is not a multiple of float32")
     return list(struct.unpack(f"<{len(plaintext) // _FLOAT_SIZE}f", plaintext))
 
 
@@ -193,13 +185,9 @@ def load_embedding_cache(db: Session, class_id: UUID) -> dict[UUID, list[float]]
     if not consented:
         return {}
 
-    rows = db.scalars(
-        select(FaceEmbedding).where(FaceEmbedding.child_id.in_(consented))
-    ).all()
+    rows = db.scalars(select(FaceEmbedding).where(FaceEmbedding.child_id.in_(consented))).all()
     _record_access(db, [row.child_id for row in rows])
-    return {
-        row.child_id: decrypt_embedding(row.embedding_enc, row.key_ref) for row in rows
-    }
+    return {row.child_id: decrypt_embedding(row.embedding_enc, row.key_ref) for row in rows}
 
 
 def get_embedded_child_ids(db: Session, child_ids: Sequence[UUID]) -> set[UUID]:
@@ -210,7 +198,5 @@ def get_embedded_child_ids(db: Session, child_ids: Sequence[UUID]) -> set[UUID]:
     """
     if not child_ids:
         return set()
-    rows = db.scalars(
-        select(FaceEmbedding.child_id).where(FaceEmbedding.child_id.in_(child_ids))
-    )
+    rows = db.scalars(select(FaceEmbedding.child_id).where(FaceEmbedding.child_id.in_(child_ids)))
     return set(rows)

@@ -52,21 +52,14 @@ def save_attributions(
         # 뜻합니다. 한쪽만 검사하면 face_recognition + null이 저장되고, 정확도 집계에서
         # 그 행이 조용히 빠집니다(AVG가 null을 건너뜁니다).
         if attribution.method == "manual" and attribution.confidence_score is not None:
-            raise InvalidAttributionMethod(
-                "manual attribution must not carry a confidence score"
-            )
-        if (
-            attribution.method == "face_recognition"
-            and attribution.confidence_score is None
-        ):
+            raise InvalidAttributionMethod("manual attribution must not carry a confidence score")
+        if attribution.method == "face_recognition" and attribution.confidence_score is None:
             raise InvalidAttributionMethod(
                 "face_recognition attribution must carry a confidence score"
             )
 
     existing = set(
-        db.scalars(
-            select(MediaChildLink.child_id).where(MediaChildLink.media_id == media_id)
-        )
+        db.scalars(select(MediaChildLink.child_id).where(MediaChildLink.media_id == media_id))
     )
     saved = []
     for attribution in attributions:

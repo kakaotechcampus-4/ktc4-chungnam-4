@@ -29,9 +29,7 @@ class Settings(BaseSettings):
     # 얼굴 임베딩 AES 키 (NFR-01). base64로 인코딩한 32바이트.
     # TODO(donggeon): KMS 연동 전까지 쓰는 로컬 키입니다. 키 관리 방식 확정 후 교체.
     face_embedding_key: SecretStr | None = None
-    face_embedding_key_ref: str = (
-        "local-dev-1"  # FaceEmbedding.key_ref에 저장되는 키 식별자
-    )
+    face_embedding_key_ref: str = "local-dev-1"  # FaceEmbedding.key_ref에 저장되는 키 식별자
 
     # TODO(태은): AI 기능 배포 전에는 키 누락을 차단하도록 필수값 검증을 추가합니다.
     # Redis·worker 연습은 AI 호출 없이 실행하므로 현재는 빈 값을 허용합니다.

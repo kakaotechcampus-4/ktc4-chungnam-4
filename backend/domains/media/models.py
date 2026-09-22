@@ -32,9 +32,7 @@ class MediaAsset(Base):
     teacher_id = Column(UUID(as_uuid=True), nullable=False)
     type = Column(String, nullable=False)  # photo / video / voice_memo
     captured_at = Column(DateTime(timezone=True), nullable=False)  # UTC 저장
-    storage_url = Column(
-        String, nullable=False
-    )  # 학부모 열람과 초안 맥락 추출이 같은 객체를 공유
+    storage_url = Column(String, nullable=False)  # 학부모 열람과 초안 맥락 추출이 같은 객체를 공유
     # 완료 통지를 믿지 않고 S3에 직접 물어본(HeadObject) 실제 크기. 통지가 오기 전엔 행을 만들지 않으므로 NOT NULL
     size_bytes = Column(BigInteger, nullable=False)
     storage_tier = Column(
@@ -86,9 +84,7 @@ class TranscriptSegment(Base):
     __tablename__ = "transcript_segments"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    media_id = Column(
-        UUID(as_uuid=True), ForeignKey("media_assets.id"), nullable=False, index=True
-    )
+    media_id = Column(UUID(as_uuid=True), ForeignKey("media_assets.id"), nullable=False, index=True)
     # TODO(donggeon): 인식 실패("멘트 없음") 건에 구간 값이 있는지 미정이라 우선 nullable
     start_time = Column(Float, nullable=True)  # 초 단위
     end_time = Column(Float, nullable=True)

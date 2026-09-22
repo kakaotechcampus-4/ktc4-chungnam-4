@@ -20,9 +20,7 @@ from domains.media.service import (
 @pytest.fixture
 def db() -> Session:
     engine = create_engine("sqlite://")
-    Base.metadata.create_all(
-        engine, tables=[MediaAsset.__table__, MediaChildLink.__table__]
-    )
+    Base.metadata.create_all(engine, tables=[MediaAsset.__table__, MediaChildLink.__table__])
     with Session(engine) as session:
         yield session
 
@@ -44,9 +42,7 @@ def asset(db: Session) -> MediaAsset:
     return asset
 
 
-def test_귀속_결과와_LLM_허용_여부가_함께_저장된다(
-    db: Session, asset: MediaAsset
-) -> None:
+def test_귀속_결과와_LLM_허용_여부가_함께_저장된다(db: Session, asset: MediaAsset) -> None:
     child_id = uuid.uuid4()
 
     saved = save_attributions(
@@ -60,28 +56,18 @@ def test_귀속_결과와_LLM_허용_여부가_함께_저장된다(
     assert asset.llm_allowed is True
 
 
-def test_교사가_확정하지_않으면_LLM_경로에서_빠진다(
-    db: Session, asset: MediaAsset
-) -> None:
+def test_교사가_확정하지_않으면_LLM_경로에서_빠진다(db: Session, asset: MediaAsset) -> None:
     """외부 인물이 남은 사진은 귀속이 끝나도 LLM에 나가면 안 됩니다 (H-2)."""
-    save_attributions(
-        db, asset.id, [Attribution(uuid.uuid4(), "manual")], llm_allowed=False
-    )
+    save_attributions(db, asset.id, [Attribution(uuid.uuid4(), "manual")], llm_allowed=False)
 
     assert asset.llm_allowed is False
 
 
-def test_같은_요청이_두_번_와도_행이_늘지_않는다(
-    db: Session, asset: MediaAsset
-) -> None:
+def test_같은_요청이_두_번_와도_행이_늘지_않는다(db: Session, asset: MediaAsset) -> None:
     child_id = uuid.uuid4()
-    save_attributions(
-        db, asset.id, [Attribution(child_id, "manual")], llm_allowed=False
-    )
+    save_attributions(db, asset.id, [Attribution(child_id, "manual")], llm_allowed=False)
 
-    saved = save_attributions(
-        db, asset.id, [Attribution(child_id, "manual")], llm_allowed=False
-    )
+    saved = save_attributions(db, asset.id, [Attribution(child_id, "manual")], llm_allowed=False)
 
     assert saved == []
 
@@ -103,9 +89,7 @@ def test_수동_귀속에는_신뢰도를_붙일_수_없다(db: Session, asset: 
         )
 
 
-def test_자동_귀속에는_신뢰도가_반드시_있어야_한다(
-    db: Session, asset: MediaAsset
-) -> None:
+def test_자동_귀속에는_신뢰도가_반드시_있어야_한다(db: Session, asset: MediaAsset) -> None:
     """신뢰도가 null이면 정확도 집계에서 그 행이 조용히 빠집니다 (테크스펙 5-6주차)."""
     with pytest.raises(InvalidAttributionMethod):
         save_attributions(
@@ -116,9 +100,7 @@ def test_자동_귀속에는_신뢰도가_반드시_있어야_한다(
         )
 
 
-def test_검사에_걸리면_아무_행도_저장되지_않는다(
-    db: Session, asset: MediaAsset
-) -> None:
+def test_검사에_걸리면_아무_행도_저장되지_않는다(db: Session, asset: MediaAsset) -> None:
     """검증을 저장보다 먼저 끝냅니다 — 앞쪽 몇 건만 들어간 상태로 남으면 안 됩니다."""
     with pytest.raises(InvalidAttributionMethod):
         save_attributions(

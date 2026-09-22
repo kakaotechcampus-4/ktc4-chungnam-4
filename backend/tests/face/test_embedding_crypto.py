@@ -74,6 +74,4 @@ def test_키_자리에_안내_문구가_남아_있으면_설정_누락으로_올
         encrypt_embedding([0.1, 0.2, 0.3])
 
     assert "base64" in str(error.value)  # 생성 명령을 함께 안내합니다
-    assert "replace-with-a-generated-base64-key" not in str(
-        error.value
-    )  # 키 값 미포함 (H-4)
+    assert "replace-with-a-generated-base64-key" not in str(error.value)  # 키 값 미포함 (H-4)

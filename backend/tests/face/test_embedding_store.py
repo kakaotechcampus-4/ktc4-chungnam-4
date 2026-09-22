@@ -41,14 +41,10 @@ def db() -> Session:
 def test_등록하면_암호문으로_저장되고_이력이_남는다(db: Session) -> None:
     child_id = uuid.uuid4()
 
-    embedding = service.register_embedding(
-        db, child_id, VECTOR, model_version="buffalo_l-1.0"
-    )
+    embedding = service.register_embedding(db, child_id, VECTOR, model_version="buffalo_l-1.0")
     db.commit()
 
-    assert (
-        VECTOR[0] != 0 and bytes(str(VECTOR[0]), "utf-8") not in embedding.embedding_enc
-    )
+    assert VECTOR[0] != 0 and bytes(str(VECTOR[0]), "utf-8") not in embedding.embedding_enc
     logs = db.query(EmbeddingLifecycleLog).all()
     assert [log.event_type for log in logs] == ["register"]
 
@@ -77,9 +73,7 @@ def test_동의한_원아의_임베딩만_캐시로_내려간다(
     for child_id in (동의한_원아, 미동의_원아):
         service.register_embedding(db, child_id, VECTOR, model_version="buffalo_l-1.0")
     db.commit()
-    monkeypatch.setattr(
-        service, "_consented_child_ids", lambda db, class_id: [동의한_원아]
-    )
+    monkeypatch.setattr(service, "_consented_child_ids", lambda db, class_id: [동의한_원아])
     monkeypatch.setattr(service, "_record_access", lambda db, child_ids: None)
 
     cache = service.load_embedding_cache(db, uuid.uuid4())
