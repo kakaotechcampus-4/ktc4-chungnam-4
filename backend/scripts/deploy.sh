@@ -39,8 +39,10 @@ echo "== 3/6 이미지 빌드 =="
 docker compose build
 
 echo "== 4/6 postgres·redis 기동 =="
-# 앱보다 먼저 띄우고 healthy를 확인합니다. compose의 depends_on이 기다려 줍니다.
-docker compose up -d --wait postgres redis
+# 앱보다 먼저 띄우고 healthy를 확인합니다.
+# --wait-timeout이 없으면 healthy에 못 들어갈 때 무한 대기합니다. 워크플로는
+# 20분 뒤 실패로 끝나지만 서버의 프로세스는 계속 살아 다음 배포를 막습니다.
+docker compose up -d --wait --wait-timeout 180 postgres redis
 
 echo "== 5/6 마이그레이션 =="
 docker compose run --rm api alembic upgrade head
@@ -50,8 +52,14 @@ docker compose up -d
 docker compose ps
 
 echo "== 헬스 체크 =="
+# compose는 호스트 포트를 ${API_PORT:-8000}로 엽니다. 8000을 박아두면 .env에서
+# 포트를 바꿨을 때 앱은 멀쩡한데 배포만 실패로 끝납니다.
+API_PORT=$(sed -n 's/^API_PORT=//p' "$COMPOSE_DIR/.env" | tail -1 | tr -d '"'"'"' ')
+API_PORT=${API_PORT:-8000}
+echo "헬스 체크 포트: $API_PORT"
+
 for _ in $(seq 1 30); do
-    if curl -fsS localhost:8000/health/db; then
+    if curl -fsS "localhost:${API_PORT}/health/db"; then
         echo
         echo "배포 성공"
         exit 0

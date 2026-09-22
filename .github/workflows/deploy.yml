@@ -50,7 +50,19 @@ jobs:
           git reset --hard ${GITHUB_SHA}
           bash backend/scripts/deploy.sh"
 
-          PARAMS=$(jq -n --arg s "runuser -l ubuntu -c '${SCRIPT}'" '{commands: [$s]}')
+          # 스크립트를 따옴표 안에 그대로 끼워 넣으면 값에 따옴표가 섞이는 순간
+          # 명령이 조용히 깨집니다. base64로 실어 보내면 문자 집합에 따옴표가
+          # 없어 안전하고, 서버에서 실행할 명령은 변수 없는 고정 문자열이 됩니다.
+          ENCODED=$(printf '%s' "$SCRIPT" | base64 -w0)
+
+          REMOTE="set -e
+          trap 'rm -f /tmp/aidam-deploy.sh' EXIT
+          umask 077
+          printf '%s' '${ENCODED}' | base64 -d > /tmp/aidam-deploy.sh
+          chown ubuntu:ubuntu /tmp/aidam-deploy.sh
+          runuser -l ubuntu -c 'bash /tmp/aidam-deploy.sh'"
+
+          PARAMS=$(jq -n --arg s "$REMOTE" '{commands: [$s]}')
 
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$EC2_INSTANCE_ID" \
@@ -67,11 +79,24 @@ jobs:
         id: wait
         run: |
           # 빌드가 오래 걸려 aws ssm wait는 못 씁니다(최대 100초). 직접 폅니다.
+          #
+          # 조회 실패를 전부 "아직 진행 중"으로 삼키면, 권한이 없을 때도 20분을
+          # 채우고서야 실패합니다. 명령이 아직 등록되지 않은 경우만 재시도하고
+          # 나머지 오류는 즉시 멈춥니다.
+          STATUS=Pending
           for _ in $(seq 1 120); do
-            STATUS=$(aws ssm get-command-invocation \
-              --command-id "${{ steps.send.outputs.command_id }}" \
-              --instance-id "$EC2_INSTANCE_ID" \
-              --query Status --output text 2>/dev/null || echo Pending)
+            if OUT=$(aws ssm get-command-invocation \
+                --command-id "${{ steps.send.outputs.command_id }}" \
+                --instance-id "$EC2_INSTANCE_ID" \
+                --query Status --output text 2>&1); then
+              STATUS="$OUT"
+            elif printf '%s' "$OUT" | grep -q InvocationDoesNotExist; then
+              STATUS=Pending   # 전달 직후 잠시 나타납니다
+            else
+              echo "명령 상태를 조회하지 못했습니다:"
+              echo "$OUT"
+              exit 1
+            fi
             case "$STATUS" in
               Success|Failed|Cancelled|TimedOut) break ;;
             esac
@@ -107,8 +132,9 @@ jobs:
         with:
           script: |
             // NFR-15: 배포된 버전을 태그로 식별해 그 코드로 되돌릴 수 있게 합니다.
-            // 서버의 옛 이미지는 디스크 확보를 위해 자동 정리되지만,
-            // 태그가 있으면 그 커밋으로 다시 빌드할 수 있습니다.
+            // 서버의 옛 이미지는 배포가 아니라 EC2의 cron이 매일 04:00에
+            // 정리합니다(docker system prune -af --filter until=168h).
+            // 이미지가 없어져도 태그가 있으면 그 커밋으로 다시 빌드할 수 있습니다.
             const now = new Date(Date.now() + 9 * 60 * 60 * 1000);  // KST
             const stamp = now.toISOString().slice(0, 16).replace(/[-T:]/g, '').replace(/(\d{8})(\d{4})/, '$1-$2');
             await github.rest.git.createRef({
