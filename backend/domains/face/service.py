@@ -8,6 +8,7 @@
 """
 
 import base64
+import binascii
 import os
 import struct
 from collections.abc import Sequence
@@ -44,7 +45,16 @@ def _load_key(key_ref: str) -> bytes:
     if settings.face_embedding_key is None:
         raise EmbeddingKeyNotConfigured("FACE_EMBEDDING_KEY is not set")
 
-    key = base64.b64decode(settings.face_embedding_key.get_secret_value(), validate=True)
+    try:
+        key = base64.b64decode(settings.face_embedding_key.get_secret_value(), validate=True)
+    except binascii.Error as error:
+        # .env.example의 안내 문구가 그대로 들어온 경우가 대부분입니다. 위 `is None` 검사는
+        # 값이 "있으므로" 통과하고 여기서 터지므로, 무엇을 해야 하는지 메시지로 알려줍니다.
+        # 키 값 자체는 메시지에 넣지 않습니다 (H-4).
+        raise EmbeddingKeyNotConfigured(
+            "FACE_EMBEDDING_KEY is not valid base64. Generate one with: "
+            'python3 -c "import base64,os;print(base64.b64encode(os.urandom(32)).decode())"'
+        ) from error
     if len(key) != _KEY_SIZE:
         raise EmbeddingKeyNotConfigured(f"FACE_EMBEDDING_KEY must be {_KEY_SIZE} bytes when decoded")
     return key
