@@ -49,10 +49,14 @@ def save_attributions(
         if attribution.method not in _ALLOWED_METHODS:
             raise InvalidAttributionMethod(f"Unknown method: {attribution.method}")
         if attribution.method == "manual" and attribution.confidence_score is not None:
-            raise InvalidAttributionMethod("manual attribution must not carry a confidence score")
+            raise InvalidAttributionMethod(
+                "manual attribution must not carry a confidence score"
+            )
 
     existing = set(
-        db.scalars(select(MediaChildLink.child_id).where(MediaChildLink.media_id == media_id))
+        db.scalars(
+            select(MediaChildLink.child_id).where(MediaChildLink.media_id == media_id)
+        )
     )
     saved = []
     for attribution in attributions:

@@ -1,6 +1,15 @@
 import uuid
 
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, Float, ForeignKey, String, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID
 
 from core.base import Base
@@ -23,11 +32,17 @@ class MediaAsset(Base):
     teacher_id = Column(UUID(as_uuid=True), nullable=False)
     type = Column(String, nullable=False)  # photo / video / voice_memo
     captured_at = Column(DateTime(timezone=True), nullable=False)  # UTC 저장
-    storage_url = Column(String, nullable=False)  # 학부모 열람과 초안 맥락 추출이 같은 객체를 공유
+    storage_url = Column(
+        String, nullable=False
+    )  # 학부모 열람과 초안 맥락 추출이 같은 객체를 공유
     # 완료 통지를 믿지 않고 S3에 직접 물어본(HeadObject) 실제 크기. 통지가 오기 전엔 행을 만들지 않으므로 NOT NULL
     size_bytes = Column(BigInteger, nullable=False)
-    storage_tier = Column(String, nullable=False, default="original")  # original / degraded / deleted
-    model_version = Column(String, nullable=True)  # 로컬 분류에 쓴 모델 버전. 교사 기기마다 다를 수 있음
+    storage_tier = Column(
+        String, nullable=False, default="original"
+    )  # original / degraded / deleted
+    model_version = Column(
+        String, nullable=True
+    )  # 로컬 분류에 쓴 모델 버전. 교사 기기마다 다를 수 있음
 
     # 이 파일을 LLM 경로에 넘겨도 되는지 (H-2). 옆 반 아이·외부 성인·미동의 원아가 남아 있으면 false.
     # 교사가 검수에서 확정해야 true가 됩니다 — 값이 없거나 애매하면 제외되는 쪽으로 실패시키려고
@@ -71,7 +86,9 @@ class TranscriptSegment(Base):
     __tablename__ = "transcript_segments"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    media_id = Column(UUID(as_uuid=True), ForeignKey("media_assets.id"), nullable=False, index=True)
+    media_id = Column(
+        UUID(as_uuid=True), ForeignKey("media_assets.id"), nullable=False, index=True
+    )
     # TODO(donggeon): 인식 실패("멘트 없음") 건에 구간 값이 있는지 미정이라 우선 nullable
     start_time = Column(Float, nullable=True)  # 초 단위
     end_time = Column(Float, nullable=True)

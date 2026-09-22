@@ -8,7 +8,12 @@ import pytest
 
 @pytest.mark.parametrize(
     "module_name",
-    ["core.base", "domains.agents.models", "domains.face.models", "domains.media.models"],
+    [
+        "core.base",
+        "domains.agents.models",
+        "domains.face.models",
+        "domains.media.models",
+    ],
 )
 def test_model_import_does_not_initialize_database(module_name: str) -> None:
     # 별도 프로세스에서 검사해 다른 테스트의 설정 로딩과 모듈 캐시를 배제합니다.

@@ -15,7 +15,9 @@ from domains.media.models import MediaAsset, MediaChildLink
 @pytest.fixture
 def db() -> Session:
     engine = create_engine("sqlite://")
-    Base.metadata.create_all(engine, tables=[MediaAsset.__table__, MediaChildLink.__table__])
+    Base.metadata.create_all(
+        engine, tables=[MediaAsset.__table__, MediaChildLink.__table__]
+    )
     with Session(engine) as session:
         yield session
 
@@ -92,6 +94,8 @@ def test_같은_사진에_같은_원아는_두_번_귀속되지_않는다(db: Se
     db.add(MediaChildLink(media_id=asset.id, child_id=child_id, method="manual"))
     db.commit()
 
-    db.add(MediaChildLink(media_id=asset.id, child_id=child_id, method="face_recognition"))
+    db.add(
+        MediaChildLink(media_id=asset.id, child_id=child_id, method="face_recognition")
+    )
     with pytest.raises(IntegrityError):
         db.commit()
