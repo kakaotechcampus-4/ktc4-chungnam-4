@@ -44,12 +44,12 @@ frontend/src/
 │   └── layouts/         # 교사·공개·온보딩·학부모 레이아웃 (예정)
 ├── pages/<화면>/        # 라우트 1:1. components/, hooks/는 필요할 때
 ├── features/<기능>/     # 화면을 넘나드는 단위 (예정: onboarding, upload-queue, pipeline, review, ondevice)
-├── components/ui/       # shadcn 생성물 (예정)
-├── components/common/   # 공통 컴포넌트 (예정)
+├── components/ui/       # shadcn 생성물
+├── components/common/   # 공통 컴포넌트 (PageHeader, FocusCard)
 ├── api/<도메인>.ts      # 요청 함수와 queryOptions (예정)
-├── lib/                 # api-client, datetime, util (예정)
+├── lib/                 # utils(cn). api-client, datetime은 (예정)
 ├── types/api-draft/     # 인터페이스 명세를 옮긴 임시 타입 (예정)
-├── styles/tokens.css    # 디자인 토큰 (예정)
+├── styles/tokens.css    # 디자인 토큰
 ├── mocks/               # browser.ts, server.ts, handlers/, fixtures/(예정)
 ├── test/                # setup.ts, render.tsx
 └── workers/             # Web Worker, 온디바이스 모델 (예정)
@@ -61,7 +61,7 @@ frontend/src/
 2. 내가 맡은 화면은 [화면 담당 분담표](https://www.figma.com/design/dqI6azS36WWcU7MYEH7PVq/%EC%95%84%EC%9D%B4%EB%8B%B4-%C2%B7-%EB%8B%B4%EB%8B%B9%EB%B3%84-%ED%99%94%EB%A9%B4--%ED%99%95%EC%A0%95-?node-id=1-144)에서 확인합니다. 화면 원본은 같은 파일의 담당자 섹션(①~⑤)에 있습니다.
 3. `src/pages/<kebab-case>/<Name>Page.tsx`를 만들고 첫 줄에 노드를 적습니다: `// Figma: 1:1895`
 4. `src/app/router.tsx`에 라우트 한 줄을 추가합니다(교사 `/t/*`, 학부모 `/p/*`, 공개는 최상위).
-5. 스타일은 Tailwind 유틸리티만 씁니다. 디자인 토큰이 들어오기 전까지 hex는 쓰지 않습니다.
+5. 제목은 `PageHeader`, 흰 카드 한 장은 `FocusCard`로 만들고, 스타일은 토큰 유틸리티만 씁니다(hex 금지).
 6. 데이터가 필요하면 `types/api-draft/<도메인>.ts` → `api/<도메인>.ts` → `mocks/handlers/<도메인>.ts` + `mocks/fixtures/<도메인>.ts` 순서로 만듭니다.
 7. `<Name>Page.test.tsx`를 만들어 `renderRoute`와 MSW로 성공 1개, 빈 상태나 실패 1개를 확인합니다.
 8. `pnpm check`를 통과시키고 PR을 올립니다. 300줄 이하, 요구사항 ID, Figma 노드, 스크린샷을 넣고 develop을 먼저 머지합니다.

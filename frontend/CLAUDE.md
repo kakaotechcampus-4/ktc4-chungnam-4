@@ -25,8 +25,9 @@
 - 담당 화면은 [화면 담당 분담표](https://www.figma.com/design/dqI6azS36WWcU7MYEH7PVq/%EC%95%84%EC%9D%B4%EB%8B%B4-%C2%B7-%EB%8B%B4%EB%8B%B9%EB%B3%84-%ED%99%94%EB%A9%B4--%ED%99%95%EC%A0%95-?node-id=1-144)를 따릅니다. 화면 원본은 같은 파일의 담당자 섹션(①~⑤)에 있습니다. 페이지 파일 첫 줄에 노드를 적습니다: `// Figma: 1:1895`
 - Figma에 안이 두 개인 화면은 **원안으로 먼저** 만들고, 첫 줄 주석에 두 노드를 다 적습니다. 어느 안으로 갈지는 팀이 정합니다.
 - 함수 컴포넌트와 훅만 씁니다. 한 파일에 컴포넌트 하나(같이 쓰이는 아주 작은 서브 컴포넌트는 예외), props는 `interface XxxProps`로 파일 상단에 선언합니다.
-- 스타일은 Tailwind 유틸리티를 씁니다. **hex와 임의 값(`w-[437px]`)을 직접 쓰지 않습니다.** 디자인 토큰(`styles/tokens.css`)이 들어오기 전까지는 Tailwind 기본 팔레트·스페이싱만 쓰고, 디자인 색이 필요하면 FE 리드에게 요청합니다.
-- 제목 줄과 카드형 화면의 공통 컴포넌트(`PageHeader`, `FocusCard`)는 FE 리드가 만드는 PR에서 들어옵니다.
+- 스타일은 Tailwind 유틸리티를 씁니다. **hex와 임의 값(`w-[437px]`)을 직접 쓰지 않습니다.** 색·글자 크기·폭은 `styles/tokens.css`의 토큰(`bg-canvas`, `text-body`, `max-w-app` 등)을 쓰고, 없는 값이 필요하면 FE 리드에게 요청합니다.
+- 교사 화면의 제목 줄은 `PageHeader`, 흰 카드 한 장으로 끝나는 화면은 `FocusCard`를 씁니다.
+- 클래스를 합칠 때는 `@/lib/utils`의 `cn`을 씁니다. `"cn"` 패키지를 직접 쓰면 `text-body` 같은 토큰이 지워집니다(ESLint가 막습니다).
 
 ## 데이터
 
