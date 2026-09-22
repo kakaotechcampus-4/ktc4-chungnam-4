@@ -23,11 +23,11 @@ router.py  →  service.py  →  models.py
 - `service.py`: `Request`·`Response`를 모릅니다(FastAPI import 금지). 함수만 직접 불러서 테스트되게.
 - `repositories/` 별도 레이어는 두지 않습니다(7주 일정에 과함) — DB 접근은 `service.py`에 흡수.
 - 유일한 예외는 `agents/service.py`. 여기서만 최상위 `tools/`, `prompts/`를 추가로 호출합니다.
-- 도메인 간 호출은 FK 참조까지. 다른 도메인의 `service.py`를 직접 부르기 전에 팀에 알리세요.
+- 도메인 간 호출은 FK 참조까지. 다른 도메인의 `service.py`가 필요하면 **issue를 만들어 담당자에게 함수를 요청**하세요.
 
   ```python
-  from domains.organization.models import Child        # ❌ 남의 도메인 models
-  from domains.organization.service import get_child   # ✅ 합의된 service 함수
+  from domains.organization.models import Child  # ❌ 남의 도메인 models
+  from domains.organization.service import get_child  # ✅ 합의된 service 함수
   ```
 
 - 도메인 간 FK는 미리 합의합니다 — `face↔Child`, `media↔Child`, `agents↔organization/media`, `audit↔전체`.
@@ -52,7 +52,8 @@ router.py  →  service.py  →  models.py
 - 파일·모듈 `snake_case`, 클래스 `PascalCase`, 불리언은 `is_`/`has_`/`can_`.
 - 주석은 한국어. 코드로 설명되는 내용은 주석 대신 이름을 고칩니다.
 - 반은 `class_` 또는 `klass`로 씁니다 — `class`가 Python 예약어입니다 (루트 §도메인 용어).
-- 코드 변경을 마치면 `ruff check --fix && ruff format`을 돌리고 결과를 보고합니다. **아직 설치·설정되지 않았습니다** — `docs/open-questions.md` A 참고.
+- 코드 변경을 마치면 `ruff check --fix && ruff format`을 돌리고 결과를 보고합니다. 설정은 `backend/ruff.toml`이 원본입니다.
+- **PR을 올리면 `ruff check` · `ruff format --check` · `pytest`가 자동으로 돕니다** (`.github/workflows/ci.yml`). 셋 중 하나라도 실패한 상태로 머지하지 않습니다. 설치·실행 절차와 실패했을 때 읽는 법은 `backend/README.md` §린트와 포맷.
 
 ## 스키마와 예외
 
@@ -75,7 +76,7 @@ router.py  →  service.py  →  models.py
 - 시간 컬럼은 전부 `timestamptz`, **UTC로 저장**합니다. 컨테이너·DB 타임존은 `Asia/Seoul`이지만 저장은 UTC입니다.
 - 상태 컬럼은 문자열 enum, 값은 소문자 snake_case (`draft`, `verified`, `approved`, `unclassified`).
 - **미승인 원본은 처리 후 즉시 파기하고 `DeletionLog`를 남깁니다** (NFR-04). 영구 저장은 교사 승인본만.
-- 승인본에 포함된 사진은 **졸업 후 1년**까지 보관합니다 (NFR-03). 기한은 `MediaAsset.retention_expires_at`.
+- **학부모 접근은 그 원아의 졸업 후 1년**까지입니다 (NFR-03). `MediaAsset`에 만료일 컬럼을 두지 않고 `Child.graduated_at`으로 조회 시점에 판정합니다 — 한 사진에 졸업일이 다른 원아가 여럿이면 만료일이 한 값으로 정해지지 않기 때문입니다. **파기는 귀속된 원아가 전원 만료된 사진만** 배치로 삭제합니다 (NFR-03-b, 09/19).
 - **`AccessLog`·`DeletionLog`는 append-only입니다.** 로그 자체에는 update·delete를 만들지 않습니다.
 - 마이그레이션은 전부 Alembic. **DB에 직접 DDL을 치지 않습니다.** 파일명은 `<revision>_add_draft_documents_status.py`처럼 읽히게.
 - **얼굴 임베딩은 AES 암호화 후 `bytea`로 저장하고, pgvector를 쓰지 않습니다.** 유사도는 담당 반의 등록·동의 원아만 조회해 메모리에서 계산합니다 (반당 6명 규모).

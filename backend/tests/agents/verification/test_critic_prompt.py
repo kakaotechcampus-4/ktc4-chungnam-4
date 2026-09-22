@@ -10,7 +10,9 @@ def test_프롬프트에_문장과_근거_텍스트가_포함된다():
         doc_type=DocType.OBSERVATION_LOG,
         child_id="child_A",
         record_date=RECORD_DATE,
-        sentences=[DraftSentence(sentence_id="s_01", text="탑을 만들었다", evidence_ids=["ev_001"])],
+        sentences=[
+            DraftSentence(sentence_id="s_01", text="탑을 만들었다", evidence_ids=["ev_001"])
+        ],
     )
 
     prompt = build_critic_prompt(document, EVIDENCE_BY_ID)

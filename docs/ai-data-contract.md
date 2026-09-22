@@ -10,10 +10,10 @@
 
 | 항목 | `tools/contracts.py` | `domains/agents/models.py`(ORM) | 필요한 조정 |
 | --- | --- | --- | --- |
-| 문장-근거 관계 | `DraftSentence.evidence_ids: list[str]` (다대다) | `SentenceEvidence`가 행 1개당 출처 1개(`source_media_id`, `source_timestamp` 단일 컬럼) | 문장이 여러 근거를 참조할 수 있어야 함 — 문장별 여러 행을 쓰는 방식도 가능하며, 근거 ID·버전 연결과 유일성 규칙을 합의해야 함. **정은님이 "문장당 여러 행" 방식으로 진행 가능하다고 회신(9/16, KST) — 근거 ID·버전 연결과 유일성 규칙은 추가 합의 필요** |
+| 문장-근거 관계 | `DraftSentence.evidence_ids: list[str]` (다대다) | `SentenceEvidence`가 (draft_id, sentence_index)당 여러 행(근거마다 1행) | 문장이 여러 근거를 참조할 수 있어야 함 — 문장별 여러 행을 쓰는 방식도 가능하며, 근거 ID·버전 연결과 유일성 규칙을 합의해야 함. **정은님이 "문장당 여러 행" 방식으로 진행 가능하다고 회신(9/16, KST) — 근거 ID·버전 연결과 유일성 규칙은 `SentenceEvidence.evidence_id` 컬럼 추가 + `(draft_id, sentence_index, evidence_id)` UNIQUE 제약으로 반영 완료(정은-한상균 합의 09/22)** |
 | 시간 정보 | `EvidenceItem.start_ms`/`end_ms`가 선택(Optional) | `SentenceEvidence.source_timestamp`가 `nullable=False` | 사진 근거는 시간 구간이 없을 수 있음 — nullable로 변경 필요. **정은님이 nullable로 반영 완료라고 회신(9/16, KST) — 통합 시 실제 코드 정합성 확인 예정** |
 | 검증 결과 값 도메인 | `VerificationCheckType`(7종 enum), `passed: bool` | `check_type: String`, `result: String` (자유 문자열, TODO(eun) 상태) | 이 문서의 enum 값을 `VerificationResult` 컬럼 값 도메인으로 채택 제안. **정은님이 `check_type` 7종 채택 및 `result`의 Boolean 변경을 반영했다고 회신(9/16, KST) — 통합 시 실제 코드 정합성 확인 예정** |
-| 재생성 필요 여부 | `DecisionResult.decision`(pass/regenerate/retry_critic/needs_teacher_review)로 별도 표현 | 저장 컬럼 없음 | **저장 제안(미확정): `domains/agents/`에서 초안 ID·버전별 최종 판정과 사유를 저장한다. 문서 재생성 횟수와 Critic 재검사 횟수는 별도로 관리한다. 구체적인 저장 모델·필드는 정은님과 합의 후 확정한다.** |
+| 재생성 필요 여부 | `DecisionResult.decision`(pass/regenerate/retry_critic/needs_teacher_review)로 별도 표현 | `DraftDecisionLog`(draft_id, doc_version, decision, reason, regeneration_count, critic_retry_count) | **정은님이 `DraftDecisionLog` 테이블 추가로 반영 완료라고 회신(09/22, KST) — 초안 재생성 횟수(regeneration_count)와 Critic 재검사 횟수(critic_retry_count)를 별도 컬럼으로 관리. 한상균님 확인 필요** |
 
 ## 핵심 타입
 

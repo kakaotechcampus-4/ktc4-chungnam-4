@@ -10,9 +10,9 @@ from sqlalchemy.orm import Session
 # Test collection must not depend on a developer's .env or running PostgreSQL.
 os.environ["POSTGRES_PASSWORD"] = "test-only-password"
 
-from core.config import Settings  # noqa: E402
-from core.database import get_db  # noqa: E402
-from main import app  # noqa: E402
+from core.config import Settings
+from core.database import get_db
+from main import app
 
 
 @pytest.fixture

@@ -1,5 +1,11 @@
 from tests.agents.fixtures.evidence import EVIDENCE_BY_ID, RECORD_DATE
-from tools.contracts import GenerationRequest, DocType, DraftDocument, DraftSentence, VerificationCheckType
+from tools.contracts import (
+    DocType,
+    DraftDocument,
+    DraftSentence,
+    GenerationRequest,
+    VerificationCheckType,
+)
 from tools.verification.target import validate_target
 
 
@@ -59,8 +65,13 @@ def test_공동_활동_근거는_대상에_포함되면_통과한다():
     assert validate_target(document, EVIDENCE_BY_ID, request=REQUEST) == []
 
 
-REQUEST = GenerationRequest(request_id="req1", class_id="class1", child_id="child_A",
-                            record_date=RECORD_DATE, evidence_ids=list(EVIDENCE_BY_ID))
+REQUEST = GenerationRequest(
+    request_id="req1",
+    class_id="class1",
+    child_id="child_A",
+    record_date=RECORD_DATE,
+    evidence_ids=list(EVIDENCE_BY_ID),
+)
 
 
 def test_문서와_근거가_같아도_요청_원아가_다르면_실패():
