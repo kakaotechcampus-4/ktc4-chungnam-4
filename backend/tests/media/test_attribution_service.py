@@ -8,11 +8,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from core.base import Base
+from core.exceptions import InvalidAttributionMethod, MediaAssetNotFound
 from domains.media.models import MediaAsset, MediaChildLink
 from domains.media.service import (
     Attribution,
-    InvalidAttributionMethod,
-    MediaAssetNotFound,
     get_playback_url,
     save_attributions,
 )
@@ -96,3 +95,14 @@ def test_파생본이_있으면_그것을_우선한다(db: Session, asset: Media
     db.commit()
 
     assert get_playback_url(db, asset.id) == "s3://bucket/key.mp4"
+
+
+def test_미디어를_못_찾으면_404_코드로_올라간다() -> None:
+    """서버 고장(500)과 구분되어야 FE가 "없는 사진"을 안내할 수 있습니다."""
+    assert MediaAssetNotFound.code == "MEDIA_ASSET_NOT_FOUND"
+    assert MediaAssetNotFound.status_code == 404
+
+
+def test_잘못된_귀속_방법은_400_코드로_올라간다() -> None:
+    assert InvalidAttributionMethod.code == "MEDIA_INVALID_ATTRIBUTION_METHOD"
+    assert InvalidAttributionMethod.status_code == 400

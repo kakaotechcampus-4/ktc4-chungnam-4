@@ -26,3 +26,17 @@ class EmbeddingDecryptionFailed(AidamError):
 
     code = "FACE_EMBEDDING_DECRYPTION_FAILED"
     status_code = 500
+
+
+class MediaAssetNotFound(AidamError):
+    """알 수 없는 미디어에 귀속 결과를 붙이려 한 경우."""
+
+    code = "MEDIA_ASSET_NOT_FOUND"
+    status_code = 404
+
+
+class InvalidAttributionMethod(AidamError):
+    """`method`가 허용된 값이 아닌 경우."""
+
+    code = "MEDIA_INVALID_ATTRIBUTION_METHOD"
+    status_code = 400
