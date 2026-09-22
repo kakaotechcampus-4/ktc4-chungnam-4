@@ -28,8 +28,8 @@ export default defineConfig([
     },
   },
   {
-    // 테스트 헬퍼는 컴포넌트가 아닌 함수를 export합니다.
-    files: ["src/test/**/*.tsx"],
+    // 테스트 헬퍼와 shadcn 생성물은 컴포넌트가 아닌 값도 함께 export합니다.
+    files: ["src/test/**/*.tsx", "src/components/ui/**/*.tsx"],
     rules: { "react-refresh/only-export-components": "off" },
   },
   eslintConfigPrettier,
