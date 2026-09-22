@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { cn } from "cn";
+import { cn } from "@/lib/utils";
 
 interface FocusCardProps {
   children: ReactNode;

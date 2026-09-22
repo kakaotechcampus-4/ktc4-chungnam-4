@@ -1,6 +1,6 @@
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
-import { cn } from "cn";
+import { cn } from "@/lib/utils";
 import { Slot } from "radix-ui";
 
 // 값은 Figma 교사 화면 실측입니다. variant 이름은 shadcn 생성물이 참조하므로 그대로 둡니다.

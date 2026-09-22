@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { cn } from "cn";
+import { cn } from "@/lib/utils";
 
 interface PageHeaderProps {
   /** 제목 위 한 줄. Figma의 경로 표시입니다. 예: "오늘의 기록" */
