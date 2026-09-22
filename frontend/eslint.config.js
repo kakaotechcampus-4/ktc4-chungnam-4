@@ -27,5 +27,10 @@ export default defineConfig([
       "no-console": ["error", { allow: ["warn", "error"] }],
     },
   },
+  {
+    // 테스트 헬퍼는 컴포넌트가 아닌 함수를 export합니다.
+    files: ["src/test/**/*.tsx"],
+    rules: { "react-refresh/only-export-components": "off" },
+  },
   eslintConfigPrettier,
 ]);
