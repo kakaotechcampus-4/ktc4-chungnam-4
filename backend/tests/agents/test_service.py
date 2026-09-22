@@ -208,7 +208,9 @@ def test_verify_with_critic_retry_한번_재시도_후_통과하면_그대로_�
     assert result.decision == contracts.Decision.PASS
 
 
-def test_verify_with_critic_retry_상한을_넘기면_교사_확인으로_넘긴다(monkeypatch) -> None:
+def test_verify_with_critic_retry_상한을_넘기면_교사_확인으로_넘긴다(
+    monkeypatch,
+) -> None:
     calls = 0
 
     def _always_retry_critic(
