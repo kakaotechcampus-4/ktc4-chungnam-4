@@ -5,7 +5,7 @@
 이 문서는 **처음 실행하는 팀원과 도메인 구현을 시작하는 팀원**을 위한 공통 개발 안내입니다.
 
 > **현재 구현 범위:** FastAPI 실행, PostgreSQL 연결, 환경변수 관리, 공통 DB 세션, 헬스체크, Redis·Celery 연습 작업과 테스트.
-> 현재 Compose는 **API·PostgreSQL·Redis·worker**를 실행합니다. 도메인 API·Alembic 마이그레이션·실제 AI 파이프라인은 아직 연결하지 않았습니다. AWS 서버 설치·배포는 접속 후 검증이 필요합니다.
+> 현재 Compose는 **API·PostgreSQL·Redis·worker**를 실행합니다. Alembic 실행 기반은 구성되어 있으며, 도메인 API·초기 스키마 migration·실제 AI 파이프라인은 아직 연결하지 않았습니다. AWS 서버 설치·배포는 접속 후 검증이 필요합니다.
 
 ## 바로가기
 
@@ -201,7 +201,8 @@ backend/
 ├── prompts/                 # AI 프롬프트 구현 위치
 ├── tests/                   # 공통 환경 및 도메인별 테스트
 ├── scripts/                 # 환경변수 생성, Ubuntu 준비, Celery 연습
-├── alembic/                 # 마이그레이션 예정 위치
+├── alembic/                 # 실행 환경·revision 템플릿·versions/
+├── alembic.ini              # Alembic 경로·로그 설정
 ├── celery_app.py            # Celery 공통 설정과 연습 작업 등록
 ├── Dockerfile
 ├── docker-compose.yml
@@ -220,6 +221,37 @@ backend/
 | C · 김동건 | `face`, `media`      | 얼굴 임베딩 관리, 미디어 업로드·메타데이터    |
 | D · 정은  | `agents`             | AI 파이프라인, 작업 실행, LLM 연동     |
 | E · 한상균 | `documents`, `audit` | 문서 검토·승인·열람, 접근·파기 기록       |
+
+`tools/`와 `prompts/`는 도메인 바깥이라 위 표가 덮지 않습니다. 담당은 아래와 같습니다.
+
+| 담당  | 폴더                                                     | 역할                    |
+| --- | ------------------------------------------------------ | --------------------- |
+| 송유진 | `tools/perception/`, `prompts/perception/`               | 사진 분석·STT 결과 정규화      |
+| 엄태은 | `tools/evidence/`, `tools/generation/`, `prompts/generation/` | 근거 묶음 구성, 관찰일지·알림장 생성 |
+| 한상균 | `tools/verification/`, `prompts/verification/`           | 코드 검증, Critic, 재생성 판정 |
+
+**A·B·C 같은 기호로 부르지 않습니다.** AI 역할표에도 A·B·C가 있는데 이 표와 매핑이 다릅니다(AI 역할 C는 엄태은, 위 도메인 표의 C는 김동건). 두 표를 나란히 보면 반드시 헷갈리므로 실명으로만 적습니다.
+
+
+### 도메인이 소유하는 테이블
+
+데이터 모델 원본은 `docs/테크스펙.md` §데이터 모델입니다. 아래는 그 테이블이 **어느 도메인의 `models.py`에 들어가는지**만 정리한 것입니다.
+
+
+| 도메인            | 담당  | 테이블                                                                                     |
+| -------------- | --- | --------------------------------------------------------------------------------------- |
+| `auth`         | 엄태은 | Account, Teacher, Parent                                                                  |
+| `organization` | 이한나 | Center, Class, Child, ParentChildRelation, ConsentRecord, TeacherPersona, PersonaFeedback, EducationPlan |
+| `face`         | 김동건 | FaceEmbedding, EmbeddingLifecycleLog                                                      |
+| `media`        | 김동건 | MediaAsset, MediaChildLink, TranscriptSegment                                             |
+| `agents`       | 정은  | EvidenceBundle, SentenceEvidence, VerificationResult                                      |
+| `documents`    | 한상균 | DraftDocument, RevisionLog, UnclassifiedItem, Notice                                      |
+| `audit`        | 한상균 | AccessLog, DeletionLog                                                                    |
+
+
+- **남의 도메인 테이블을 직접 쿼리하지 않습니다.** 도메인 간에는 FK 참조까지만 하고, 필요한 조회·변경은 issue로 담당자에게 함수를 요청합니다 ([CLAUDE.md](CLAUDE.md) §계층 규칙).
+- `Child`는 전 도메인이 FK로 참조하는 중심 엔티티입니다. PK 타입·이름 변경은 face·media·agents 담당에게 먼저 알립니다.
+- `AccessLog`·`DeletionLog`는 다른 도메인에서 직접 INSERT하지 않고 audit의 서비스 함수를 통합니다(H-4).
 
 
 도메인 내부는 `models.py`, `schemas.py`, `router.py`, `service.py`를 기본으로 사용합니다. `**audit`에는 현재 `router.py`와 `schemas.py`가 없습니다.** 도메인별 상세 기능은 확정된 기능·API·ERD 명세를 따릅니다.
@@ -266,7 +298,38 @@ DbSession = Annotated[Session, Depends(get_db)]
 
 라우터 함수에서 `db: DbSession`으로 받아 서비스에 전달합니다. 서비스는 저장 단위에 맞춰 `commit()`과 필요한 `rollback()`을 처리합니다. `get_db`는 세션을 생성하고 요청이 끝나면 닫으며, 자동 커밋하지 않습니다.
 
-현재 서버 시작 시 테이블을 자동 생성하지 않습니다. Alembic은 아직 설정되지 않았으므로 `alembic upgrade head`를 실행할 수 있는 상태가 아닙니다. 모델·FK 변경은 관련 담당자와 맞추고, 마이그레이션 도입과 함께 반영합니다.
+현재 서버 시작 시 테이블을 자동 생성하지 않습니다. Alembic 실행 기반만 구성되어 있으며
+`alembic/versions/`에는 아직 revision이 없습니다. 따라서 `upgrade head`로 업무 테이블이 생성되지는 않습니다.
+
+`alembic.ini`는 경로·로그만 설정하고, `alembic/env.py`가 기존 `core.config.get_settings().database_url`과
+`core.base.Base.metadata`를 사용합니다. DB 비밀번호를 ini에 복사하지 않습니다.
+API용 엔진을 import하지 않고 migration용 일회성 연결(NullPool)을 생성·정리합니다.
+
+Docker에서 확인하려면 `backend/`에서 실행합니다. 기존 `.env`가 필요하며 EC2에서는 Docker 앞에 sudo를 붙입니다.
+
+```bash
+python3 scripts/init_env.py
+docker compose build api
+docker compose up -d postgres
+docker compose run --rm --no-deps api alembic heads
+docker compose run --rm --no-deps api alembic current
+```
+
+- `heads`: 코드에 있는 최신 revision 조회. 현재 revision이 없으므로 출력이 없는 것이 정상입니다.
+- `current`: DB에 접속해 적용된 revision 조회. 초기 상태에서는 revision 번호가 없습니다.
+- `history`: 코드의 migration 이력 조회.
+- `upgrade head --sql`: DB에 접속하지 않고 적용 SQL 출력.
+- `upgrade head`: 실제 DB에 revision 적용. 현재는 업무 테이블 없이 Alembic 관리 테이블만 생길 수 있습니다.
+
+로컬 가상환경은 `requirements-dev.txt` 설치 후 `python -m alembic ...`으로 실행합니다.
+기존 Compose는 PostgreSQL 포트를 호스트에 공개하지 않으므로 DB 접속 명령은 위 컨테이너 방식이 기본입니다.
+저장소 루트에서는 `python -m alembic -c backend/alembic.ini heads`처럼 설정 파일을 지정할 수 있습니다.
+
+도메인별 모델·FK가 합의되면 `alembic/env.py`의 안내 위치에 모델 모듈을 명시적으로 import한 뒤
+`revision --autogenerate`로 초기 migration을 생성하고 검토합니다. Base를 import하는 것만으로
+도메인 모델이 자동 등록되지는 않습니다. 현재는 미등록 상태의 자동 생성을 오류로 차단합니다.
+일부 모델만 등록한 경우까지 판별하지는 못하므로, 전체 모델 등록 여부는 담당자가 검토해야 합니다.
+
 
 라우터 구현 후에는 `main.py`에 등록해야 Swagger와 API 경로에 노출됩니다. 실제 API 경로는 합의된 API 명세를 따릅니다.
 
@@ -304,26 +367,21 @@ uv pip compile requirements-dev.in --universal --python-version 3.12 --constrain
 
 ## 7. 브랜치와 PR
 
-**팀 내부 작업은 `feature/*` → `develop` PR로 반영합니다.** `develop`에 직접 push하지 않습니다.
+**브랜치 이름·커밋 메시지·PR 규약의 원본은 스킬 파일입니다.** 여기에 사본을 두지 않습니다 — 두 벌이 되면 한 벌이 낡습니다.
 
-공통 환경 설정이 `develop`에 병합된 뒤, 새 작업을 시작할 때의 예시입니다. `feature/auth-login`은 실제 작업에 맞는 이름으로 바꿉니다. 브랜치를 바꾸기 전 진행 중인 변경 사항을 정리합니다.
+- [브랜치 만들기](../.claude/skills/create-branch/SKILL.md) — `<타입>/<파트>/<작업내용>`, `develop`에서 분기
+- [커밋](../.claude/skills/commit/SKILL.md) — Conventional Commits, 커밋 분리
+- [PR·리뷰](../.claude/skills/pr/SKILL.md) — 요구사항 ID, 분량, 리뷰어 지정, 리뷰 태그
 
-```bash
-git switch develop
-git pull --ff-only origin develop
-git switch -c feature/auth-login
-```
+Claude Code를 쓰면 `/create-branch` `/commit` `/pr`로 호출됩니다. 손으로 할 때는 위 링크를 읽으세요.
+전원이 지킬 금지(=`develop` 직접 push 금지 등)는 루트 [CLAUDE.md](../CLAUDE.md) §Git에 있습니다.
 
-PR에는 다음 내용을 적습니다.
+### 백엔드에서만 추가로 챌 것
 
-- 구현한 기능과 관련 API
-- 실행한 테스트와 결과
-- 새 환경변수·패키지·DB 구조 변경
-- 다른 도메인 담당자가 함께 확인해야 할 부분
-
-공통 파일인 `main.py`, `core/`, Compose, 의존성 파일을 변경할 때는 A에게 변경 목적을 공유합니다. 자신의 도메인 외 파일을 바꿔야 하면 해당 담당자와 영향 범위를 맞춥니다.
-
-PR 전에는 관련 테스트, `git diff --check`, `.env` 등 개인 설정 파일이 포함되지 않았는지 확인합니다. 멘토 리뷰용 `develop` → `main` PR은 팀 내부 PR과 별도입니다.
+- **공통 파일**을 변경할 때는 BE 리드(엄태은)에게 목적을 공유합니다 — `main.py`, `core/`, `celery_app.py`, Compose, `requirements*`.
+- 자신의 도메인 외 파일을 바꿔야 하면 해당 담당자와 영향 범위를 맞춥니다 (담당자는 §4).
+- PR 전에 관련 테스트, `git diff --check`, `.env` 등 개인 설정 파일이 섞이지 않았는지 확인합니다.
+- 새 환경변수·패키지·DB 구조 변경이 있으면 PR 본문에 적습니다. `.env.example`도 같이 갱신합니다.
 
 ## 8. 자주 발생하는 문제
 

@@ -2,7 +2,7 @@ import os
 
 os.environ.setdefault("POSTGRES_PASSWORD", "test-only-password")
 
-from main import app  # noqa: E402
+from main import app
 
 _EXPECTED = {
     ("GET", "/drafts/{draft_id}"),

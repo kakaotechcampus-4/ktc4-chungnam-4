@@ -95,13 +95,20 @@ from domains.documents.schemas import (
 )
 
 
-def get_draft_for_teacher(db: Session, *, draft_id: UUID, teacher_id: UUID) -> DraftDetailResponse:
+def get_draft_for_teacher(
+    db: Session, *, draft_id: UUID, teacher_id: UUID
+) -> DraftDetailResponse:
     # TODO(한상균): 검수 권한 교사인지 확인 — organization의 반 배정 조회 필요 (B와 협의).
     raise NotImplementedError
 
 
 def update_draft(
-    db: Session, *, draft_id: UUID, teacher_id: UUID, content: str, expected_version: int
+    db: Session,
+    *,
+    draft_id: UUID,
+    teacher_id: UUID,
+    content: str,
+    expected_version: int,
 ) -> DraftDetailResponse:
     # TODO(한상균): 버전 비교+갱신은 모듈 docstring의 원자적 UPDATE 패턴으로 (조회 후
     #   별도 비교 금지). rowcount==0이면 충돌(409). 통과 시 RevisionLog에
@@ -111,7 +118,12 @@ def update_draft(
 
 
 def approve_draft(
-    db: Session, *, draft_id: UUID, teacher_id: UUID, expected_version: int, review_confirmed: bool
+    db: Session,
+    *,
+    draft_id: UUID,
+    teacher_id: UUID,
+    expected_version: int,
+    review_confirmed: bool,
 ) -> ApproveResponse:
     # TODO(한상균): 버전 비교+갱신(status=APPROVED, approved_at=now)은 모듈 docstring의
     #   원자적 UPDATE 패턴으로. 승인 차단 조건 확정 필요 — D(정은) 담당
@@ -164,7 +176,9 @@ def revoke_publication(
     raise NotImplementedError
 
 
-def list_letters_for_parent(db: Session, *, parent_id: UUID) -> ParentLetterListResponse:
+def list_letters_for_parent(
+    db: Session, *, parent_id: UUID
+) -> ParentLetterListResponse:
     # TODO(한상균): 단일 게이트 — 활성 게시 회차(revoked_at is null) + 대상 원아 접근권한
     #   (B와 협의: parent_id ↔ child_id 관계 조회) 검사. 목록 조회는 first_viewed_at을
     #   건드리지 않는다 ("목록 조회는 상세 열람으로 취급하지 않는다").

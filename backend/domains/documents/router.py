@@ -99,7 +99,10 @@ def revoke_letter(
     teacher_id: Annotated[UUID, Depends(get_current_teacher_id)],
 ) -> RevokeResponse:
     return service.revoke_publication(
-        db, draft_id=draft_id, teacher_id=teacher_id, expected_version=body.expected_version
+        db,
+        draft_id=draft_id,
+        teacher_id=teacher_id,
+        expected_version=body.expected_version,
     )
 
 

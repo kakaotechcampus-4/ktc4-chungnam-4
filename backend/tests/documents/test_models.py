@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -67,7 +67,12 @@ def test_초안_기본값이_DRAFT이고_저장된다():
 def test_DraftStatus에는_PUBLISHED가_없다():
     # 게시 게이트는 CLAUDE.md H-1대로 status==APPROVED로만 검사한다 — 게시는
     # status를 바꾸지 않고 DocumentPublication 행으로만 표현한다.
-    assert {status.value for status in DraftStatus} == {"draft", "in_review", "approved", "revoked"}
+    assert {status.value for status in DraftStatus} == {
+        "draft",
+        "in_review",
+        "approved",
+        "revoked",
+    }
 
 
 def test_같은_원아_문서종류_날짜_중복은_거부된다():
@@ -92,8 +97,10 @@ def test_다른_문서종류는_같은_원아_같은_날짜여도_허용된다()
     assert db.query(DraftDocument).count() == 2
 
 
-def _publication(draft_id, *, round_number, request_id, now=None) -> DocumentPublication:
-    now = now or datetime.now(timezone.utc)
+def _publication(
+    draft_id, *, round_number, request_id, now=None
+) -> DocumentPublication:
+    now = now or datetime.now(UTC)
     return DocumentPublication(
         draft_id=draft_id,
         round_number=round_number,
@@ -122,8 +129,9 @@ def test_한_요청ID로_여러_draft를_한번에_게시할_수_있다():
     # POST /letters/publish는 하나의 request_id로 여러 문서를 함께 게시한다 —
     # publish_request_id 단독 유니크였다면 두 번째 draft부터 막혔을 시나리오.
     db = _session()
-    draft_a, draft_b = _draft(doc_type=DocType.OBSERVATION_LOG), _draft(
-        child_id=uuid4(), doc_type=DocType.OBSERVATION_LOG
+    draft_a, draft_b = (
+        _draft(doc_type=DocType.OBSERVATION_LOG),
+        _draft(child_id=uuid4(), doc_type=DocType.OBSERVATION_LOG),
     )
     db.add_all([draft_a, draft_b])
     db.flush()
@@ -181,7 +189,11 @@ def test_revision_log은_승인_회수_재게시도_기록한다():
     db.add(draft)
     db.flush()
 
-    for action in (RevisionAction.APPROVE, RevisionAction.REVOKE, RevisionAction.RESEND):
+    for action in (
+        RevisionAction.APPROVE,
+        RevisionAction.REVOKE,
+        RevisionAction.RESEND,
+    ):
         db.add(RevisionLog(draft_id=draft.id, editor_id=uuid4(), action=action.value))
     db.flush()
 
@@ -220,7 +232,7 @@ def test_unclassified_item_처리자와_처리시각을_기록할_수_있다():
             reason="verification_failed",
             status="resolved",
             resolved_by=resolver_id,
-            resolved_at=datetime.now(timezone.utc),
+            resolved_at=datetime.now(UTC),
         )
     )
     db.flush()

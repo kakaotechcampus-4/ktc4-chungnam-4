@@ -10,7 +10,9 @@ from domains.audit.service import record_access, record_deletion
 
 def _session() -> Session:
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
-    Base.metadata.create_all(engine, tables=[AccessLog.__table__, DeletionLog.__table__])
+    Base.metadata.create_all(
+        engine, tables=[AccessLog.__table__, DeletionLog.__table__]
+    )
     return Session(engine)
 
 

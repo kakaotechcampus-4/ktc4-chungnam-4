@@ -1,19 +1,13 @@
 # 아이담 백엔드
 
 영상·사진·음성에서 모은 맥락으로 원아의 하루를 기록하는 AI 알림장·관찰일지 서비스의 백엔드입니다.
-실행 방법·환경설정은 [README.md](README.md)를 보세요. 이 문서는 **구조와 규칙**만 다룹니다. 절대 규칙(H-1~H-4)은 [../CLAUDE.md](../CLAUDE.md)를 보세요.
+실행 방법·환경설정·**폴더 구조와 담당 범위**는 [README.md](README.md) §폴더 구조와 담당 범위를 보세요 — 구조는 `ls`로 확인되므로 이 문서에 사본을 두지 않습니다. 이 문서는 **규칙**만 다룹니다. 절대 규칙(H-1~H-4)은 [../CLAUDE.md](../CLAUDE.md)를 보세요.
 
-## 도메인 7개
+## 도메인
 
-| 도메인 | 역할 | 담당 |
-| --- | --- | --- |
-| [auth](domains/auth/CLAUDE.md) | 교사·학부모 로그인/인증 | 엄태은 |
-| [organization](domains/organization/CLAUDE.md) | 기관·반·원아·학부모 관계, 동의, 페르소나·교육계획 | 이한나 |
-| [face](domains/face/CLAUDE.md) | 얼굴 임베딩 암호화 저장·관리 (NFR-01) | 김동건 |
-| [media](domains/media/CLAUDE.md) | S3 presigned URL 발급, 업로드 메타데이터 기록 | 김동건 |
-| [agents](domains/agents/CLAUDE.md) | 근거수집 → 초안생성 → Critic 검증 파이프라인 | 정은 |
-| [documents](domains/documents/CLAUDE.md) | 초안 검토·수정·승인, 학부모 열람 | 한상균 |
-| [audit](domains/audit/CLAUDE.md) | 접근·파기 로그 (NFR-04, NFR-05) | 한상균 |
+도메인 7개의 목록·역할·담당자는 [README.md](README.md) §폴더 구조와 담당 범위가 원본입니다. 도메인 한정 규칙은 `domains/<도메인>/CLAUDE.md`에 있고 그 폴더의 파일을 열 때 자동으로 붙습니다.
+
+- **자기 담당이 아닌 도메인 파일을 고치기 전에 멈추고 담당자에게 알립니다.** 담당자는 [README.md](README.md) §폴더 구조와 담당 범위에서 확인하고, 리뷰어 지정은 `/pr` 스킬을 따릅니다.
 
 도메인의 목표 구조는 `models.py`(ORM) / `schemas.py`(Pydantic) / `router.py`(APIRouter) / `service.py`(로직+DB)입니다. audit은 현재 설계상 `models.py`와 `service.py`만 둡니다. 각 도메인 문서의 파일 표는 구현 예정 파일을 포함한 책임 분담이며, 실제 파일 존재나 기능 완성을 뜻하지 않습니다. 빈 Python 파일은 정리했으며 구현할 때 필요한 파일을 생성합니다.
 
@@ -29,34 +23,19 @@ router.py  →  service.py  →  models.py
 - `service.py`: `Request`·`Response`를 모릅니다(FastAPI import 금지). 함수만 직접 불러서 테스트되게.
 - `repositories/` 별도 레이어는 두지 않습니다(7주 일정에 과함) — DB 접근은 `service.py`에 흡수.
 - 유일한 예외는 `agents/service.py`. 여기서만 최상위 `tools/`, `prompts/`를 추가로 호출합니다.
-- 도메인 간 호출은 FK 참조까지. 다른 도메인의 `service.py`를 직접 부르기 전에 팀에 알리세요.
+- 도메인 간 호출은 FK 참조까지. 다른 도메인의 `service.py`가 필요하면 **issue를 만들어 담당자에게 함수를 요청**하세요.
 
   ```python
-  from domains.organization.models import Child        # ❌ 남의 도메인 models
-  from domains.organization.service import get_child   # ✅ 합의된 service 함수
+  from domains.organization.models import Child  # ❌ 남의 도메인 models
+  from domains.organization.service import get_child  # ✅ 합의된 service 함수
   ```
 
 - 도메인 간 FK는 미리 합의합니다 — `face↔Child`, `media↔Child`, `agents↔organization/media`, `audit↔전체`.
 - 의존 방향 자동 검사는 도입 예정입니다. 현재 `.importlinter`는 빈 파일이며 검사 규칙과 실행 절차는 아직 구성되지 않았습니다.
 
-## 최상위 목표 구조 (미구현 항목 포함)
-
-```
-backend/
-├── main.py            API 시작점
-├── celery_app.py      Worker 시작점 (PR #9). 현재 include는 연습 작업만 등록돼 있음
-├── domains/           위 7개 (각 폴더의 CLAUDE.md 참고)
-├── tools/             [예정·AI 담당] 활동계획조회·발달지침조회 등 순수 함수
-├── prompts/           [예정·AI 담당] 에이전트별 프롬프트
-├── core/              config.py, database.py, base.py — 공용 설정
-├── alembic/            [예정] 현재 자리만 마련, 마이그레이션 미구현
-├── tests/              공통 테스트 구현, 도메인별 테스트는 추가 예정
-└── .importlinter  docker-compose.yml  requirements.txt  .env
-```
-
 ## 절대 규칙
 
-루트 [../CLAUDE.md](../CLAUDE.md) §1의 H-1~H-4를 따릅니다. 위반 시 다른 리뷰 의견과 무관하게 머지 불가입니다.
+루트 [../CLAUDE.md](../CLAUDE.md) §절대 규칙의 H-1~H-4를 따릅니다. 위반 시 다른 리뷰 의견과 무관하게 머지 불가입니다.
 
 ## 공통 컨벤션
 
@@ -72,6 +51,8 @@ backend/
 - **모든 함수에 타입 힌트를 붙입니다.** 반환형 포함.
 - 파일·모듈 `snake_case`, 클래스 `PascalCase`, 불리언은 `is_`/`has_`/`can_`.
 - 주석은 한국어. 코드로 설명되는 내용은 주석 대신 이름을 고칩니다.
+- 반은 `class_` 또는 `klass`로 씁니다 — `class`가 Python 예약어입니다 (루트 §도메인 용어).
+- 코드 변경을 마치면 `ruff check --fix && ruff format`을 돌리고 결과를 보고합니다. **아직 설치·설정되지 않았습니다** — `docs/open-questions.md` A 참고.
 
 ## 스키마와 예외
 
@@ -84,24 +65,7 @@ backend/
 
 ## API 규약
 
-| 항목 | 규칙 |
-|---|---|
-| 베이스 경로 | `/api/v1` |
-| URL | 소문자 kebab-case, 복수 명사 — `/api/v1/children/{child_id}/drafts` |
-| 상태 전이 | 서브리소스 — `POST /drafts/{id}/approve` |
-| 시간 | **UTC ISO 8601**. 타임존 변환은 프론트에서 |
-| 필드명 | JSON도 `snake_case` (변환 레이어를 없앰) |
-| ID | 문자열 UUID |
-| 페이지네이션 | `?limit=&cursor=` (커서 기반) |
-
-성공 응답은 리소스를 그대로 반환합니다. `{ "data": ... }` 래핑을 하지 않습니다.
-
-```json
-{ "error": { "code": "DRAFT_NOT_APPROVED", "message": "승인되지 않은 초안은 노출할 수 없습니다.", "detail": null } }
-```
-
-- `code`는 UPPER_SNAKE_CASE. 프론트는 `code`로 분기하고 `message`는 그대로 보여줍니다.
-- 400 검증 / 401 미인증 / 403 권한 없음 / 404 없음 / 409 상태 충돌 / 422 Pydantic / 500 서버.
+- **URL·필드명·페이지네이션·에러 형식 규약은 `docs/테크스펙.md` §인터페이스 명세 → "공통 API 규약"이 원본입니다.** 엔드포인트를 만들기 전에 그 절을 읽고, 거기 없는 값은 상상해서 정하지 말고 질문하세요 (루트 §Claude 작업 규칙). 코드가 생긴 뒤에는 `/docs`의 OpenAPI가 계약의 원본입니다.
 - **API 목록은 FE가 먼저 뽑고, 계약은 BE가 확정합니다** (09/13 변경). FE가 화면 흐름·피그마에서 확정·잠재 API 리스트를 내면, BE가 그걸 엔드포인트 스켈레톤 + OpenAPI로 확정하고 FE가 타입을 생성해 MSW로 개발합니다. **리스트가 오기 전까지 BE는 `router.py`를 앞세우지 말고 `service.py`부터 씁니다** — 화면이 안 정해진 상태에서 만든 엔드포인트는 다시 짭니다.
 - 응답 스키마에서 필드를 삭제·개명하면 PR 제목에 `[BREAKING]`을 붙이고 FE 리드를 리뷰어로 지정합니다.
 
@@ -111,7 +75,7 @@ backend/
 - 시간 컬럼은 전부 `timestamptz`, **UTC로 저장**합니다. 컨테이너·DB 타임존은 `Asia/Seoul`이지만 저장은 UTC입니다.
 - 상태 컬럼은 문자열 enum, 값은 소문자 snake_case (`draft`, `verified`, `approved`, `unclassified`).
 - **미승인 원본은 처리 후 즉시 파기하고 `DeletionLog`를 남깁니다** (NFR-04). 영구 저장은 교사 승인본만.
-- 승인본에 포함된 사진은 **졸업 후 1년**까지 보관합니다 (NFR-03). 기한은 `MediaAsset.retention_expires_at`.
+- **학부모 접근은 그 원아의 졸업 후 1년**까지입니다 (NFR-03). `MediaAsset`에 만료일 컬럼을 두지 않고 `Child.graduated_at`으로 조회 시점에 판정합니다 — 한 사진에 졸업일이 다른 원아가 여럿이면 만료일이 한 값으로 정해지지 않기 때문입니다. **파기는 귀속된 원아가 전원 만료된 사진만** 배치로 삭제합니다 (NFR-03-b, 09/19).
 - **`AccessLog`·`DeletionLog`는 append-only입니다.** 로그 자체에는 update·delete를 만들지 않습니다.
 - 마이그레이션은 전부 Alembic. **DB에 직접 DDL을 치지 않습니다.** 파일명은 `<revision>_add_draft_documents_status.py`처럼 읽히게.
 - **얼굴 임베딩은 AES 암호화 후 `bytea`로 저장하고, pgvector를 쓰지 않습니다.** 유사도는 담당 반의 등록·동의 원아만 조회해 메모리에서 계산합니다 (반당 6명 규모).

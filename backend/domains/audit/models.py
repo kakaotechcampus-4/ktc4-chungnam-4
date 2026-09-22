@@ -11,7 +11,7 @@ docs/테크스펙.md ERD를 따른다 — DeletionLog에는 actor가 없다(NFR-
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import Column, DateTime, String, Text
 from sqlalchemy.dialects.postgresql import UUID
@@ -20,7 +20,7 @@ from core.base import Base
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class AccessLog(Base):
