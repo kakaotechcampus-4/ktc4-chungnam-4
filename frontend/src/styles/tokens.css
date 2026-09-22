@@ -143,7 +143,3 @@
   --spacing-parent-bar: 64px; /* h-parent-bar: 학부모 상단바 */
   --spacing-gutter: 120px; /* px-gutter */
 }
-
-/* index.html <head> 폰트 (Google Fonts):
- * Noto Sans KR 400;500;700 · IBM Plex Sans KR 400;500;600;700 · Jua 400 (로고를 글자로 렌더할 때만 필요)
- */
