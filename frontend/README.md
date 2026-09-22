@@ -44,14 +44,14 @@ frontend/src/
 │   ├── routes/          # 영역별 라우트 모듈 (아래 표)
 │   └── layouts/         # 교사·공개 레이아웃. 학부모는 (예정)
 ├── pages/<화면>/        # 라우트 1:1. components/, hooks/는 필요할 때
-├── features/<기능>/     # 화면을 넘나드는 단위 (예정: onboarding, upload-queue, pipeline, review, ondevice)
+├── features/<기능>/     # 화면을 넘나드는 단위. class-context(현재 반). 그 밖은 (예정)
 ├── components/ui/       # shadcn 생성물
 ├── components/common/   # 공통 컴포넌트 (PageHeader, FocusCard, BrandLogo)
-├── api/<도메인>.ts      # 요청 함수와 queryOptions (예정)
+├── api/<도메인>.ts      # 요청 함수와 queryOptions (organization)
 ├── lib/                 # api-client, datetime(한국 날짜·표기), utils(cn)
 ├── types/api-draft/     # API 문서 v0를 옮긴 임시 타입
 ├── styles/tokens.css    # 디자인 토큰
-├── mocks/               # browser·server, handlers/(자동 수집), http.ts, scenario.ts. fixtures/는 (예정)
+├── mocks/               # browser·server, handlers/(자동 수집), fixtures/, http.ts, scenario.ts
 ├── test/                # setup.ts, render.tsx
 └── workers/             # Web Worker, 온디바이스 모델 (예정)
 ```
@@ -86,7 +86,8 @@ frontend/src/
 - 핸들러는 `src/mocks/handlers/<도메인>.ts`에 `export const handlers = [...]`로 둡니다. 자동으로 모이니 `index.ts`는 고치지 않습니다. `handlers/` 안에는 핸들러 파일만 둡니다(`handlers` export가 없으면 에러가 납니다).
 - 경로는 `apiPath("/classes")`, 에러는 `errorResponse(403, "CLASS_ACCESS_DENIED", "…")`, 목록은 `listResponse(items)`로 만듭니다(`mocks/http.ts`).
 - 빈 상태·실패를 브라우저에서 보려면 주소에 `?mock=<도메인>.<상태>`를 붙입니다. 예: `/t/children?mock=organization.children-empty`. 화면을 옮겨도 유지되고, `?mock=`을 붙이거나 탭을 닫으면 꺼집니다. 핸들러에서는 `isMockScenario("organization.children-empty")`로 나눕니다.
-- 테스트는 시나리오 대신 `server.use(...)`로 그 테스트의 응답만 바꿉니다.
+- 목 id는 `fixtureId("child", 1)`처럼 만들고, 반·원아는 `fixtures/organization.ts`의 햇살반 5명을 씁니다.
+- 테스트는 시나리오 대신 `server.use(...)`로 그 테스트의 응답만 바꿉니다. 예시는 `app/layouts/TeacherLayout.test.tsx`입니다. 핸들러가 없는 요청을 보내면 그 테스트가 실패합니다.
 - 목이 없는 API 요청은 브라우저 콘솔에 `[MSW] Warning: intercepted a request without a matching request handler`로 뜹니다.
 
 ## API 타입

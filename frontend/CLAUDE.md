@@ -40,6 +40,8 @@
 - 시간은 서버가 UTC ISO 8601로 주고, 날짜만 있는 값(`record_date` 등)은 한국 시간 기준 `YYYY-MM-DD`입니다(테크스펙에 제안 중). 변환과 표기는 `lib/datetime.ts`의 함수(`kstToday`, `formatDate`, `formatTime` 등)만 씁니다. `toISOString().slice(0, 10)`은 한국 0~9시에 전날이 되므로 쓰지 않습니다.
 - BE가 없는 동안은 MSW로 개발합니다. 핸들러는 `mocks/handlers/<도메인>.ts`에 `export const handlers = [...]`로 두면 자동으로 모입니다(`handlers/index.ts`는 고치지 않고, `handlers/` 안에는 핸들러 파일만 둡니다). 픽스처는 `mocks/fixtures/<도메인>.ts`이고, 응답은 `mocks/http.ts`의 `apiPath`·`errorResponse`·`listResponse`로 만듭니다. MSW는 개발 서버에서 기본으로 켜지고, 끄려면 `.env.development.local`에 `VITE_USE_MSW=false`를 둡니다.
 - `@/mocks`는 진입점(`main.tsx`)과 테스트에서만 import합니다. 화면 코드는 목을 알지 못합니다(ESLint가 막습니다).
+- 목 id는 `mocks/fixtures/ids.ts`의 `fixtureId(종류, 번호)`로 만듭니다. 반·원아는 `fixtures/organization.ts`의 햇살반과 원아 5명을 그대로 씁니다. 화면 사이 링크가 목에서도 이어지게 하려는 것입니다.
+- 교사 화면의 현재 반은 `features/class-context`의 `useCurrentClass()`로 받습니다. `class_id`를 하드코딩하지 않습니다.
 - **픽스처는 합성 데이터만 씁니다.** 루트 규칙은 팀원 본인 사진도 허용하지만, 프론트는 커밋한 픽스처가 그대로 목 응답이 되므로 합성만 씁니다. 이메일은 `example.com`을 씁니다.
 - 브라우저에 노출되는 값은 `VITE_` 접두사만 쓰고, 여기에 비밀을 넣지 않습니다.
 
