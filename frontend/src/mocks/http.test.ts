@@ -43,12 +43,8 @@ describe("목 응답 헬퍼", () => {
   });
 });
 
+// 주소와 탭 저장소는 test/setup.ts가 테스트마다 비웁니다.
 describe("isMockScenario", () => {
-  afterEach(() => {
-    window.history.replaceState(null, "", "/");
-    window.sessionStorage.clear();
-  });
-
   it("주소의 ?mock=을 읽고, 화면을 옮겨도 기억한다", () => {
     window.history.replaceState(null, "", "/t/children?mock=organization.children-empty,auth.none");
     expect(isMockScenario("organization.children-empty")).toBe(true);
