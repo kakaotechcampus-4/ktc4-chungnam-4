@@ -1,10 +1,10 @@
 from logging.config import fileConfig
 from typing import Any
 
-from alembic import context
 from alembic.util import CommandError
 from sqlalchemy import create_engine, pool
 
+from alembic import context
 from core.base import Base
 from core.config import get_settings
 

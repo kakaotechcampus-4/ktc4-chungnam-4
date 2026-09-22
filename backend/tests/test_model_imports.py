@@ -1,7 +1,7 @@
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -33,5 +33,7 @@ assert "core.database" not in sys.modules, "DB module loaded"
         capture_output=True,
         text=True,
         timeout=30,
+        # 실패도 검사 대상이라 예외 대신 returncode로 확인합니다.
+        check=False,
     )
     assert result.returncode == 0, result.stderr

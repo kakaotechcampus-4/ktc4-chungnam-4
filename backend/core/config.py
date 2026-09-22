@@ -23,7 +23,9 @@ class Settings(BaseSettings):
     postgres_db: str = "ktc4"
 
     celery_broker_url: str = "redis://localhost:6379/0"  # 작업을 보낼 Redis 주소
-    celery_result_backend: str = "redis://localhost:6379/1"  # 상태·결과를 저장할 Redis 주소
+    celery_result_backend: str = (
+        "redis://localhost:6379/1"  # 상태·결과를 저장할 Redis 주소
+    )
     celery_result_expires: int = Field(default=86400, gt=0)
 
     # 얼굴 임베딩 AES 키 (NFR-01). base64로 인코딩한 32바이트.
@@ -42,7 +44,10 @@ class Settings(BaseSettings):
     @field_validator("postgres_password")
     @classmethod
     def require_configured_password(cls, value: SecretStr) -> SecretStr:
-        if not value.get_secret_value() or value.get_secret_value() == "replace-with-a-generated-password":
+        if (
+            not value.get_secret_value()
+            or value.get_secret_value() == "replace-with-a-generated-password"
+        ):
             raise ValueError("Generate a database password with scripts/init_env.py")
         return value
 

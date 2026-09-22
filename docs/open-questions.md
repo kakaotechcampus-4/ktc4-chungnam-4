@@ -19,6 +19,10 @@
 - [ ] `backend/.importlinter` — 채울지 지울지 (현재 0바이트. 빈 설정 파일이 제일 나쁨)
 - [ ] **`backend/domains/agents/CLAUDE.md` §프롬프트를 새 구조에 맞게 고치기** (AI 회의 답변으로 방향 확정, **코드 반영 대기 중**) — 현재 문서는 "코드 문자열에 하드코딩하지 않고 최상위 `prompts/*.md`에 둔다 / 파일명은 `agent1_evidence.md` 등 4개"입니다. 새 구조는 **`prompts/<영역>/` 중첩, 프롬프트 본문은 `.md`, 변수 삽입·조립 로직은 `.py`로 분리**하며, 하위 전체를 한 확장자로 고정하지 않습니다. 지금 저장소의 `prompts/verification/critic.py`는 본문과 조립이 한 파일에 섞여 있어 아직 새 구조가 아닙니다 — **AI팀 PR로 분리가 끝난 뒤 `[fix]`로 문서를 맞춥니다.** 먼저 고치면 문서가 또 현실과 어긋납니다
 - [ ] **Celery worker가 죽었을 때 자동 복구할지** (09/19 논의, 결론 미정) — 하는 쪽이 낫지만 **워커가 중복 실행될 수 있다**는 단점이 있습니다(같은 작업이 두 번 돌 수 있음). Celery에 관련 옵션이 있고 **현재는 비활성화**해 뒀습니다. 켤지, 켠다면 중복을 무엇으로 막을지(작업 멱등성 / 락) 미정
+- [ ] **배포 실행 방식** (NFR-13) — ① OIDC + SSM 원격 실행(서버에 상시 프로세스 없음) ② self-hosted 러너를 EC2에 설치. `ktc-github-deploy` 역할에 `ssm:SendCommand`가 있는지 확인한 뒤 결정합니다 (`.github/workflows/oidc-test.yml`)
+- [ ] **배포 중 중단 허용 범위** (NFR-13) — 현재 설계는 컨테이너 재시작이라 수 초간 API가 끊깁니다. 서버가 1대라 블루/그린은 불가능합니다
+- [ ] **`main` 배포(운영 환경) 도입 시점** (NFR-13) — 서버가 1대라 `develop` 배포와 공존할 수 없습니다. 멘토 조언에 따라 우선 `develop`만 붙입니다
+- [ ] **컨테이너 로그 장기 보존 여부** — 파일당 10MB·3개로 제한하면 오래된 로그는 사라집니다. 보존이 필요해지면 CloudWatch Logs 등 서버 밖으로 내보내는 방식을 검토합니다 (멘토 09/20: 이번 프로젝트는 디스크 사용량 확인으로 충분)
 
 ## C. 스펙 미정 (코드 구조에 영향)
 
@@ -93,7 +97,7 @@
 - **원아별 하루 일과를 먼저 만들고 그걸 입력으로 초안 생성** (09/19, 토큰 절감) → 테크스펙 FR-27·파이프라인 5·6단계
 - **영상의 미동의 원아 확인은 교사가 직접** (09/19) → 테크스펙 §공통 규칙. 보조 기능은 could
 - **일정·식단 기능 제외** (09/19) → 테크스펙 §스펙 아웃
-- `EvidenceBundle.source_activity_plan_id`는 **FK 없이 UUID nullable + TODO**, `context_lookup`은 `developmental_guideline`·`persona` **고정 키 JSON** (09/19) → 테크스펙 데이터 모델 ④
+- `EvidenceBundle.source_activity_plan_id`는 **FK 없이 UUID nullable + TODO**, `context_lookup`은 `developmental_guideline`·`teacher_persona` **고정 키 JSON** (09/19 결정, 09/22 이슈 #16 코멘트 반영해 `persona`→`teacher_persona` 개명 — 원아 성향이 아니라 교사 문체) → 테크스펙 데이터 모델 ④
 
 - `MediaAsset.redacted` → **만들지 않음**. 블러 기능이 부활하면 그때 추가 (09/21) → 테크스펙 데이터 모델 ③, `domains/media/CLAUDE.md`
 - **파생본(프록시본·썸네일) 컬럼 추가** → `proxy_url`·`thumbnail_url`·`derivative_state`. "용도별 사본 금지"는 "같은 원본을 2벌 보관하지 않는다"로 한정 (09/21) → 테크스펙 데이터 모델 ③

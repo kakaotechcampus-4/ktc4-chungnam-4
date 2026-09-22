@@ -44,7 +44,9 @@ fail은 ok 이외의 reason_code를 사용하라. detail은 빈 문자열을 허
 """
 
 
-def build_critic_prompt(document: DraftDocument, evidence_by_id: dict[str, EvidenceItem]) -> str:
+def build_critic_prompt(
+    document: DraftDocument, evidence_by_id: dict[str, EvidenceItem]
+) -> str:
     """검증 대상 문장과 근거를 직렬화해 Critic 프롬프트를 만든다.
 
     존재하지 않는 근거를 참조하는 문장은 이미 코드 검증에서 걸러졌다고 가정하지 않고,
