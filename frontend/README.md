@@ -58,7 +58,7 @@ frontend/src/
 ## 화면 하나 시작하는 법
 
 1. 이슈나 디스코드에 "이거 잡는다"를 남기고 브랜치를 팝니다: `git switch -c feat/fe/<화면> origin/develop`
-2. 담당 화면과 Figma 노드는 확정 Figma 파일(`1차 결과본`)의 담당자 섹션에서 확인합니다.
+2. 내가 맡은 화면은 [화면 담당 분담표](https://www.figma.com/design/PRFUNGXVCYw5aocQwwLZ2r/Untitled?node-id=18-3036)에서 확인합니다. 화면 원본은 같은 파일의 담당자 섹션(①~⑤)에 있습니다.
 3. `src/pages/<kebab-case>/<Name>Page.tsx`를 만들고 첫 줄에 노드를 적습니다: `// Figma: 1:481`
 4. `src/app/router.tsx`에 라우트 한 줄을 추가합니다(교사 `/t/*`, 학부모 `/p/*`, 공개는 최상위).
 5. 스타일은 Tailwind 유틸리티만 씁니다. 디자인 토큰이 들어오기 전까지 hex는 쓰지 않습니다.
