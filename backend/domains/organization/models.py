@@ -38,7 +38,9 @@ class Klass(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     center_id = Column(UUID(as_uuid=True), ForeignKey("centers.id"), nullable=False)
-    teacher_id = Column(UUID(as_uuid=True), nullable=False)  # auth.Teacher 참조 (반은 항상 교사 1명)
+    teacher_id = Column(
+        UUID(as_uuid=True), nullable=False
+    )  # auth.Teacher 참조 (반은 항상 교사 1명)
     name = Column(String, nullable=False)
     age_group = Column(String, nullable=False)
     # TODO(이한나): 이미 teacher_id가 있는 반을 다른 교사가 선택했을 때 처리 미정 (FR-25, docs/open-questions.md)
@@ -100,7 +102,9 @@ class PersonaFeedback(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     persona_id = Column(UUID(as_uuid=True), ForeignKey("teacher_personas.id"), nullable=False)
     revision_log_id = Column(UUID(as_uuid=True), nullable=False)  # documents.RevisionLog 참조
-    extracted_rule = Column(Text, nullable=False)  # 교사의 수정 지시·결과에서 추출한 문체 신호 (NFR-10, NFR-11)
+    extracted_rule = Column(
+        Text, nullable=False
+    )  # 교사의 수정 지시·결과에서 추출한 문체 신호 (NFR-10, NFR-11)
     applied = Column(Boolean, nullable=False, default=False)  # true인 항목만 다음 version에 반영
     created_at = Column(DateTime(timezone=True), nullable=False)
 
