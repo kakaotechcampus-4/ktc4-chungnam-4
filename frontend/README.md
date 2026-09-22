@@ -47,7 +47,7 @@ frontend/src/
 ├── components/ui/       # shadcn 생성물
 ├── components/common/   # 공통 컴포넌트 (PageHeader, FocusCard, BrandLogo)
 ├── api/<도메인>.ts      # 요청 함수와 queryOptions (예정)
-├── lib/                 # utils(cn). api-client, datetime은 (예정)
+├── lib/                 # utils(cn), datetime(한국 날짜·표기). api-client는 (예정)
 ├── types/api-draft/     # 인터페이스 명세를 옮긴 임시 타입 (예정)
 ├── styles/tokens.css    # 디자인 토큰
 ├── mocks/               # browser.ts, server.ts, handlers/, fixtures/(예정)
