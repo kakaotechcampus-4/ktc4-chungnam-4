@@ -20,10 +20,7 @@ def main() -> None:
         if line.partition("=")[0].strip() == "POSTGRES_PASSWORD"
     ]
     # 주석에만 예시 문구가 남거나 비밀번호 항목이 중복된 경우도 생성 전에 중단합니다.
-    if (
-        len(password_lines) != 1
-        or password_lines[0].partition("=")[2].strip() != placeholder
-    ):
+    if len(password_lines) != 1 or password_lines[0].partition("=")[2].strip() != placeholder:
         raise SystemExit(
             "Invalid .env.example: expected exactly one "
             "POSTGRES_PASSWORD=replace-with-a-generated-password entry. "
@@ -31,9 +28,7 @@ def main() -> None:
         )
     lines = content.splitlines(keepends=True)
     password_index = next(
-        index
-        for index, line in enumerate(lines)
-        if line.rstrip("\r\n") == password_lines[0]
+        index for index, line in enumerate(lines) if line.rstrip("\r\n") == password_lines[0]
     )
     lines[password_index] = f"POSTGRES_PASSWORD={secrets.token_urlsafe(32)}\n"
     content = "".join(lines)

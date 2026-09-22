@@ -78,25 +78,19 @@ def test_verify_and_record_모든_검증을_통과하면_PASS를_반환하고_�
     session = FakeSession()
     monkeypatch.setattr(service, "call_claude", lambda prompt: _critic_response())
 
-    result = service._verify_and_record(
-        session, _document(), EVIDENCE_BY_ID, _request(), 0
-    )
+    result = service._verify_and_record(session, _document(), EVIDENCE_BY_ID, _request(), 0)
 
     assert result.decision == contracts.Decision.PASS
     assert session.committed
 
-    sentence_rows = [
-        obj for obj in session.added if isinstance(obj, service.SentenceEvidenceRow)
-    ]
+    sentence_rows = [obj for obj in session.added if isinstance(obj, service.SentenceEvidenceRow)]
     assert len(sentence_rows) == 1
     assert sentence_rows[0].evidence_id == "ev_001"
     assert sentence_rows[0].source_media_id == EVIDENCE_CHILD_A.media_id
     assert sentence_rows[0].source_timestamp == EVIDENCE_CHILD_A.start_ms / 1000
     assert sentence_rows[0].source_text == EVIDENCE_CHILD_A.text
 
-    issue_rows = [
-        obj for obj in session.added if isinstance(obj, service.VerificationResultRow)
-    ]
+    issue_rows = [obj for obj in session.added if isinstance(obj, service.VerificationResultRow)]
     assert issue_rows == []  # 통과했으니 남길 실패 사유가 없다
 
 
@@ -114,9 +108,7 @@ def test_verify_and_record_최종_판정을_draft_decision_log에_남긴다(monk
         critic_retry_count=1,
     )
 
-    decision_rows = [
-        obj for obj in session.added if isinstance(obj, service.DraftDecisionLog)
-    ]
+    decision_rows = [obj for obj in session.added if isinstance(obj, service.DraftDecisionLog)]
     assert len(decision_rows) == 1
     assert decision_rows[0].draft_id == document.draft_id
     assert decision_rows[0].doc_version == document.version
@@ -136,25 +128,16 @@ def test_verify_and_record_코드_검증이_실패하면_critic을_부르지_않
     monkeypatch.setattr(service, "call_claude", _fail_if_called)
 
     document = _document(evidence_ids=("ev_999",))  # 존재하지 않는 근거
-    result = service._verify_and_record(
-        session, document, EVIDENCE_BY_ID, _request(), 0
-    )
+    result = service._verify_and_record(session, document, EVIDENCE_BY_ID, _request(), 0)
 
     assert result.decision == contracts.Decision.REGENERATE
 
-    issue_rows = [
-        obj for obj in session.added if isinstance(obj, service.VerificationResultRow)
-    ]
+    issue_rows = [obj for obj in session.added if isinstance(obj, service.VerificationResultRow)]
     assert len(issue_rows) == 1
-    assert (
-        issue_rows[0].check_type
-        == contracts.VerificationCheckType.INVALID_EVIDENCE_REF.value
-    )
+    assert issue_rows[0].check_type == contracts.VerificationCheckType.INVALID_EVIDENCE_REF.value
     assert issue_rows[0].sentence_index == 0
 
-    sentence_rows = [
-        obj for obj in session.added if isinstance(obj, service.SentenceEvidenceRow)
-    ]
+    sentence_rows = [obj for obj in session.added if isinstance(obj, service.SentenceEvidenceRow)]
     assert sentence_rows == []  # 실패한 시도는 근거를 남기지 않는다
 
 
@@ -169,9 +152,7 @@ def test_verify_and_record_재생성_상한에_도달하면_교사_확인으로_
     monkeypatch.setattr(service, "call_claude", _fail_if_called)
 
     document = _document(evidence_ids=("ev_999",))
-    result = service._verify_and_record(
-        session, document, EVIDENCE_BY_ID, _request(), 2
-    )
+    result = service._verify_and_record(session, document, EVIDENCE_BY_ID, _request(), 2)
 
     assert result.decision == contracts.Decision.NEEDS_TEACHER_REVIEW
 
@@ -182,9 +163,7 @@ def test_verify_and_record_critic_응답이_JSON이_아니면_RETRY_CRITIC을_�
     session = FakeSession()
     monkeypatch.setattr(service, "call_claude", lambda prompt: "이건 JSON이 아닙니다")
 
-    result = service._verify_and_record(
-        session, _document(), EVIDENCE_BY_ID, _request(), 0
-    )
+    result = service._verify_and_record(session, _document(), EVIDENCE_BY_ID, _request(), 0)
 
     assert result.decision == contracts.Decision.RETRY_CRITIC
 
@@ -194,9 +173,7 @@ def test_verify_with_critic_retry_한번_재시도_후_통과하면_그대로_�
 ) -> None:
     decisions = iter([contracts.Decision.RETRY_CRITIC, contracts.Decision.PASS])
 
-    def _fake_verify(
-        session, document, evidence_by_id, request, regeneration_count, **kwargs
-    ):
+    def _fake_verify(session, document, evidence_by_id, request, regeneration_count, **kwargs):
         return contracts.DecisionResult(decision=next(decisions), reason="테스트")
 
     monkeypatch.setattr(service, "_verify_and_record", _fake_verify)
@@ -218,9 +195,7 @@ def test_verify_with_critic_retry_상한을_넘기면_교사_확인으로_넘긴
     ):
         nonlocal calls
         calls += 1
-        return contracts.DecisionResult(
-            decision=contracts.Decision.RETRY_CRITIC, reason="테스트"
-        )
+        return contracts.DecisionResult(decision=contracts.Decision.RETRY_CRITIC, reason="테스트")
 
     monkeypatch.setattr(service, "_verify_and_record", _always_retry_critic)
 

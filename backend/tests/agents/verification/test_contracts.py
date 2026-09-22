@@ -76,9 +76,7 @@ def test_모순된_검증결과_거부(passed, issues):
         )
 
 
-@pytest.mark.parametrize(
-    "changes", [{"start_ms": 1000}, {"end_ms": 1000}, {"start_ms": 0}]
-)
+@pytest.mark.parametrize("changes", [{"start_ms": 1000}, {"end_ms": 1000}, {"start_ms": 0}])
 def test_사진_근거는_시간_구간을_가질_수_없다(changes):
     data = EVIDENCE_CHILD_B.model_dump()
     data.update(changes)
@@ -90,9 +88,7 @@ def test_사진_근거는_시간_없이_통과한다():
     EvidenceItem(**EVIDENCE_CHILD_B.model_dump())
 
 
-@pytest.mark.parametrize(
-    "changes", [{"start_ms": None, "end_ms": None}, {"end_ms": None}]
-)
+@pytest.mark.parametrize("changes", [{"start_ms": None, "end_ms": None}, {"end_ms": None}])
 def test_영상_음성_근거는_시간_생략과_한쪽만_제공을_허용한다(changes):
     data = EVIDENCE_CHILD_A.model_dump()
     data.update(changes)

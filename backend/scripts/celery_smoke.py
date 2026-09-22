@@ -70,9 +70,7 @@ def main() -> None:
     parser.add_argument("--delay-seconds", type=int, choices=range(11), default=0)
     args = parser.parse_args()
     if args.action == "submit":
-        job = practice.delay(
-            {"message": "test"}, fail=args.fail, delay_seconds=args.delay_seconds
-        )
+        job = practice.delay({"message": "test"}, fail=args.fail, delay_seconds=args.delay_seconds)
         print(json.dumps({"task_id": job.id}))
     elif args.action == "status":
         if not args.task_id:

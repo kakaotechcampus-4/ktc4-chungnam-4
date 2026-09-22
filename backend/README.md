@@ -169,6 +169,52 @@ py -3.12 -m venv .venv
 
 이 테스트는 SQLite와 실패 상황을 재현하는 테스트 객체를 사용합니다. 실제 PostgreSQL 연결 검증은 아래 절차로 수행합니다.
 
+## 린트와 포맷
+
+코드 스타일 규칙은 `backend/CLAUDE.md` §코드 스타일이 원본이고, 그 값을 `backend/ruff.toml`이 실행합니다. 줄 길이 100자, 들여쓰기 4칸, 큰따옴표입니다.
+
+### 커밋 전에 돌립니다
+
+```bash
+.venv/bin/ruff check . --fix
+.venv/bin/ruff format .
+```
+
+### `develop`을 받으면 의존성을 다시 설치합니다
+
+Ruff는 개발 의존성입니다. 받은 뒤 `ruff: command not found`가 나오면 설치가 안 된 것입니다.
+
+```bash
+.venv/bin/python -m pip install -r requirements-dev.txt
+```
+
+### CI가 무엇을 보는가
+
+PR을 올리면 `.github/workflows/ci.yml`의 `backend` job이 세 가지를 순서대로 검사합니다.
+
+| 단계 | 명령 | 실패하면 |
+|---|---|---|
+| Lint | `ruff check .` | `ruff check . --fix`로 대부분 자동 수정됩니다 |
+| Format check | `ruff format --check .` | `ruff format .`을 돌리고 다시 커밋합니다 |
+| Test | `pytest -q` | 로컬에서 재현한 뒤 고칩니다 |
+
+로컬에서 위 세 명령이 통과하면 CI도 통과합니다. 실패 로그는 Actions 탭의 해당 실행에서 그대로 볼 수 있습니다.
+
+### 로컬은 되는데 CI만 실패할 때
+
+가장 흔한 원인은 **`.env` 의존**입니다. CI에는 `backend/.env`가 없습니다(커밋 금지 파일). 로컬에서도 같은 조건으로 확인하려면 잠시 치우고 돌려보세요.
+
+```bash
+mv .env .env.bak && .venv/bin/python -m pytest -q; mv .env.bak .env
+```
+
+테스트가 설정값을 필요로 한다면 `tests/conftest.py`에서 채웁니다. 개발자의 `.env`에 기대지 않는 것이 기준입니다.
+
+### 머지 차단
+
+`develop` 브랜치에 `develop-ci` 룰셋이 있습니다. 활성화되어 있으면 `backend` 검사를 통과하지 못한 PR은 머지 버튼이 잠깁니다. 상태는 Settings → Rules에서 확인할 수 있습니다.
+
+
 ### 실제 PostgreSQL 연결 확인
 
 **저장소 루트**에서 API와 DB를 실행한 뒤 확인합니다.
@@ -594,4 +640,4 @@ Redis의 AOF와 볼륨은 컨테이너 교체에 대비한 저장 장치이며 �
 - 실제 Redis·worker: STARTED → SUCCESS, 의도한 FAILURE 확인.
 - worker 정지 중 제출한 ID가 PENDING이고, 재시작 후 같은 ID로 SUCCESS 조회됨을 확인.
 - 테스트 환경은 별도 Compose 프로젝트로 분리했으며 검증 후 worker·Redis를 정지.
-- Ruff는 실행 환경에 설치되어 있지 않아 미실행. 기존 테스트 라이브러리의 폐기 예정 경고 2건 발생.
+- 당시 Ruff는 설치돼 있지 않아 미실행. 이후 개발 의존성에 추가되어 지금은 CI가 검사합니다(§린트와 포맷). 기존 테스트 라이브러리의 폐기 예정 경고 2건 발생.

@@ -45,10 +45,7 @@ def test_generates_password_only_in_password_entry(script: Path) -> None:
         if line.startswith("POSTGRES_PASSWORD=")
     )
     assert password and password != PLACEHOLDER
-    assert (
-        generated
-        == comment + "POSTGRES_USER=postgres\n" + f"POSTGRES_PASSWORD={password}\n"
-    )
+    assert generated == comment + "POSTGRES_USER=postgres\n" + f"POSTGRES_PASSWORD={password}\n"
     assert password not in result.stdout + result.stderr
     assert (root / ".env").stat().st_mode & 0o777 == 0o600
 
