@@ -12,6 +12,17 @@ export default defineConfig({
       "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
+  server: {
+    // MSW를 끄면(VITE_USE_MSW=false) /api 요청을 로컬 백엔드로 넘깁니다.
+    // 주소는 셸 환경변수 API_PROXY_TARGET으로 바꿉니다. 브라우저에는 노출되지 않습니다.
+    // changeOrigin을 끄면 백엔드가 보는 Host가 개발 서버 주소라, 백엔드의 리다이렉트도 프록시를 다시 탑니다.
+    proxy: {
+      "/api": {
+        target: process.env.API_PROXY_TARGET ?? "http://127.0.0.1:8000",
+        changeOrigin: false,
+      },
+    },
+  },
   test: {
     environment: "jsdom",
     globals: true,
