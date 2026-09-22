@@ -7,14 +7,14 @@
 ## A. 컨벤션
 
 - [ ] `.editorconfig` + pre-commit 훅 도입 여부
-- [ ] **Ruff가 아직 설치·설정되지 않음** — `requirements-dev.in`에 없고 설정 파일도 없음. 루트 §Claude 작업 규칙이 실행을 지시하므로 추가 필요 (의존성 추가라 BE 리드 확인)
+- [x] ~~Ruff가 아직 설치·설정되지 않음~~ — 09/21 `requirements-dev.in`에 추가하고 `backend/ruff.toml` 생성. 줄 길이는 `backend/CLAUDE.md` §코드 스타일의 100자를 따릅니다. 절차는 `backend/README.md` §린트와 포맷
 - [ ] 에러 응답의 세부 필드명 — `detail` vs `details` vs 생략
 
 ## B. 구조 · 인프라
 
 - [ ] ONNX 모델 배포 방식: git-lfs vs S3/CDN vs `public/` 직접 포함
 - [ ] 로컬 개발 환경: Docker Compose 통일 vs 각자 로컬 실행
-- [ ] CI에서 막을 것: 린트 / 타입체크 / 테스트 / 빌드 중 어디까지
+- [ ] CI에서 막을 것: 린트 / 타입체크 / 테스트 / 빌드 중 어디까지 — **현재 린트·포맷·테스트로 운영 중**(`.github/workflows/ci.yml`). 머지 차단은 `develop-ci` 룰셋으로 켰다가, 룰셋 도입 전에 열린 PR이 검사 대기 상태로 막혀 임시 해제했습니다. 타입체크·빌드를 넣을지는 미정
 - [ ] **죽은 참조·깨진 링크 CI 검사 도입 여부** — 문서의 `§제목`·경로 참조가 실제로 존재하는지 검사. 블랭킷 경로 검사는 오탐이 많아(`models.py` 같은 관례 표기까지 잡힘) 표적 검사로 짜야 합니다. 새 워크플로라 BE 리드 확인 필요
 - [ ] `backend/.importlinter` — 채울지 지울지 (현재 0바이트. 빈 설정 파일이 제일 나쁨)
 - [ ] **`backend/domains/agents/CLAUDE.md` §프롬프트를 새 구조에 맞게 고치기** (AI 회의 답변으로 방향 확정, **코드 반영 대기 중**) — 현재 문서는 "코드 문자열에 하드코딩하지 않고 최상위 `prompts/*.md`에 둔다 / 파일명은 `agent1_evidence.md` 등 4개"입니다. 새 구조는 **`prompts/<영역>/` 중첩, 프롬프트 본문은 `.md`, 변수 삽입·조립 로직은 `.py`로 분리**하며, 하위 전체를 한 확장자로 고정하지 않습니다. 지금 저장소의 `prompts/verification/critic.py`는 본문과 조립이 한 파일에 섞여 있어 아직 새 구조가 아닙니다 — **AI팀 PR로 분리가 끝난 뒤 `[fix]`로 문서를 맞춥니다.** 먼저 고치면 문서가 또 현실과 어긋납니다

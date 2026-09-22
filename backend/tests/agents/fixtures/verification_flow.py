@@ -7,9 +7,7 @@ from tools.verification.references import validate_references
 from tools.verification.target import validate_target
 
 
-def verify_example(
-    document, evidence_by_id, request, critic_response, regeneration_count=0
-):
+def verify_example(document, evidence_by_id, request, critic_response, regeneration_count=0):
     results = []
     for stage, issues in [
         (VerificationStage.REFERENCES, validate_references(document, evidence_by_id)),

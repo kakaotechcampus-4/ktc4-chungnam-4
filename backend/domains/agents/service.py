@@ -74,9 +74,7 @@ def _verify_with_critic_retry(
     Critic 응답 오류는 초안 문장 내용이 아니라 Critic 쪽 문제라 재생성으로는
     해결되지 않는다 (PR #33 리뷰, EatRawLife).
     """
-    result = _verify_and_record(
-        session, document, evidence_by_id, request, regeneration_count
-    )
+    result = _verify_and_record(session, document, evidence_by_id, request, regeneration_count)
     for critic_retry_count in range(1, MAX_CRITIC_RETRIES + 1):
         if result.decision != contracts.Decision.RETRY_CRITIC:
             return result
@@ -105,9 +103,7 @@ def _get_job(session: Session, job_id: str) -> Job:
     return job
 
 
-def _collect_evidence(
-    session: Session, child_id: str, target_date: datetime
-) -> EvidenceBundle:
+def _collect_evidence(session: Session, child_id: str, target_date: datetime) -> EvidenceBundle:
     # TODO(eun): organization.Child 준비되면 발달 맥락을 조회해서 EvidenceBundle을 구성합니다.
     # 미디어는 MediaAsset을 여기서 직접 조회하지 않고 media.service.collect_media_for_llm(
     # session, child_id, target_date)를 호출해서 받습니다 — 동의 필터링(H-2)이 그 함수 안에서
@@ -115,9 +111,7 @@ def _collect_evidence(
     raise NotImplementedError("media/organization 도메인 완료 후 연결 예정")
 
 
-def _generate_draft(
-    bundle: EvidenceBundle, *, previous_draft_id: str | None
-) -> GeneratedDraft:
+def _generate_draft(bundle: EvidenceBundle, *, previous_draft_id: str | None) -> GeneratedDraft:
     # TODO(AI 리드): tools/, prompts/가 준비되면 근거 기반 프롬프트 구성과 call_claude
     # 호출을 여기서 수행합니다. 반환하는 세 값 중 evidence_by_id는 실제 생성에 사용한
     # EvidenceItem 풀(검증 단계가 문장의 evidence_ids를 그대로 다시 조회하는 데 씀)이고,
@@ -214,9 +208,7 @@ def _record_verification_issues(
                     draft_id=document.draft_id,
                     check_type=issue.check_type.value,
                     sentence_index=(
-                        sentence_index_by_id.get(issue.sentence_id)
-                        if issue.sentence_id
-                        else None
+                        sentence_index_by_id.get(issue.sentence_id) if issue.sentence_id else None
                     ),
                     result=False,
                     detail=issue.reason,
@@ -255,9 +247,7 @@ def _record_sentence_evidence(
                     evidence_id=evidence_id,
                     source_media_id=evidence.media_id,
                     source_timestamp=(
-                        evidence.start_ms / 1000
-                        if evidence.start_ms is not None
-                        else None
+                        evidence.start_ms / 1000 if evidence.start_ms is not None else None
                     ),
                     source_text=evidence.text,
                 )
