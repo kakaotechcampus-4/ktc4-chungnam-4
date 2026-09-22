@@ -103,6 +103,38 @@ def test_수동_귀속에는_신뢰도를_붙일_수_없다(db: Session, asset: 
         )
 
 
+def test_자동_귀속에는_신뢰도가_반드시_있어야_한다(
+    db: Session, asset: MediaAsset
+) -> None:
+    """신뢰도가 null이면 정확도 집계에서 그 행이 조용히 빠집니다 (테크스펙 5-6주차)."""
+    with pytest.raises(InvalidAttributionMethod):
+        save_attributions(
+            db,
+            asset.id,
+            [Attribution(uuid.uuid4(), "face_recognition")],
+            llm_allowed=False,
+        )
+
+
+def test_검사에_걸리면_아무_행도_저장되지_않는다(
+    db: Session, asset: MediaAsset
+) -> None:
+    """검증을 저장보다 먼저 끝냅니다 — 앞쪽 몇 건만 들어간 상태로 남으면 안 됩니다."""
+    with pytest.raises(InvalidAttributionMethod):
+        save_attributions(
+            db,
+            asset.id,
+            [
+                Attribution(uuid.uuid4(), "manual"),
+                Attribution(uuid.uuid4(), "face_recognition"),  # 신뢰도 누락
+            ],
+            llm_allowed=True,
+        )
+
+    assert db.query(MediaChildLink).count() == 0
+    assert asset.llm_allowed is False
+
+
 def test_없는_미디어에는_귀속할_수_없다(db: Session) -> None:
     with pytest.raises(MediaAssetNotFound):
         save_attributions(
