@@ -22,9 +22,7 @@ from tools.contracts import (
 )
 
 
-def parse_critic_response(
-    raw_response: str, document: DraftDocument
-) -> VerificationResult:
+def parse_critic_response(raw_response: str, document: DraftDocument) -> VerificationResult:
     """Critic 응답 문자열을 VerificationResult로 정규화한다.
 
     - JSON이 아니거나 배열이 아니면 문서 전체 실패(CRITIC_RESPONSE_ERROR).
@@ -51,9 +49,7 @@ def parse_critic_response(
         try:
             item = CriticSentenceResult.model_validate(entry)
         except ValidationError:
-            return _error_result(
-                document, "Critic 응답 항목의 필드가 올바르지 않습니다."
-            )
+            return _error_result(document, "Critic 응답 항목의 필드가 올바르지 않습니다.")
         sentence_id, verdict = item.sentence_id, item.verdict
         if sentence_id not in known_sentence_ids or sentence_id in seen_sentence_ids:
             return _error_result(document, "존재하지 않거나 중복된 문장 판정입니다.")

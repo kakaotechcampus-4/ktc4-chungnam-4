@@ -1,0 +1,7 @@
+dist
+coverage
+node_modules
+pnpm-lock.yaml
+# 문서는 사람이 쓴 모양을 그대로 둡니다(표·목록 정렬이 바뀌지 않게).
+*.md
+public/mockServiceWorker.js

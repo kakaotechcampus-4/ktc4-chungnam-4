@@ -78,9 +78,7 @@ class DraftDocument(Base):
 
     __tablename__ = "draft_documents"
     __table_args__ = (
-        UniqueConstraint(
-            "child_id", "doc_type", "record_date", name="uq_draft_child_type_date"
-        ),
+        UniqueConstraint("child_id", "doc_type", "record_date", name="uq_draft_child_type_date"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -103,9 +101,7 @@ class DraftDocument(Base):
     # 수정이 최신 내용을 덮어쓰는 것을 막기 위함).
     version = Column(Integer, nullable=False, default=1)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
-    updated_at = Column(
-        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
-    )
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
     approved_at = Column(DateTime(timezone=True), nullable=True)
 
 
@@ -132,16 +128,12 @@ class DocumentPublication(Base):
         # 한 request_id로 여러 draft_id를 한 번에 게시하므로(POST /letters/publish),
         # 멱등 판단은 draft_id별로 해야 한다 — request_id 단독 유니크는 두 번째
         # draft부터 저장이 막힌다.
-        UniqueConstraint(
-            "publish_request_id", "draft_id", name="uq_publication_request_draft"
-        ),
+        UniqueConstraint("publish_request_id", "draft_id", name="uq_publication_request_draft"),
         UniqueConstraint("draft_id", "round_number", name="uq_publication_draft_round"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    draft_id = Column(
-        UUID(as_uuid=True), ForeignKey("draft_documents.id"), nullable=False
-    )
+    draft_id = Column(UUID(as_uuid=True), ForeignKey("draft_documents.id"), nullable=False)
     round_number = Column(Integer, nullable=False)
     # "같은 게시 요청의 재전송은 새 회차를 만들지 않는다" — draft_id와 묶어 멱등 키로 쓴다.
     publish_request_id = Column(String, nullable=False)
@@ -182,9 +174,7 @@ class RevisionLog(Base):
     __tablename__ = "revision_logs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    draft_id = Column(
-        UUID(as_uuid=True), ForeignKey("draft_documents.id"), nullable=False
-    )
+    draft_id = Column(UUID(as_uuid=True), ForeignKey("draft_documents.id"), nullable=False)
     # auth.Teacher 참조 — auth/models.py가 아직 없어 FK 제약은 걸지 않는다.
     editor_id = Column(UUID(as_uuid=True), nullable=False)
     action = Column(String, nullable=False)

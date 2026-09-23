@@ -95,9 +95,7 @@ from domains.documents.schemas import (
 )
 
 
-def get_draft_for_teacher(
-    db: Session, *, draft_id: UUID, teacher_id: UUID
-) -> DraftDetailResponse:
+def get_draft_for_teacher(db: Session, *, draft_id: UUID, teacher_id: UUID) -> DraftDetailResponse:
     # TODO(한상균): 검수 권한 교사인지 확인 — organization의 반 배정 조회 필요 (B와 협의).
     raise NotImplementedError("교사용 초안 상세 조회 구현 예정")
 
@@ -176,9 +174,7 @@ def revoke_publication(
     raise NotImplementedError("게시 회수 처리 구현 예정")
 
 
-def list_letters_for_parent(
-    db: Session, *, parent_id: UUID
-) -> ParentLetterListResponse:
+def list_letters_for_parent(db: Session, *, parent_id: UUID) -> ParentLetterListResponse:
     # TODO(한상균): 단일 게이트 — 활성 게시 회차(revoked_at is null) + 대상 원아 접근권한
     #   (B와 협의: parent_id ↔ child_id 관계 조회) 검사. 목록 조회는 first_viewed_at을
     #   건드리지 않는다 ("목록 조회는 상세 열람으로 취급하지 않는다").

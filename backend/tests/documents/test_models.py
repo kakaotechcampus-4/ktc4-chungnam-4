@@ -97,9 +97,7 @@ def test_다른_문서종류는_같은_원아_같은_날짜여도_허용된다()
     assert db.query(DraftDocument).count() == 2
 
 
-def _publication(
-    draft_id, *, round_number, request_id, now=None
-) -> DocumentPublication:
+def _publication(draft_id, *, round_number, request_id, now=None) -> DocumentPublication:
     now = now or datetime.now(UTC)
     return DocumentPublication(
         draft_id=draft_id,
