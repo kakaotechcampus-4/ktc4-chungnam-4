@@ -51,22 +51,53 @@ echo "== 6/6 api·worker 기동 =="
 docker compose up -d
 docker compose ps
 
-echo "== 헬스 체크 =="
+echo "== 헬스 체크 1/2: 앱 =="
 # compose는 호스트 포트를 ${API_PORT:-8000}로 엽니다. 8000을 박아두면 .env에서
 # 포트를 바꿨을 때 앱은 멀쩡한데 배포만 실패로 끝납니다.
 API_PORT=$(sed -n 's/^API_PORT=//p' "$COMPOSE_DIR/.env" | tail -1 | tr -d '"'"'"' ')
 API_PORT=${API_PORT:-8000}
-echo "헬스 체크 포트: $API_PORT"
+echo "포트: $API_PORT"
 
+app_ok=""
 for _ in $(seq 1 30); do
     if curl -fsS "localhost:${API_PORT}/health/db"; then
+        app_ok=1
         echo
-        echo "배포 성공"
-        exit 0
+        break
     fi
     sleep 2
 done
+if [ -z "$app_ok" ]; then
+    echo "실패: 앱 헬스 체크가 60초 안에 통과하지 못했습니다."
+    docker compose logs --tail 50 api
+    exit 1
+fi
 
-echo "실패: 헬스 체크가 60초 안에 통과하지 못했습니다."
-docker compose logs --tail 50 api
-exit 1
+echo "== 헬스 체크 2/2: 공개 경로 =="
+# 앱이 살아 있어도 프록시가 앞에서 막히면 사용자에게는 장애입니다(502).
+# 도메인은 Caddyfile이 원본이라 거기서 읽습니다 — 두 곳에 적어두면 한 곳이 낡습니다.
+PUBLIC_HOST=$(grep -v '^[[:space:]]*#' Caddyfile | grep -m1 '{[[:space:]]*$' | sed 's/[[:space:]]*{.*//' | tr -d '[:space:]')
+echo "도메인: $PUBLIC_HOST"
+
+# --resolve로 이 서버의 Caddy에 직접 붙습니다. 외부 DNS를 한 바퀴 돌지 않아
+# 프록시 자체의 문제와 DNS 문제가 섞이지 않습니다. 인증서 검증은 그대로 합니다.
+proxy_ok=""
+for _ in $(seq 1 30); do
+    if curl -fsS --resolve "${PUBLIC_HOST}:443:127.0.0.1" "https://${PUBLIC_HOST}/health"; then
+        proxy_ok=1
+        echo
+        break
+    fi
+    sleep 2
+done
+if [ -z "$proxy_ok" ]; then
+    echo "실패: 공개 경로가 60초 안에 응답하지 않았습니다."
+    echo "확인할 것:"
+    echo "  - 보안그룹에 80·443 인바운드가 열려 있는지 (80은 인증서 발급에 필요)"
+    echo "  - ${PUBLIC_HOST}의 A 레코드가 이 서버의 Elastic IP를 가리키는지"
+    docker compose logs --tail 50 caddy
+    exit 1
+fi
+
+echo "배포 성공: https://${PUBLIC_HOST}"
+exit 0

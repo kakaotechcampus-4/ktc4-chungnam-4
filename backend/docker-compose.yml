@@ -1,6 +1,24 @@
 name: aidam
 
 services:
+  # 외부 요청을 받는 유일한 창구입니다. HTTPS 인증서 발급·갱신까지 처리합니다.
+  # 설정은 Caddyfile, 발급받은 인증서는 caddy_data 볼륨에 있습니다.
+  caddy:
+    image: caddy:2.10-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      TZ: Asia/Seoul
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
   api:
     build:
       context: .
@@ -80,3 +98,5 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  caddy_data:
+  caddy_config:
