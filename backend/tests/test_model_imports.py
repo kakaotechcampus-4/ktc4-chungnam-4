@@ -11,6 +11,8 @@ import pytest
     [
         "core.base",
         "domains.agents.models",
+        "domains.documents.models",
+        "domains.audit.models",
         "domains.face.models",
         "domains.media.models",
     ],

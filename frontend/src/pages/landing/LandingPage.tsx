@@ -1,4 +1,4 @@
-// Figma: 1:400 (홈페이지 · 첫 방문)
+// Figma: 1:295 (홈페이지 · 첫 방문)
 export function LandingPage() {
   return (
     <main>
