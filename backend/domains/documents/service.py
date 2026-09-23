@@ -99,7 +99,7 @@ def get_draft_for_teacher(
     db: Session, *, draft_id: UUID, teacher_id: UUID
 ) -> DraftDetailResponse:
     # TODO(한상균): 검수 권한 교사인지 확인 — organization의 반 배정 조회 필요 (B와 협의).
-    raise NotImplementedError
+    raise NotImplementedError("교사용 초안 상세 조회 구현 예정")
 
 
 def update_draft(
@@ -114,7 +114,7 @@ def update_draft(
     #   별도 비교 금지). rowcount==0이면 충돌(409). 통과 시 RevisionLog에
     #   action=edit, edit_method=manual, before_content(수정 전)·after_content(수정 후)
     #   를 함께 남긴다(테크스펙 RevisionLog ERD).
-    raise NotImplementedError
+    raise NotImplementedError("초안 수정 처리 구현 예정")
 
 
 def approve_draft(
@@ -130,7 +130,7 @@ def approve_draft(
     #   VerificationResult가 passed가 아니면 승인 거부할지, UnclassifiedItem
     #   (ref_type="draft_document")으로 갈지 협의 후 구현. 통과 시 RevisionLog에
     #   action=approve를 남긴다(before/after_content는 비워도 된다).
-    raise NotImplementedError
+    raise NotImplementedError("초안 승인 처리 구현 예정")
 
 
 def publish_drafts(
@@ -159,7 +159,7 @@ def publish_drafts(
     #   RevisionLog에 action=resend를 남긴다 — 테크스펙 action enum에 최초 게시에
     #   대응하는 값이 없어(edit/approve/revoke/resend뿐), 최초 게시(round_number==1)를
     #   RevisionLog에도 남길지는 별도로 결정한다.
-    raise NotImplementedError
+    raise NotImplementedError("초안 게시 처리 구현 예정")
 
 
 def revoke_publication(
@@ -173,7 +173,7 @@ def revoke_publication(
     #   기한 초과. 두 UPDATE(DraftDocument, DocumentPublication)는 같은 트랜잭션에서
     #   함께 커밋하고, 하나라도 실패하면 전체 롤백한다(모듈 docstring "트랜잭션 범위").
     #   통과 시 RevisionLog에 action=revoke를 남긴다(테크스펙 RevisionLog.action).
-    raise NotImplementedError
+    raise NotImplementedError("게시 회수 처리 구현 예정")
 
 
 def list_letters_for_parent(
@@ -182,7 +182,7 @@ def list_letters_for_parent(
     # TODO(한상균): 단일 게이트 — 활성 게시 회차(revoked_at is null) + 대상 원아 접근권한
     #   (B와 협의: parent_id ↔ child_id 관계 조회) 검사. 목록 조회는 first_viewed_at을
     #   건드리지 않는다 ("목록 조회는 상세 열람으로 취급하지 않는다").
-    raise NotImplementedError
+    raise NotImplementedError("학부모용 알림장 목록 조회 구현 예정")
 
 
 def get_letter_for_parent(
@@ -199,4 +199,4 @@ def get_letter_for_parent(
     #   트랜잭션에서 커밋한 뒤에만 본문을 응답한다 — 무조건 매번 호출한다
     #   ("학부모 열람은 매번 AccessLog를 남긴다", NFR-05, audit/CLAUDE.md).
     #   first_viewed_at이 이미 있었든 방금 채워졌든 관계없이 호출한다.
-    raise NotImplementedError
+    raise NotImplementedError("학부모용 알림장 상세 조회 구현 예정")
