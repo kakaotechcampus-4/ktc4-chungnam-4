@@ -5,7 +5,7 @@
 #    필터에 걸려 실행되지 않은 PR이 "검사 대기 중"에서 영원히 멈춥니다.
 #    문서만 고친 PR에서도 그냥 돌리고 30초 만에 끝나게 두는 편이 낫습니다.
 #
-# 프론트엔드는 아직 소스가 없어 백엔드만 검사합니다. 생기면 job을 추가합니다.
+# 파트별로 job을 나눕니다. backend는 ruff·pytest, frontend는 Prettier·ESLint·tsc·Vitest·빌드입니다.
 name: CI
 
 on:
@@ -51,3 +51,44 @@ jobs:
       # 여기에 서비스 컨테이너를 붙여야 합니다.
       - name: Test
         run: python -m pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    # 설치와 검사가 1분 안에 끝납니다. 넘으면 캐시나 의존성을 의심합니다.
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm 버전은 frontend/package.json의 packageManager에서 읽습니다.
+      # setup-node의 cache: pnpm이 동작하려면 이 단계가 먼저 와야 합니다.
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 빠른 검사부터 돌립니다. 포맷·린트는 몇 초 만에 끝납니다.
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
