@@ -1,0 +1,145 @@
+/* 아이담 디자인 토큰
+ * 값의 근거는 Figma "아이담 · 담당별 화면 (확정)" 파일의 교사 화면 실측입니다.
+ * 학부모 화면(W1~W5) 테마는 어느 안으로 갈지 정해진 뒤에 추가합니다.
+ */
+
+@layer base {
+  :root {
+    /* ── 브랜드 원색 (library "아이담 / 연두·오트 브랜드": color/* → palette/* alias) ── */
+    --aidam-primary: #eff4e5; /* color/primary: 연두 틴트. 기본 버튼 면, 활성 칩 면 */
+    --aidam-brand-ink: #36533f; /* color/brandInk: 활성 메뉴, 버튼 글자, 로고, 진한 버튼(후보 A) 면 */
+    --aidam-oat: #ebd9ae; /* color/oat: 로고 오른쪽 장 */
+    --aidam-coral: #e7b6a1; /* color/coral (라이브러리) */
+    --aidam-coral-soft: #f8e6dd; /* 실측: Tag/필수 배경 */
+    --aidam-coral-ink: #8a3b22; /* 실측: Tag/필수 글자 */
+    --aidam-canvas: #fafaf9; /* 실측 (라이브러리 color/canvas=#fafaf5와 다름 → 실측 채택. 학부모 aidam:canvas도 #fafaf9) */
+    --aidam-paper: #ffffff; /* color/paper */
+    --aidam-line: #dfe5db; /* 실측: 구분선, Input 테두리, 보조 버튼·비활성 칩 테두리, 빈 상태 아이콘 선 */
+    --aidam-border-brand: #d2dfc5; /* color/border: 연두 버튼·활성 칩 테두리 */
+    --aidam-text: #29352e; /* color/text */
+    --aidam-muted: #67716a; /* color/muted */
+    --aidam-tint-2: #f2f5ea; /* 실측: 연한 버튼 면, 글자 #29352e (교육 계획 · 목록 등 10곳) */
+    --aidam-neutral-soft: #f3f5f0; /* 실측: Tag/선택, Step pill 비활성 */
+    --aidam-leaf-soft: #eaf5d8; /* 실측: 자료 올리기 칩 (글자 brand-ink) */
+    --aidam-danger: #dc2626; /* shadcn red-600 (Tailwind 기본값. 라이브러리 값 한 번 더 확인할 것) */
+
+    /* ── shadcn 시맨틱 (교사·온보딩 기본 테마) ── */
+    --background: var(--aidam-canvas);
+    --foreground: var(--aidam-text);
+    --card: var(--aidam-paper);
+    --card-foreground: var(--aidam-text);
+    --popover: var(--aidam-paper);
+    --popover-foreground: var(--aidam-text);
+    --primary: var(--aidam-primary); /* 연두 틴트 버튼 */
+    --primary-foreground: var(--aidam-brand-ink);
+    --primary-border: var(--aidam-border-brand);
+    --secondary: var(--aidam-paper); /* 흰 바탕 + line 테두리 보조 버튼 */
+    --secondary-foreground: var(--aidam-text);
+    --muted: var(--aidam-neutral-soft);
+    --muted-foreground: var(--aidam-muted);
+    --accent: var(--aidam-primary);
+    --accent-foreground: var(--aidam-brand-ink);
+    --destructive: var(--aidam-danger);
+    --border: var(--aidam-line);
+    --input: var(--aidam-line);
+    --ring: var(--aidam-brand-ink);
+    --radius: 8px;
+
+    --font-app:
+      "Noto Sans KR Variable", "Noto Sans KR", system-ui, "Apple SD Gothic Neo", sans-serif;
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-app);
+    line-height: 1.6; /* 교사 화면 텍스트 대부분 lineHeight 160% */
+  }
+}
+
+@theme inline {
+  /* colors → bg-*, text-*, border-* */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-border: var(--primary-border);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-brand: var(--aidam-primary);
+  --color-brand-ink: var(--aidam-brand-ink);
+  --color-brand-border: var(--aidam-border-brand);
+  --color-oat: var(--aidam-oat);
+  --color-coral: var(--aidam-coral);
+  --color-coral-soft: var(--aidam-coral-soft);
+  --color-coral-ink: var(--aidam-coral-ink);
+  --color-canvas: var(--aidam-canvas);
+  --color-paper: var(--aidam-paper);
+  --color-line: var(--aidam-line);
+  --color-ink: var(--aidam-text);
+  --color-ink-muted: var(--aidam-muted);
+  --color-tint-2: var(--aidam-tint-2);
+  --color-neutral-soft: var(--aidam-neutral-soft);
+  --color-leaf-soft: var(--aidam-leaf-soft);
+
+  /* fonts */
+  --font-sans: var(--font-app);
+
+  /* radius (px 그대로. shadcn 컴포넌트는 rounded-md를 쓰므로 md를 8로 맞춤) */
+  --radius-xs: 4px; /* 체크박스 */
+  --radius-sm: 6px; /* 필터 칩 버튼 h34, 학부모 r/sm */
+  --radius-md: 8px; /* 버튼·Input (library radius/md) */
+  --radius-lg: 10px; /* 학부모 r/md, 사진 타일 */
+  --radius-xl: 14px; /* library radius/xl, 학부모 r/lg 카드 */
+  --radius-2xl: 16px; /* 교사 빈 상태 카드 */
+  --radius-3xl: 18px; /* 학부모 r/xl */
+
+  /* shadows */
+  --shadow-xs: 0 1px 2px 0 #0000000d;
+  --shadow-dropdown: 0 8px 24px 0 rgb(0 0 0 / 0.12); /* W5 자녀 전환 드롭다운 */
+
+  /* type scale (교사: Noto Sans KR, 줄높이 160%) → text-caption 등 */
+  --text-caption: 12px;
+  --text-caption--line-height: 1.6; /* 브레드크럼 eyebrow, 보조 안내 */
+  --text-label: 13px;
+  --text-label--line-height: 1.6; /* 계정명, 헤더 태그라인 */
+  --text-body: 14px;
+  --text-body--line-height: 1.6; /* 본문, 버튼, 반 선택 */
+  --text-nav: 15px;
+  --text-nav--line-height: 1.6; /* 주 메뉴, Input 텍스트(현행 로그인) */
+  --text-lead: 16px;
+  --text-lead--line-height: 1.6; /* 빈 상태 설명, 로그인 버튼 */
+  --text-h3: 24px;
+  --text-h3--line-height: 1.6; /* 빈 상태 제목 */
+  --text-h2: 30px;
+  --text-h2--line-height: 1.6; /* 로그인 "다시 만나 반가워요" */
+  --text-h1: 36px;
+  --text-h1--line-height: 1.6; /* 교사 화면 제목 */
+  --text-logo: 32px;
+  --text-logo--line-height: 40px; /* Jua 워드마크 */
+
+  /* layout widths → max-w-* */
+  --container-app: 1200px; /* 교사: 1440 기준 좌우 거터 120 */
+  --container-parent: 1100px; /* 학부모: 1440 기준 x=170 */
+  --container-reading: 760px; /* 빈 상태 카드, 학부모 목록 열, W3/W4 후보 A 한 열 */
+  --container-form: 480px; /* 온보딩 후보 A 폼 */
+  --container-form-sm: 380px; /* 현행 로그인 폼 */
+  --container-rail: 300px; /* 학부모 오른쪽 레일 */
+
+  --spacing-nav: 80px; /* h-nav: 교사 Nav, Public header */
+  --spacing-parent-bar: 64px; /* h-parent-bar: 학부모 상단바 */
+  --spacing-gutter: 120px; /* px-gutter */
+}
