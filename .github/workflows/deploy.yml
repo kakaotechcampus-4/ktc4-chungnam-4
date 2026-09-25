@@ -3,6 +3,9 @@
 # 흐름: GitHub Actions → OIDC 인증 → AWS SSM → EC2에서 deploy.sh 실행
 # 서버에 러너를 상시 띄우지 않고, AWS 액세스 키도 쓰지 않습니다 (NFR-14).
 #
+# ktc-github-deploy 역할의 ssm:SendCommand·GetCommandInvocation 권한은 PR #30에서
+# 확인했습니다. 확인에 쓴 oidc-test 워크플로는 역할을 다해 제거했습니다.
+#
 # 실제 배포 절차는 backend/scripts/deploy.sh 에 있습니다. 여기서는 그 스크립트를
 # 원격으로 호출하고 결과를 기다릴 뿐입니다 — 서버에서 손으로 돌릴 때와 같은
 # 절차를 쓰려는 것입니다.
