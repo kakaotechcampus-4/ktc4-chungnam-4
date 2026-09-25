@@ -9,7 +9,7 @@
 ## 작업을 마칠 때
 
 - `pnpm format && pnpm lint:fix`를 돌리고 결과를 보고합니다.
-- PR 전에 `pnpm check`와 `pnpm build`가 통과해야 합니다. **프론트는 아직 CI 검사가 없습니다** — 직접 돌리고 결과를 PR에 적습니다.
+- PR 전에 `pnpm check`와 `pnpm build`가 통과해야 합니다. PR을 올리면 CI(`.github/workflows/ci.yml`의 `frontend` job)가 같은 검사를 다시 돌립니다. 실패한 상태로 머지하지 않습니다.
 - TypeScript는 `~6.0.3`으로 고정합니다. typescript-eslint 8.x의 peer 범위가 `<6.1.0`이라 6.1 이상으로 올리지 않습니다.
 
 ## 어디에 둘지
