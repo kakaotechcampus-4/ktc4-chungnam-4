@@ -28,7 +28,7 @@ pnpm test:watch                      # 고치면서 볼 때
 pnpm test src/pages/landing          # 한 폴더만
 ```
 
-프론트는 아직 CI 검사가 없어요. PR 전에 직접 돌리고 결과를 PR에 적어 주세요.
+PR을 올리면 CI(`.github/workflows/ci.yml`의 `frontend` job)가 같은 검사를 다시 돌려요. 실패한 채로는 머지하지 않으니, PR 전에 로컬에서 먼저 통과시켜 주세요.
 
 ## 폴더 구조
 
