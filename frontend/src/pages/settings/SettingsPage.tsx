@@ -8,6 +8,12 @@ import { Button } from "@/components/ui/button";
 import { useLogout } from "@/features/auth/use-logout";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
 
+interface InfoRowProps {
+  label: string;
+  /** 받기 전이면 비워 둡니다 */
+  value: string | null | undefined;
+}
+
 // 교사의 계정 정보와 로그아웃입니다. 값은 Figma 실측입니다(카드 여백 28 · 반경 18 · 줄 간격 18, 카드 사이 24, 이름 칸 160).
 // Figma와 다르게 둔 곳:
 // - 제목 줄은 다른 교사 화면과 같은 PageHeader를 씁니다(Figma는 이 화면만 제목 블록이 낮습니다).
@@ -63,12 +69,6 @@ export function SettingsPage() {
       </div>
     </>
   );
-}
-
-interface InfoRowProps {
-  label: string;
-  /** 받기 전이면 비워 둡니다 */
-  value: string | null | undefined;
 }
 
 function InfoRow({ label, value }: InfoRowProps) {
