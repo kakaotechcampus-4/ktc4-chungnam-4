@@ -1,5 +1,7 @@
 import { Navigate, type RouteObject } from "react-router";
 
+import { AuthErrorBoundary } from "@/app/auth/AuthErrorBoundary";
+import { RequireRole } from "@/app/auth/RequireRole";
 import { PublicLayout } from "@/app/layouts/PublicLayout";
 import { TeacherLayout } from "@/app/layouts/TeacherLayout";
 import { authRoutes } from "@/app/routes/auth";
@@ -35,14 +37,27 @@ export const routes: RouteObject[] = [
     children: [...slot("public"), ...slot("onboarding"), { path: "*", Component: NotFoundPage }],
   },
   {
+    // 교사 영역: 가드 → 교사 틀 → 화면. 요청이 401·403이면 가까운 에러 경계가 받습니다.
+    // 화면 요청은 틀 안의 경계가 받아 내비를 남기고, 틀 자체의 요청은 바깥 경계가 받아 내비 없이 보여 줍니다.
     path: "t",
-    Component: TeacherLayout,
+    element: <RequireRole role="teacher" />,
+    errorElement: <AuthErrorBoundary standalone />,
     children: [
-      // loader로 보내지 않습니다. replace()는 앱 안에서 올 때 직전 기록을 덮어쓰고,
-      // redirect()는 주소창으로 올 때 뒤로 가기를 막습니다. Navigate는 /t 한 칸만 바꿉니다.
-      { index: true, element: <Navigate to="/t/dashboard" replace /> },
-      ...slot("teacher"),
-      { path: "*", Component: NotFoundPage },
+      {
+        Component: TeacherLayout,
+        children: [
+          {
+            ErrorBoundary: AuthErrorBoundary,
+            children: [
+              // loader로 보내지 않습니다. replace()는 앱 안에서 올 때 직전 기록을 덮어쓰고,
+              // redirect()는 주소창으로 올 때 뒤로 가기를 막습니다. Navigate는 /t 한 칸만 바꿉니다.
+              { index: true, element: <Navigate to="/t/dashboard" replace /> },
+              ...slot("teacher"),
+              { path: "*", Component: NotFoundPage },
+            ],
+          },
+        ],
+      },
     ],
   },
   ...(parentChildren.length > 0 ? [{ path: "p", children: parentChildren }] : []),
