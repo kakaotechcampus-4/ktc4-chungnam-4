@@ -60,7 +60,11 @@ export function TeacherNav({ klass, teacherName }: TeacherNavProps) {
         {teacherName ? (
           <Link
             to="/t/settings"
-            className="rounded-xs text-ink-muted outline-none hover:text-brand-ink focus-visible:ring-3 focus-visible:ring-ring/50"
+            aria-current={pathname === "/t/settings" ? "page" : undefined}
+            className={cn(
+              "rounded-xs outline-none hover:text-brand-ink focus-visible:ring-3 focus-visible:ring-ring/50",
+              pathname === "/t/settings" ? "text-brand-ink" : "text-ink-muted",
+            )}
           >
             {teacherName} 선생님
           </Link>
