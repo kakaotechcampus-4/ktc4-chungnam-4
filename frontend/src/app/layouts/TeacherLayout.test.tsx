@@ -70,7 +70,10 @@ describe("TeacherLayout", () => {
     server.use(http.get(apiPath("/me"), () => HttpResponse.json({ ...TEACHER_ME, name: "박별" })));
     renderAt("/t/today");
 
-    expect(await screen.findByText("박별 선생님")).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "박별 선생님" })).toHaveAttribute(
+      "href",
+      "/t/settings",
+    );
   });
 
   it("로그인이 끊겼으면 교사 이름 자리를 비운다", async () => {
