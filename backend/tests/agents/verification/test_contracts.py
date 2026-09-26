@@ -61,7 +61,8 @@ def test_잘못된_근거_거부(changes):
 
 
 @pytest.mark.parametrize(
-    "passed,issues", [(False, []), (True, [{"check_type": "critic_content", "reason": "오류"}])]
+    "passed,issues",
+    [(False, []), (True, [{"check_type": "critic_content", "reason": "오류"}])],
 )
 def test_모순된_검증결과_거부(passed, issues):
     with pytest.raises(ValidationError):

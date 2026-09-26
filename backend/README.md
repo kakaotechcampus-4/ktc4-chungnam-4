@@ -169,6 +169,52 @@ py -3.12 -m venv .venv
 
 이 테스트는 SQLite와 실패 상황을 재현하는 테스트 객체를 사용합니다. 실제 PostgreSQL 연결 검증은 아래 절차로 수행합니다.
 
+## 린트와 포맷
+
+코드 스타일 규칙은 `backend/CLAUDE.md` §코드 스타일이 원본이고, 그 값을 `backend/ruff.toml`이 실행합니다. 줄 길이 100자, 들여쓰기 4칸, 큰따옴표입니다.
+
+### 커밋 전에 돌립니다
+
+```bash
+.venv/bin/ruff check . --fix
+.venv/bin/ruff format .
+```
+
+### `develop`을 받으면 의존성을 다시 설치합니다
+
+Ruff는 개발 의존성입니다. 받은 뒤 `ruff: command not found`가 나오면 설치가 안 된 것입니다.
+
+```bash
+.venv/bin/python -m pip install -r requirements-dev.txt
+```
+
+### CI가 무엇을 보는가
+
+PR을 올리면 `.github/workflows/ci.yml`의 `backend` job이 세 가지를 순서대로 검사합니다.
+
+| 단계 | 명령 | 실패하면 |
+|---|---|---|
+| Lint | `ruff check .` | `ruff check . --fix`로 대부분 자동 수정됩니다 |
+| Format check | `ruff format --check .` | `ruff format .`을 돌리고 다시 커밋합니다 |
+| Test | `pytest -q` | 로컬에서 재현한 뒤 고칩니다 |
+
+로컬에서 위 세 명령이 통과하면 CI도 통과합니다. 실패 로그는 Actions 탭의 해당 실행에서 그대로 볼 수 있습니다.
+
+### 로컬은 되는데 CI만 실패할 때
+
+가장 흔한 원인은 **`.env` 의존**입니다. CI에는 `backend/.env`가 없습니다(커밋 금지 파일). 로컬에서도 같은 조건으로 확인하려면 잠시 치우고 돌려보세요.
+
+```bash
+mv .env .env.bak && .venv/bin/python -m pytest -q; mv .env.bak .env
+```
+
+테스트가 설정값을 필요로 한다면 `tests/conftest.py`에서 채웁니다. 개발자의 `.env`에 기대지 않는 것이 기준입니다.
+
+### 머지 차단
+
+`develop` 브랜치에 `develop-ci` 룰셋이 있습니다. 활성화되어 있으면 `backend` 검사를 통과하지 못한 PR은 머지 버튼이 잠깁니다. 상태는 Settings → Rules에서 확인할 수 있습니다.
+
+
 ### 실제 PostgreSQL 연결 확인
 
 **저장소 루트**에서 API와 DB를 실행한 뒤 확인합니다.
@@ -221,6 +267,37 @@ backend/
 | C · 김동건 | `face`, `media`      | 얼굴 임베딩 관리, 미디어 업로드·메타데이터    |
 | D · 정은  | `agents`             | AI 파이프라인, 작업 실행, LLM 연동     |
 | E · 한상균 | `documents`, `audit` | 문서 검토·승인·열람, 접근·파기 기록       |
+
+`tools/`와 `prompts/`는 도메인 바깥이라 위 표가 덮지 않습니다. 담당은 아래와 같습니다.
+
+| 담당  | 폴더                                                     | 역할                    |
+| --- | ------------------------------------------------------ | --------------------- |
+| 송유진 | `tools/perception/`, `prompts/perception/`               | 사진 분석·STT 결과 정규화      |
+| 엄태은 | `tools/evidence/`, `tools/generation/`, `prompts/generation/` | 근거 묶음 구성, 관찰일지·알림장 생성 |
+| 한상균 | `tools/verification/`, `prompts/verification/`           | 코드 검증, Critic, 재생성 판정 |
+
+**A·B·C 같은 기호로 부르지 않습니다.** AI 역할표에도 A·B·C가 있는데 이 표와 매핑이 다릅니다(AI 역할 C는 엄태은, 위 도메인 표의 C는 김동건). 두 표를 나란히 보면 반드시 헷갈리므로 실명으로만 적습니다.
+
+
+### 도메인이 소유하는 테이블
+
+데이터 모델 원본은 `docs/테크스펙.md` §데이터 모델입니다. 아래는 그 테이블이 **어느 도메인의 `models.py`에 들어가는지**만 정리한 것입니다.
+
+
+| 도메인            | 담당  | 테이블                                                                                     |
+| -------------- | --- | --------------------------------------------------------------------------------------- |
+| `auth`         | 엄태은 | Account, Teacher, Parent                                                                  |
+| `organization` | 이한나 | Center, Class, Child, ParentChildRelation, ConsentRecord, TeacherPersona, PersonaFeedback, EducationPlan |
+| `face`         | 김동건 | FaceEmbedding, EmbeddingLifecycleLog                                                      |
+| `media`        | 김동건 | MediaAsset, MediaChildLink, TranscriptSegment                                             |
+| `agents`       | 정은  | EvidenceBundle, SentenceEvidence, VerificationResult                                      |
+| `documents`    | 한상균 | DraftDocument, RevisionLog, UnclassifiedItem, Notice                                      |
+| `audit`        | 한상균 | AccessLog, DeletionLog                                                                    |
+
+
+- **남의 도메인 테이블을 직접 쿼리하지 않습니다.** 도메인 간에는 FK 참조까지만 하고, 필요한 조회·변경은 issue로 담당자에게 함수를 요청합니다 ([CLAUDE.md](CLAUDE.md) §계층 규칙).
+- `Child`는 전 도메인이 FK로 참조하는 중심 엔티티입니다. PK 타입·이름 변경은 face·media·agents 담당에게 먼저 알립니다.
+- `AccessLog`·`DeletionLog`는 다른 도메인에서 직접 INSERT하지 않고 audit의 서비스 함수를 통합니다(H-4).
 
 
 도메인 내부는 `models.py`, `schemas.py`, `router.py`, `service.py`를 기본으로 사용합니다. `**audit`에는 현재 `router.py`와 `schemas.py`가 없습니다.** 도메인별 상세 기능은 확정된 기능·API·ERD 명세를 따릅니다.
@@ -563,4 +640,4 @@ Redis의 AOF와 볼륨은 컨테이너 교체에 대비한 저장 장치이며 �
 - 실제 Redis·worker: STARTED → SUCCESS, 의도한 FAILURE 확인.
 - worker 정지 중 제출한 ID가 PENDING이고, 재시작 후 같은 ID로 SUCCESS 조회됨을 확인.
 - 테스트 환경은 별도 Compose 프로젝트로 분리했으며 검증 후 worker·Redis를 정지.
-- Ruff는 실행 환경에 설치되어 있지 않아 미실행. 기존 테스트 라이브러리의 폐기 예정 경고 2건 발생.
+- 당시 Ruff는 설치돼 있지 않아 미실행. 이후 개발 의존성에 추가되어 지금은 CI가 검사합니다(§린트와 포맷). 기존 테스트 라이브러리의 폐기 예정 경고 2건 발생.

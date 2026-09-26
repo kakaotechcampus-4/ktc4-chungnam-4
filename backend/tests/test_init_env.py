@@ -1,10 +1,9 @@
-from pathlib import Path
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
-
 
 PLACEHOLDER = "replace-with-a-generated-password"
 PASSWORD_ENTRY = f"POSTGRES_PASSWORD={PLACEHOLDER}\n"
@@ -25,6 +24,8 @@ def run_script(script: Path) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         timeout=10,
+        # 스크립트가 실패하는 경우도 테스트가 직접 검사합니다.
+        check=False,
     )
 
 
@@ -58,7 +59,13 @@ def test_generates_password_only_in_password_entry(script: Path) -> None:
         f"# {PASSWORD_ENTRY}POSTGRES_USER=postgres\n",
         PASSWORD_ENTRY + "POSTGRES_PASSWORD=another-value\n",
     ],
-    ids=["missing-key", "changed-placeholder", "empty-value", "comment-only", "duplicate-key"],
+    ids=[
+        "missing-key",
+        "changed-placeholder",
+        "empty-value",
+        "comment-only",
+        "duplicate-key",
+    ],
 )
 def test_invalid_template_does_not_create_env(script: Path, template: str) -> None:
     root = script.parents[1]

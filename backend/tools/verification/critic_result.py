@@ -13,13 +13,14 @@ import json
 from pydantic import ValidationError
 
 from tools.contracts import (
-    DraftDocument,
     CriticSentenceResult,
-    VerificationStage,
+    DraftDocument,
     VerificationCheckType,
     VerificationIssue,
     VerificationResult,
+    VerificationStage,
 )
+
 
 def parse_critic_response(raw_response: str, document: DraftDocument) -> VerificationResult:
     """Critic 응답 문자열을 VerificationResult로 정규화한다.
@@ -72,7 +73,9 @@ def parse_critic_response(raw_response: str, document: DraftDocument) -> Verific
 
     missing = known_sentence_ids - seen_sentence_ids
     if missing:
-        return _error_result(document, f"Critic이 일부 문장을 판정하지 않았습니다: {sorted(missing)}")
+        return _error_result(
+            document, f"Critic이 일부 문장을 판정하지 않았습니다: {sorted(missing)}"
+        )
 
     return VerificationResult(
         draft_id=document.draft_id,

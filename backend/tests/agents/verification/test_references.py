@@ -13,7 +13,9 @@ def _document(sentences: list[DraftSentence]) -> DraftDocument:
 
 
 def test_근거_참조가_없으면_실패한다():
-    document = _document([DraftSentence(sentence_id="s_01", text="아무 근거 없음", evidence_ids=[])])
+    document = _document(
+        [DraftSentence(sentence_id="s_01", text="아무 근거 없음", evidence_ids=[])]
+    )
 
     issues = validate_references(document, EVIDENCE_BY_ID)
 

@@ -5,4 +5,5 @@ psycopg[binary]>=3.2,<4
 pydantic-settings>=2.5,<3
 celery[redis]>=5.6,<5.7
 alembic>=1.16,<2
+cryptography>=42,<47
 openai>=1.50,<2

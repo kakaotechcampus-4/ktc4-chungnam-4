@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from core.config import get_settings
 from core.database import engine, get_db
+from domains.documents.router import router as documents_router
 
 
 @asynccontextmanager
@@ -18,6 +19,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=get_settings().app_name, lifespan=lifespan)
+app.include_router(documents_router)
 
 
 @app.get("/health", tags=["health"])
