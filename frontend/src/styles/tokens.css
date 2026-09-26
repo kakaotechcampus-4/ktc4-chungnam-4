@@ -137,6 +137,7 @@
   --container-reading: 760px; /* 빈 상태 카드, 학부모 목록 열, W3/W4 후보 A 한 열 */
   --container-form: 480px; /* 온보딩 후보 A 폼 */
   --container-form-sm: 380px; /* 현행 로그인 폼 */
+  --container-form-md: 420px; /* 회원가입 폼 1:387 */
   --container-rail: 300px; /* 학부모 오른쪽 레일 */
 
   --spacing-nav: 80px; /* h-nav: 교사 Nav, Public header */

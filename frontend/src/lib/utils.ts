@@ -5,7 +5,7 @@ import { createCn } from "cn/config";
 // tokens.css에 글자 크기 · 폭 · 간격 · 그림자 토큰을 추가하면 여기에도 추가합니다(utils.test.ts가 확인).
 export const TOKEN_THEME = {
   text: ["caption", "label", "body", "nav", "lead", "h3", "h2", "h1", "logo"],
-  container: ["app", "parent", "reading", "form", "form-sm", "rail"],
+  container: ["app", "parent", "reading", "form", "form-md", "form-sm", "rail"],
   spacing: ["nav", "parent-bar", "gutter"],
   shadow: ["dropdown"],
 };
