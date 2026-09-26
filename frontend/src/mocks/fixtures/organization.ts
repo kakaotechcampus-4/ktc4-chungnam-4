@@ -2,7 +2,7 @@ import type { ClassChild, ClassSummary } from "@/types/api-draft/organization";
 
 import { fixtureId } from "./ids";
 
-// API 문서 v0 §organization 예시 그대로입니다. 이름은 모두 합성입니다.
+// API 문서 §organization 예시 그대로입니다. 이름은 모두 합성입니다.
 export const SUNSHINE_CLASS: ClassSummary = {
   class_id: fixtureId("class", 1),
   center_id: fixtureId("center", 1),
