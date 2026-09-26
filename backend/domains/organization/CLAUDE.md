@@ -6,7 +6,7 @@
 
 | 파일 | 내용 |
 | --- | --- |
-| `models.py` | `Center`, `Class`, `Child`, `ParentChildRelation`, `ConsentRecord`, `TeacherPersona`, `PersonaFeedback`, `EducationPlan` |
+| `models.py` | `Center`, `Klass`, `Child`, `ParentChildRelation`, `ConsentRecord`, `TeacherPersona`, `PersonaFeedback`, `EducationPlan` |
 | `schemas.py` | 원아·반·동의 요청·응답 |
 | `router.py` | `/organization` 엔드포인트 |
 | `service.py` | 소속 관계 관리, 동의 상태 조회·갱신 |
