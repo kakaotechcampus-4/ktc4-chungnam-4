@@ -38,11 +38,15 @@ export function FormField({
         aria-invalid={error ? true : inputProps["aria-invalid"]}
         aria-describedby={describedBy}
       />
-      {error ? (
-        <p id={errorId} className="text-label text-destructive">
-          {error}
-        </p>
-      ) : null}
+      {/* 오류 문구 자리는 늘 두고 aria-live로 읽힙니다. 제출할 때 초점이 오류 칸으로 먼저 가고 문구가 뒤에 붙어서,
+          칸 설명(aria-describedby)만으로는 화면 읽기 프로그램이 오류를 놓칩니다. 비어 있을 때는 자리를 차지하지 않습니다. */}
+      <p
+        id={errorId}
+        aria-live="polite"
+        className={error ? "text-label text-destructive" : "sr-only"}
+      >
+        {error}
+      </p>
     </div>
   );
 }
