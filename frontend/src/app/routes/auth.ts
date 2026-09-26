@@ -2,12 +2,12 @@ import { ForbiddenPage } from "@/pages/forbidden/ForbiddenPage";
 import { ForgotPasswordPage } from "@/pages/forgot-password/ForgotPasswordPage";
 import { LandingPage } from "@/pages/landing/LandingPage";
 import { LoginPage } from "@/pages/login/LoginPage";
+import { SettingsPage } from "@/pages/settings/SettingsPage";
 import { SignupPage } from "@/pages/signup/SignupPage";
 
 import type { AreaRoutes } from "./types";
 
 // 담당: 송유진 (① 홈 · 로그인 · 회원가입 · 비밀번호 찾기 · 계정 · 접근 권한 없음). 이 파일은 담당만 고칩니다.
-// 추가 예정: teacher "settings" → SettingsPage (1:528)
 // 403은 교사 틀 안(/t/403)에 둡니다. 가드가 막은 곳에서는 주소를 그대로 두고 같은 화면을 보여 줍니다.
 export const authRoutes: AreaRoutes = {
   standalone: [{ index: true, Component: LandingPage }],
@@ -16,5 +16,8 @@ export const authRoutes: AreaRoutes = {
     { path: "forgot-password", Component: ForgotPasswordPage },
   ],
   onboarding: [{ path: "signup", Component: SignupPage }],
-  teacher: [{ path: "403", Component: ForbiddenPage }],
+  teacher: [
+    { path: "settings", Component: SettingsPage },
+    { path: "403", Component: ForbiddenPage },
+  ],
 };
