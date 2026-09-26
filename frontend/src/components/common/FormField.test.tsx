@@ -41,6 +41,16 @@ describe("FormField", () => {
     );
   });
 
+  it("오류 문구 자리는 오류가 나기 전부터 aria-live로 있어서, 나중에 붙는 문구도 읽힌다", () => {
+    const { container, rerender } = render(<FormField label="이메일" />);
+    const live = container.querySelector('[aria-live="polite"]');
+    expect(live).toBeEmptyDOMElement();
+
+    rerender(<FormField label="이메일" error="이메일을 입력해 주세요" />);
+    expect(container.querySelector('[aria-live="polite"]')).toBe(live);
+    expect(live).toHaveTextContent("이메일을 입력해 주세요");
+  });
+
   it("오류가 없으면 aria-invalid를 붙이지 않는다", () => {
     render(<FormField label="이메일" />);
 
