@@ -15,6 +15,14 @@ describe("ForbiddenPage", () => {
     expect(screen.getByText("원아의 사진과 기록은 표시되지 않아요.")).toBeInTheDocument();
   });
 
+  it("화면이 뜨면 초점이 제목으로 옮겨 간다", () => {
+    renderRoute(<ForbiddenPage />);
+
+    expect(
+      screen.getByRole("heading", { level: 1, name: "이 화면을 볼 수 있는 권한이 없어요" }),
+    ).toHaveFocus();
+  });
+
   it("내 홈은 내 역할의 첫 화면이다", async () => {
     renderRoute(<ForbiddenPage />);
 
