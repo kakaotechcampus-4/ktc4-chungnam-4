@@ -24,6 +24,23 @@ describe("FormField", () => {
     expect(input).toHaveAccessibleDescription("이메일을 입력해 주세요");
   });
 
+  it("넘겨받은 안내 문구와 오류 문구를 함께 연결한다", () => {
+    render(
+      <>
+        <p id="password-hint">8자 이상</p>
+        <FormField
+          label="비밀번호"
+          aria-describedby="password-hint"
+          error="비밀번호를 입력해 주세요"
+        />
+      </>,
+    );
+
+    expect(screen.getByLabelText("비밀번호")).toHaveAccessibleDescription(
+      "8자 이상 비밀번호를 입력해 주세요",
+    );
+  });
+
   it("오류가 없으면 aria-invalid를 붙이지 않는다", () => {
     render(<FormField label="이메일" />);
 
