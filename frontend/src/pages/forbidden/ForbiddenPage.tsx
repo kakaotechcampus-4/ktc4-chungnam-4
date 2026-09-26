@@ -14,6 +14,7 @@ import { useLogout } from "@/features/auth/use-logout";
 // 값은 Figma 실측입니다(카드 760, 안쪽 여백 40, 간격 24). 카드 제목 22는 토큰에 없어서 404 카드와 같은 24로 맞췄습니다.
 // 카드 높이는 Figma의 560을 최대로, 화면이 낮으면 줄어서 13인치 화면에서도 스크롤 없이 들어옵니다(status-card 토큰).
 // 원아 정보는 보여 주지 않습니다. 어느 반·원아에 막혔는지도 적지 않습니다.
+// 주소는 그대로인 채 본문만 이 화면으로 바뀌므로, 카드가 살짝 올라오며 나타나고 초점이 제목으로 옮겨 갑니다.
 export function ForbiddenPage() {
   // 내 정보를 못 받았으면(로그인이 끊긴 경우 등) 홈은 첫 화면(/)으로 둡니다.
   const { data: me } = useQuery({ ...meQueryOptions(), throwOnError: false });
@@ -26,8 +27,12 @@ export function ForbiddenPage() {
         eyebrow="접근 안내"
         title="이 화면을 볼 수 있는 권한이 없어요"
         subtitle="현재 계정으로 접근할 수 있는 반과 원아를 확인해 주세요."
+        focusOnMount
       />
-      <FocusCard centered className="min-h-status-card justify-center">
+      <FocusCard
+        centered
+        className="min-h-status-card justify-center motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300"
+      >
         <LockKeyhole aria-hidden="true" className="size-12 text-line" strokeWidth={1.5} />
         <h2 className="text-h3 font-bold text-ink">계정 또는 반을 확인해 주세요</h2>
         <p className="text-nav text-ink-muted">
