@@ -87,6 +87,7 @@ frontend/src/
 - 경로는 `apiPath("/classes")`, 에러는 `errorResponse(403, "CLASS_ACCESS_DENIED", "…")`, 목록은 `listResponse(items)`로 만듭니다(`mocks/http.ts`).
 - 빈 상태·실패를 브라우저에서 보려면 주소에 `?mock=<도메인>.<상태>`를 붙입니다. 예: `/t/children?mock=organization.children-empty`. 화면을 옮겨도 유지되고, `?mock=`을 붙이거나 탭을 닫으면 꺼집니다. 핸들러에서는 `isMockScenario("organization.children-empty")`로 나눕니다.
 - 목 id는 `fixtureId("child", 1)`처럼 만들고, 반·원아는 `fixtures/organization.ts`의 햇살반 5명을 씁니다.
+- 로그인 목: 처음에는 교사(김하늘)로 로그인된 상태입니다. 로그인 화면에서는 교사 `hanul.kim@example.com`, 학부모 `parent01@example.com`에 비밀번호는 아무 값이나 넣으면 됩니다. `?mock=auth.signed-out`(로그인 안 됨), `?mock=auth.parent`(학부모)로 바꿀 수 있고, 로그인·로그아웃을 하면 그 결과가 탭에 남습니다(`mocks/session.ts`).
 - 테스트는 시나리오 대신 `server.use(...)`로 그 테스트의 응답만 바꿉니다. 예시는 `app/layouts/TeacherLayout.test.tsx`입니다. 핸들러가 없는 요청을 보내면 그 테스트가 실패합니다.
 - 목이 없는 API 요청은 브라우저 콘솔에 `[MSW] Warning: intercepted a request without a matching request handler`로 뜹니다.
 
