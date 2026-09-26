@@ -1,4 +1,4 @@
-import { act, screen } from "@testing-library/react";
+import { act, screen, within } from "@testing-library/react";
 
 import { renderRoutes } from "@/test/render";
 
@@ -12,8 +12,12 @@ describe("routes", () => {
   it("/ 는 홈을 레이아웃 없이 보여 준다", async () => {
     renderAt("/");
 
-    expect(await screen.findByRole("heading", { name: "아이담" })).toBeInTheDocument();
-    expect(screen.queryByRole("banner")).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "기록에 쓰던 시간, 아이 곁으로." }),
+    ).toBeInTheDocument();
+    // 헤더가 하나뿐이고 홈 자기 헤더(시작하기 버튼이 있음)라서, 공개 레이아웃에 싸이지 않은 것입니다.
+    const header = screen.getByRole("banner");
+    expect(within(header).getByRole("link", { name: "아이담 시작하기" })).toBeInTheDocument();
   });
 
   it("/t 는 대시보드 주소로 바꾼다", async () => {
