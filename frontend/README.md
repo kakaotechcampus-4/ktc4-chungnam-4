@@ -49,7 +49,7 @@ frontend/src/
 ├── components/common/   # 공통 컴포넌트 (PageHeader, FocusCard, BrandLogo)
 ├── api/<도메인>.ts      # 요청 함수와 queryOptions (organization)
 ├── lib/                 # api-client, datetime(한국 날짜·표기), utils(cn)
-├── types/api-draft/     # API 문서 v0를 옮긴 임시 타입
+├── types/api-draft/     # API 문서를 옮긴 임시 타입
 ├── styles/tokens.css    # 디자인 토큰
 ├── mocks/               # browser·server, handlers/(자동 수집), fixtures/, http.ts, scenario.ts
 ├── test/                # setup.ts, render.tsx
@@ -92,7 +92,7 @@ frontend/src/
 
 ## API 타입
 
-- 지금은 BE에 라우터가 없어서 타입을 `types/api-draft/<도메인>.ts`에 손으로 씁니다. 인터페이스 명세(API 문서 v0, 확정 후 노션으로 옮김)를 먼저 고치고 타입을 맞춥니다.
+- 지금은 BE에 라우터가 없어서 타입을 `types/api-draft/<도메인>.ts`에 손으로 씁니다. 인터페이스 명세(노션 API 문서, #58)를 먼저 고치고 타입을 맞춥니다.
 - BE 라우터가 생기면 OpenAPI에서 `types/api.ts`를 생성하고, 도메인별로 `api-draft`를 생성 타입의 별칭으로 바꾼 뒤 `api-draft`를 지웁니다.
 
 ## 자주 막히는 것

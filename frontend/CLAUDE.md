@@ -31,7 +31,7 @@
 
 ## 데이터
 
-- **API 목록은 FE가 먼저 뽑습니다**(09/13 결정, 규칙 전문은 `backend/CLAUDE.md`의 API 규약 부분). 화면 흐름과 Figma에서 필요한 API를 뽑아 인터페이스 명세(**API 문서 v0**. 9/27 확정 전까지는 초안이고 확정 후 노션으로 옮깁니다. **저장소 미반영**)에 올립니다. 명세에 없는 화면을 만들기 전에 명세를 먼저 고칩니다.
+- **API 목록은 FE가 먼저 뽑습니다**(09/13 결정, 규칙 전문은 `backend/CLAUDE.md`의 API 규약 부분). 화면 흐름과 Figma에서 필요한 API를 뽑아 인터페이스 명세([아이담 API 문서](https://app.notion.com/p/3e42bb98425780a3bb6af1388b145640), 노션, #58. **저장소 미반영**)에 올립니다. 명세에 없는 화면을 만들기 전에 명세를 먼저 고칩니다.
 - 요청·응답·에러 형식 규약은 `docs/테크스펙.md`의 공통 API 규약 부분이 원본입니다. 프론트는 `error.code`로 분기하고 `message`는 그대로 보여 줍니다.
 - BE 라우터가 생기기 전까지 타입은 `types/api-draft/<도메인>.ts`에 손으로 씁니다. 명세를 먼저 고치고 타입을 맞춥니다. 라우터가 생기면 `types/api.ts`(openapi-typescript 생성)로 바꿉니다 — 생성 파일은 직접 수정하지 않고, 타입이 안 맞으면 BE의 스키마를 고칩니다.
 - 모든 호출은 `api/<도메인>.ts`의 요청 함수를 거치고, 요청 함수는 `lib/api-client.ts`의 `api.get`·`api.post` 등으로 씁니다. `fetch`를 직접 부르면 ESLint 에러입니다. 실패는 `ApiError`(`status`, `code`, `message`, `detail`)로 오고, 연결 실패는 `status` 0 · `NETWORK_ERROR`입니다.
