@@ -130,6 +130,8 @@
   --text-h1--line-height: 1.6; /* 교사 화면 제목 */
   --text-logo: 32px;
   --text-logo--line-height: 40px; /* Jua 워드마크 */
+  --text-display: 56px;
+  --text-display--line-height: 1.35; /* 홈 첫 인사 제목 1:307 */
 
   /* layout widths → max-w-* */
   --container-app: 1200px; /* 교사: 1440 기준 좌우 거터 120 */
