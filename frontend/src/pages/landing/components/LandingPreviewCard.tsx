@@ -58,9 +58,10 @@ export function LandingPreviewCard() {
   const [active, setActive] = useState(0);
   const [changedBy, setChangedBy] = useState<keyof typeof TRANSITION>("auto");
   const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
   const [stopped, setStopped] = useState(false);
   const reducedMotion = usePrefersReducedMotion();
-  const playing = !hovered && !stopped && !reducedMotion;
+  const playing = !hovered && !focused && !stopped && !reducedMotion;
 
   useEffect(() => {
     if (!playing) return;
@@ -77,8 +78,11 @@ export function LandingPreviewCard() {
       className="flex w-118 shrink-0 flex-col gap-4 rounded-3xl border border-line bg-paper p-6"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      onFocus={() => setHovered(true)}
-      onBlur={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={(event) => {
+        // 카드 안의 다른 점으로 옮길 때는 멈춘 채로 둡니다.
+        if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false);
+      }}
     >
       {/* 모든 초안을 같은 칸에 겹쳐 두어, 바뀔 때 카드 높이가 흔들리지 않게 합니다. */}
       <div className="grid">
