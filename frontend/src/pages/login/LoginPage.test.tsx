@@ -13,6 +13,7 @@ function renderLogin() {
       { path: "/login", element: <LoginPage /> },
       { path: "/t", element: <p>교사 홈</p> },
       { path: "/p", element: <p>학부모 홈</p> },
+      { path: "/forgot-password", element: <p>비밀번호 찾기 화면</p> },
     ],
     { initialEntry: "/login" },
   );
@@ -82,6 +83,29 @@ describe("LoginPage", () => {
     // 같은 문구라도 새로 그려져야 다시 나타나고 화면 읽기 프로그램이 다시 읽습니다.
     await waitFor(() => expect(screen.getByRole("alert")).not.toBe(first));
     expect(screen.getByRole("alert")).toHaveTextContent("이메일 또는 비밀번호를 확인해 주세요.");
+  });
+
+  it("비밀번호 찾기로 갈 때 화면이 겹쳐 바뀌게 한다", async () => {
+    // jsdom에는 화면 전환 API가 없어서 흉내 냅니다. 불렸는지만 확인합니다.
+    const startViewTransition = vi.fn((update: () => void) => {
+      update();
+      const done = Promise.resolve();
+      return { finished: done, ready: done, updateCallbackDone: done, skipTransition: () => {} };
+    });
+    Object.defineProperty(document, "startViewTransition", {
+      configurable: true,
+      value: startViewTransition,
+    });
+    const { router, user } = renderLogin();
+
+    try {
+      await user.click(screen.getByRole("link", { name: "비밀번호 찾기" }));
+      expect(await screen.findByText("비밀번호 찾기 화면")).toBeInTheDocument();
+      expect(router.state.location.pathname).toBe("/forgot-password");
+      expect(startViewTransition).toHaveBeenCalled();
+    } finally {
+      Reflect.deleteProperty(document, "startViewTransition");
+    }
   });
 
   it("비밀번호 찾기와 회원가입으로 갈 수 있다", () => {
