@@ -1,18 +1,27 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { renderRoute } from "@/test/render";
+import { PARENT_ME, TEACHER_ME } from "@/mocks/fixtures/auth";
+import { renderRoutes } from "@/test/render";
 
 import { LoginPage } from "./LoginPage";
 
+// 로그인 뒤 가는 곳을 확인하려고 교사·학부모 홈 자리를 함께 둡니다.
 function renderLogin() {
-  renderRoute(<LoginPage />, { path: "/login" });
-  return userEvent.setup();
+  const { router } = renderRoutes(
+    [
+      { path: "/login", element: <LoginPage /> },
+      { path: "/t", element: <p>교사 홈</p> },
+      { path: "/p", element: <p>학부모 홈</p> },
+    ],
+    { initialEntry: "/login" },
+  );
+  return { router, user: userEvent.setup() };
 }
 
 describe("LoginPage", () => {
   it("빈 칸으로 로그인하면 두 칸 모두 오류를 보여 준다", async () => {
-    const user = renderLogin();
+    const { user } = renderLogin();
 
     await user.click(screen.getByRole("button", { name: "로그인" }));
 
@@ -23,7 +32,7 @@ describe("LoginPage", () => {
   });
 
   it("이메일 형식이 아니면 알려 준다", async () => {
-    const user = renderLogin();
+    const { user } = renderLogin();
 
     await user.type(screen.getByLabelText("이메일"), "teacher");
     await user.type(screen.getByLabelText("비밀번호"), "secret");
@@ -31,6 +40,34 @@ describe("LoginPage", () => {
 
     expect(await screen.findByText("이메일 형식을 확인해 주세요")).toBeInTheDocument();
     expect(screen.getByLabelText("비밀번호")).not.toHaveAttribute("aria-invalid");
+  });
+
+  it.each([
+    [TEACHER_ME.email, "/t", "교사 홈"],
+    [PARENT_ME.email, "/p", "학부모 홈"],
+  ])("%s로 로그인하면 %s로 간다", async (email, path, home) => {
+    const { router, user } = renderLogin();
+
+    await user.type(screen.getByLabelText("이메일"), email);
+    await user.type(screen.getByLabelText("비밀번호"), "anything");
+    await user.click(screen.getByRole("button", { name: "로그인" }));
+
+    expect(await screen.findByText(home)).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe(path);
+  });
+
+  it("로그인에 실패하면 서버 문구를 보여 주고 이 화면에 남는다", async () => {
+    const { router, user } = renderLogin();
+
+    await user.type(screen.getByLabelText("이메일"), "nobody@example.com");
+    await user.type(screen.getByLabelText("비밀번호"), "anything");
+    await user.click(screen.getByRole("button", { name: "로그인" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "이메일 또는 비밀번호를 확인해 주세요.",
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "로그인" })).toBeEnabled());
+    expect(router.state.location.pathname).toBe("/login");
   });
 
   it("비밀번호 찾기와 회원가입으로 갈 수 있다", () => {
