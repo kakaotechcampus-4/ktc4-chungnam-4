@@ -43,7 +43,11 @@ export function FormField({
       <p
         id={errorId}
         aria-live="polite"
-        className={error ? "text-label text-destructive" : "sr-only"}
+        className={
+          error
+            ? "text-label text-destructive motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 motion-safe:duration-200"
+            : "sr-only"
+        }
       >
         {error}
       </p>
