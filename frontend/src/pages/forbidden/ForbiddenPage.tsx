@@ -1,16 +1,25 @@
 // Figma: 1:572 (후보 A 1:590 — 미확정)
+import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, LockKeyhole } from "lucide-react";
 import { Link } from "react-router";
 
+import { meQueryOptions } from "@/api/auth";
 import { FocusCard } from "@/components/common/FocusCard";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
+import { homePath } from "@/features/auth/home-path";
+import { useLogout } from "@/features/auth/use-logout";
 
 // 권한이 없는 화면에 들어왔을 때 보여 줍니다(테크스펙 §공통 API 규약의 403, H-1).
 // 값은 Figma 실측입니다(카드 760, 안쪽 여백 40, 간격 24). 카드 제목 22는 토큰에 없어서 404 카드와 같은 24로 맞췄습니다.
 // 카드 높이는 Figma의 560을 최대로, 화면이 낮으면 줄어서 13인치 화면에서도 스크롤 없이 들어옵니다(status-card 토큰).
 // 원아 정보는 보여 주지 않습니다. 어느 반·원아에 막혔는지도 적지 않습니다.
 export function ForbiddenPage() {
+  // 내 정보를 못 받았으면(로그인이 끊긴 경우 등) 홈은 첫 화면(/)으로 둡니다.
+  const { data: me } = useQuery({ ...meQueryOptions(), throwOnError: false });
+  const home = me ? homePath(me.account_type) : "/";
+  const logout = useLogout();
+
   return (
     <>
       <PageHeader
@@ -25,14 +34,18 @@ export function ForbiddenPage() {
           로그인한 계정이 초대받은 계정인지 확인해 주세요. <br />
           접근이 필요하다면 담당 교사나 관리자에게 문의해 주세요.
         </p>
-        {/* TODO(송유진): 가드 PR에서 역할별 홈(교사 /t, 학부모 /p)과 로그아웃 뒤 이동으로 바꿉니다. */}
         <Button asChild>
-          <Link to="/t">내 홈으로 돌아가기</Link>
+          <Link to={home}>내 홈으로 돌아가기</Link>
         </Button>
-        <Link to="/login" className="flex items-center gap-2 text-body font-bold text-brand-ink">
+        <button
+          type="button"
+          disabled={logout.isPending}
+          onClick={() => logout.mutate()}
+          className="flex items-center gap-2 rounded-xs text-body font-bold text-brand-ink outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+        >
           다른 계정으로 로그인
           <ArrowRight aria-hidden="true" className="size-4" />
-        </Link>
+        </button>
         <p className="text-caption text-ink-muted">원아의 사진과 기록은 표시되지 않아요.</p>
       </FocusCard>
     </>

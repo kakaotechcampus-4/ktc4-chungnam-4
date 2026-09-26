@@ -1,6 +1,7 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
-import { renderRoute } from "@/test/render";
+import { renderRoute, renderRoutes } from "@/test/render";
 
 import { ForbiddenPage } from "./ForbiddenPage";
 
@@ -14,13 +15,30 @@ describe("ForbiddenPage", () => {
     expect(screen.getByText("원아의 사진과 기록은 표시되지 않아요.")).toBeInTheDocument();
   });
 
-  it("홈으로 돌아가거나 다른 계정으로 로그인할 수 있다", () => {
+  it("내 홈은 내 역할의 첫 화면이다", async () => {
     renderRoute(<ForbiddenPage />);
 
-    expect(screen.getByRole("link", { name: "내 홈으로 돌아가기" })).toHaveAttribute("href", "/t");
-    expect(screen.getByRole("link", { name: "다른 계정으로 로그인" })).toHaveAttribute(
-      "href",
-      "/login",
+    // 기본 목은 교사로 로그인된 상태입니다.
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "내 홈으로 돌아가기" })).toHaveAttribute(
+        "href",
+        "/t",
+      ),
     );
+  });
+
+  it("다른 계정으로 로그인하면 로그아웃하고 로그인 화면으로 간다", async () => {
+    const { router } = renderRoutes(
+      [
+        { path: "/t/403", element: <ForbiddenPage /> },
+        { path: "/login", element: <p>로그인 화면</p> },
+      ],
+      { initialEntry: "/t/403" },
+    );
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "다른 계정으로 로그인" }));
+
+    expect(await screen.findByText("로그인 화면")).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/login");
   });
 });
