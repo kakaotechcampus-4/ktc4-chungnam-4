@@ -6,14 +6,9 @@ import { z } from "zod";
 
 import { FormField } from "@/components/common/FormField";
 import { Button } from "@/components/ui/button";
+import { emailRule } from "@/lib/form-rules";
 
-const forgotPasswordSchema = z.object({
-  email: z
-    .string()
-    .trim()
-    .min(1, "이메일을 입력해 주세요")
-    .pipe(z.email("이메일 형식을 확인해 주세요")),
-});
+const forgotPasswordSchema = z.object({ email: emailRule });
 
 type ForgotPasswordValues = z.infer<typeof forgotPasswordSchema>;
 
