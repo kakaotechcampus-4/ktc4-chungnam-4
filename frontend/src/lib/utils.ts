@@ -6,7 +6,16 @@ import { createCn } from "cn/config";
 export const TOKEN_THEME = {
   text: ["caption", "label", "body", "nav", "lead", "h3", "h2", "h1", "logo", "display"],
   container: ["app", "parent", "reading", "form", "form-md", "form-sm", "rail"],
-  spacing: ["nav", "parent-bar", "gutter"],
+  spacing: [
+    "nav",
+    "parent-bar",
+    "gutter",
+    "landing-top",
+    "landing-gap",
+    "landing-media",
+    "landing-step",
+    "status-card",
+  ],
   shadow: ["dropdown"],
 };
 
