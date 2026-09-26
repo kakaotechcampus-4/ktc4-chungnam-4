@@ -31,7 +31,7 @@ export function LoginPage() {
             hideLabel
             type="email"
             placeholder="이메일"
-            autoComplete="email"
+            autoComplete="username"
             error={errors.email?.message}
             {...register("email")}
           />
