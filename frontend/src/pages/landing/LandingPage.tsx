@@ -23,6 +23,7 @@ const STEPS = [
 // 화면이 더 높으면 남는 공간을 위아래로 나눠 가운데에 둡니다.
 // Figma 값 중 토큰에 없는 것은 가까운 토큰으로 맞췄습니다: 설명 17 → 16, 미리보기 제목 21 → 24, 단계 제목 18 → 16,
 // 반경 24·20 → 18, 둘째 줄 초록과 단계 카드 배경 두 색 → brand-ink · oat · coral-soft. 단계 카드는 1200 폭을 채웁니다.
+// 단계 카드 설명은 Figma의 흐린 글자(muted)가 oat·coral 면에서 대비 4.5:1이 안 돼서 본문 색(ink)으로 씁니다.
 export function LandingPage() {
   return (
     <div className="flex min-h-dvh flex-col px-6">
@@ -61,7 +62,7 @@ export function LandingPage() {
                 <span aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
                 {step.title}
               </p>
-              <p className="text-body text-ink-muted">{step.body}</p>
+              <p className="text-body text-ink">{step.body}</p>
             </li>
           ))}
         </ol>
