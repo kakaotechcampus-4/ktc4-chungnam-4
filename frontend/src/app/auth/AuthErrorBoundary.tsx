@@ -1,3 +1,5 @@
+import { useQueryErrorResetBoundary } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { Navigate, useRouteError } from "react-router";
 
 import { ErrorPage } from "@/pages/error/ErrorPage";
@@ -16,6 +18,12 @@ interface AuthErrorBoundaryProps {
 // 그 밖의 오류는 안쪽 경계에서는 다시 던져 바깥으로 넘기고, 바깥 경계에서 오류 화면을 보여 줍니다.
 export function AuthErrorBoundary({ standalone = false }: AuthErrorBoundaryProps) {
   const error = useRouteError();
+  const { reset } = useQueryErrorResetBoundary();
+
+  // 던진 쿼리 오류가 캐시에 남으면 다시 들어와도 요청 없이 곧바로 다시 던집니다. 경계가 뜨면 풀어 둡니다.
+  useEffect(() => {
+    reset();
+  }, [reset]);
 
   if (!isBoundaryAuthError(error)) {
     if (standalone) return <ErrorPage error={error} />;
