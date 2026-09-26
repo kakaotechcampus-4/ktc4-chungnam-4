@@ -1,4 +1,3 @@
-# TODO(eun): backend/celery_app.py에 celery_app 인스턴스가 아직 없어 import 에러 발생 중 — 완성 후 해소
 from celery_app import celery_app
 from domains.agents import service
 
