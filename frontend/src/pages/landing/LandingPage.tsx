@@ -41,11 +41,13 @@ export function LandingPage() {
               선생님은 살펴보고, 선생님의 말로 완성해 주세요.
             </p>
             <Button asChild>
-              <Link to="/signup">선생님으로 시작하기</Link>
+              <Link viewTransition to="/signup">
+                선생님으로 시작하기
+              </Link>
             </Button>
             <p className="flex gap-1.5 text-label text-ink-muted">
               이미 계정이 있나요?
-              <Link to="/login" className="font-bold text-ink">
+              <Link viewTransition to="/login" className="font-bold text-ink">
                 로그인
               </Link>
             </p>

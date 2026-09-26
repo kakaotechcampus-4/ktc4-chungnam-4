@@ -16,6 +16,7 @@ import { loginSchema, type LoginValues } from "./login-schema";
 // Figma의 링크 사이 구분선은 배경색(#fafaf9)이라 보이지 않아서 선 색으로 그립니다.
 // 로그인에 실패하면(INVALID_CREDENTIALS 등) 서버 문구를 폼 오류로 보여 주고 이 화면에 남습니다.
 // Figma에 폼 오류 디자인이 없어서 칸 오류와 같은 모양으로 입력칸 아래에 둡니다.
+// 로그인·비밀번호 찾기·회원가입과 홈 사이 링크는 화면이 겹쳐 바뀌게(viewTransition) 합니다. 길이는 브라우저 기본 0.25초입니다.
 export function LoginPage() {
   const {
     register,
@@ -80,11 +81,11 @@ export function LoginPage() {
         </Button>
       </form>
       <nav aria-label="계정 도움" className="mt-6 flex items-center gap-3 text-label">
-        <Link to="/forgot-password" className="text-ink-muted hover:text-ink">
+        <Link viewTransition to="/forgot-password" className="text-ink-muted hover:text-ink">
           비밀번호 찾기
         </Link>
         <span aria-hidden="true" className="h-3 w-px bg-line" />
-        <Link to="/signup" className="font-bold text-ink">
+        <Link viewTransition to="/signup" className="font-bold text-ink">
           회원가입
         </Link>
       </nav>

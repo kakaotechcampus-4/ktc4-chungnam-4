@@ -67,7 +67,7 @@ export function SignupPage() {
       </form>
       <p className="mt-5 flex gap-1.5 text-body text-ink-muted">
         이미 계정이 있으신가요?
-        <Link to="/login" className="font-bold text-ink">
+        <Link viewTransition to="/login" className="font-bold text-ink">
           로그인
         </Link>
       </p>

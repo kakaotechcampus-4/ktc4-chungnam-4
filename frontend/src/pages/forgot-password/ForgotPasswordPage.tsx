@@ -46,11 +46,11 @@ export function ForgotPasswordPage() {
         </Button>
       </form>
       <nav aria-label="계정 도움" className="mt-6 flex items-center gap-3 text-label">
-        <Link to="/login" className="text-ink-muted hover:text-ink">
+        <Link viewTransition to="/login" className="text-ink-muted hover:text-ink">
           로그인으로 돌아가기
         </Link>
         <span aria-hidden="true" className="h-3 w-px bg-line" />
-        <Link to="/signup" className="font-bold text-ink">
+        <Link viewTransition to="/signup" className="font-bold text-ink">
           회원가입
         </Link>
       </nav>

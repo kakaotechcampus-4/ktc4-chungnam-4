@@ -9,11 +9,13 @@ export function LandingHeader() {
     <header className="mx-auto flex h-nav w-full max-w-app shrink-0 items-center justify-between border-b border-line">
       <BrandLogo to="/" />
       <div className="flex items-center gap-7">
-        <Link to="/login" className="text-body text-ink hover:text-brand-ink">
+        <Link viewTransition to="/login" className="text-body text-ink hover:text-brand-ink">
           로그인
         </Link>
         <Button asChild>
-          <Link to="/signup">아이담 시작하기</Link>
+          <Link viewTransition to="/signup">
+            아이담 시작하기
+          </Link>
         </Button>
       </div>
     </header>
