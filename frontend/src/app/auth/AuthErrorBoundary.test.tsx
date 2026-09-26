@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { screen, within } from "@testing-library/react";
-import { http, HttpResponse } from "msw";
+import { screen } from "@testing-library/react";
+import { http } from "msw";
 
 import { TeacherLayout } from "@/app/layouts/TeacherLayout";
 import { api, type ApiError } from "@/lib/api-client";
@@ -46,34 +46,9 @@ function renderTeacherArea() {
   );
 }
 
+// 403·401·서버 오류는 app/router.test.tsx에서 실제 라우터로 확인합니다.
+// 여기서는 실제 화면에 아직 없는 CHILD_ACCESS_EXPIRED만 흉내 낸 화면으로 확인합니다.
 describe("AuthErrorBoundary", () => {
-  it("화면 요청이 403이면 주소를 그대로 두고 내비 안에 접근 권한 없음을 보여 준다", async () => {
-    server.use(
-      http.get(apiPath("/probe"), () =>
-        errorResponse(403, "CLASS_ACCESS_DENIED", "이 반을 볼 수 없어요."),
-      ),
-    );
-    const { router } = renderTeacherArea();
-
-    expect(
-      await screen.findByRole("heading", { name: "이 화면을 볼 수 있는 권한이 없어요" }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("navigation", { name: "주 메뉴" })).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe("/t/probe");
-  });
-
-  it("화면 요청이 401이면 로그인 화면으로 보낸다", async () => {
-    server.use(
-      http.get(apiPath("/probe"), () =>
-        errorResponse(401, "UNAUTHENTICATED", "로그인이 필요해요."),
-      ),
-    );
-    const { router } = renderTeacherArea();
-
-    expect(await screen.findByText("로그인 화면")).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe("/login");
-  });
-
   it("CHILD_ACCESS_EXPIRED는 넘기지 않고 화면이 직접 안내한다", async () => {
     server.use(
       http.get(apiPath("/probe"), () =>
@@ -83,21 +58,5 @@ describe("AuthErrorBoundary", () => {
     renderTeacherArea();
 
     expect(await screen.findByText("화면이 직접 안내: CHILD_ACCESS_EXPIRED")).toBeInTheDocument();
-  });
-
-  it("교사 틀 자체의 요청이 403이면 내비 없이 보여 준다", async () => {
-    server.use(
-      http.get(apiPath("/classes"), () =>
-        errorResponse(403, "ROLE_NOT_ALLOWED", "교사만 볼 수 있어요."),
-      ),
-      http.get(apiPath("/probe"), () => HttpResponse.json({})),
-    );
-    renderTeacherArea();
-
-    const heading = await screen.findByRole("heading", {
-      name: "이 화면을 볼 수 있는 권한이 없어요",
-    });
-    expect(within(document.body).queryByRole("navigation", { name: "주 메뉴" })).toBeNull();
-    expect(heading).toBeInTheDocument();
   });
 });
