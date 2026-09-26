@@ -31,7 +31,7 @@
 
 ## 데이터
 
-- **API 목록은 FE가 먼저 뽑습니다**(09/13 결정, 규칙 전문은 `backend/CLAUDE.md`의 API 규약 부분). 화면 흐름과 Figma에서 필요한 API를 뽑아 인터페이스 명세(**API 문서 v0**. 9/27 확정 전까지는 초안이고 확정 후 노션으로 옮깁니다. **저장소 미반영**)에 올립니다. 명세에 없는 화면을 만들기 전에 명세를 먼저 고칩니다.
+- **API 목록은 FE가 먼저 뽑습니다**(09/13 결정, 규칙 전문은 `backend/CLAUDE.md`의 API 규약 부분). 화면 흐름과 Figma에서 필요한 API를 뽑아 인터페이스 명세([아이담 API 문서](https://app.notion.com/p/3e42bb98425780a3bb6af1388b145640), 노션, #58. **저장소 미반영**)에 올립니다. 명세에 없는 화면을 만들기 전에 명세를 먼저 고칩니다.
 - 요청·응답·에러 형식 규약은 `docs/테크스펙.md`의 공통 API 규약 부분이 원본입니다. 프론트는 `error.code`로 분기하고 `message`는 그대로 보여 줍니다.
 - BE 라우터가 생기기 전까지 타입은 `types/api-draft/<도메인>.ts`에 손으로 씁니다. 명세를 먼저 고치고 타입을 맞춥니다. 라우터가 생기면 `types/api.ts`(openapi-typescript 생성)로 바꿉니다 — 생성 파일은 직접 수정하지 않고, 타입이 안 맞으면 BE의 스키마를 고칩니다.
 - 모든 호출은 `api/<도메인>.ts`의 요청 함수를 거치고, 요청 함수는 `lib/api-client.ts`의 `api.get`·`api.post` 등으로 씁니다. `fetch`를 직접 부르면 ESLint 에러입니다. 실패는 `ApiError`(`status`, `code`, `message`, `detail`)로 오고, 연결 실패는 `status` 0 · `NETWORK_ERROR`입니다.
@@ -40,6 +40,8 @@
 - 시간은 서버가 UTC ISO 8601로 주고, 날짜만 있는 값(`record_date` 등)은 한국 시간 기준 `YYYY-MM-DD`입니다(테크스펙에 제안 중). 변환과 표기는 `lib/datetime.ts`의 함수(`kstToday`, `formatDate`, `formatTime` 등)만 씁니다. `toISOString().slice(0, 10)`은 한국 0~9시에 전날이 되므로 쓰지 않습니다.
 - BE가 없는 동안은 MSW로 개발합니다. 핸들러는 `mocks/handlers/<도메인>.ts`에 `export const handlers = [...]`로 두면 자동으로 모입니다(`handlers/index.ts`는 고치지 않고, `handlers/` 안에는 핸들러 파일만 둡니다). 픽스처는 `mocks/fixtures/<도메인>.ts`이고, 응답은 `mocks/http.ts`의 `apiPath`·`errorResponse`·`listResponse`로 만듭니다. MSW는 개발 서버에서 기본으로 켜지고, 끄려면 `.env.development.local`에 `VITE_USE_MSW=false`를 둡니다.
 - `@/mocks`는 진입점(`main.tsx`)과 테스트에서만 import합니다. 화면 코드는 목을 알지 못합니다(ESLint가 막습니다).
+- 목 id는 `mocks/fixtures/ids.ts`의 `fixtureId(종류, 번호)`로 만듭니다. 반·원아는 `fixtures/organization.ts`의 햇살반과 원아 5명을 그대로 씁니다. 화면 사이 링크가 목에서도 이어지게 하려는 것입니다.
+- 교사 화면의 현재 반은 `features/class-context`의 `useCurrentClass()`로 받습니다. `class_id`를 하드코딩하지 않습니다.
 - **픽스처는 합성 데이터만 씁니다.** 루트 규칙은 팀원 본인 사진도 허용하지만, 프론트는 커밋한 픽스처가 그대로 목 응답이 되므로 합성만 씁니다. 이메일은 `example.com`을 씁니다.
 - 브라우저에 노출되는 값은 `VITE_` 접두사만 쓰고, 여기에 비밀을 넣지 않습니다.
 

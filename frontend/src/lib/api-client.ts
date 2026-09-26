@@ -1,5 +1,5 @@
 // 모든 API 호출이 거치는 한 곳입니다. 화면 코드는 fetch를 직접 부르지 않고 api/<도메인>.ts의 요청 함수를 씁니다.
-// 규약 원본: docs/테크스펙.md §공통 API 규약, API 문서 v0 §공통 규약.
+// 규약 원본: docs/테크스펙.md §공통 API 규약, API 문서 §공통 규약.
 // - JSON 필드는 snake_case 그대로 주고받습니다. 성공 응답은 리소스 그대로이고, 204는 undefined입니다.
 // - 에러는 { error: { code, message, detail } }이고, 화면은 ApiError.code로 분기합니다.
 
@@ -106,7 +106,7 @@ export async function apiRequest<T>(
 
   let response: Response;
   try {
-    // 가정: 인증은 세션 쿠키입니다(v0 미정). JWT로 정해지면 여기서 Authorization 헤더만 붙입니다.
+    // 가정: 인증은 세션 쿠키입니다(API 문서 미정). JWT로 정해지면 여기서 Authorization 헤더만 붙입니다.
     response = await fetch(url, {
       method,
       headers,
