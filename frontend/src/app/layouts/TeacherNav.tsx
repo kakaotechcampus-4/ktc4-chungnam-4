@@ -55,8 +55,16 @@ export function TeacherNav({ klass, teacherName }: TeacherNavProps) {
           })}
         </ul>
       </nav>
-      <p className="w-32 shrink-0 text-right text-label text-ink-muted">
-        {teacherName ? `${teacherName} 선생님` : null}
+      {/* Figma에는 계정 설정으로 가는 곳이 없어서 교사 이름을 설정 링크로 둡니다. 칸 폭 128은 그대로입니다. */}
+      <p className="w-32 shrink-0 text-right text-label">
+        {teacherName ? (
+          <Link
+            to="/t/settings"
+            className="rounded-xs text-ink-muted outline-none hover:text-brand-ink focus-visible:ring-3 focus-visible:ring-ring/50"
+          >
+            {teacherName} 선생님
+          </Link>
+        ) : null}
       </p>
     </div>
   );
