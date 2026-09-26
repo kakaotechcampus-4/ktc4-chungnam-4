@@ -101,3 +101,4 @@ frontend/src/
 - `pnpm install`에서 msw 설치 스크립트가 막히면 `pnpm-workspace.yaml`의 `allowBuilds`를 확인하세요.
 - lockfile이 충돌하면 `git checkout --theirs pnpm-lock.yaml && pnpm install`로 다시 만듭니다.
 - 브라우저 콘솔에 `[MSW] Mocking enabled.`가 없으면 목이 꺼진 상태입니다. 주소가 `localhost`인지, `VITE_USE_MSW=false`가 없는지 보세요.
+- 화면에 "로컬 백엔드(...)에 연결하지 못했어요"가 뜨면 요청이 목을 거치지 않고 백엔드로 간 것입니다. 강력 새로고침(Cmd+Shift+R)은 그 페이지의 목을 끄므로 일반 새로고침(Cmd+R)을 하세요.
