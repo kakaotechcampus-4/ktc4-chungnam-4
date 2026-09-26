@@ -9,7 +9,8 @@ import { activeNavItem, TEACHER_NAV_ITEMS } from "./teacher-nav";
 interface TeacherNavProps {
   /** 반을 받기 전이거나 담당 반이 없으면 비웁니다 */
   klass: { centerName: string; name: string } | null;
-  teacherName: string;
+  /** 받기 전이거나 교사 계정이 아니면 비웁니다 */
+  teacherName: string | null;
 }
 
 // Figma: 1:1898 (F / Navigation · 정렬 개선 · L2). 배경과 테두리 없이 canvas 위에 놓입니다.
@@ -54,7 +55,9 @@ export function TeacherNav({ klass, teacherName }: TeacherNavProps) {
           })}
         </ul>
       </nav>
-      <p className="w-32 shrink-0 text-right text-label text-ink-muted">{teacherName} 선생님</p>
+      <p className="w-32 shrink-0 text-right text-label text-ink-muted">
+        {teacherName ? `${teacherName} 선생님` : null}
+      </p>
     </div>
   );
 }
