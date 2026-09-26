@@ -21,7 +21,7 @@ export function LoginPage() {
     register,
     handleSubmit,
     setError,
-    formState: { errors },
+    formState: { errors, submitCount },
   } = useForm<LoginValues>({ resolver: zodResolver(loginSchema) });
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -66,7 +66,12 @@ export function LoginPage() {
           />
         </div>
         {errors.root?.server ? (
-          <p role="alert" className="text-label text-destructive">
+          // 시도할 때마다 새로 그려서, 같은 문구로 다시 실패해도 다시 나타나고 다시 읽힙니다.
+          <p
+            key={submitCount}
+            role="alert"
+            className="text-label text-destructive motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 motion-safe:duration-200"
+          >
             {errors.root.server.message}
           </p>
         ) : null}
