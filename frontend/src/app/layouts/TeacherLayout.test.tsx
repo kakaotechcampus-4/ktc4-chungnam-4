@@ -76,6 +76,15 @@ describe("TeacherLayout", () => {
     );
   });
 
+  it("계정 설정에 있으면 교사 이름 링크를 현재 페이지로 표시한다", async () => {
+    renderAt("/t/settings");
+
+    expect(await screen.findByRole("link", { name: "김하늘 선생님" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
   it("로그인이 끊겼으면 교사 이름 자리를 비운다", async () => {
     server.use(
       http.get(apiPath("/me"), () => errorResponse(401, "UNAUTHENTICATED", "로그인이 필요해요.")),
