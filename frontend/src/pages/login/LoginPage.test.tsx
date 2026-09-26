@@ -70,6 +70,20 @@ describe("LoginPage", () => {
     expect(router.state.location.pathname).toBe("/login");
   });
 
+  it("같은 이유로 다시 실패하면 문구를 새로 보여 준다", async () => {
+    const { user } = renderLogin();
+    await user.type(screen.getByLabelText("이메일"), "nobody@example.com");
+    await user.type(screen.getByLabelText("비밀번호"), "anything");
+
+    await user.click(screen.getByRole("button", { name: "로그인" }));
+    const first = await screen.findByRole("alert");
+    await user.click(screen.getByRole("button", { name: "로그인" }));
+
+    // 같은 문구라도 새로 그려져야 다시 나타나고 화면 읽기 프로그램이 다시 읽습니다.
+    await waitFor(() => expect(screen.getByRole("alert")).not.toBe(first));
+    expect(screen.getByRole("alert")).toHaveTextContent("이메일 또는 비밀번호를 확인해 주세요.");
+  });
+
   it("비밀번호 찾기와 회원가입으로 갈 수 있다", () => {
     renderLogin();
 
