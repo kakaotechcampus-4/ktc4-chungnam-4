@@ -15,6 +15,7 @@ describe("LandingPreviewCard", () => {
   });
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   it("5초마다 다음 초안으로 넘어가고 마지막 다음은 처음이다", () => {
@@ -64,5 +65,33 @@ describe("LandingPreviewCard", () => {
     fireEvent.mouseLeave(card);
     act(() => vi.advanceTimersByTime(5000));
     expect(visibleTitle()).toBe("모래 놀이터에서 찾은 보물");
+  });
+
+  it("포커스가 카드 안에 있으면 마우스가 들어왔다 나가도 넘기지 않는다", () => {
+    render(<LandingPreviewCard />);
+    const card = screen.getByRole("region", { name: "알림장 미리보기" });
+
+    fireEvent.focus(screen.getByRole("button", { name: "1번째 초안 보기" }));
+    fireEvent.mouseEnter(card);
+    fireEvent.mouseLeave(card);
+    act(() => vi.advanceTimersByTime(10000));
+    expect(visibleTitle()).toBe("작은 블록으로 만든 커다란 하루");
+
+    fireEvent.blur(screen.getByRole("button", { name: "1번째 초안 보기" }));
+    act(() => vi.advanceTimersByTime(5000));
+    expect(visibleTitle()).toBe("모래 놀이터에서 찾은 보물");
+  });
+
+  it("동작 줄이기가 켜져 있으면 자동으로 넘기지 않는다", () => {
+    vi.stubGlobal("matchMedia", (media: string) => ({
+      matches: true,
+      media,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    render(<LandingPreviewCard />);
+
+    act(() => vi.advanceTimersByTime(15000));
+    expect(visibleTitle()).toBe("작은 블록으로 만든 커다란 하루");
   });
 });
