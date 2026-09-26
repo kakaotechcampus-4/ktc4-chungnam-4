@@ -28,6 +28,8 @@ export function LoginPage() {
 
   const signIn = useMutation({
     mutationFn: createSession,
+    // 로그인 요청의 401(INVALID_CREDENTIALS)은 에러 경계로 넘기지 않고 폼 오류로 보여 줍니다.
+    throwOnError: false,
     onSuccess: (session) => {
       // 앞 계정의 캐시(내 정보, 반 목록 등)가 새 계정 화면에 보이지 않게 비웁니다.
       queryClient.clear();

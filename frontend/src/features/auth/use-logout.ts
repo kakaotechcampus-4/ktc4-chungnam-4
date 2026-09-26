@@ -10,6 +10,7 @@ export function useLogout() {
 
   return useMutation({
     mutationFn: deleteCurrentSession,
+    throwOnError: false,
     onSettled: () => {
       queryClient.clear();
       void navigate("/login", { replace: true });

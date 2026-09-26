@@ -19,6 +19,8 @@ export function createQueryClient() {
         // 401·403은 화면에서 던져서 라우터의 에러 경계가 처리하게 합니다. 화면은 따로 처리하지 않습니다.
         throwOnError: isBoundaryAuthError,
       },
+      // 저장·삭제 요청도 같은 규칙입니다. 로그인 요청(401은 폼 오류)과 로그아웃은 각자 끕니다.
+      mutations: { throwOnError: isBoundaryAuthError },
     },
   });
 }
