@@ -22,6 +22,10 @@ export function FormField({
 }: FormFieldProps) {
   const id = useId();
   const errorId = `${id}-error`;
+  // 넘겨받은 안내 문구 id가 있으면 그 뒤에 오류 문구 id를 붙입니다. 하나로 덮어쓰면 오류가 읽히지 않습니다.
+  const describedBy =
+    [inputProps["aria-describedby"], error ? errorId : undefined].filter(Boolean).join(" ") ||
+    undefined;
 
   return (
     <div className={cn("flex w-full flex-col gap-1.5", className)}>
@@ -29,10 +33,10 @@ export function FormField({
         {label}
       </Label>
       <Input
-        id={id}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={error ? errorId : undefined}
         {...inputProps}
+        id={id}
+        aria-invalid={error ? true : inputProps["aria-invalid"]}
+        aria-describedby={describedBy}
       />
       {error ? (
         <p id={errorId} className="text-label text-destructive">
