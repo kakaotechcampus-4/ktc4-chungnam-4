@@ -65,3 +65,25 @@ describe("routes", () => {
     },
   );
 });
+
+// 목 로그인 상태는 주소의 ?mock=로 바꿉니다(mocks/session.ts). 주소는 test/setup.ts가 테스트마다 되돌립니다.
+describe("교사 영역 가드", () => {
+  it("로그인이 안 됐으면 로그인 화면으로 보낸다", async () => {
+    window.history.replaceState(null, "", "/?mock=auth.signed-out");
+    const router = renderAt("/t/403");
+
+    expect(await screen.findByRole("heading", { name: "다시 만나 반가워요" })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/login");
+  });
+
+  it("학부모 계정이면 주소는 그대로 두고 내비 없이 접근 권한 없음을 보여 준다", async () => {
+    window.history.replaceState(null, "", "/?mock=auth.parent");
+    const router = renderAt("/t/403");
+
+    expect(
+      await screen.findByRole("heading", { name: "이 화면을 볼 수 있는 권한이 없어요" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "주 메뉴" })).not.toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/t/403");
+  });
+});
