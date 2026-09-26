@@ -42,16 +42,17 @@ frontend/src/
 ├── env.d.ts             # VITE_ 환경변수 타입
 ├── app/                 # 라우터, 프로바이더, 쿼리 클라이언트
 │   ├── routes/          # 영역별 라우트 모듈 (아래 표)
-│   └── layouts/         # 교사·공개 레이아웃. 학부모는 (예정)
+│   ├── layouts/         # 교사·공개 레이아웃. 학부모는 (예정)
+│   └── auth/            # 역할 가드, 401·403 에러 경계
 ├── pages/<화면>/        # 라우트 1:1. components/, hooks/는 필요할 때
-├── features/<기능>/     # 화면을 넘나드는 단위. class-context(현재 반). 그 밖은 (예정)
+├── features/<기능>/     # 화면을 넘나드는 단위. class-context(현재 반), auth(역할별 홈, 로그아웃)
 ├── components/ui/       # shadcn 생성물
-├── components/common/   # 공통 컴포넌트 (PageHeader, FocusCard, BrandLogo)
-├── api/<도메인>.ts      # 요청 함수와 queryOptions (organization)
-├── lib/                 # api-client, datetime(한국 날짜·표기), utils(cn)
+├── components/common/   # 공통 컴포넌트 (PageHeader, FocusCard, BrandLogo, FormField, Stepper)
+├── api/<도메인>.ts      # 요청 함수와 queryOptions (organization, auth)
+├── lib/                 # api-client, datetime(한국 날짜·표기), form-rules(공통 입력 규칙), utils(cn)
 ├── types/api-draft/     # API 문서를 옮긴 임시 타입
 ├── styles/tokens.css    # 디자인 토큰
-├── mocks/               # browser·server, handlers/(자동 수집), fixtures/, http.ts, scenario.ts
+├── mocks/               # browser·server, handlers/(자동 수집), fixtures/, http.ts, scenario.ts, session.ts(목 로그인)
 ├── test/                # setup.ts, render.tsx
 └── workers/             # Web Worker, 온디바이스 모델 (예정)
 ```
@@ -71,7 +72,7 @@ frontend/src/
 
 | 파일 | 담당 | 레이아웃 자리 |
 |---|---|---|
-| `auth.ts` | 송유진 | 홈, 로그인·비밀번호 찾기(public), 회원가입(onboarding), 계정·설정(teacher) |
+| `auth.ts` | 송유진 | 홈, 로그인·비밀번호 찾기(public), 회원가입(onboarding), 계정·설정·접근 권한 없음(teacher) |
 | `parent.ts` | 송유진 | 학부모 초대(parentPublic), 학부모 알림장(parent) |
 | `organization.ts` | 이한나 | 교사 정보·반(onboarding), 원아·교육 계획(teacher) |
 | `record.ts` | 정은 | 오늘의 기록·자료 올리기·처리 중·직접 작성·대시보드(teacher) |
@@ -79,6 +80,7 @@ frontend/src/
 | `documents.ts` | 김진하 | 초안 검토·알림장·관찰일지(teacher) |
 
 - `/t`는 대시보드로 갑니다. 등록하지 않은 주소는 404가 뜹니다.
+- 교사 영역(`/t`)은 들어가기 전에 가드가 로그인과 역할을 확인합니다. 로그인이 안 됐으면 `/login`, 교사가 아니면 접근 권한 없음입니다.
 - 로그인·온보딩 레이아웃은 원안과 후보 A 두 가지이고, `app/layouts/PublicLayout.tsx`의 기본값 한 줄로 바꿉니다.
 
 ## 목 데이터
