@@ -3,8 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { http } from "msw";
 
 import { TEACHER_ME } from "@/mocks/fixtures/auth";
-import { apiPath, listResponse } from "@/mocks/http";
+import { apiPath, errorResponse, listResponse } from "@/mocks/http";
 import { server } from "@/mocks/server";
+import { getMockSession } from "@/mocks/session";
 import { renderRoutes } from "@/test/render";
 
 import { SettingsPage } from "./SettingsPage";
@@ -22,7 +23,7 @@ function renderSettings() {
 // 계정 정보 칸의 이름과 값을 짝지어 읽습니다.
 async function accountInfo() {
   const section = await screen.findByRole("region", { name: "계정 정보" });
-  await within(section).findByText(/원아 \d+명|담당 반이 없어요/);
+  await within(section).findByText(/원아 \d+명|담당 반이 없어요|불러오지 못했어요/);
   return Object.fromEntries(
     within(section)
       .getAllByRole("term")
@@ -51,7 +52,33 @@ describe("SettingsPage", () => {
     expect((await accountInfo())["담당 반"]).toBe("담당 반이 없어요");
   });
 
-  it("로그아웃하면 로그인 화면으로 간다", async () => {
+  it("반 목록을 받지 못하면 반이 없다고 하지 않고 불러오지 못했다고 알려 준다", async () => {
+    server.use(
+      http.get(apiPath("/classes"), () =>
+        errorResponse(500, "INTERNAL_ERROR", "서버에 문제가 생겼어요."),
+      ),
+    );
+    renderSettings();
+
+    expect((await accountInfo())["담당 반"]).toBe("반 정보를 불러오지 못했어요");
+  });
+
+  it("로그아웃하면 세션을 끊고 로그인 화면으로 간다", async () => {
+    const { router } = renderSettings();
+
+    await userEvent.setup().click(await screen.findByRole("button", { name: "로그아웃" }));
+
+    expect(await screen.findByText("로그인 화면")).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/login");
+    expect(getMockSession()).toBe("none");
+  });
+
+  it("로그아웃 요청이 실패해도 로그인 화면으로 간다", async () => {
+    server.use(
+      http.delete(apiPath("/sessions/current"), () =>
+        errorResponse(500, "INTERNAL_ERROR", "서버에 문제가 생겼어요."),
+      ),
+    );
     const { router } = renderSettings();
 
     await userEvent.setup().click(await screen.findByRole("button", { name: "로그아웃" }));
