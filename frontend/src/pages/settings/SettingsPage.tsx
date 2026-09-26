@@ -21,7 +21,7 @@ interface InfoRowProps {
 // - 카드 제목 18은 토큰에 없어서 16(text-lead)으로 맞췄습니다.
 export function SettingsPage() {
   const { data: me } = useQuery(meQueryOptions());
-  const { currentClass, isPending: classesPending } = useCurrentClass();
+  const { currentClass, isPending: classesPending, isError: classesError } = useCurrentClass();
   const { data: children } = useQuery({
     ...classChildrenQueryOptions(currentClass?.class_id ?? ""),
     enabled: currentClass !== null,
@@ -34,7 +34,9 @@ export function SettingsPage() {
         .join(" · ")
     : classesPending
       ? null
-      : "담당 반이 없어요";
+      : classesError
+        ? "반 정보를 불러오지 못했어요"
+        : "담당 반이 없어요";
 
   return (
     <>
