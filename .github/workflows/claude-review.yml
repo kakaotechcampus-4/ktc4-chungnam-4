@@ -5,8 +5,12 @@ name: Claude review
 # ⭐ pull_request 는 opened·reopened 만 잡는다. 재리뷰는 PR 작성자가 코멘트에 @claude 를 쓸 때만 돈다.
 #   synchronize 를 넣으면 push 마다, edited 를 넣으면 본문 수정마다 다시 돈다.
 #   리뷰마다 새 코멘트를 단다(이력 보존).
-# ⭐ branches: [develop] — 멘토 리뷰용 develop → main PR 에는 돌지 않는다.
-#   issue_comment·pull_request_review_comment 는 branches 필터를 지원하지 않아 job-level if 로 거른다.
+# ⭐ 비용 — 게이트웨이 크레딧을 앱과 나눠 쓴다(1회 약 $0.5 실측, 2026-09-27).
+#   PR 템플릿에 @claude 를 넣지 않아 필요한 PR 만 작성자가 직접 부른다.
+#   턴 수를 8 로 묶고, CI 로그 조사(github_ci MCP)를 막는다 — 첫 실측에서 이전 실패 로그를 뒤지느라 턴을 썼다.
+# ⭐ branches: [develop] — PR 을 열 때의 리뷰는 develop 대상 PR 에만 돈다.
+#   issue_comment·pull_request_review_comment 는 branches 필터가 없어 base 를 거르지 못한다.
+#   develop → main PR 에서도 작성자가 직접 @claude 를 쓰면 돈다(의도한 호출로 본다).
 # ⭐ contents: read — Claude 는 코멘트만 달고 코드를 고치거나 push 하지 못한다.
 #   코드를 쓴 AI 가 스스로 검증하면 편향되므로, 리뷰 모델도 작성용과 다르게 둔다.
 # ⭐ github_token 을 넘긴다 — Claude GitHub App 은 조직 승인이 필요해 설치하지 못했다.
@@ -62,10 +66,8 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           # pull_request 이벤트는 기본이 agent 모드라 본문의 @claude 를 보지 않는다. tag 모드를 강제한다.
           track_progress: true
-          # TODO: 게이트웨이 에러 원인을 찾으면 지운다. 리뷰 대화 전체가 Actions 로그에 남는다.
-          show_full_output: true
           claude_args: |
             --model anthropic/claude-sonnet-5
-            --max-turns 15
-            --disallowedTools Edit,Write,NotebookEdit
+            --max-turns 8
+            --disallowedTools Edit,Write,NotebookEdit,mcp__github_ci
             --append-system-prompt "PR 리뷰는 .github/claude-review.md 의 기준과 출력 형식을 따른다."
