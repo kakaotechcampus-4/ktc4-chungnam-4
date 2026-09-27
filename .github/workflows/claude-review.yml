@@ -7,7 +7,9 @@ name: Claude review
 #   리뷰마다 새 코멘트를 단다(이력 보존).
 # ⭐ 비용 — 게이트웨이 크레딧을 앱과 나눠 쓴다(1회 약 $0.5 실측, 2026-09-27).
 #   PR 템플릿에 @claude 를 넣지 않아 필요한 PR 만 작성자가 직접 부른다.
-#   턴 수를 8 로 묶고, CI 로그 조사(github_ci MCP)를 막는다 — 첫 실측에서 이전 실패 로그를 뒤지느라 턴을 썼다.
+#   CI 로그 조사(github_ci MCP)를 막는다 — 첫 실측에서 이전 실패 로그를 뒤지느라 턴을 썼다.
+#   --max-turns 5 는 비용 실험값이다(2026-09-27). 8 로 뒀을 때 실제 10턴을 돌고 리뷰를 게시한 뒤
+#   action 이 상한 초과로 실패 처리했다(빨간 X, 머지는 막지 않음). 상한이 정확히 지켜지지 않는다.
 # ⭐ branches: [develop] — PR 을 열 때의 리뷰는 develop 대상 PR 에만 돈다.
 #   issue_comment·pull_request_review_comment 는 branches 필터가 없어 base 를 거르지 못한다.
 #   develop → main PR 에서도 작성자가 직접 @claude 를 쓰면 돈다(의도한 호출로 본다).
@@ -29,7 +31,6 @@ permissions:
   contents: read
   pull-requests: write
   issues: write
-  id-token: write
 
 jobs:
   review:
@@ -68,6 +69,6 @@ jobs:
           track_progress: true
           claude_args: |
             --model anthropic/claude-sonnet-5
-            --max-turns 8
+            --max-turns 5
             --disallowedTools Edit,Write,NotebookEdit,mcp__github_ci
             --append-system-prompt "PR 리뷰는 .github/claude-review.md 의 기준과 출력 형식을 따른다."
