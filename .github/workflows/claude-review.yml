@@ -1,0 +1,48 @@
+name: Claude review
+# PR 본문이나 PR 코멘트에 @claude 가 있을 때만 리뷰한다.
+# 리뷰 기준·출력 형식은 .github/claude-review.md 에 있다.
+#
+# ⭐ pull_request 는 opened 만 잡는다. edited·synchronize 를 넣으면 본문 수정·push 마다 다시 돈다.
+# ⭐ branches: [develop] — 멘토 리뷰용 develop → main PR 에는 돌지 않는다.
+#   issue_comment·pull_request_review_comment 는 branches 필터를 지원하지 않아 job-level if 로 거른다.
+# ⭐ contents: read — Claude 는 코멘트만 달고 코드를 고치거나 push 하지 못한다.
+#   코드를 쓴 AI 가 스스로 검증하면 편향되므로, 리뷰 모델도 작성용과 다르게 둔다.
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [develop]
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  review:
+    if: |
+      (github.event_name == 'pull_request' && !github.event.pull_request.draft && contains(github.event.pull_request.body, '@claude')) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          use_sticky_comment: true
+          claude_args: |
+            --model claude-sonnet-5
+            --max-turns 15
+            --disallowedTools Edit,Write,NotebookEdit
+            --append-system-prompt "PR 리뷰는 .github/claude-review.md 의 기준과 출력 형식을 따른다."
