@@ -8,8 +8,9 @@ name: Claude review
 # ⭐ 비용 — 게이트웨이 크레딧을 앱과 나눠 쓴다(1회 약 $0.5 실측, 2026-09-27).
 #   PR 템플릿에 @claude 를 넣지 않아 필요한 PR 만 작성자가 직접 부른다.
 #   CI 로그 조사(github_ci MCP)를 막는다 — 첫 실측에서 이전 실패 로그를 뒤지느라 턴을 썼다.
-#   --max-turns 5 는 비용 실험값이다(2026-09-27). 8 로 뒀을 때 실제 10턴을 돌고 리뷰를 게시한 뒤
-#   action 이 상한 초과로 실패 처리했다(빨간 X, 머지는 막지 않음). 상한이 정확히 지켜지지 않는다.
+#   --max-turns 는 폭주 방지용이다. 턴을 줄여도 비용이 거의 안 준다(실측: 15턴 $0.50 / 8턴 $0.35 / 5턴 $0.32) —
+#   매 턴 시스템 프롬프트·도구 목록이 기본으로 실려 1회 약 $0.3 이 바닥이다.
+#   상한(10)에 걸리면 action 이 리뷰를 게시하고도 실패로 표시하므로, 마지막 단계에서 그 경우만 성공으로 돌린다.
 # ⭐ branches: [develop] — PR 을 열 때의 리뷰는 develop 대상 PR 에만 돈다.
 #   issue_comment·pull_request_review_comment 는 branches 필터가 없어 base 를 거르지 못한다.
 #   develop → main PR 에서도 작성자가 직접 @claude 를 쓰면 돈다(의도한 호출로 본다).
@@ -54,7 +55,10 @@ jobs:
           echo "::add-mask::${GATEWAY_URL%/v1}"
           echo "ANTHROPIC_BASE_URL=${GATEWAY_URL%/v1}" >> "$GITHUB_ENV"
 
-      - uses: anthropics/claude-code-action@v1
+      - id: claude
+        uses: anthropics/claude-code-action@v1
+        # 턴 상한 초과는 아래 단계에서 성공으로 돌린다. 그 외 실패는 아래 단계가 다시 실패시킨다.
+        continue-on-error: true
         env:
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_API_KEY }}
           # 게이트웨이에 없는 모델 이름으로 보조 호출이 나가지 않게 전부 같은 모델로 둔다.
@@ -69,6 +73,23 @@ jobs:
           track_progress: true
           claude_args: |
             --model anthropic/claude-sonnet-5
-            --max-turns 5
+            --max-turns 10
             --disallowedTools Edit,Write,NotebookEdit,mcp__github_ci
             --append-system-prompt "PR 리뷰는 .github/claude-review.md 의 기준과 출력 형식을 따른다."
+
+      # 턴 상한에 걸려도 리뷰는 대개 이미 게시돼 있다. 그 경우만 통과시키고, 인증·네트워크 등 다른 실패는 그대로 실패시킨다.
+      - name: Treat turn cap as success
+        if: steps.claude.outcome == 'failure'
+        env:
+          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          f="${EXEC_FILE:-$RUNNER_TEMP/claude-execution-output.json}"
+          # 마지막 result 이벤트: "error_max_turns ..." = 상한에서 멈춤, "success false" = 끝냈지만 상한을 넘겨 action 이 실패 처리
+          r=$(jq -r '[.[]? | select(.type == "result")] | last | "\(.subtype) \(.is_error)"' "$f" 2>/dev/null || true)
+          case "$r" in
+            "error_max_turns "*|"success false")
+              echo "::warning::턴 상한에 걸렸습니다 ($r). PR 코멘트에 리뷰가 달렸는지 확인하세요."
+              exit 0 ;;
+          esac
+          echo "::error::Claude 실행이 턴 상한 외의 이유로 실패했습니다. 위 단계 로그를 확인하세요."
+          exit 1
