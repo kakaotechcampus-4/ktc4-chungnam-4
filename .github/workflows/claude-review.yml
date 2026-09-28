@@ -10,7 +10,10 @@ name: Claude review
 #   CI 로그 조사(github_ci MCP)를 막는다 — 첫 실측에서 이전 실패 로그를 뒤지느라 턴을 썼다.
 #   --max-turns 는 폭주 방지용이다. 턴을 줄여도 비용이 거의 안 준다(실측: 15턴 $0.50 / 8턴 $0.35 / 5턴 $0.32) —
 #   매 턴 시스템 프롬프트·도구 목록이 기본으로 실려 1회 약 $0.3 이 바닥이다.
-#   상한(10)에 걸리면 action 이 리뷰를 게시하고도 실패로 표시하므로, 마지막 단계에서 그 경우만 성공으로 돌린다.
+#   상한은 15 다. 10 이면 문서를 여는 PR(#61)·큰 PR(#65)에서 리뷰를 쓰기 전에 멈췄다(2026-09-28).
+#   원인은 상한보다 턴 쓰는 방식이었다 — 파일 하나·진행 체크박스 하나마다 턴을 썼다. 그래서 claude-review.md §범위에서
+#   체크리스트 금지, 병렬 읽기, 300줄 초과 시 하드룰 파일만 보기를 정했다.
+#   상한에 걸리면 action 이 리뷰를 게시하고도 실패로 표시하므로, 마지막 단계에서 리뷰가 실제로 달린 경우만 성공으로 돌린다.
 # ⭐ branches: [develop] — PR 을 열 때의 리뷰는 develop 대상 PR 에만 돈다.
 #   issue_comment·pull_request_review_comment 는 branches 필터가 없어 base 를 거르지 못한다.
 #   develop → main PR 에서도 작성자가 직접 @claude 를 쓰면 돈다(의도한 호출로 본다).
@@ -42,8 +45,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # pull_request 는 ref 를 비워 기본값(PR merge ref)을 쓴다.
+      # issue_comment·pull_request_review_comment 는 기본값이 기본 브랜치라, PR head 를 직접 지정한다.
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name != 'pull_request' && format('refs/pull/{0}/head', github.event.issue.number || github.event.pull_request.number) || '' }}
           fetch-depth: 1
 
       # 팀 키는 Anthropic 직접 키가 아니라 LLM 게이트웨이 토큰이다(backend/.env 와 같은 값).
@@ -54,10 +60,12 @@ jobs:
         run: |
           echo "::add-mask::${GATEWAY_URL%/v1}"
           echo "ANTHROPIC_BASE_URL=${GATEWAY_URL%/v1}" >> "$GITHUB_ENV"
+          # 마지막 단계가 이 시각 이후에 달린 리뷰만 인정한다.
+          echo "REVIEW_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
       - id: claude
         uses: anthropics/claude-code-action@v1
-        # 턴 상한 초과는 아래 단계에서 성공으로 돌린다. 그 외 실패는 아래 단계가 다시 실패시킨다.
+        # 턴 상한 초과는 리뷰가 달렸을 때만 아래 단계에서 성공으로 돌린다. 그 외 실패는 아래 단계가 다시 실패시킨다.
         continue-on-error: true
         env:
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -73,23 +81,38 @@ jobs:
           track_progress: true
           claude_args: |
             --model anthropic/claude-sonnet-5
-            --max-turns 10
+            --max-turns 15
             --disallowedTools Edit,Write,NotebookEdit,mcp__github_ci
-            --append-system-prompt "PR 리뷰는 .github/claude-review.md 의 기준과 출력 형식을 따른다."
+            --append-system-prompt "PR 리뷰는 .github/claude-review.md 의 기준과 출력 형식을 따른다. 진행 체크리스트를 만들거나 갱신하지 말고, 리뷰를 다 쓴 뒤 코멘트를 한 번만 갱신한다."
 
-      # 턴 상한에 걸려도 리뷰는 대개 이미 게시돼 있다. 그 경우만 통과시키고, 인증·네트워크 등 다른 실패는 그대로 실패시킨다.
+      # 턴 상한에 걸렸어도 리뷰가 실제로 달렸으면 통과시킨다.
+      # 리뷰 없이 멈췄거나(#61) 인증·네트워크 등 다른 이유로 실패했으면 그대로 실패시킨다.
       - name: Treat turn cap as success
         if: steps.claude.outcome == 'failure'
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
         run: |
           f="${EXEC_FILE:-$RUNNER_TEMP/claude-execution-output.json}"
           # 마지막 result 이벤트: "error_max_turns ..." = 상한에서 멈춤, "success false" = 끝냈지만 상한을 넘겨 action 이 실패 처리
           r=$(jq -r '[.[]? | select(.type == "result")] | last | "\(.subtype) \(.is_error)"' "$f" 2>/dev/null || true)
           case "$r" in
-            "error_max_turns "*|"success false")
-              echo "::warning::턴 상한에 걸렸습니다 ($r). PR 코멘트에 리뷰가 달렸는지 확인하세요."
-              exit 0 ;;
+            "error_max_turns "*|"success false") ;;
+            *)
+              echo "::error::Claude 실행이 턴 상한 외의 이유로 실패했습니다. 위 단계 로그를 확인하세요."
+              exit 1 ;;
           esac
-          echo "::error::Claude 실행이 턴 상한 외의 이유로 실패했습니다. 위 단계 로그를 확인하세요."
+          # track_progress 는 진행 코멘트를 리뷰로 덮어쓴다. 이번 실행 이후 갱신된 코멘트에 리뷰 제목이 있는지 본다.
+          # 재리뷰가 리뷰 코멘트 스레드에서 불리면 답글로 달리므로 PR 리뷰 코멘트도 함께 본다.
+          filter='[.[] | select(.updated_at >= env.REVIEW_STARTED_AT and (.body | contains("🤖 Claude 리뷰")))] | length'
+          # --paginate 는 페이지마다 개수를 한 줄씩 내므로 합산한다.
+          n=$( { gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --jq "$filter"
+                 gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/comments" --jq "$filter"; } \
+               | awk '{ s += $1 } END { print s + 0 }' )
+          if [ "$n" -gt 0 ]; then
+            echo "::warning::턴 상한에 걸렸지만 리뷰는 게시됐습니다 ($r)."
+            exit 0
+          fi
+          echo "::error::리뷰를 게시하기 전에 턴 상한에 걸렸습니다 ($r). PR 에 @claude 를 다시 달아 재시도하세요."
           exit 1

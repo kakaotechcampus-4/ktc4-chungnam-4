@@ -1,7 +1,9 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { createMemoryRouter, RouterProvider, type RouteObject } from "react-router";
+
+import { createQueryClient } from "@/app/query-client";
 
 interface RenderRouteOptions {
   path?: string;
@@ -16,7 +18,12 @@ export function renderRoute(ui: ReactElement, options: RenderRouteOptions = {}) 
 
 // 레이아웃과 자식 라우트처럼 여러 라우트가 필요할 때 씁니다. 반환값의 router로 주소를 확인합니다.
 export function renderRoutes(routes: RouteObject[], { initialEntry = "/" } = {}) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // 앱과 같은 기본값(401·403을 에러 경계로 던지기 등)을 쓰고, 재시도만 끕니다.
+  const queryClient = createQueryClient();
+  queryClient.setDefaultOptions({
+    ...queryClient.getDefaultOptions(),
+    queries: { ...queryClient.getDefaultOptions().queries, retry: false },
+  });
   const router = createMemoryRouter(routes, { initialEntries: [initialEntry] });
   const result = render(
     <QueryClientProvider client={queryClient}>
