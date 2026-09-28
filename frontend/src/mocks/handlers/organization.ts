@@ -4,7 +4,7 @@ import type { MyChild } from "@/types/api-draft/organization";
 
 import { TEACHER_ME } from "../fixtures/auth";
 import { PARENT_OF_CHILD, SUNSHINE_CHILDREN, SUNSHINE_CLASS } from "../fixtures/organization";
-import { MOCK_PARENT_ID, requireParent } from "../guards";
+import { MOCK_PARENT_ID, requireParent, requireTeacher } from "../guards";
 import { apiPath, errorResponse, listResponse } from "../http";
 import { isMockScenario } from "../scenario";
 
@@ -30,10 +30,15 @@ export const handlers = [
     }));
     return listResponse(items);
   }),
-  http.get(apiPath("/classes"), () =>
-    listResponse(isMockScenario("organization.classes-empty") ? [] : [SUNSHINE_CLASS]),
-  ),
+  // 교사용 반 목록·명단은 교사만 받습니다(학부모 403, 로그인 안 함 401). 목에는 햇살반만 있어 다른 반은 없는 반(404)입니다.
+  http.get(apiPath("/classes"), () => {
+    const denied = requireTeacher();
+    if (denied) return denied;
+    return listResponse(isMockScenario("organization.classes-empty") ? [] : [SUNSHINE_CLASS]);
+  }),
   http.get(apiPath("/classes/:classId/children"), ({ params }) => {
+    const denied = requireTeacher();
+    if (denied) return denied;
     if (params.classId !== SUNSHINE_CLASS.class_id) {
       return errorResponse(404, "CLASS_NOT_FOUND", "반을 찾을 수 없어요.");
     }
