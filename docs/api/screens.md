@@ -49,7 +49,7 @@
 | ④ 김동건 | 수동 분류 / 사진 | `GET /classes/{class_id}/children`(원아 선택지). 귀속은 서버 전송 때 보냄 | 상세 작성 |
 | ④ 김동건 | 수동 분류 / 발화 | `GET /classes/{class_id}/children`, `GET /media/{media_id}/transcript-segments`, `PATCH /transcript-segments/{segment_id}` | 둘 다 |
 | ④ 김동건 | 추가 근거 작성 | `GET /classes/{class_id}/children`(연결할 아이), (목록에 없음: 교사가 쓴 관찰 메모를 근거로 저장) | 상세 작성 |
-| ④ 김동건 | 하루 정리 확인 | `GET /jobs/{job_id}/daily-routines`, `POST /jobs/{job_id}/resume`(초안 만들기), `GET /classes/{class_id}/children`("2 / 5명 확인"), (목록에 없음: 장면별 틀렸어요·빼기 저장) | 둘 다 |
+| ④ 김동건 | 하루 정리 확인 | `GET /jobs/{job_id}/daily-routines`, `POST /jobs/{job_id}/resume`(초안 만들기), `GET /classes/{class_id}/children`("2 / 5명 확인") | 둘 다 |
 | ④ 김동건 | 얼굴 정보 등록 | `GET /children/{child_id}`(동의·등록 상태), `PUT /children/{child_id}/face-embedding` | 경로만 |
 | ④ 김동건 | 얼굴 정보 삭제 확인 | 얼굴 정보 등록의 호출 그대로, `DELETE /children/{child_id}/face-embedding`, `POST /children/{child_id}/consents/revoke`(동의 철회) | 경로만 |
 | ⑤ 김진하 | 초안 검토 / 왼쪽 원아 목록 | `GET /classes/{class_id}/children`·`GET /classes/{class_id}/drafts`(레일), `GET /drafts/{draft_id}`, `PATCH /drafts/{draft_id}`, `GET /media/{media_id}`(URL 만료 시), `POST /drafts/{draft_id}/revision-requests`(AI에게 다듬기 요청). "사진과 본문을 확인했어요" 체크는 승인 확인 모달의 `POST /drafts/{draft_id}/approve`에 `reviewed`로 들어감 | 둘 다 |
@@ -69,7 +69,6 @@
 - **학부모 초대 링크**: 지금 쓰는 초대 링크 조회. "초대 링크 복사"에 필요합니다. 경로만 정한 API에는 만들기(`POST`)만 있습니다. (organization)
 - **원아 개인 페이지**: 이번 달 기록 수와 누리과정 5영역별 기록 수. (documents)
 - **추가 근거 작성**: 교사가 쓴 관찰 메모(연결할 아이, 활동 시각, 음성, 관련 사진)를 그날 근거로 저장. (agents 또는 media · face)
-- **하루 정리 확인**: 장면별 "틀렸어요"·"빼기"·"되돌리기", 빠진 일, 고칠 곳 말씀을 저장. `POST /jobs/{job_id}/resume` 본문에 함께 보낼지 따로 둘지 정해야 합니다. (agents)
 - **알림장 상세**: 게시한 알림장의 "수정하기". `reopen`은 게시 전까지만 적혀 있습니다. (documents)
 - **관찰일지 목록**: 반 전체 관찰일지를 기간(이번 주·이번 달·전체)으로 한 번에 받는 목록. 경로만 정한 API에는 원아별 목록만 있습니다. (documents)
 
