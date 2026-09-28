@@ -8,8 +8,8 @@
 
 (막힘)은 정해져야 FE 목(MSW)과 BE schemas를 만들 수 있는 항목입니다. 막히면 작업하는 사람이 정하고 진행합니다. 정한 값은 같은 PR에서 이 파일에 반영하고, 항목을 `[x]`로 바꾼 뒤 `임시 결정(이름)`과 반영한 곳을 적습니다([README](README.md) §이 문서를 읽는 법). 담당의 답은 이슈 #58 댓글이나 이 파일을 고치는 PR로 받습니다.
 
-- [ ] (막힘) `job_id` 단위: 반·날짜 부모 레코드를 새로 둘지, `Job`을 확장할지 → PR #61에서 제안: 부모 레코드 `GenerationJob`을 새로 두고 원아별 `Job`에 `generation_job_id`를 둠(검토 중)
-- [ ] (막힘) Job 트리거: FE의 `POST /jobs`(제안) vs media의 `.delay()`(김동건과 함께) → PR #61에서 제안: 마지막 귀속 저장이 끝나면 FE가 `POST /api/v1/classes/{class_id}/jobs`를 한 번 부름(검토 중)
+- [x] (막힘) `job_id` 단위: 반·날짜 부모 레코드를 새로 둘지, `Job`을 확장할지 → 결정(09/27, #61): 부모 레코드 `GenerationJob`을 새로 두고 원아별 `Job`에 `generation_job_id`를 둠. 반영: 테크스펙 데이터 모델 ④·ERD
+- [x] (막힘) Job 트리거: FE의 `POST /jobs`(제안) vs media의 `.delay()`(김동건과 함께) → 결정(09/27, #61): 마지막 귀속 저장이 끝나면 FE가 `POST /api/v1/classes/{class_id}/jobs`를 한 번 부름. media 완료 통지는 `.delay()`를 부르지 않음. 반영: 테크스펙 흐름 표 C
 - [ ] 근거 범위(날짜 전체 vs `media_ids`), STT 미완료 시 409로 막을지 `transcribing`에서 기다릴지(김동건과 함께)
 - [ ] 반 전체 `status` 규칙, 진행률 계산식, `stage` 4값
 - [ ] 미분류 사유 코드, 검증 실패로 미분류된 초안의 노출과 근거 저장(한상균과 함께)
@@ -18,21 +18,21 @@
 - [ ] `Job.target_date`를 Date 타입으로 바꿀지
 - [ ] 처리 순서 모순(김동건·엄태은·송유진과 함께). 상세 작성 범위에서는 5→6단계 연속 실행으로 가정
 - [ ] "취소하고 돌아가기"를 화면 이탈로 보는 해석이 맞는지
-- [ ] develop `agents/router.py`의 `prefix="/agents"` 제거 → PR #61에 포함(검토 중)
+- [x] develop `agents/router.py`의 `prefix="/agents"` 제거 → #61에서 제거
 
 ## 이 도메인의 규칙
 
 agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(Job)을 시작하는 것과, 그 진행 상태를 폴링으로 조회하는 것입니다. 문장별 근거는 documents의 초안 상세에 들어갑니다. agents는 근거 전용 엔드포인트를 두지 않고, 초안 본문도 돌려주지 않습니다.
 
-**전제 (제안)**
+**전제** (결정이라고 표시하지 않은 것은 제안)
 
 - 호출 흐름은 이렇습니다.
-  - 서버 전송에서 마지막 귀속 저장이 끝나면 FE가 자동으로 `POST /classes/{class_id}/jobs`를 부릅니다.
+  - 서버 전송에서 마지막 귀속 저장이 끝나면 FE가 자동으로 `POST /classes/{class_id}/jobs`를 부릅니다(09/27 결정, #61).
   - 초안 생성 화면에서 2초마다 상태를 조회합니다. `succeeded`나 `failed`가 되면 멈추고 초안 검토로 갑니다.
   - 상세 작성 범위에는 교사가 누르는 "초안 만들기" 버튼이 없습니다.
 - 하루 정리 확인(FR-27)은 상세 작성 범위에서 뺍니다. 5단계(하루 일과)에서 멈추지 않고 6단계로 이어 실행한다고 가정합니다.
-- `job_id`는 반·날짜 단위 요청 1건을 가리킵니다. 지금 `Job`은 원아 단위라(`child_id` NOT NULL, `class_id` 없음) 구조를 새로 제안합니다.
-  - 반 단위 부모 레코드를 새로 두고, 원아별 `Job`이 이 레코드를 참조합니다.
+- `job_id`는 반·날짜 단위 요청 1건인 부모 레코드 `GenerationJob`을 가리킵니다(09/27 결정, #61).
+  - 원아별 `Job`은 `generation_job_id`로 이 레코드를 참조합니다.
   - 원아별 `Job`의 ID는 응답에 넣지 않습니다.
 - API의 날짜 필드는 `record_date`이고, `Job.target_date`에 저장합니다. AI 계약의 `GenerationRequest.record_date`, documents와 이름을 맞췄습니다.
 - SSE는 쓰지 않고 폴링만 씁니다. 원아 이름은 응답에 넣지 않으며, FE가 organization 명단과 `child_id`로 합칩니다.
@@ -102,8 +102,7 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
   - `MEDIA_NOT_READY` (409) — `media_ids` 가운데 완료 통지 전이거나, `attributed_at`이 null이거나, 이 반·날짜의 자료가 아닌 것이 있을 때. 해당 ID는 `detail.media_ids`에 담습니다.
   - `NO_TARGET_CHILDREN` (409) — 그 날짜에 귀속된 자료가 있는 원아가 없을 때
   - `JOB_ALREADY_RUNNING` (409) — 같은 반·날짜에 `pending`·`running` 작업이 이미 있을 때. FE는 `detail.job_id`로 그 작업을 이어서 폴링합니다.
-- [확인 필요: 정은] 반 단위 부모 레코드를 새로 둘지, `Job`을 확장할지 정해야 합니다.
-- [확인 필요: 정은·김동건] Job을 무엇이 시작할지 정해야 합니다. 후보는 이 FE 호출과 media 완료 통지의 `.delay()`입니다. 함께 정할 것이 두 가지 있습니다.
+- [확인 필요: 정은·김동건] Job은 이 FE 호출로 시작하기로 정했습니다(09/27, #61). 함께 정할 것 두 가지가 남았습니다(#60).
   - 근거 범위: 그 날짜 전체로 할지, `media_ids`로 한정할지
   - STT가 안 끝났을 때: 409로 막을지, `transcribing` 단계에서 기다릴지
 
