@@ -15,6 +15,7 @@
 | `frontend/CLAUDE.md` | frontend 파일을 열 때 | 구조, 상태관리, 온디바이스 |
 | `backend/domains/<도메인>/CLAUDE.md` | 그 도메인을 열 때 | 파일 책임, 도메인 규칙 |
 | `docs/테크스펙.md` | 요구사항 확인이 필요할 때 | **FR/NFR 원본. 충돌 시 이쪽이 기준** |
+| `docs/api/` | API를 만들거나 부를 때 | 엔드포인트별 요청·응답 초안의 원본. 구현된 엔드포인트는 OpenAPI가 원본 |
 | `docs/open-questions.md` | 합의 전 항목 확인 | 미정 사항 체크리스트 |
 | `docs/doc-management.md` | **문서를 새로 만들거나 정리할 때** | 문서 관리 원칙, 절차, 파일 구조 |
 | `.claude/skills/*/SKILL.md` | 그 스킬을 호출할 때 | 브랜치·커밋·PR 규약 |
