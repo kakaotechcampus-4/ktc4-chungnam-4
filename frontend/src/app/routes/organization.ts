@@ -1,5 +1,8 @@
 import { ChildConsentPage } from "@/pages/child-consent/ChildConsentPage";
+import { ChildDetailPage } from "@/pages/child-detail/ChildDetailPage";
 import { ChildFormPage } from "@/pages/child-form/ChildFormPage";
+import { ChildInviteLinkPage } from "@/pages/child-invite-link/ChildInviteLinkPage";
+import { ChildrenSetupPage } from "@/pages/children-setup/ChildrenSetupPage";
 import { ChildrenPage } from "@/pages/children/ChildrenPage";
 import { OnboardingClassNewPage } from "@/pages/onboarding-class-new/OnboardingClassNewPage";
 import { OnboardingClassSelectPage } from "@/pages/onboarding-class-select/OnboardingClassSelectPage";
@@ -19,7 +22,10 @@ export const organizationRoutes: AreaRoutes = {
   teacher: [
     { path: "children", Component: ChildrenPage },
     { path: "children/new", Component: ChildFormPage },
+    { path: "children/setup", Component: ChildrenSetupPage },
+    { path: "children/:childId", Component: ChildDetailPage },
     { path: "children/:childId/edit", Component: ChildFormPage },
     { path: "children/:childId/consent", Component: ChildConsentPage },
+    { path: "children/:childId/invite", Component: ChildInviteLinkPage },
   ],
 };
