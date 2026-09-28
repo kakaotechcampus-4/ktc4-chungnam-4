@@ -84,7 +84,7 @@
 | 단계 | 화면 | 호출 | 담당 |
 |---|---|---|---|
 | 1. 로그인 | 로그인 | `POST /api/v1/sessions` → `GET /api/v1/me` | auth |
-| 2. 오늘의 기록 진입 | 오늘의 기록·빈 상태 | `GET /api/v1/classes`, `GET /api/v1/classes/{class_id}/drafts?record_date=`(오늘 초안이 이미 있으면 검토 화면으로) | organization, documents |
+| 2. 오늘의 기록 진입 | 오늘의 기록·빈 상태 | `GET /api/v1/classes`, `GET /api/v1/classes/{class_id}/drafts?record_date=`(오늘 초안이 이미 있으면 검토 화면으로), `GET /api/v1/classes/{class_id}/jobs?record_date=`(하던 작업으로 돌아가기, 경로만) | organization, documents, agents |
 | 3. 자료 올리기 | 자료 올리기 | 로컬(API 없음). IndexedDB에 적재 | FE |
 | 4. 적재 진행 | 오늘의 기록·업로드 중 | `GET /api/v1/classes/{class_id}/children`("· 5명". 이후 분류 단계에서도 씀) | organization |
 | 5. 모델 준비 | 처리 중/모델 다운로드 | 로컬(API 없음). 정적 모델 파일 | FE |
