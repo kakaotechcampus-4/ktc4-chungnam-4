@@ -1,10 +1,13 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { http } from "msw";
 
 import { authKeys } from "@/api/auth";
 import { organizationKeys } from "@/api/organization";
 import { PARENT_ME, TEACHER_ME } from "@/mocks/fixtures/auth";
 import { SUNSHINE_CLASS } from "@/mocks/fixtures/organization";
+import { apiPath, errorResponse } from "@/mocks/http";
+import { server } from "@/mocks/server";
 import { renderRoutes } from "@/test/render";
 
 import { LoginPage } from "./LoginPage";
@@ -61,16 +64,64 @@ describe("LoginPage", () => {
   });
 
   it("교사로 로그인하면 내 정보와 반 목록을 받아 둔 뒤 넘어간다", async () => {
-    const { queryClient, user } = renderLogin();
+    let requested = false;
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    // 아무것도 돌려주지 않으면 MSW가 다음 핸들러(기본 목)로 넘깁니다. 문이 열릴 때까지 반 목록만 붙잡아 둡니다.
+    server.use(
+      http.get(apiPath("/classes"), async () => {
+        requested = true;
+        await gate;
+      }),
+    );
+    const { router, queryClient, user } = renderLogin();
 
     await user.type(screen.getByLabelText("이메일"), TEACHER_ME.email);
     await user.type(screen.getByLabelText("비밀번호"), "anything");
     await user.click(screen.getByRole("button", { name: "로그인" }));
 
-    // 교사 홈 자리는 아무것도 요청하지 않으므로, 캐시에 있는 값은 로그인 화면이 받아 둔 것입니다.
+    // 반 목록을 받는 동안은 로그인 화면에 머물고 버튼은 꺼져 있습니다.
+    await waitFor(() => expect(requested).toBe(true));
+    expect(router.state.location.pathname).toBe("/login");
+    expect(screen.getByRole("button", { name: "로그인" })).toBeDisabled();
+
+    release();
     expect(await screen.findByText("교사 홈")).toBeInTheDocument();
     expect(queryClient.getQueryData(authKeys.me())).toEqual(TEACHER_ME);
     expect(queryClient.getQueryData(organizationKeys.classes())).toEqual([SUNSHINE_CLASS]);
+  });
+
+  it("반 목록을 받지 못해도 교사 홈으로 넘어간다", async () => {
+    server.use(
+      http.get(apiPath("/classes"), () =>
+        errorResponse(500, "INTERNAL_ERROR", "서버에 문제가 생겼어요."),
+      ),
+    );
+    const { user } = renderLogin();
+
+    await user.type(screen.getByLabelText("이메일"), TEACHER_ME.email);
+    await user.type(screen.getByLabelText("비밀번호"), "anything");
+    await user.click(screen.getByRole("button", { name: "로그인" }));
+
+    expect(await screen.findByText("교사 홈")).toBeInTheDocument();
+  });
+
+  it("학부모로 로그인하면 반 목록은 받지 않는다", async () => {
+    let requested = false;
+    server.use(
+      http.get(apiPath("/classes"), () => {
+        requested = true;
+      }),
+    );
+    const { queryClient, user } = renderLogin();
+
+    await user.type(screen.getByLabelText("이메일"), PARENT_ME.email);
+    await user.type(screen.getByLabelText("비밀번호"), "anything");
+    await user.click(screen.getByRole("button", { name: "로그인" }));
+
+    expect(await screen.findByText("학부모 홈")).toBeInTheDocument();
+    expect(queryClient.getQueryData(authKeys.me())).toEqual(PARENT_ME);
+    expect(requested).toBe(false);
   });
 
   it("안내 없이 들어오면 안내 줄이 없다", () => {
