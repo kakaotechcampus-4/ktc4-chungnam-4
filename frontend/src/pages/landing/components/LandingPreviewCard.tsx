@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -27,7 +27,8 @@ const SAMPLES: readonly Sample[] = [
   },
 ];
 
-const INTERVAL_MS = 5000;
+// ←/→로 점을 옮길 때 움직이는 칸 수입니다.
+const ARROW_STEP: Partial<Record<string, number>> = { ArrowLeft: -1, ArrowRight: 1 };
 
 // 자동으로 넘길 때는 눈에 덜 띄게 천천히, 점을 눌러 고를 때는 바로 반응하게 빠르게 바꿉니다.
 const TRANSITION = {
@@ -50,8 +51,12 @@ function usePrefersReducedMotion() {
 }
 
 // 첫 인사 옆의 알림장 미리보기(1:312)입니다. 예시 초안 세 개가 5초마다 겹쳐 바뀝니다.
+// - 켜진 점 안의 막대가 5초 동안 점 크기에서 끝까지 차오르고, 다 차는 순간(animationend) 다음 초안으로 넘어갑니다.
+//   타이머를 따로 두지 않아서 막대와 넘기는 때가 어긋나지 않습니다.
 // - 자동 넘김은 1.2초에 걸쳐 천천히, 점을 눌러 고르면 0.7초로 바뀝니다.
-// - 점을 누르면 그 초안으로 가고 자동 넘김을 멈춥니다. 마우스를 올리거나 점에 포커스가 있으면 잠깐 멈춥니다.
+// - 점을 누르거나 ←/→로 고르면 그 초안으로 가고 자동 넘김을 멈춥니다.
+// - 마우스를 올리거나 점에 포커스가 있으면 막대가 그 자리에서 멈추고, 벗어나면 이어서 찹니다.
+// - 점은 8px로 보이지만 누르는 칸은 24px입니다(WCAG 2.5.8).
 // - OS의 '동작 줄이기'가 켜져 있으면 자동으로 넘기지 않고 바꿀 때 움직임도 없앱니다.
 // Figma의 사진은 실제 아이 사진이라 쓰지 않습니다(원아 사진 커밋 금지). 합성 이미지가 정해지기 전까지 빈 면으로 둡니다.
 export function LandingPreviewCard() {
@@ -61,16 +66,31 @@ export function LandingPreviewCard() {
   const [focused, setFocused] = useState(false);
   const [stopped, setStopped] = useState(false);
   const reducedMotion = usePrefersReducedMotion();
-  const playing = !hovered && !focused && !stopped && !reducedMotion;
+  const autoplay = !stopped && !reducedMotion;
+  const paused = hovered || focused;
+  const dotRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  useEffect(() => {
-    if (!playing) return;
-    const id = window.setInterval(() => {
-      setChangedBy("auto");
-      setActive((index) => (index + 1) % SAMPLES.length);
-    }, INTERVAL_MS);
-    return () => window.clearInterval(id);
-  }, [playing]);
+  function showNext() {
+    setChangedBy("auto");
+    setActive((index) => (index + 1) % SAMPLES.length);
+  }
+
+  function choose(index: number) {
+    setChangedBy("manual");
+    setActive(index);
+    setStopped(true);
+  }
+
+  function onDotKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    // Alt·⌘+←/→는 브라우저 뒤로·앞으로 가기라 가로채지 않습니다.
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const step = ARROW_STEP[event.key];
+    if (step === undefined) return;
+    event.preventDefault();
+    const next = (index + step + SAMPLES.length) % SAMPLES.length;
+    choose(next);
+    dotRefs.current[next]?.focus();
+  }
 
   return (
     <section
@@ -110,24 +130,47 @@ export function LandingPreviewCard() {
       </div>
       <div className="flex items-center justify-between">
         <p className="text-caption text-ink-muted">선생님이 확인한 기록만 가족에게 전달해요.</p>
-        <div role="group" aria-label="초안 고르기" className="flex items-center gap-1.5">
-          {SAMPLES.map((sample, index) => (
-            <button
-              key={sample.title}
-              type="button"
-              aria-label={`${index + 1}번째 초안 보기`}
-              aria-pressed={index === active}
-              onClick={() => {
-                setChangedBy("manual");
-                setActive(index);
-                setStopped(true);
-              }}
-              className={cn(
-                "h-2 rounded-full transition-all duration-300 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 motion-reduce:transition-none",
-                index === active ? "w-5 bg-brand-ink" : "w-2 bg-line hover:bg-ink-muted",
-              )}
-            />
-          ))}
+        <div role="group" aria-label="초안 고르기" className="flex items-center">
+          {SAMPLES.map((sample, index) => {
+            const isActive = index === active;
+            return (
+              <button
+                key={sample.title}
+                ref={(element) => {
+                  dotRefs.current[index] = element;
+                }}
+                type="button"
+                aria-label={`${index + 1}번째 초안 보기`}
+                aria-pressed={isActive}
+                onClick={() => choose(index)}
+                onKeyDown={(event) => onDotKeyDown(event, index)}
+                className="group/dot flex h-6 items-center rounded-full px-2 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+              >
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "h-2 overflow-hidden rounded-full transition-all duration-300 motion-reduce:transition-none",
+                    isActive ? "w-6 bg-line" : "w-2 bg-line group-hover/dot:bg-ink-muted",
+                  )}
+                >
+                  {isActive ? (
+                    // 5초(duration-5000) 동안 점 하나 크기(24의 1/3 = 8)에서 막대 끝까지 차오릅니다.
+                    // 0에서 출발하면 넘어간 직후 켜진 점이 꺼진 점과 같은 옅은 색으로만 보입니다.
+                    // 자동 넘김이 멈추면 꽉 찬 채로 둡니다.
+                    <span
+                      data-slot="preview-progress"
+                      onAnimationEnd={autoplay ? showNext : undefined}
+                      className={cn(
+                        "block size-full rounded-full bg-brand-ink",
+                        autoplay && "animate-in duration-5000 ease-linear slide-in-from-left-2/3",
+                        autoplay && paused && "paused",
+                      )}
+                    />
+                  ) : null}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
     </section>
