@@ -59,6 +59,34 @@ describe("LandingPreviewCard", () => {
     expect(visibleTitle()).toBe("그림책 속 토끼처럼");
   });
 
+  it("←/→로 초안을 옮기고 포커스도 따라가며, 끝에서는 반대쪽 끝으로 간다", async () => {
+    const user = userEvent.setup();
+    render(<LandingPreviewCard />);
+
+    await user.tab();
+    expect(dot(1)).toHaveFocus();
+
+    await user.keyboard("{ArrowLeft}");
+    expect(visibleTitle()).toBe("그림책 속 토끼처럼");
+    expect(dot(3)).toHaveFocus();
+    expect(dot(3)).toHaveAttribute("aria-pressed", "true");
+
+    await user.keyboard("{ArrowRight}");
+    expect(visibleTitle()).toBe("작은 블록으로 만든 커다란 하루");
+    expect(dot(1)).toHaveFocus();
+    expect(progress()).not.toHaveClass("animate-in");
+  });
+
+  it("Alt·⌘와 함께 누른 ←/→는 브라우저 뒤로·앞으로 가기에 맡긴다", async () => {
+    const user = userEvent.setup();
+    render(<LandingPreviewCard />);
+
+    await user.tab();
+    await user.keyboard("{Alt>}{ArrowLeft}{/Alt}{Meta>}{ArrowRight}{/Meta}");
+    expect(visibleTitle()).toBe("작은 블록으로 만든 커다란 하루");
+    expect(progress()).toHaveClass("animate-in");
+  });
+
   it("자동으로 넘길 때는 점을 눌렀을 때보다 천천히 바뀐다", () => {
     render(<LandingPreviewCard />);
     const article = () => screen.getByRole("heading", { level: 2 }).closest("article");
