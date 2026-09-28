@@ -4,6 +4,8 @@ import { ChildFormPage } from "@/pages/child-form/ChildFormPage";
 import { ChildInviteLinkPage } from "@/pages/child-invite-link/ChildInviteLinkPage";
 import { ChildrenSetupPage } from "@/pages/children-setup/ChildrenSetupPage";
 import { ChildrenPage } from "@/pages/children/ChildrenPage";
+import { EducationPlanFormPage } from "@/pages/education-plan-form/EducationPlanFormPage";
+import { EducationPlansPage } from "@/pages/education-plans/EducationPlansPage";
 import { OnboardingClassNewPage } from "@/pages/onboarding-class-new/OnboardingClassNewPage";
 import { OnboardingClassSelectPage } from "@/pages/onboarding-class-select/OnboardingClassSelectPage";
 import { SignupTeacherInfoPage } from "@/pages/signup-teacher-info/SignupTeacherInfoPage";
@@ -27,5 +29,8 @@ export const organizationRoutes: AreaRoutes = {
     { path: "children/:childId/edit", Component: ChildFormPage },
     { path: "children/:childId/consent", Component: ChildConsentPage },
     { path: "children/:childId/invite", Component: ChildInviteLinkPage },
+    { path: "plans", Component: EducationPlansPage },
+    { path: "plans/new", Component: EducationPlanFormPage },
+    { path: "plans/:planId/edit", Component: EducationPlanFormPage },
   ],
 };
