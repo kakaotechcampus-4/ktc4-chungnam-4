@@ -42,16 +42,17 @@ frontend/src/
 ├── env.d.ts             # VITE_ 환경변수 타입
 ├── app/                 # 라우터, 프로바이더, 쿼리 클라이언트
 │   ├── routes/          # 영역별 라우트 모듈 (아래 표)
-│   └── layouts/         # 교사·공개 레이아웃. 학부모는 (예정)
+│   ├── layouts/         # 교사·공개 레이아웃. 학부모는 (예정)
+│   └── auth/            # 역할 가드, 401·403 에러 경계
 ├── pages/<화면>/        # 라우트 1:1. components/, hooks/는 필요할 때
-├── features/<기능>/     # 화면을 넘나드는 단위. class-context(현재 반). 그 밖은 (예정)
+├── features/<기능>/     # 화면을 넘나드는 단위. class-context(현재 반), auth(역할별 홈, 로그아웃)
 ├── components/ui/       # shadcn 생성물
-├── components/common/   # 공통 컴포넌트 (PageHeader, FocusCard, BrandLogo)
-├── api/<도메인>.ts      # 요청 함수와 queryOptions (organization)
-├── lib/                 # api-client, datetime(한국 날짜·표기), utils(cn)
+├── components/common/   # 공통 컴포넌트 (PageHeader, FocusCard, BrandLogo, FormField, Stepper)
+├── api/<도메인>.ts      # 요청 함수와 queryOptions (organization, auth)
+├── lib/                 # api-client, datetime(한국 날짜·표기), form-rules(공통 입력 규칙), utils(cn)
 ├── types/api-draft/     # API 문서를 옮긴 임시 타입
 ├── styles/tokens.css    # 디자인 토큰
-├── mocks/               # browser·server, handlers/(자동 수집), fixtures/, http.ts, scenario.ts
+├── mocks/               # browser·server, handlers/(자동 수집), fixtures/, http.ts, scenario.ts, session.ts(목 로그인)
 ├── test/                # setup.ts, render.tsx
 └── workers/             # Web Worker, 온디바이스 모델 (예정)
 ```
@@ -71,7 +72,7 @@ frontend/src/
 
 | 파일 | 담당 | 레이아웃 자리 |
 |---|---|---|
-| `auth.ts` | 송유진 | 홈, 로그인·비밀번호 찾기(public), 회원가입(onboarding), 계정·설정(teacher) |
+| `auth.ts` | 송유진 | 홈, 로그인·비밀번호 찾기(public), 회원가입(onboarding), 계정·설정·접근 권한 없음(teacher) |
 | `parent.ts` | 송유진 | 학부모 초대(parentPublic), 학부모 알림장(parent) |
 | `organization.ts` | 이한나 | 교사 정보·반(onboarding), 원아·교육 계획(teacher) |
 | `record.ts` | 정은 | 오늘의 기록·자료 올리기·처리 중·직접 작성·대시보드(teacher) |
@@ -79,6 +80,7 @@ frontend/src/
 | `documents.ts` | 김진하 | 초안 검토·알림장·관찰일지(teacher) |
 
 - `/t`는 대시보드로 갑니다. 등록하지 않은 주소는 404가 뜹니다.
+- 교사 영역(`/t`)은 들어가기 전에 가드가 로그인과 역할을 확인합니다. 로그인이 안 됐으면 `/login`, 교사가 아니면 접근 권한 없음입니다.
 - 로그인·온보딩 레이아웃은 원안과 후보 A 두 가지이고, `app/layouts/PublicLayout.tsx`의 기본값 한 줄로 바꿉니다.
 
 ## 목 데이터
@@ -87,6 +89,7 @@ frontend/src/
 - 경로는 `apiPath("/classes")`, 에러는 `errorResponse(403, "CLASS_ACCESS_DENIED", "…")`, 목록은 `listResponse(items)`로 만듭니다(`mocks/http.ts`).
 - 빈 상태·실패를 브라우저에서 보려면 주소에 `?mock=<도메인>.<상태>`를 붙입니다. 예: `/t/children?mock=organization.children-empty`. 화면을 옮겨도 유지되고, `?mock=`을 붙이거나 탭을 닫으면 꺼집니다. 핸들러에서는 `isMockScenario("organization.children-empty")`로 나눕니다.
 - 목 id는 `fixtureId("child", 1)`처럼 만들고, 반·원아는 `fixtures/organization.ts`의 햇살반 5명을 씁니다.
+- 로그인 목: 처음에는 교사(김하늘)로 로그인된 상태입니다. 로그인 화면에서는 교사 `hanul.kim@example.com`, 학부모 `parent01@example.com`에 비밀번호는 아무 값이나 넣으면 됩니다. `?mock=auth.signed-out`(로그인 안 됨), `?mock=auth.parent`(학부모)로 바꿀 수 있고, 로그인·로그아웃을 하면 그 결과가 탭에 남습니다(`mocks/session.ts`).
 - 테스트는 시나리오 대신 `server.use(...)`로 그 테스트의 응답만 바꿉니다. 예시는 `app/layouts/TeacherLayout.test.tsx`입니다. 핸들러가 없는 요청을 보내면 그 테스트가 실패합니다.
 - 목이 없는 API 요청은 브라우저 콘솔에 `[MSW] Warning: intercepted a request without a matching request handler`로 뜹니다.
 
@@ -100,3 +103,4 @@ frontend/src/
 - `pnpm install`에서 msw 설치 스크립트가 막히면 `pnpm-workspace.yaml`의 `allowBuilds`를 확인하세요.
 - lockfile이 충돌하면 `git checkout --theirs pnpm-lock.yaml && pnpm install`로 다시 만듭니다.
 - 브라우저 콘솔에 `[MSW] Mocking enabled.`가 없으면 목이 꺼진 상태입니다. 주소가 `localhost`인지, `VITE_USE_MSW=false`가 없는지 보세요.
+- 화면에 "로컬 백엔드(...)에 연결하지 못했어요"가 뜨면 요청이 목을 거치지 않고 백엔드로 간 것입니다. 강력 새로고침(Cmd+Shift+R)은 그 페이지의 목을 끄므로 일반 새로고침(Cmd+R)을 하세요.
