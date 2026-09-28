@@ -20,6 +20,17 @@ export function errorResponse(
   return HttpResponse.json<ApiErrorBody>({ error: { code, message, detail } }, { status });
 }
 
+/**
+ * 요청 본문 검증 실패(422). BE에 전역 에러 핸들러가 생기기 전의 FastAPI 기본 모양 { detail: [...] }으로 줍니다.
+ * api-client는 이것을 VALIDATION_ERROR로 읽습니다. validationError("body.reviewed", "true여야 합니다")
+ */
+export function validationError(field: string, message: string): Response {
+  return HttpResponse.json(
+    { detail: [{ loc: field.split("."), msg: message, type: "value_error" }] },
+    { status: 422 },
+  );
+}
+
 /** 목록 응답 { items, next_cursor } */
 export function listResponse<T>(items: T[], nextCursor: string | null = null): Response {
   return HttpResponse.json<ListResponse<T>>({ items, next_cursor: nextCursor });
