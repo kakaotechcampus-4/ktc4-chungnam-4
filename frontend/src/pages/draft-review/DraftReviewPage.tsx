@@ -1,29 +1,18 @@
 // Figma: 53:294 (초안 검토 / 왼쪽 원아 목록)
+import { useQuery } from "@tanstack/react-query";
 import { CheckIcon, X } from "lucide-react";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
+import { classChildrenQueryOptions } from "@/api/organization";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
+import { useCurrentClass } from "@/features/class-context/use-current-class";
 import { cn } from "@/lib/utils";
 
 import { PublishConfirmDialog } from "./components/PublishConfirmDialog";
-
-// TODO(김진하): documents/organization 목 API가 생기면 실제 데이터로 바꿉니다. 지금은 Figma 예시 값입니다.
-interface RosterChild {
-  id: string;
-  name: string;
-}
-
-const ROSTER: RosterChild[] = [
-  { id: "child-1", name: "김도윤" },
-  { id: "child-2", name: "이하준" },
-  { id: "child-3", name: "박서아" },
-  { id: "child-4", name: "최지우" },
-  { id: "child-5", name: "정예린" },
-];
 
 interface DraftSentence {
   id: string;
@@ -70,6 +59,12 @@ export function DraftReviewPage() {
   const { childId } = useParams<{ childId: string }>();
   const navigate = useNavigate();
 
+  const { currentClass, isPending: classPending, isError: classError } = useCurrentClass();
+  const childrenQuery = useQuery({
+    ...classChildrenQueryOptions(currentClass?.class_id ?? ""),
+    enabled: currentClass != null,
+  });
+
   const [reviewedIds, setReviewedIds] = useState<Set<string>>(() => new Set());
   const [confirmed, setConfirmed] = useState(false);
   const [sentences, setSentences] = useState<EditableSentence[]>(makeSentences);
@@ -77,14 +72,36 @@ export function DraftReviewPage() {
   const [selectedSentenceId, setSelectedSentenceId] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
 
-  const selectedId = childId ?? ROSTER[0]?.id;
-  const selected = ROSTER.find((child) => child.id === selectedId);
+  const children = childrenQuery.data ?? [];
+  const isLoading = classPending || (currentClass != null && childrenQuery.isPending);
+  const isError = classError || childrenQuery.isError;
+
+  if (isLoading) {
+    return (
+      <>
+        <PageHeader eyebrow="오늘의 기록  /  초안 검토" title="오늘의 기록을 완성해요" />
+        <p className="text-body text-ink-muted">원아 목록을 불러오는 중이에요.</p>
+      </>
+    );
+  }
+  if (isError) {
+    return (
+      <>
+        <PageHeader eyebrow="오늘의 기록  /  초안 검토" title="오늘의 기록을 완성해요" />
+        <p className="text-body text-ink-muted">원아 목록을 불러오지 못했어요.</p>
+      </>
+    );
+  }
+
+  const selectedId = childId ?? children[0]?.child_id;
+  const selected = children.find((child) => child.child_id === selectedId);
   if (!selected) return null;
 
-  const selectedChildId = selected.id;
+  const selectedChildId = selected.child_id;
   const isSelectedReviewed = reviewedIds.has(selectedChildId);
   const reviewedCount = reviewedIds.size;
-  const allReviewed = ROSTER.every((child) => reviewedIds.has(child.id));
+  const allReviewed =
+    children.length > 0 && children.every((child) => reviewedIds.has(child.child_id));
   const selectedSentence =
     sentences.find((sentence) => sentence.id === selectedSentenceId && !sentence.edited) ?? null;
 
@@ -129,18 +146,18 @@ export function DraftReviewPage() {
           <div className="flex flex-col gap-1">
             <h2 className="text-lead font-bold text-ink">햇살반 원아</h2>
             <p className="text-label text-ink-muted">
-              {reviewedCount} / {ROSTER.length}명 검토 완료
+              {reviewedCount} / {children.length}명 검토 완료
             </p>
           </div>
           <ul className="flex flex-col gap-1">
-            {ROSTER.map((child) => {
-              const reviewed = reviewedIds.has(child.id);
-              const isSelected = child.id === selected.id;
+            {children.map((child) => {
+              const reviewed = reviewedIds.has(child.child_id);
+              const isSelected = child.child_id === selected.child_id;
               return (
-                <li key={child.id}>
+                <li key={child.child_id}>
                   <button
                     type="button"
-                    onClick={() => selectChild(child.id)}
+                    onClick={() => selectChild(child.child_id)}
                     aria-current={isSelected ? "true" : undefined}
                     className={cn(
                       "flex w-full items-center justify-between rounded-md p-2 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
