@@ -37,7 +37,7 @@
 | ③ 정은 | 오늘의 기록 · 빈 상태 | `GET /classes/{class_id}/drafts?record_date=`(오늘 초안이 있으면 검토로), `GET /classes/{class_id}/jobs?record_date=`(하던 작업으로 돌아가기) | 둘 다 |
 | ③ 정은 | 자료 올리기 | 파일을 IndexedDB에 쌓기만 함 | API 없음(브라우저 안에서 끝남) |
 | ③ 정은 | 오늘의 기록 · 업로드 중 | `GET /classes/{class_id}/children`("· 5명") | 상세 작성 |
-| ③ 정은 | 업로드 실패 · 재시도 | `POST /media/multipart-uploads` | 경로만 |
+| ③ 정은 | 업로드 실패 · 재시도 | 다시 시도는 서버 전송과 같은 `POST /media/upload-urls` → S3 `PUT` → `POST /media`, 큰 파일은 `POST /media/multipart-uploads`. 형식 오류는 브라우저에서 먼저 거름(제안. `upload-urls`는 한 건만 틀려도 요청 전체를 거절함) | 둘 다 |
 | ③ 정은 | 처리 중 / 모델 다운로드 | 정적 모델 파일만 받음 | API 없음(정적) |
 | ③ 정은 | 처리 중 / 온디바이스 분류 | `GET /classes/{class_id}/face-embeddings`, `GET /classes/{class_id}/children`(이름 매핑) | 상세 작성 |
 | ③ 정은 | 처리 중 / 서버 전송 | `POST /media/upload-urls`, S3 `PUT`, `POST /media`, `PUT /media/{media_id}/child-links`, 끝나면 `POST /classes/{class_id}/jobs`, 경로만 정한 API로는 `POST /media/multipart-uploads`(큰 파일)·`POST /jobs/{job_id}/cancel`(취소) | 둘 다 |
