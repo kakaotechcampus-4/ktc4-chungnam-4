@@ -1,14 +1,17 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import { authKeys } from "@/api/auth";
+import { organizationKeys } from "@/api/organization";
 import { PARENT_ME, TEACHER_ME } from "@/mocks/fixtures/auth";
+import { SUNSHINE_CLASS } from "@/mocks/fixtures/organization";
 import { renderRoutes } from "@/test/render";
 
 import { LoginPage } from "./LoginPage";
 
 // 로그인 뒤 가는 곳을 확인하려고 교사·학부모 홈 자리를 함께 둡니다.
 function renderLogin() {
-  const { router } = renderRoutes(
+  const { router, queryClient } = renderRoutes(
     [
       { path: "/login", element: <LoginPage /> },
       { path: "/t", element: <p>교사 홈</p> },
@@ -17,7 +20,7 @@ function renderLogin() {
     ],
     { initialEntry: "/login" },
   );
-  return { router, user: userEvent.setup() };
+  return { router, queryClient, user: userEvent.setup() };
 }
 
 describe("LoginPage", () => {
@@ -55,6 +58,19 @@ describe("LoginPage", () => {
 
     expect(await screen.findByText(home)).toBeInTheDocument();
     expect(router.state.location.pathname).toBe(path);
+  });
+
+  it("교사로 로그인하면 내 정보와 반 목록을 받아 둔 뒤 넘어간다", async () => {
+    const { queryClient, user } = renderLogin();
+
+    await user.type(screen.getByLabelText("이메일"), TEACHER_ME.email);
+    await user.type(screen.getByLabelText("비밀번호"), "anything");
+    await user.click(screen.getByRole("button", { name: "로그인" }));
+
+    // 교사 홈 자리는 아무것도 요청하지 않으므로, 캐시에 있는 값은 로그인 화면이 받아 둔 것입니다.
+    expect(await screen.findByText("교사 홈")).toBeInTheDocument();
+    expect(queryClient.getQueryData(authKeys.me())).toEqual(TEACHER_ME);
+    expect(queryClient.getQueryData(organizationKeys.classes())).toEqual([SUNSHINE_CLASS]);
   });
 
   it("로그인에 실패하면 서버 문구를 보여 주고 이 화면에 남는다", async () => {
