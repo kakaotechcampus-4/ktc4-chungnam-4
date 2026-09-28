@@ -1,28 +1,26 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
-import { createGenerationJob, generationJobQueryOptions } from "@/api/agents";
+import { createJob, jobQueryOptions } from "@/api/agents";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
 import { useUploadQueue } from "@/features/upload-queue/upload-queue-store";
 import { kstToday } from "@/lib/datetime";
-import type { GenerationJob } from "@/types/api-draft/agents";
+import type { Job } from "@/types/api-draft/agents";
 
 import { ProcessingCard } from "./ProcessingCard";
 
 interface DraftStepProps {
   /** 작업이 끝나면(succeeded·failed) 결과를 넘깁니다. 실패한 원아가 있어도 나머지 초안은 검토할 수 있습니다. */
-  onDone: (job: GenerationJob) => void;
+  onDone: (job: Job) => void;
   onCancel: () => void;
 }
 
-// API 문서 §agents: 2초마다 조회합니다(제안).
-const POLL_MS = 2000;
-
-function isFinished(job: GenerationJob | undefined) {
+function isFinished(job: Job | undefined) {
   return job?.status === "succeeded" || job?.status === "failed";
 }
 
 // 마지막 귀속 저장이 끝난 뒤 초안 생성을 한 번만 시작하고, 끝날 때까지 진행 상태를 봅니다(#60).
+// 폴링 간격과 멈춤은 jobQueryOptions가 정합니다(2초, succeeded·failed에서 멈춤).
 export function DraftStep({ onDone, onCancel }: DraftStepProps) {
   const { currentClass } = useCurrentClass();
   // 같은 요청이 두 번 가도 작업이 하나만 생기게 하는 키입니다. 화면에 머무는 동안 바뀌지 않습니다.
@@ -35,17 +33,12 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
 
   const create = useMutation({
     mutationFn: (classId: string) =>
-      createGenerationJob(classId, {
-        request_id: requestId,
-        record_date: kstToday(),
-        media_ids: mediaIds,
-      }),
+      createJob(classId, { request_id: requestId, record_date: kstToday(), media_ids: mediaIds }),
   });
   const jobId = create.data?.job_id;
   const { data: polled, error: pollError } = useQuery({
-    ...generationJobQueryOptions(jobId ?? ""),
+    ...jobQueryOptions(jobId ?? ""),
     enabled: jobId !== undefined,
-    refetchInterval: (query) => (isFinished(query.state.data) ? false : POLL_MS),
   });
   const job = polled ?? create.data;
 

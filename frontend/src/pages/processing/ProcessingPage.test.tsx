@@ -1,4 +1,6 @@
 import { screen, waitFor } from "@testing-library/react";
+import { File as NodeFile } from "node:buffer";
+
 import { http, HttpResponse } from "msw";
 
 import { isPhoto, useUploadQueue } from "@/features/upload-queue/upload-queue-store";
@@ -6,7 +8,7 @@ import { fixtureId } from "@/mocks/fixtures/ids";
 import { apiPath } from "@/mocks/http";
 import { server } from "@/mocks/server";
 import { renderRoutes } from "@/test/render";
-import type { GenerationJob } from "@/types/api-draft/agents";
+import type { Job } from "@/types/api-draft/agents";
 
 import { ProcessingPage } from "./ProcessingPage";
 
@@ -22,8 +24,9 @@ function renderProcessing(initialEntry: string) {
   );
 }
 
+// jsdom의 File은 Node fetch가 본문으로 받지 않아 S3 PUT이 실패합니다. 브라우저에서는 문제없고, 테스트만 Node의 File을 씁니다.
 function photo(name: string) {
-  return new File(["x"], name, { type: "image/jpeg" });
+  return new NodeFile(["x"], name, { type: "image/jpeg" }) as unknown as File;
 }
 
 describe("ProcessingPage", () => {
@@ -63,11 +66,13 @@ describe("ProcessingPage", () => {
     const requests: { method: string; path: string; body: unknown }[] = [];
     const record = async ({ request }: { request: Request }) => {
       const path = new URL(request.url).pathname;
-      const body: unknown = request.method === "GET" ? null : await request.clone().json();
+      // S3 PUT은 파일 바이트라 JSON 요청만 읽습니다.
+      const isJson = request.headers.get("content-type")?.includes("json") ?? false;
+      const body: unknown = isJson ? await request.clone().json() : null;
       requests.push({ method: request.method, path, body });
     };
     server.events.on("request:start", record);
-    const unclassified: GenerationJob["children"][number] = {
+    const unclassified: Job["children"][number] = {
       child_id: fixtureId("child", 1),
       status: "succeeded",
       stage: null,
@@ -80,7 +85,7 @@ describe("ProcessingPage", () => {
     server.use(
       // 폴링을 기다리지 않게 첫 조회에서 끝난 것으로 둡니다. 첫 원아는 미분류라 초안이 없습니다.
       http.get(apiPath("/jobs/:jobId"), ({ params }) =>
-        HttpResponse.json<GenerationJob>({
+        HttpResponse.json<Job>({
           job_id: String(params.jobId),
           class_id: fixtureId("class", 1),
           record_date: "2026-09-15",
@@ -116,23 +121,27 @@ describe("ProcessingPage", () => {
     server.events.removeListener("request:start", record);
 
     const writes = requests.filter((request) => request.method !== "GET");
+    const linksPath = writes.find((request) => request.path.endsWith("/child-links"))?.path ?? "";
+    const mediaId = /\/media\/([^/]+)\/child-links$/.exec(linksPath)?.[1];
+    expect(mediaId).toBeDefined();
     expect(writes.map((request) => `${request.method} ${request.path}`)).toEqual([
       "POST /api/v1/media/upload-urls",
+      `PUT /uploads/${confirmed!.client_id}`,
       "POST /api/v1/media",
-      `PUT /api/v1/media/${fixtureId("media", 1)}/child-links`,
+      `PUT /api/v1/media/${mediaId}/child-links`,
       `POST /api/v1/classes/${fixtureId("class", 1)}/jobs`,
     ]);
     expect(writes[0]?.body).toMatchObject({
       items: [{ client_photo_id: confirmed!.client_id, type: "photo" }],
     });
-    expect(writes[2]?.body).toEqual({
+    expect(writes[3]?.body).toEqual({
       llm_allowed: true,
       child_links: [
         { child_id: fixtureId("child", 1), method: "face_recognition", confidence_score: 0.9 },
         { child_id: fixtureId("child", 2), method: "manual", confidence_score: null },
       ],
     });
-    expect(writes[3]?.body).toMatchObject({ media_ids: [fixtureId("media", 1)] });
+    expect(writes[4]?.body).toMatchObject({ media_ids: [mediaId] });
     expect(useUploadQueue.getState().items).toEqual([]);
   });
 

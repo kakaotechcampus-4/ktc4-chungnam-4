@@ -88,6 +88,16 @@ export function toKstDate(isoDateTime: string): DateOnly {
   return toKstDateOnly(parseDateTime(isoDateTime));
 }
 
+/** 날짜를 며칠 앞뒤로 옮깁니다. shiftDate("2026-10-01", -1) → "2026-09-30" */
+export function shiftDate(date: DateOnly, days: number): DateOnly {
+  // UTC 자정끼리 셈하므로 기기 시간대와 상관없이 날짜만 움직입니다.
+  const value = parseDateOnly(date);
+  value.setUTCDate(value.getUTCDate() + days);
+  const month = String(value.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(value.getUTCDate()).padStart(2, "0");
+  return `${value.getUTCFullYear()}-${month}-${day}`;
+}
+
 interface FormatDateOptions {
   /** 연도를 붙입니다. 기본 true */
   year?: boolean;

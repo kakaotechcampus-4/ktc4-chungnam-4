@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 
-import { faceEmbeddingsQueryOptions } from "@/api/face";
+import { faceEmbeddingsQueryOptions } from "@/api/media";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
 import { isPhoto, useUploadQueue } from "@/features/upload-queue/upload-queue-store";
 import { useInterval } from "@/lib/use-interval";

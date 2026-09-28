@@ -1,7 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
-import { ackMedia, requestUploadUrls, saveChildLinks } from "@/api/media";
+import { completeUpload, requestUploadUrls, saveChildLinks, uploadFile } from "@/api/media";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
 import {
   isPhoto,
@@ -19,9 +19,10 @@ interface SendStepProps {
 }
 
 /** 교사가 확정한 귀속. 후보에 있던 아이면 얼굴 인식, 교사가 고른 아이면 수동입니다. */
-function childLinksBody(item: LocalMedia): ChildLinksRequest | null {
-  // TODO(정은): 영상·음성메모의 수동 귀속은 API 문서 §media에서 (막힘)입니다. 정해지면 여기서 보냅니다.
-  if (!isPhoto(item)) return null;
+function childLinksBody(item: LocalMedia): ChildLinksRequest {
+  // TODO(정은): 영상·음성메모의 수동 귀속은 API 문서 §media에서 (막힘)입니다. 정해지기 전까지는 빈 귀속을 저장해
+  //             서버에 미분류로 남깁니다(빈 배열 = 미분류). 귀속을 저장해야 Job이 MEDIA_NOT_READY로 막히지 않습니다.
+  if (!isPhoto(item)) return { llm_allowed: false, child_links: [] };
   return {
     llm_allowed: item.llm_allowed,
     child_links: item.assigned_child_ids.map((childId) => {
@@ -62,13 +63,15 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
         })),
       });
       for (const [index, item] of targets.entries()) {
+        const issued = items[index];
+        if (!issued) throw new Error("업로드 URL 응답의 항목 수가 요청과 다릅니다.");
         setUploadState(item.client_id, "전송중");
         // media_id가 이미 있으면 등록이 끝난 파일이라 PUT과 ack를 건너뜁니다.
-        // TODO(정은): 여기서 items[index].upload_url로 원본을 PUT합니다(upload_headers 그대로).
-        const mediaId =
-          items[index]?.media_id ??
-          (
-            await ackMedia({
+        let mediaId = issued.media_id;
+        if (mediaId === null) {
+          await uploadFile(issued, item.file);
+          mediaId = (
+            await completeUpload({
               client_photo_id: item.client_id,
               class_id: classId,
               type: item.kind,
@@ -76,11 +79,11 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
               model_version: isPhoto(item) ? item.model_version : null,
             })
           ).media_id;
+        }
         // ack를 받았으니 upload_state를 확인됨으로 둡니다. 원본 삭제는 큐를 비울 때 함께 합니다.
         setUploadState(item.client_id, "확인됨", mediaId);
         setAcked(index + 1);
-        const links = childLinksBody(item);
-        if (links) await saveChildLinks(mediaId, links);
+        await saveChildLinks(mediaId, childLinksBody(item));
       }
     },
     onSuccess: onDone,
