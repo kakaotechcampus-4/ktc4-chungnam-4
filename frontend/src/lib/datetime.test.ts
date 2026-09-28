@@ -7,6 +7,7 @@ import {
   formatWeekday,
   formatYearMonth,
   kstToday,
+  shiftDate,
   toKstDate,
 } from "./datetime";
 
@@ -40,6 +41,19 @@ describe("한국 날짜", () => {
     "",
   ])("시간대가 없거나 ISO 8601이 아닌 시각은 받지 않는다: %s", (iso) => {
     expect(() => toKstDate(iso)).toThrow(RangeError);
+  });
+
+  it.each([
+    ["2026-10-01", -1, "2026-09-30"],
+    ["2026-12-31", 1, "2027-01-01"],
+    ["2028-02-28", 1, "2028-02-29"],
+    ["2026-09-15", 0, "2026-09-15"],
+  ])("shiftDate(%s, %i) → %s", (date, days, expected) => {
+    expect(shiftDate(date, days)).toBe(expected);
+  });
+
+  it("없는 날짜는 옮기지 않는다", () => {
+    expect(() => shiftDate("2026-02-30", 1)).toThrow(RangeError);
   });
 });
 
