@@ -1,5 +1,6 @@
 import { isPhoto, uploadTargets, useUploadQueue } from "@/features/upload-queue/upload-queue-store";
 
+import { isMockScenario } from "./scenario";
 import { seedUploadQueue } from "./upload-queue";
 
 function openWith(search: string) {
@@ -16,6 +17,18 @@ describe("업로드 큐 시나리오", () => {
     openWith("?mock=");
     seedUploadQueue();
 
+    expect(useUploadQueue.getState().items).toEqual([]);
+  });
+
+  it("탭에 기억된 시나리오로는 채우지 않고, 주소에 붙었을 때만 채운다", () => {
+    // 주소에 붙여 한 번 열면 다른 시나리오처럼 탭에 기억됩니다.
+    openWith("?mock=upload.confirmed-queue");
+    expect(isMockScenario("upload.confirmed-queue")).toBe(true);
+
+    // 같은 탭에서 주소 없이 자료 올리기를 열면(처음부터 시연) 큐가 비어 있습니다.
+    window.history.replaceState(null, "", "/t/today/upload");
+    expect(isMockScenario("upload.confirmed-queue")).toBe(true);
+    seedUploadQueue();
     expect(useUploadQueue.getState().items).toEqual([]);
   });
 
