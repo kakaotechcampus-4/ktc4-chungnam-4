@@ -4,7 +4,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate } from "react-router";
 
-import { createSession } from "@/api/auth";
+import { createSession, meQueryOptions } from "@/api/auth";
+import { classesQueryOptions } from "@/api/organization";
 import { FormField } from "@/components/common/FormField";
 import { Button } from "@/components/ui/button";
 import { homePath } from "@/features/auth/home-path";
@@ -31,9 +32,17 @@ export function LoginPage() {
     mutationFn: createSession,
     // 로그인 요청의 401(INVALID_CREDENTIALS)은 에러 경계로 넘기지 않고 폼 오류로 보여 줍니다.
     throwOnError: false,
-    onSuccess: (session) => {
+    onSuccess: async (session) => {
       // 앞 계정의 캐시(내 정보, 반 목록 등)가 새 계정 화면에 보이지 않게 비웁니다.
       queryClient.clear();
+      // 홈이 빈 채로 떴다가 채워지지 않게, 가드(내 정보)와 교사 틀(반 이름)이 쓰는 값을 받아 두고 넘어갑니다.
+      // 받는 동안은 요청 중이라 버튼이 계속 꺼져 있습니다. 실패해도 넘어가고, 그 화면이 다시 요청합니다.
+      await Promise.all([
+        queryClient.prefetchQuery(meQueryOptions()),
+        session.account_type === "teacher"
+          ? queryClient.prefetchQuery(classesQueryOptions())
+          : undefined,
+      ]);
       void navigate(homePath(session.account_type), { replace: true });
     },
     onError: (error) => setError("root.server", { message: error.message }),
