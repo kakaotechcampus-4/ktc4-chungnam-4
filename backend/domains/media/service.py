@@ -40,8 +40,14 @@ def save_attributions(
     이 값이 거짓이면 agents로 넘기지 않습니다 (H-2). 호출자가 값을 주지 않는 실수를
     막으려고 기본값을 두지 않았습니다.
 
-    같은 사진에 같은 원아가 두 번 들어와도 한 행만 남습니다 — 재전송으로 중복
-    호출될 수 있어 멱등하게 둡니다.
+    **넘어온 목록이 이 사진의 최종 귀속입니다** (전체 교체). 목록에 없는 기존 링크는
+    지우고, 있는 링크는 방법·신뢰도를 새 값으로 바꿉니다. 빈 목록이면 미분류로 남습니다.
+    링크는 그대로인데 `llm_allowed`만 바뀌는 조합을 막으려는 것입니다 — 옆 반 아이를
+    빼고 다시 저장했는데 링크가 남으면 그 사진이 LLM으로 넘어갑니다 (PR #13 리뷰, H-2).
+    같은 본문을 다시 보내도 결과가 같아 재전송에 안전합니다. 같은 원아가 목록에 두 번
+    있으면 앞의 것만 씁니다.
+
+    돌려주는 값은 저장 후 이 사진의 링크 전체입니다.
     """
     asset = db.get(MediaAsset, media_id)
     if asset is None:
@@ -60,25 +66,31 @@ def save_attributions(
                 "face_recognition attribution must carry a confidence score"
             )
 
-    existing = set(
-        db.scalars(select(MediaChildLink.child_id).where(MediaChildLink.media_id == media_id))
-    )
-    saved = []
+    wanted: dict[UUID, Attribution] = {}
     for attribution in attributions:
-        if attribution.child_id in existing:
-            continue
-        link = MediaChildLink(
-            media_id=media_id,
-            child_id=attribution.child_id,
-            method=attribution.method,
-            confidence_score=attribution.confidence_score,
-        )
-        db.add(link)
-        saved.append(link)
+        wanted.setdefault(attribution.child_id, attribution)
+
+    existing = {
+        link.child_id: link
+        for link in db.scalars(select(MediaChildLink).where(MediaChildLink.media_id == media_id))
+    }
+    for child_id, link in existing.items():
+        if child_id not in wanted:
+            db.delete(link)
+
+    links = []
+    for child_id, attribution in wanted.items():
+        link = existing.get(child_id)
+        if link is None:
+            link = MediaChildLink(media_id=media_id, child_id=child_id)
+            db.add(link)
+        link.method = attribution.method
+        link.confidence_score = attribution.confidence_score
+        links.append(link)
 
     asset.llm_allowed = llm_allowed
     db.flush()
-    return saved
+    return links
 
 
 def get_playback_url(db: Session, media_id: UUID) -> str:
