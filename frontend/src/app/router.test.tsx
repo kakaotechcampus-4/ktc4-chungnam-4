@@ -79,6 +79,7 @@ describe("교사 영역 가드", () => {
     const router = renderAt("/t/403");
 
     expect(await screen.findByRole("heading", { name: "다시 만나 반가워요" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("로그인이 필요해요.");
     expect(router.state.location.pathname).toBe("/login");
   });
 
@@ -120,6 +121,7 @@ describe("요청 오류 처리", () => {
     const router = renderAt("/t/settings");
 
     expect(await screen.findByRole("heading", { name: "다시 만나 반가워요" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("로그인이 필요해요.");
     expect(router.state.location.pathname).toBe("/login");
   });
 

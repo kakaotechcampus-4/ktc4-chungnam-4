@@ -73,6 +73,12 @@ describe("LoginPage", () => {
     expect(queryClient.getQueryData(organizationKeys.classes())).toEqual([SUNSHINE_CLASS]);
   });
 
+  it("안내 없이 들어오면 안내 줄이 없다", () => {
+    renderLogin();
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
   it("로그인에 실패하면 서버 문구를 보여 주고 이 화면에 남는다", async () => {
     const { router, user } = renderLogin();
 
