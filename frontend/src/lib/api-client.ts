@@ -129,6 +129,32 @@ export async function apiRequest<T>(
   return data as T;
 }
 
+/**
+ * 발급받은 업로드 URL(S3 presigned PUT)로 파일을 올립니다. 우리 API가 아니라 쿠키를 싣지 않고,
+ * 서명이 맞도록 발급 응답의 upload_headers를 그대로 붙입니다. 실패는 ApiError로 던집니다.
+ */
+export async function putToUploadUrl(
+  url: string,
+  headers: Record<string, string> | null,
+  file: Blob | Uint8Array<ArrayBuffer>,
+  signal?: AbortSignal,
+): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "PUT",
+      headers: headers ?? undefined,
+      body: file,
+      signal,
+    });
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    throw new ApiError(0, NETWORK_ERROR, "서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.");
+  }
+  // S3 오류 본문은 XML이라 읽지 않고 상태 코드만 남깁니다.
+  if (!response.ok) throw new ApiError(response.status, UNKNOWN_ERROR, DEFAULT_MESSAGE);
+}
+
 type BodyOptions = Omit<RequestOptions, "json">;
 
 export const api = {
