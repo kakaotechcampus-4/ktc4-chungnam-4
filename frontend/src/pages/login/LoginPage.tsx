@@ -1,14 +1,16 @@
 // Figma: 1:329 (후보 A 1:354 — 미확정)
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { InfoIcon } from "lucide-react";
 import { useForm } from "react-hook-form";
-import { Link, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 
 import { createSession, meQueryOptions } from "@/api/auth";
 import { classesQueryOptions } from "@/api/organization";
 import { FormField } from "@/components/common/FormField";
 import { Button } from "@/components/ui/button";
 import { homePath } from "@/features/auth/home-path";
+import { readLoginNotice } from "@/features/auth/login-notice";
 
 import { loginSchema, type LoginValues } from "./login-schema";
 
@@ -17,6 +19,7 @@ import { loginSchema, type LoginValues } from "./login-schema";
 // Figma의 링크 사이 구분선은 배경색(#fafaf9)이라 보이지 않아서 선 색으로 그립니다.
 // 로그인에 실패하면(INVALID_CREDENTIALS 등) 서버 문구를 폼 오류로 보여 주고 이 화면에 남습니다.
 // Figma에 폼 오류 디자인이 없어서 칸 오류와 같은 모양으로 입력칸 아래에 둡니다.
+// 로그인이 끊겨 이 화면으로 왔으면 그 이유(features/auth/login-notice.ts)를 제목 아래에 보여 줍니다. Figma에 없는 요소입니다.
 // 로그인·비밀번호 찾기·회원가입과 홈 사이 링크는 화면이 겹쳐 바뀌게(viewTransition) 합니다. 길이는 브라우저 기본 0.25초입니다.
 export function LoginPage() {
   const {
@@ -27,6 +30,7 @@ export function LoginPage() {
   } = useForm<LoginValues>({ resolver: zodResolver(loginSchema) });
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const notice = readLoginNotice(useLocation().state);
 
   const signIn = useMutation({
     mutationFn: createSession,
@@ -53,7 +57,18 @@ export function LoginPage() {
 
   return (
     <div className="flex w-full max-w-form-sm flex-col items-center">
-      <h1 className="mb-15 text-h2 font-bold text-ink">다시 만나 반가워요</h1>
+      <div className="mb-15 flex w-full flex-col items-center gap-5">
+        <h1 className="text-h2 font-bold text-ink">다시 만나 반가워요</h1>
+        {notice ? (
+          <p
+            role="status"
+            className="flex w-full items-start gap-2 rounded-lg bg-neutral-soft px-4 py-3 text-label text-ink motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 motion-safe:duration-300"
+          >
+            <InfoIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-ink-muted" />
+            {notice}
+          </p>
+        ) : null}
+      </div>
       <form noValidate onSubmit={onSubmit} className="flex w-full flex-col gap-4">
         <div className="flex flex-col gap-2.5">
           <FormField

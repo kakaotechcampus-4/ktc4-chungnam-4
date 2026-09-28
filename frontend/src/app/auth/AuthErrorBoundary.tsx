@@ -2,6 +2,7 @@ import { useQueryErrorResetBoundary } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { Navigate, useRouteError } from "react-router";
 
+import { loginNoticeState } from "@/features/auth/login-notice";
 import { ErrorPage } from "@/pages/error/ErrorPage";
 import { ForbiddenPage } from "@/pages/forbidden/ForbiddenPage";
 
@@ -14,7 +15,7 @@ interface AuthErrorBoundaryProps {
 }
 
 // 화면의 요청이 401·403으로 던져지면(app/query-client.ts의 throwOnError) 여기서 받습니다.
-// 401은 로그인 화면으로 보내고, 403은 주소를 그대로 두고 그 자리에 접근 권한 없음을 보여 줍니다(Figma 1:572).
+// 401은 서버 문구와 함께 로그인 화면으로 보내고, 403은 주소를 그대로 두고 그 자리에 접근 권한 없음을 보여 줍니다(Figma 1:572).
 // 그 밖의 오류는 안쪽 경계에서는 다시 던져 바깥으로 넘기고, 바깥 경계에서 오류 화면을 보여 줍니다.
 export function AuthErrorBoundary({ standalone = false }: AuthErrorBoundaryProps) {
   const error = useRouteError();
@@ -29,6 +30,8 @@ export function AuthErrorBoundary({ standalone = false }: AuthErrorBoundaryProps
     if (standalone) return <ErrorPage error={error} />;
     throw error;
   }
-  if (isUnauthenticated(error)) return <Navigate to="/login" replace />;
+  if (isUnauthenticated(error)) {
+    return <Navigate to="/login" replace state={loginNoticeState(error.message)} />;
+  }
   return standalone ? <StandaloneForbidden /> : <ForbiddenPage />;
 }
