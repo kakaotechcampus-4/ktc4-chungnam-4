@@ -7,10 +7,11 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useLogout } from "@/features/auth/use-logout";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
+import { cn } from "@/lib/utils";
 
 interface InfoRowProps {
   label: string;
-  /** 받기 전이면 비워 둡니다 */
+  /** 받기 전이면 null입니다. 받으면 한 번에 나타납니다. */
   value: string | null | undefined;
 }
 
@@ -22,11 +23,15 @@ interface InfoRowProps {
 export function SettingsPage() {
   const { data: me } = useQuery(meQueryOptions());
   const { currentClass, isPending: classesPending, isError: classesError } = useCurrentClass();
-  const { data: children } = useQuery({
+  const { data: children, isPending: childrenPending } = useQuery({
     ...classChildrenQueryOptions(currentClass?.class_id ?? ""),
     enabled: currentClass !== null,
   });
   const logout = useLogout();
+
+  // 값이 받는 순서대로 하나씩 채워지지 않게, 원아 수까지 받은 뒤 세 줄을 한 번에 보여 줍니다.
+  // 반이 없으면 원아 명단은 요청하지 않아서 기다리지 않습니다(꺼진 쿼리는 계속 pending입니다).
+  const ready = me !== undefined && !classesPending && (currentClass === null || !childrenPending);
 
   const classLine = currentClass
     ? [currentClass.name, currentClass.age_group, children ? `원아 ${children.length}명` : null]
@@ -54,9 +59,9 @@ export function SettingsPage() {
             계정 정보
           </h2>
           <dl className="flex flex-col gap-4.5 text-body">
-            <InfoRow label="이메일" value={me?.email} />
-            <InfoRow label="소속 어린이집" value={currentClass?.center_name} />
-            <InfoRow label="담당 반" value={classLine} />
+            <InfoRow label="이메일" value={ready ? me.email : null} />
+            <InfoRow label="소속 어린이집" value={ready ? currentClass?.center_name : null} />
+            <InfoRow label="담당 반" value={ready ? classLine : null} />
           </dl>
         </section>
         <section className="flex items-center justify-between rounded-3xl border border-line bg-paper p-7">
@@ -77,7 +82,14 @@ function InfoRow({ label, value }: InfoRowProps) {
   return (
     <div className="flex gap-6">
       <dt className="w-40 shrink-0 text-ink-muted">{label}</dt>
-      <dd className="text-ink">{value ?? ""}</dd>
+      <dd
+        className={cn(
+          "text-ink",
+          value !== null && "motion-safe:animate-in motion-safe:fade-in motion-safe:duration-300",
+        )}
+      >
+        {value ?? ""}
+      </dd>
     </div>
   );
 }
