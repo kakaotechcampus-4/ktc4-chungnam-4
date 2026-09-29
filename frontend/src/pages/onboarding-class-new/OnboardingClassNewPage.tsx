@@ -12,8 +12,8 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useCurrentClass } from "@/features/class-context/use-current-class";
 import { AGE_BAND_LABELS } from "@/features/organization/labels";
+import { useTeacherCenter } from "@/features/organization/use-teacher-center";
 import { cn } from "@/lib/utils";
 import type { AgeBand } from "@/types/api-draft/organization";
 
@@ -35,7 +35,7 @@ export function OnboardingClassNewPage() {
   const queryClient = useQueryClient();
   const nameId = useId();
   const centerId = useId();
-  const { currentClass, isPending, isError, error } = useCurrentClass();
+  const { centerId: teacherCenterId, centerName, isPending, isError, error } = useTeacherCenter();
 
   const {
     register,
@@ -54,20 +54,19 @@ export function OnboardingClassNewPage() {
   });
 
   const onSubmit = handleSubmit((values) => {
-    if (!currentClass) return;
+    if (!teacherCenterId) return;
     create.mutate({
-      center_id: currentClass.center_id,
+      center_id: teacherCenterId,
       name: values.name,
       age_band: values.ageBand,
     });
   });
 
-  // TODO(이한나): 담당 반이 하나도 없는 첫 교사는 center를 알 수 없습니다. /me(#65)에서 center를 받으면 바꿉니다.
   const centerMessage = isPending
     ? "어린이집 정보를 불러오고 있어요"
     : isError
       ? (error?.message ?? null)
-      : currentClass
+      : teacherCenterId
         ? null
         : "연결된 어린이집을 찾을 수 없어요. 교사 정보를 먼저 입력해 주세요.";
 
@@ -92,7 +91,7 @@ export function OnboardingClassNewPage() {
               id={centerId}
               readOnly
               aria-describedby={centerMessage ? `${centerId}-message` : undefined}
-              value={currentClass ? `${currentClass.center_name} (코드로 확인됨)` : ""}
+              value={teacherCenterId ? `${centerName ?? "등록한 어린이집"} (코드로 확인됨)` : ""}
               className="border text-ink-muted"
             />
             {centerMessage ? (
@@ -166,7 +165,7 @@ export function OnboardingClassNewPage() {
             variant="solid"
             size="lg"
             className="w-full text-lead"
-            disabled={!currentClass || create.isPending}
+            disabled={!teacherCenterId || create.isPending}
           >
             다음 · 아이 이름 적기
           </Button>

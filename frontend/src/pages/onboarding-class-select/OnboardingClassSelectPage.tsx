@@ -1,20 +1,12 @@
 // Figma: 1:499
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Flower, Flower2, Plus, Sprout, Star, Sun, type LucideIcon } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 
-import {
-  assignClass,
-  centerClassesQueryOptions,
-  organizationKeys,
-  setClassFavorite,
-} from "@/api/organization";
-import { useCurrentClass } from "@/features/class-context/use-current-class";
+import { assignClass, organizationKeys, setClassFavorite } from "@/api/organization";
+import { useTeacherCenter } from "@/features/organization/use-teacher-center";
 import { cn } from "@/lib/utils";
 import type { ClassSummary } from "@/types/api-draft/organization";
-
-// TODO(이한나): #65의 /me가 머지되면 교사 이름을 응답으로 바꿉니다. 지금은 Figma 예시 값입니다.
-const PLACEHOLDER_TEACHER_NAME = "김하늘";
 
 // Figma의 반 아이콘(🌼 ☀️ 🌱 🌷)을 반 순서대로 돌아가며 씁니다.
 const CLASS_ICONS: readonly LucideIcon[] = [Flower2, Sun, Sprout, Flower];
@@ -30,22 +22,13 @@ function sortFavoritesFirst(classes: ClassSummary[]) {
 export function OnboardingClassSelectPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  // TODO(이한나): 어린이집은 #65의 GET /me에서 받습니다(API 문서 "반 선택 · 추가"). 지금은 담당 반의 어린이집이라
-  // 담당 반이 하나도 없는 첫 교사는 반 목록이 비어 보입니다.
-  const { currentClass, isPending: isClassPending } = useCurrentClass();
-  const centerId = currentClass?.center_id ?? "";
-  const centerQuery = useQuery({
-    ...centerClassesQueryOptions(centerId),
-    enabled: centerId !== "",
-  });
-  const classes = centerId === "" ? [] : centerQuery.data;
-  const isPending = isClassPending || (centerId !== "" && centerQuery.isPending);
-  const { isError, error } = centerQuery;
+  const { teacherName, centerId, centerName, classes, isPending, isError, error } =
+    useTeacherCenter();
 
   const refreshClasses = () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: organizationKeys.classes() }),
-      queryClient.invalidateQueries({ queryKey: organizationKeys.centerClasses(centerId) }),
+      queryClient.invalidateQueries({ queryKey: organizationKeys.centerClasses(centerId ?? "") }),
     ]);
 
   const favorite = useMutation({
@@ -63,8 +46,10 @@ export function OnboardingClassSelectPage() {
     },
   });
 
-  const centerName = currentClass?.center_name;
-  const title = `${centerName ? `${centerName} ` : ""}${PLACEHOLDER_TEACHER_NAME} 선생님, 안녕하세요!`;
+  const greeting = [centerName, teacherName ? `${teacherName} 선생님` : "선생님"]
+    .filter(Boolean)
+    .join(" ");
+  const title = `${greeting}, 안녕하세요!`;
 
   return (
     <div className="flex w-full max-w-5xl flex-col py-16">
@@ -89,7 +74,7 @@ export function OnboardingClassSelectPage() {
             </p>
           ) : null}
           <ul className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {sortFavoritesFirst(classes ?? []).map((klass, index) => {
+            {sortFavoritesFirst(classes).map((klass, index) => {
               const Icon = CLASS_ICONS[index % CLASS_ICONS.length] ?? Flower2;
               return (
                 <li

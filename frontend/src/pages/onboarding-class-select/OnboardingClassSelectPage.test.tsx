@@ -57,7 +57,7 @@ describe("OnboardingClassSelectPage", () => {
   });
 
   it("반이 없으면 반 추가하기 카드만 보여 준다", async () => {
-    server.use(http.get(apiPath("/classes"), () => listResponse([])));
+    server.use(http.get(apiPath("/centers/:centerId/classes"), () => listResponse([])));
     renderPage();
 
     expect(await screen.findByRole("link", { name: /반 추가하기/ })).toBeInTheDocument();
