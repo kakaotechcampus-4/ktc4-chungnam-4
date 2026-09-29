@@ -88,14 +88,19 @@ export function toKstDate(isoDateTime: string): DateOnly {
   return toKstDateOnly(parseDateTime(isoDateTime));
 }
 
+// UTC 자정 Date를 DateOnly로 되돌립니다. parseDateOnly의 반대입니다.
+function fromUtcMidnight(value: Date): DateOnly {
+  const month = String(value.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(value.getUTCDate()).padStart(2, "0");
+  return `${value.getUTCFullYear()}-${month}-${day}`;
+}
+
 /** 날짜를 며칠 앞뒤로 옮깁니다. shiftDate("2026-10-01", -1) → "2026-09-30" */
 export function shiftDate(date: DateOnly, days: number): DateOnly {
   // UTC 자정끼리 셈하므로 기기 시간대와 상관없이 날짜만 움직입니다.
   const value = parseDateOnly(date);
   value.setUTCDate(value.getUTCDate() + days);
-  const month = String(value.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(value.getUTCDate()).padStart(2, "0");
-  return `${value.getUTCFullYear()}-${month}-${day}`;
+  return fromUtcMidnight(value);
 }
 
 interface FormatDateOptions {
