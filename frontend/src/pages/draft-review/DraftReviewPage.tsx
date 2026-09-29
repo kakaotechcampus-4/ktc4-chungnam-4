@@ -29,6 +29,21 @@ import { EvidencePanel } from "./components/EvidencePanel";
 import { PublishConfirmDialog } from "./components/PublishConfirmDialog";
 import { RosterList, type RosterRow, type RosterState } from "./components/RosterList";
 
+// TODO(김진하): 사진 추가는 업로드 흐름(media, 정은·김동건)이 정해지지 않아 자리만 둡니다.
+function AddPhotoTile() {
+  return (
+    <button
+      type="button"
+      disabled
+      aria-label="사진 추가 (준비 중)"
+      className="flex aspect-square flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-line text-ink-muted disabled:opacity-60"
+    >
+      <Plus className="size-6" />
+      <span className="text-label">사진 추가</span>
+    </button>
+  );
+}
+
 /** 교사가 쓴 글을 줄바꿈으로 나눠 문장 배열로 만듭니다(API 문서 §직접 쓴 초안 만들기). */
 function toSentences(text: string) {
   return text
@@ -279,16 +294,7 @@ export function DraftReviewPage() {
                 아직 이 아이의 기록이 없어요. 사진을 추가하거나 직접 작성할 수 있어요.
               </p>
               <div className="grid grid-cols-3 gap-4">
-                {/* TODO(김진하): 사진 추가는 업로드 흐름(media, 정은·김동건)이 정해지지 않아 자리만 둡니다. */}
-                <button
-                  type="button"
-                  disabled
-                  aria-label="사진 추가 (준비 중)"
-                  className="flex aspect-square flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-line text-ink-muted disabled:opacity-60"
-                >
-                  <Plus className="size-6" />
-                  <span className="text-label">사진 추가</span>
-                </button>
+                <AddPhotoTile />
               </div>
               <Textarea
                 value={newText}
@@ -315,21 +321,19 @@ export function DraftReviewPage() {
             </div>
           ) : (
             <>
-              {photos.length > 0 ? (
-                <>
-                  <div className="grid grid-cols-3 gap-4">
-                    {photos.map((photo) => (
-                      <img
-                        key={photo.media_id}
-                        src={photo.url}
-                        alt=""
-                        className="aspect-square w-full rounded-lg object-cover"
-                      />
-                    ))}
-                  </div>
-                  <p className="text-caption text-ink-muted">선택 사진 {photos.length}장</p>
-                </>
-              ) : null}
+              {/* 사진이 없는 초안(직접 쓴 글)에서도 추가 자리는 남겨 둡니다. */}
+              <div className="grid grid-cols-3 gap-4">
+                {photos.map((photo) => (
+                  <img
+                    key={photo.media_id}
+                    src={photo.url}
+                    alt=""
+                    className="aspect-square w-full rounded-lg object-cover"
+                  />
+                ))}
+                <AddPhotoTile />
+              </div>
+              <p className="text-caption text-ink-muted">선택 사진 {photos.length}장</p>
 
               <div className="flex flex-col gap-3.5 rounded-xl bg-paper p-7">
                 <div className="flex items-center justify-between">
