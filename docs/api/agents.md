@@ -16,7 +16,7 @@
 - [ ] `SentenceEvidence` 조인 경로(`source_type`·`end_ms`·`captured_at` 없음), `source_text`가 비식별 토큰으로 저장되는지
 - [ ] `evidence_id`를 불투명 문자열로 둘지, UUID로 바꿀지
 - [ ] `Job.target_date`를 Date 타입으로 바꿀지
-- [ ] 처리 순서 모순(김동건·엄태은·송유진과 함께). 상세 작성 범위에서는 5→6단계 연속 실행으로 가정
+- [ ] 처리 순서 모순(김동건·엄태은·송유진과 함께). 상세 작성 범위에서는 5→6단계 연속 실행으로 가정 → 김동건 제안(작업을 정리·초안 둘로 나눔): 하단 §상의 필요 1
 - [ ] "취소하고 돌아가기"를 화면 이탈로 보는 해석이 맞는지
 - [x] develop `agents/router.py`의 `prefix="/agents"` 제거 → #61에서 제거
 
@@ -30,7 +30,7 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
   - 서버 전송에서 마지막 귀속 저장이 끝나면 FE가 자동으로 `POST /classes/{class_id}/jobs`를 부릅니다(09/27 결정, #61).
   - 초안 생성 화면에서 2초마다 상태를 조회합니다. `succeeded`나 `failed`가 되면 멈추고 초안 검토로 갑니다.
   - 상세 작성 범위에는 교사가 누르는 "초안 만들기" 버튼이 없습니다.
-- 하루 정리 확인(FR-27)은 상세 작성 범위에서 뺍니다. 5단계(하루 일과)에서 멈추지 않고 6단계로 이어 실행한다고 가정합니다.
+- 하루 정리 확인(FR-27)은 상세 작성 범위에서 뺍니다. 5단계(하루 일과)에서 멈추지 않고 6단계로 이어 실행한다고 가정합니다. 하루 정리 확인을 넣는 방법은 하단 §상의 필요 1에 제안이 있습니다.
 - `job_id`는 반·날짜 단위 요청 1건인 부모 레코드 `GenerationJob`을 가리킵니다(09/27 결정, #61).
   - 원아별 `Job`은 `generation_job_id`로 이 레코드를 참조합니다.
   - 원아별 `Job`의 ID는 응답에 넣지 않습니다.
@@ -162,8 +162,137 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 | 메서드·경로 | 하는 일 | 단계 | BE 담당 |
 |---|---|---|---|
 | `POST /api/v1/jobs/{job_id}/retry` | 실패한 단계 다시 시도 | 경로만 | 정은 |
-| `GET /api/v1/jobs/{job_id}/daily-routines` | 하루 정리(장면) 받기 | 경로만 | 정은 |
-| `POST /api/v1/jobs/{job_id}/resume`(가칭) | 하루 정리를 확인한 뒤 초안 생성 이어 하기 | 경로만 | 정은 |
+| `GET /api/v1/classes/{class_id}/daily-routines?record_date=` | 하루 정리(장면) 받기. 예전 `GET /jobs/{job_id}/daily-routines`를 바꿈 | 제안(하단 §상의 필요 1) | 정은 |
+| `PATCH /api/v1/children/{child_id}/daily-routines/{record_date}/scenes/{scene_id}` | 하루 정리의 장면 빼기·되돌리기 | 제안(하단 §상의 필요 1) | 정은 |
+| `POST /api/v1/classes/{class_id}/jobs`에 `kind` | 정리 작업·초안 작업 나누기. 예전 `POST /jobs/{job_id}/resume`(가칭)을 바꿈 | 확장, 제안(하단 §상의 필요 1) | 정은 |
+| `GET /api/v1/classes/{class_id}/evidence?record_date=`, `PUT /api/v1/children/{child_id}/evidence/{record_date}` | 추가 근거(교사 관찰 메모) 읽기·저장 | 제안(하단 §상의 필요 2) | 정은 |
 | `POST /api/v1/jobs/{job_id}/cancel` | 작업 취소 | 경로만 | 정은 |
 | `GET /api/v1/classes/{class_id}/jobs?record_date=` | 그날 작업 찾기(오늘의 기록 재진입) | 경로만 | 정은 |
 | `POST /api/v1/drafts/{draft_id}/revision-requests` | AI에게 다듬기 요청 | 경로만 | 정은·한상균 |
+
+---
+
+## 상의 필요 — 김동건 제안 (정은과 함께)
+
+> ④ 하루 정리 확인·추가 근거 화면을 만들며 필요한 API를 채운 것입니다. agents 담당(정은) 영역이라 혼자 정하지 않았고, 팀 결정이 아닙니다. FE 타입·목은 이 모양으로 먼저 만들어 두었습니다(`types/api-draft/agents.ts` 아래쪽, `mocks/handlers/agents-summary.ts`). 합의되면 위 본문으로 옮깁니다.
+
+### 1. 하루 정리 확인(FR-27) — 작업을 정리·초안 둘로 나누기
+
+하루 일과는 파이프라인 5단계 산출물이고, Figma는 교사가 하루 정리를 본 뒤 "초안 만들기"를 누르는 흐름입니다. 지금 본문은 5→6단계를 멈추지 않고 이어 실행합니다. 두 가지 방법이 있습니다.
+
+- 방법 1(제안): **정리 작업(1~5단계)과 초안 작업(6~7단계)을 따로 만듭니다.** 작업은 끝까지 돌고 끝나기만 하므로 상태값 4개(`pending`/`running`/`succeeded`/`failed`)와 Celery task 구조를 그대로 씁니다. 창을 닫았다 와도 "정리 작업은 끝났고 초안 작업은 없음"으로 복구가 단순합니다.
+- 방법 2(예전 경로만): 한 작업이 5단계에서 `waiting_review`로 멈추고 `POST /jobs/{job_id}/resume`으로 이어 갑니다. 멈춘 상태의 만료·취소 규칙을 새로 정해야 합니다.
+
+화면 흐름(방법 1):
+
+```
+분류 확인(④) → 서버 전송 → POST /classes/{class_id}/jobs {kind: "summary"} → GET /jobs/{job_id} 폴링
+  → succeeded → 하루 정리 확인(④, 반의 정리된 아이들) → "초안 만들기"
+  → POST /classes/{class_id}/jobs {kind: "draft"} → GET /jobs/{job_id} 폴링 → 초안 검토(⑤)
+```
+
+#### `POST /api/v1/classes/{class_id}/jobs` 확장 — `kind`
+
+- 요청에 `kind`를 더합니다. `"summary"`는 정리 작업, `"draft"`는 초안 작업입니다. 나머지 필드(`request_id`, `record_date`, `media_ids`)는 본문 그대로입니다.
+
+```json
+{
+  "request_id": "4e000000-0000-4000-8000-000000000001",
+  "record_date": "2026-09-15",
+  "media_ids": ["3ed1a000-0000-4000-8000-000000000041", "3ed1a000-0000-4000-8000-000000000044"],
+  "kind": "summary"
+}
+```
+
+- 응답은 본문 Job 모양에 `kind`를 더합니다(FE 목은 정은 님 `Job` 타입을 그대로 써서 아직 `kind`를 싣지 않습니다).
+  - `kind: "summary"`의 `stage`는 `transcribing` → `collecting_evidence`이고, `succeeded`가 "하루 일과 준비됨"입니다. `children[].drafts`는 늘 빈 배열입니다.
+  - `kind: "draft"`의 `stage`는 `generating` → `verifying`이고, 끝나면 `drafts`가 채워집니다.
+- `JOB_ALREADY_RUNNING`은 같은 반·날짜·`kind` 기준으로 봅니다.
+- 정할 것:
+  - 초안 작업을 정리 작업이 `succeeded`인 반·날짜에만 허용할지(허용하지 않으면 409 코드 필요)
+  - 초안 작업의 `media_ids`: 정리 작업과 같은 목록을 다시 보낼지, 서버가 정리 작업에서 이어받을지. 새로고침 뒤 브라우저 큐가 비는 문제와 같습니다(#60 "재진입 시 `media_ids` 출처")
+  - 초안 단위: 반 전체로 한 번(제안) vs 아이별
+
+#### `GET /api/v1/classes/{class_id}/daily-routines?record_date=` — 정리가 끝난 아이들의 하루 일과
+
+- 쓰는 화면: 하루 정리 확인(입구와 아이별 화면이 같은 목록을 씀)
+- 요구사항: FR-27
+- 권한: 교사 — 담당 반만
+- 응답 `200`: 정리 작업이 끝난 아이만 담습니다. 이름은 싣지 않고 FE가 명단과 `child_id`로 합칩니다. 문장은 서버가 `CHILD_A` 토큰을 실명으로 되돌린 뒤 교사에게만 보여 줍니다(H-2).
+
+```json
+{
+  "items": [
+    {
+      "child_id": "c41d0000-0000-4000-8000-000000000001",
+      "record_date": "2026-09-15",
+      "scenes": [
+        { "scene_id": "5ce00000-0000-4000-8000-000000000001", "activity_time": "10:34", "activity": "미술 활동",
+          "text": "색종이를 반으로 접어 나비를 만들었고, 친구에게 만드는 방법을 알려줬어요.",
+          "photo_count": 3, "quote_count": 1, "excluded": false }
+      ],
+      "quotes": [
+        { "quote_id": "9e0e0000-0000-4000-8000-000000000001", "source": "audio", "activity_time": "10:34", "activity": "미술 활동",
+          "text": "“나비 만들었네, 친구한테도 보여줄래?”" }
+      ],
+      "source_photo_count": 12,
+      "source_quote_count": 4,
+      "updated_at": "2026-09-15T06:40:00Z"
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+- `activity_time`은 한국 시간 `"HH:mm"`입니다. `quotes[].source`는 `audio`(선생님 말씀, STT) / `photo`(사진 설명)입니다.
+- 에러: `CLASS_ACCESS_DENIED` (403), `CLASS_NOT_FOUND` (404)
+
+#### `PATCH /api/v1/children/{child_id}/daily-routines/{record_date}/scenes/{scene_id}` — 장면 빼기·되돌리기
+
+- 쓰는 화면: 하루 정리 확인 — "빼기" / "되돌리기"
+- 요청: `{ "excluded": true }`
+- 응답 `200`: 바뀐 장면 하나(위 `scenes[]` 항목과 같은 모양)
+- 뺀 장면은 초안 작업의 근거에서 빠집니다.
+- 에러: `CHILD_ACCESS_DENIED` (403), `SCENE_NOT_FOUND` (404)
+
+#### 아직 모양을 정하지 않은 것
+
+- "정리 다시 해주세요"(재정리 요청): 바로 응답할지, 작업으로 돌릴지
+- 하루 정리 화면의 피드백 문장("이건 틀렸어요: …")을 초안 작업에 넘기는 방법
+- Figma의 "2 / 5명 확인": 초안을 반 단위로 한 번 만들면 아이별 확인 표시 API는 필요 없습니다. FE는 이 자리에 정리된 아이 사이 이동을 두었습니다.
+- 처리 중 화면(③ 정은)에 정리 단계와 `?step=draft`를 붙이는 것. 그전까지 FE는 임시 처리 화면(`/t/today/processing-temp`)으로 순서를 확인합니다.
+
+### 2. 추가 근거(교사 관찰 메모) — screens.md "목록에 없는 것"
+
+- 아이·날짜마다 한 건이고, 다시 저장하면 덮어씁니다.
+
+#### `GET /api/v1/classes/{class_id}/evidence?record_date=` — 그날 반의 추가 근거
+
+```json
+{
+  "items": [
+    { "evidence_id": "e71d0000-0000-4000-8000-000000000001", "child_id": "c41d0000-0000-4000-8000-000000000001",
+      "record_date": "2026-09-15", "activity_time": "15:10", "text": "나뭇잎을 모아 크기를 비교했어요.",
+      "source": "teacher_note", "created_at": "2026-09-15T06:20:00Z" }
+  ],
+  "next_cursor": null
+}
+```
+
+#### `PUT /api/v1/children/{child_id}/evidence/{record_date}` — 추가 근거 저장(없으면 `201`, 있으면 덮어쓰고 `200`)
+
+- 요청: `{ "activity_time": "15:10", "text": "나뭇잎을 모아 크기를 비교했어요." }`
+- 응답: 위 목록 항목과 같은 모양
+- `text`에는 실명이 들어갈 수 있어 LLM으로 보내기 전에 `CHILD_A`로 비식별화해야 합니다(H-2).
+- 에러: `CHILD_ACCESS_DENIED` (403), 422(`text`가 빔)
+
+#### 정할 것
+
+- 테크스펙 `EvidenceBundle`·`SentenceEvidence`에 교사 텍스트 근거를 담을 자리(`source_type`)가 없습니다.
+- screens.md는 음성·관련 사진도 함께 적어 두었지만, FE는 글만 받습니다.
+- screens.md 체크리스트에 "+ 추가 근거 작성"이 상세 작성 범위 밖이라 숨길 UI로 올라 있습니다(송유진). 이 API를 채택하면 그 항목을 닫습니다.
+
+### 3. Job 트리거 문구와 FE 책임 (#60)
+
+- media-face.md §상의 필요 1(완료 통지에 귀속을 합침)이 채택되면 흐름 표 C의 "마지막 귀속 저장이 끝나면"은 "마지막 완료 통지(ack)를 받으면"으로 바뀝니다.
+- `MEDIA_NOT_READY`는 보낸 `media_ids`만 봅니다. 업로드에 실패해 아예 안 보낸 파일은 서버가 알 수 없으므로, 업로드 큐에 `확인됨`이 아닌 항목이 남아 있으면 FE가 작업 시작 전에 막거나 경고합니다(#60 김동건 [must]).

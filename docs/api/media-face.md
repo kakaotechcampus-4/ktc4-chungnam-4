@@ -8,26 +8,27 @@
 
 (막힘)은 정해져야 FE 목(MSW)과 BE schemas를 만들 수 있는 항목입니다. 막히면 작업하는 사람이 정하고 진행합니다. 정한 값은 같은 PR에서 이 파일에 반영하고, 항목을 `[x]`로 바꾼 뒤 `임시 결정(이름)`과 반영한 곳을 적습니다([README](README.md) §이 문서를 읽는 법). 담당의 답은 이슈 #58 댓글이나 이 파일을 고치는 PR로 받습니다.
 
-- [ ] (막힘) child-links를 전체 교체(PUT)로 할지(PR #13 리뷰 [must])
-- [ ] (막힘) `llm_allowed` 최종값 계산 주체와 규칙(정은과 함께). 제안: 사진은 "교사 확인 AND ③ 동의", 영상·음성은 교사 확인값
-- [ ] (막힘) 영상·음성메모도 child-links로 수동 귀속(정은과 함께). 음성메모 근거가 초안에 들어가기 위한 전제
+- [x] (막힘) child-links를 전체 교체(PUT)로 할지(PR #13 리뷰 [must]) → 임시 결정(김동건): 전체 교체. 보낸 목록이 최종 상태이고 빠진 원아의 링크는 지웁니다. 반영: 이 파일 `PUT /media/{media_id}/child-links` 절, backend `save_attributions`(브랜치 `feat/be/child-links-full-replace`, PR 전)
+- [ ] (막힘) `llm_allowed` 최종값 계산 주체와 규칙(정은과 함께). 제안: 사진은 "교사 확인 AND ③ 동의", 영상·음성은 교사 확인값 → 하단 §상의 필요 3
+- [ ] (막힘) 영상·음성메모도 child-links로 수동 귀속(정은과 함께). 음성메모 근거가 초안에 들어가기 위한 전제 → 하단 §상의 필요 2
 - [ ] `attributed_at` 추가와, 이를 쓰는 Job의 `MEDIA_NOT_READY` 판정(정은과 함께)
 - [ ] 업로드 한도, 허용 MIME, URL 만료(예시 PUT 15분·GET 5분), 멀티파트 필요 여부
 - [ ] 파생본이 없어 HEIC·MOV가 안 보이는 문제. 데모 자료를 JPG·MP4로 제한할지
 - [ ] `error.detail`을 object로 허용할지(develop `AidamError.detail`은 지금 str)
 - [ ] `load_embedding_cache`가 `model_version`도 돌려주게 할지, 모델 버전 문자열을 어떻게 배포할지
-- [ ] 서명 함수(`get_signed_urls`, 가칭) 제공과 documents 응답 내장 분담(한상균과 함께)
+- [ ] 서명 함수(`get_signed_urls`, 가칭) 제공과 documents 응답 내장 분담(한상균과 함께) → 하단 §상의 필요 5
 - [ ] develop(PR #13)과 다른 점: 귀속 에러 코드 이름이 `MEDIA_INVALID_ATTRIBUTION_METHOD`(이 문서 `INVALID_ATTRIBUTION_METHOD`, 조건은 같음)이고, documents용 함수 `get_playback_url`은 한 건씩 서명·만료 없는 URL 문자열을 줌. 이 문서에 맞출지 develop에 맞출지(URL 함수는 한상균과 함께)
 - [ ] 영상·음성 서버 STT를 어디서 시작할지(동기 vs Celery)
 - [ ] `face/CLAUDE.md`의 `/face` 표기 수정
 
 ## 이 도메인의 규칙
 
-media·face는 상세 작성 엔드포인트 5개(media 4, face 1)로 세 가지를 제공합니다.
+media·face는 상세 작성 엔드포인트 7개(media 4, face 3)로 네 가지를 제공합니다.
 
 - 브라우저에서 S3로 직접 올리는 업로드 통로: URL 발급 → 완료 통지 → 귀속 저장
 - 근거 미디어를 재생할 짧은 만료의 서명 URL
 - 온디바이스 분류에 쓰는 반 임베딩 캐시
+- 얼굴 정보 등록·삭제(원아별 벡터)
 
 **전제**
 
@@ -151,7 +152,7 @@ media·face는 상세 작성 엔드포인트 5개(media 4, face 1)로 세 가지
   - `child_links[]`: 각 항목은 `child_id`, `method`, `confidence_score`입니다. `confidence_score`는 `face_recognition`일 때만 채우고, `manual`이면 null입니다.
   - 사진·영상·음성메모 모두 이 엔드포인트로 보냅니다(제안). 영상·음성메모는 `method: "manual"`로 원아를 여러 명 넣을 수 있습니다. 음성메모도 귀속돼 있어야 근거 수집 함수 `collect_media_for_llm(child_id, …)`가 찾아냅니다.
   - 빈 배열을 보내면 서버에 미분류로 남습니다.
-  - 전체 교체 방식입니다(제안). 보낸 목록이 최종 상태이고, 같은 본문을 다시 보내도 결과가 같습니다.
+  - 전체 교체 방식입니다(임시 결정(김동건)). 보낸 목록이 최종 상태이고, 목록에 없는 기존 링크는 지웁니다. 같은 본문을 다시 보내도 결과가 같습니다. 검사에 걸리면 기존 링크를 그대로 둡니다.
 
 ```json
 {
@@ -187,7 +188,6 @@ media·face는 상세 작성 엔드포인트 5개(media 4, face 1)로 세 가지
   - `DUPLICATE_CHILD_LINK` (400) — 같은 `child_id`가 목록에 두 번 있을 때
   - `CHILD_NOT_IN_CLASS` (400) — 미디어가 속한 반의 원아가 아닐 때
   - `CLASS_ACCESS_DENIED` (403) — 담당 반이 아닐 때
-- [확인 필요: 김동건] 전체 교체 방식을 채택할지 정해야 합니다(PR #13 리뷰 [must]). 채택하지 않으면 재확정 함수를 따로 두거나 재호출을 409로 막게 되고, 이 엔드포인트의 의미가 바뀝니다.
 - [확인 필요: 김동건·정은] `llm_allowed` 최종값을 누가 계산할지 정해야 합니다. 제안은 두 가지입니다.
   - 사진: 서버가 "교사 확인 AND 귀속 원아 전원 ③ 동의"로 계산해 저장합니다.
   - 영상·음성메모: 교사 확인값을 그대로 저장합니다.
@@ -251,15 +251,98 @@ media·face는 상세 작성 엔드포인트 5개(media 4, face 1)로 세 가지
   - 어떤 에러든 FE는 분류를 멈춥니다. 빈 목록으로 대신하지 않습니다.
 - [확인 필요: 이한나] `get_consented_children`(이슈 #31, OPEN)을 제공해 주셔야 합니다. 그전까지는 MSW로만 개발합니다.
 
+### `PUT /api/v1/children/{child_id}/face-embedding` — 얼굴 정보 등록·갱신(브라우저가 뽑은 벡터만 저장)
+
+> 임시 결정(김동건): 경로만이던 것을 얼굴 정보 등록 화면을 만들며 채웠습니다. FE 목·타입과 같은 모양입니다(`types/api-draft/face.ts`).
+
+- 쓰는 화면: 얼굴 정보 등록 — "얼굴 정보 등록 · 갱신"
+- 요구사항: FR-04, H-3
+- 권한: 교사 — 담당 반의 원아만
+- 요청: 등록 사진 1~3장에서 브라우저가 뽑은 벡터 하나와 모델 버전입니다. **사진 원본은 보내지 않습니다**(H-3). 사진은 벡터를 뽑은 뒤 브라우저에서 버립니다.
+
+```json
+{
+  "embedding": [0.0213, -0.0871, 0.0456],
+  "model_version": "buffalo_l-1.0"
+}
+```
+
+- 응답 `200`: 이미 있으면 덮어씁니다(원아당 한 개). 벡터는 돌려주지 않습니다.
+
+```json
+{
+  "child_id": "c41d0000-0000-4000-8000-000000000001",
+  "model_version": "buffalo_l-1.0",
+  "registered_at": "2026-09-29T06:10:00Z"
+}
+```
+
+- `embedding` 길이·`model_version` 값은 예시입니다. 온디바이스 모델이 정해지지 않아(09/28, 이번 주는 목) FE 목은 짧은 합성 벡터와 `"mock"`을 씁니다.
+- 벡터 값은 로그에 남기지 않습니다(H-4).
+- 에러:
+  - `CHILD_NOT_FOUND` (404) — 없는 원아일 때
+  - `CHILD_ACCESS_DENIED` (403) — 담당 반의 원아가 아닐 때
+  - 422 — `embedding`이 비었거나 숫자 배열이 아닐 때(공통 검증 오류)
+- ③ 동의가 없는 원아의 등록을 어떻게 막을지는 하단 §상의 필요 4에 있습니다.
+
+### `DELETE /api/v1/children/{child_id}/face-embedding` — 얼굴 정보 삭제
+
+> 임시 결정(김동건): 경로만이던 것을 얼굴 정보 삭제 확인 화면을 만들며 채웠습니다.
+
+- 쓰는 화면: 얼굴 정보 삭제 확인 — "얼굴 정보 삭제"
+- 요구사항: FR-22, H-4
+- 권한: 교사 — 담당 반의 원아만
+- 요청: 경로 `child_id`. 본문 없음
+- 응답 `204`. 등록된 얼굴 정보가 없어도 `204`입니다(같은 요청을 다시 보내도 결과가 같음).
+- 파기는 `DeletionLog`에 남깁니다(H-4). 사유·대상 코드는 하단 §상의 필요 4에 있습니다.
+- 삭제 뒤 그 원아는 `GET /classes/{class_id}/face-embeddings`에서 빠지고, 다음 분류부터 수동 분류로 갑니다.
+- 에러:
+  - `CHILD_NOT_FOUND` (404) — 없는 원아일 때
+  - `CHILD_ACCESS_DENIED` (403) — 담당 반의 원아가 아닐 때
+
 ## 경로만 정한 엔드포인트
 
 경로만 정했습니다. 요청·응답은 그 화면을 만들 때 이 파일에 먼저 채웁니다(PR). 어느 화면이 쓰는지는 [screens.md](screens.md)에 있습니다. "확장(경로만)"은 위 상세 작성 엔드포인트에 필드나 파라미터를 더하는 것입니다.
 
 | 메서드·경로 | 하는 일 | 단계 | BE 담당 |
 |---|---|---|---|
-| `PUT /api/v1/children/{child_id}/face-embedding` | 얼굴 정보 등록·갱신 | 경로만 | 김동건 |
-| `DELETE /api/v1/children/{child_id}/face-embedding` | 얼굴 정보 삭제 | 경로만 | 김동건 |
-| `GET /api/v1/media/{media_id}/transcript-segments` | 영상·음성의 발화 구간 | 경로만 | 김동건 |
-| `PATCH /api/v1/transcript-segments/{segment_id}` | 발화 구간 고치기 | 경로만 | 김동건 |
+| `GET /api/v1/media/{media_id}/transcript-segments` | 영상·음성의 발화 구간. ④ 얼굴 분류·수동 분류는 업로드 전 화면이라 쓰지 않음(발화는 업로드 뒤 서버 STT가 만듦) | 경로만 | 김동건 |
+| `PATCH /api/v1/transcript-segments/{segment_id}` | 발화 구간 고치기. 쓰는 화면이 정해지지 않음(수동 분류/발화 화면 숨김) | 경로만 | 김동건 |
 | `GET /api/v1/classes/{class_id}/media?record_date=` | 반·날짜별 미디어 목록(홈·앨범용, 지금 화면 없음) | 경로만 | 김동건 |
 | `POST /api/v1/media/multipart-uploads` | 큰 파일 나눠 올리기 | 경로만 | 김동건 |
+
+---
+
+## 상의 필요 — 김동건 제안
+
+> 다른 담당과 경계에 걸려 있어 혼자 정하지 않은 것입니다. 위 본문은 바꾸지 않았고, 합의되면 본문에 옮깁니다. 팀 결정이 아닙니다.
+
+### 1. 업로드 흐름 줄이기 (정은·송유진과 함께)
+
+지금 본문은 파일마다 `POST /media`(ack) → `PUT /media/{media_id}/child-links` 두 번을 부릅니다. 150장이면 URL 발급을 빼고도 300번입니다. 아래처럼 바꾸자고 제안합니다.
+
+- **`POST /media/upload-urls`는 한 번에 10개씩, 결과는 건별로.** 한 건이 틀려도 전체를 거절하지 않고 `items[].status`(`ok` / `error`)와 `items[].code`(예: `MEDIA_TYPE_NOT_ALLOWED`)로 알려 줍니다. 브라우저 사전 형식 검사(#58 정은 제안)는 그대로 하고, 서버도 다시 검사합니다.
+- **완료 통지(`POST /media`)에 `child_links`·`llm_allowed`를 함께 싣고 `PUT /media/{media_id}/child-links`는 없앱니다.** 귀속은 업로드 전 로컬에서 확정되고 서버에서 바뀌지 않습니다(테크스펙 파이프라인 2단계, `UnclassifiedItem`은 서버 도달 뒤 사유만). 전체 교체 규칙(본문 child-links 절)은 완료 통지에 그대로 옮깁니다. 같은 `client_photo_id`를 다시 보내면 기존 `media_id`를 `200`으로 돌려주는 규칙도 그대로입니다.
+- 바뀌면 같이 고칠 곳: 정은 님 `SendStep`(서버 전송), 송유진 님 media 목(`mocks/handlers/media.ts`), 테크스펙 흐름 표 C의 "마지막 **귀속 저장**이 끝나면 `POST /jobs`" → "마지막 **완료 통지(ack)**를 받으면"(#61), agents.md `MEDIA_NOT_READY`의 `attributed_at` 조건.
+
+### 2. 영상·음성메모 귀속 (정은과 함께, 테크스펙 변경 필요)
+
+- **영상**: 사진처럼 교사가 아이를 고릅니다(`method: "manual"`, 여러 명 가능). LLM 허용은 사진과 같은 확인 체크를 따릅니다.
+- **음성메모**: 귀속을 붙일 예정이지만, AI 쪽에서 음성 근거를 어떻게 쓸지 결론이 나지 않았습니다. 정해지기 전까지 빈 귀속(`child_links: []`, 서버에 미분류)으로 올립니다.
+- 충돌: 테크스펙 데이터 모델 ⑧(09/14)과 `frontend/CLAUDE.md` §온디바이스는 "영상·음성메모는 로컬 분류·검수 없이 업로드 큐만"입니다. 영상 수동 귀속을 하려면 테크스펙을 먼저 고쳐야 합니다. 지금 FE 코드(업로드 큐, 수동 분류)는 테크스펙대로 사진만 검수합니다.
+
+### 3. `llm_allowed`와 동의 철회 (정은과 함께)
+
+- 제안 (b): 동의를 철회한 원아의 사진은 저장된 `llm_allowed`를 덮어쓰지 않고, `collect_media_for_llm`(#34)이 근거를 모을 때마다 귀속 원아 **전원**의 ③ 동의를 다시 확인해 한 명이라도 유효하지 않으면 뺍니다. 철회 처리가 중간에 실패해도 사진이 새지 않고, 재동의하면 되살아납니다.
+- 남은 것: 저장할 `llm_allowed`를 서버가 계산할지(본문 [확인 필요: 김동건·정은]).
+
+### 4. 얼굴 정보 등록의 동의 확인과 파기 기록 (이한나·한상균과 함께)
+
+- 등록 전 ③ 동의 확인: 동의 판정은 organization이 맡습니다(`get_consented_children`, #31). 미동의 원아의 등록을 막을 에러 코드와, 화면의 동의·등록 상태를 받을 `GET /children/{child_id}` 확장 필드(organization 경로만)가 필요합니다. 동의 주체는 학부모(앱)로 바뀌었습니다(#39, FR-28).
+- 삭제의 `DeletionLog` 사유·대상 코드: #74에서 확인 중입니다.
+- 얼굴 정보 삭제 확인 화면의 "동의 철회"(`POST /children/{child_id}/consents/revoke`)를 교사도 부를 수 있는지는 FR-22 철회 주체 질문(`docs/open-questions.md`)과 같습니다.
+
+### 5. 재생 URL 서명 함수 (한상균과 함께)
+
+- documents용 `get_playback_url`(한 건씩, 서명·만료 없음)을 `get_signed_urls(media_ids)`로 바꾸고 `{media_id, type, url, url_expires_at}`를 돌려주자고 제안합니다. 비공개 S3에서는 서명 없는 URL을 쓸 수 없습니다. #32에서 `get_playback_url`을 안내했으므로 바뀌면 다시 알립니다.
+- 만료: 업로드 PUT은 짧게, 재생 GET은 길게. 영상은 재생 중 Range 요청을 계속 보내므로 만료가 짧으면 중간에 끊깁니다. 값은 미정입니다.

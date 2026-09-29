@@ -7,7 +7,7 @@
 - 확정 화면을 담당 순서대로 한 줄씩 적었습니다. 후보 A는 따로 세지 않습니다.
 - 교사 화면의 공통 헤더(선생님 이름, 어린이집·반)는 레이아웃이 `GET /me`, `GET /classes`로 그리므로 표에서 뺐습니다.
 - 모달·드롭다운은 그 화면을 띄운 화면의 호출을 같이 씁니다. 표에는 그 화면에서 더 부르는 것만 적었습니다.
-- 단계: 상세 작성 / 경로만 / 둘 다(상세 작성과 경로만을 함께 씀) / API 없음(브라우저 안에서 끝남) / API 없음(정적)
+- 단계: 상세 작성 / 경로만 / 둘 다(상세 작성과 경로만을 함께 씀) / 제안(도메인 파일 하단 §상의 필요에만 있음) / API 없음(브라우저 안에서 끝남) / API 없음(정적)
 
 | 담당 | 화면 | 쓰는 API | 단계 |
 |---|---|---|---|
@@ -45,13 +45,15 @@
 | ③ 정은 | 처리 실패 · 단계 재시도 | `GET /jobs/{job_id}`(실패한 단계), `POST /jobs/{job_id}/retry` | 둘 다 |
 | ③ 정은 | 직접 작성 | `GET /classes/{class_id}/children`·`GET /classes/{class_id}/drafts?record_date=`(기록 없는 아이), `POST /children/{child_id}/drafts`(초안·임시저장), `POST /drafts/{draft_id}/approve`(저장하고 승인하기) | 둘 다 |
 | ③ 정은 | 대시보드 | `GET /classes/{class_id}/drafts?record_date=`(승인 완료·기록 전), `GET /classes/{class_id}/children`(명단, 동의·얼굴 필드는 확장(경로만)), `GET /classes/{class_id}/jobs?record_date=`(오늘의 기록 이어하기) | 둘 다 |
-| ④ 김동건 | 얼굴 분류 · 결과 확인 | `GET /classes/{class_id}/children`("전체 5명"), `GET /media/{media_id}/transcript-segments`(발화 표시). 분류 자체는 브라우저 안에서. 귀속과 `llm_allowed`(확인 체크)는 서버 전송 때 보냄 | 둘 다 |
-| ④ 김동건 | 수동 분류 / 사진 | `GET /classes/{class_id}/children`(원아 선택지). 귀속은 서버 전송 때 보냄 | 상세 작성 |
-| ④ 김동건 | 수동 분류 / 발화 | `GET /classes/{class_id}/children`, `GET /media/{media_id}/transcript-segments`, `PATCH /transcript-segments/{segment_id}` | 둘 다 |
-| ④ 김동건 | 추가 근거 작성 | `GET /classes/{class_id}/children`(연결할 아이), (목록에 없음: 교사가 쓴 관찰 메모를 근거로 저장) | 상세 작성 |
-| ④ 김동건 | 하루 정리 확인 | `GET /jobs/{job_id}/daily-routines`, `POST /jobs/{job_id}/resume`(초안 만들기), `GET /classes/{class_id}/children`("2 / 5명 확인") | 둘 다 |
-| ④ 김동건 | 얼굴 정보 등록 | `GET /children/{child_id}`(동의·등록 상태), `PUT /children/{child_id}/face-embedding` | 경로만 |
-| ④ 김동건 | 얼굴 정보 삭제 확인 | 얼굴 정보 등록의 호출 그대로, `DELETE /children/{child_id}/face-embedding`, `POST /children/{child_id}/consents/revoke`(동의 철회) | 경로만 |
+| ④ 김동건 | 얼굴 분류 · 결과 확인 | `GET /classes/{class_id}/children`("전체 5명"), 추가 근거 표시는 `GET /classes/{class_id}/evidence?record_date=`(제안, agents.md 하단). 분류 자체는 브라우저 안에서. 귀속과 `llm_allowed`(확인 체크)는 서버 전송 때 보냄. 발화는 업로드 뒤 서버 STT가 만들어서 이 화면에서 보이지 않음 | 둘 다 |
+| ④ 김동건 | 수동 분류 / 사진 | `GET /classes/{class_id}/children`(원아 선택지). 귀속은 서버 전송 때 보냄. 아이 카드의 사진을 눌러 아이를 바꾸는 화면(Figma 없음)도 같은 호출 | 상세 작성 |
+| ④ 김동건 | 수동 분류 / 발화 | 숨김. 업로드 전 로컬 검수 화면이라 발화가 아직 없음(`transcript-segments`는 쓰는 화면 미정) | API 없음(숨김) |
+| ④ 김동건 | 추가 근거 작성 | `GET /classes/{class_id}/children`(연결할 아이), `GET /classes/{class_id}/evidence?record_date=`·`PUT /children/{child_id}/evidence/{record_date}`(제안, agents.md 하단) | 제안 |
+| ④ 김동건 | 하루 정리 입구(Figma 없음) | `GET /classes/{class_id}/daily-routines?record_date=`(제안, agents.md 하단). 명단 첫 아이의 하루 정리로 보냄 | 제안 |
+| ④ 김동건 | 하루 정리 확인 | `GET /classes/{class_id}/daily-routines?record_date=`, `PATCH /children/{child_id}/daily-routines/{record_date}/scenes/{scene_id}`(장면 빼기), "초안 만들기"는 `POST /classes/{class_id}/jobs`에 `kind: "draft"`(모두 제안, agents.md 하단), `GET /classes/{class_id}/children` | 제안 |
+| ④ 김동건 | 임시 처리 화면(Figma 없음, 임시) | 서버 전송의 호출 그대로, `POST /classes/{class_id}/jobs`에 `kind: "summary"`·`"draft"`, `GET /jobs/{job_id}`. ③ 처리 중 화면에 정리 단계가 붙으면 지움 | 제안 |
+| ④ 김동건 | 얼굴 정보 등록 | `PUT /children/{child_id}/face-embedding`(상세 작성, 임시 결정(김동건)), `GET /children/{child_id}`(동의·등록 상태, 경로만) | 둘 다 |
+| ④ 김동건 | 얼굴 정보 삭제 확인 | 얼굴 정보 등록의 호출 그대로, `DELETE /children/{child_id}/face-embedding`(상세 작성, 임시 결정(김동건)), `POST /children/{child_id}/consents/revoke`(동의 철회, 경로만) | 둘 다 |
 | ⑤ 김진하 | 초안 검토 / 왼쪽 원아 목록 | `GET /classes/{class_id}/children`·`GET /classes/{class_id}/drafts`(레일), `GET /drafts/{draft_id}`, `PATCH /drafts/{draft_id}`, `GET /media/{media_id}`(URL 만료 시), `POST /drafts/{draft_id}/revision-requests`(AI에게 다듬기 요청). "사진과 본문을 확인했어요" 체크는 승인 확인 모달의 `POST /drafts/{draft_id}/approve`에 `reviewed`로 들어감 | 둘 다 |
 | ⑤ 김진하 | 승인 확인 모달 | 초안 검토 / 왼쪽 원아 목록의 호출 그대로, `POST /drafts/{draft_id}/approve`, `POST /drafts/{draft_id}/reopen`(게시 전까지 다시 검토) | 둘 다 |
 | ⑤ 김진하 | 알림장 올리기 | `GET /classes/{class_id}/children`, `GET /classes/{class_id}/drafts`, `GET /drafts/{draft_id}`(미리보기), `POST /publications`, 학부모 알림 발송은 `POST /publications` 확장(경로만) | 둘 다 |
@@ -68,7 +70,7 @@
 - **계정 · 설정**: 알림 설정 3개(초안 준비 완료 알림, 학부모 확인 알림, 주간 요약 메일)를 읽고 저장할 곳. `GET /me`·`PATCH /me`에 넣을지 정해야 합니다. (auth)
 - **학부모 초대 링크**: 지금 쓰는 초대 링크 조회. "초대 링크 복사"에 필요합니다. 경로만 정한 API에는 만들기(`POST`)만 있습니다. (organization)
 - **원아 개인 페이지**: 이번 달 기록 수와 누리과정 5영역별 기록 수. (documents)
-- **추가 근거 작성**: 교사가 쓴 관찰 메모(연결할 아이, 활동 시각, 음성, 관련 사진)를 그날 근거로 저장. (agents 또는 media · face)
+- **추가 근거 작성**: 교사가 쓴 관찰 메모(연결할 아이, 활동 시각, 음성, 관련 사진)를 그날 근거로 저장. (agents 또는 media · face) → 글만 받는 모양으로 제안: agents.md 하단 §상의 필요 2
 - **알림장 상세**: 게시한 알림장의 "수정하기". `reopen`은 게시 전까지만 적혀 있습니다. (documents)
 - **관찰일지 목록**: 반 전체 관찰일지를 기간(이번 주·이번 달·전체)으로 한 번에 받는 목록. 경로만 정한 API에는 원아별 목록만 있습니다. (documents)
 
@@ -81,3 +83,14 @@
 - [ ] 로그인 화면을 학부모와 함께 쓸 때의 문구(로그인 후보 A는 교사 전용 문구)
 - [ ] 디자인 빈 곳: 게시 부분 실패, 열람 기간 종료(`CHILD_ACCESS_EXPIRED`), 학부모용 접근 권한 없음, 교사 초안의 `title`과 제목 없는 W4
 - [ ] 상세 작성 범위 밖이라 숨길 UI: 비밀번호 찾기·회원가입, "사진 없이 직접 기록하기", "+ 추가 근거 작성", "직접 기록 →", "AI에게 다듬기 요청", "학부모 알림 발송", "게시판에서 확인"
+
+---
+
+## 상의 필요 — 김동건 (④ 화면)
+
+> 위 체크리스트는 송유진 님 항목이라 닫지 않았습니다. ④ 화면을 만들며 걸린 것만 적습니다.
+
+- "발화 N개" → "음성 N개": FE 분류 결과 화면은 이미 "사진 N장 · 영상 N개 · 음성 N개"로 셉니다. 확정되면 위 항목을 닫아 주세요.
+- "얼굴 가림" 문구: 분류 결과의 확인 체크 문구가 아직 "아이 분류와 얼굴 가림을 확인했어요"입니다. 블러 폐기(09/13)와 맞지 않아 바꿀 문구가 필요합니다.
+- 숨길 UI의 "+ 추가 근거 작성"·"직접 기록 →": FE는 지금 보여 줍니다. 추가 근거는 agents.md 하단 제안이 채택되면 남기고, 아니면 숨깁니다. "직접 기록 →"은 ③ 직접 작성 화면(정은)이 생기면 이어집니다.
+- 하루 정리 입구·임시 처리 화면은 Figma에 없는 화면입니다. 처리 중 화면(③)에서 하루 정리로 넘어가는 자리가 Figma에 없어 둔 것입니다.
