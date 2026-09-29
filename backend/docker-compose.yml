@@ -5,6 +5,9 @@ services:
   # 설정은 Caddyfile, 발급받은 인증서는 caddy_data 볼륨에 있습니다.
   caddy:
     image: caddy:2.10-alpine
+    # Caddyfile이 {$PUBLIC_HOST}로 읽습니다. 값이 비면 Caddy가 기동에 실패합니다.
+    env_file:
+      - .env
     ports:
       - "80:80"
       - "443:443"
