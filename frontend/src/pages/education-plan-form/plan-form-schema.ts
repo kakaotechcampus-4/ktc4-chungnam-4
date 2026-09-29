@@ -1,7 +1,13 @@
 import { z } from "zod";
 
 import { WEEKDAYS } from "@/features/organization/labels";
-import type { DateOnly } from "@/lib/datetime";
+import {
+  type DateOnly,
+  firstDayOfMonth,
+  isoWeekday,
+  lastDayOfMonth,
+  shiftDate,
+} from "@/lib/datetime";
 import type {
   EducationPlan,
   EducationPlanRequest,
@@ -51,40 +57,15 @@ export const planFormSchema = z
 export type PlanFormInput = z.input<typeof planFormSchema>;
 export type PlanFormValues = z.output<typeof planFormSchema>;
 
-// DateOnly를 UTC 자정으로 읽고 UTC 기준으로 계산합니다. 기기 시간대가 끼어들지 않습니다.
-function parseUtc(date: DateOnly) {
-  const [year = 0, month = 1, day = 1] = date.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day));
-}
-
-function toDateOnly(value: Date): DateOnly {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${value.getUTCFullYear()}-${pad(value.getUTCMonth() + 1)}-${pad(value.getUTCDate())}`;
-}
-
-function addDays(date: DateOnly, days: number): DateOnly {
-  const value = parseUtc(date);
-  value.setUTCDate(value.getUTCDate() + days);
-  return toDateOnly(value);
-}
-
 /** 주간은 today가 속한 주의 월~금, 월간은 그달 1일~말일 */
 export function defaultPeriod(planType: PlanType, today: DateOnly) {
-  const value = parseUtc(today);
   if (planType === "weekly") {
-    // getUTCDay: 일 0 ~ 토 6. 주말(토·일)에는 끝난 주 대신 다가오는 주를 잡습니다.
-    const weekday = value.getUTCDay();
-    const monday =
-      weekday === 6
-        ? addDays(today, 2)
-        : weekday === 0
-          ? addDays(today, 1)
-          : addDays(today, 1 - weekday);
-    return { start_date: monday, end_date: addDays(monday, 4) };
+    // 월 1 ~ 일 7. 주말(토·일)에는 끝난 주 대신 다가오는 주를 잡습니다.
+    const weekday = isoWeekday(today);
+    const monday = shiftDate(today, weekday >= 6 ? 8 - weekday : 1 - weekday);
+    return { start_date: monday, end_date: shiftDate(monday, 4) };
   }
-  const first = new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), 1));
-  const last = new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth() + 1, 0));
-  return { start_date: toDateOnly(first), end_date: toDateOnly(last) };
+  return { start_date: firstDayOfMonth(today), end_date: lastDayOfMonth(today) };
 }
 
 const EMPTY_DAILY: Record<Weekday, string> = { mon: "", tue: "", wed: "", thu: "", fri: "" };
