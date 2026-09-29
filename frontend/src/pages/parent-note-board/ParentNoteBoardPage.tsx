@@ -1,4 +1,4 @@
-// Figma: 99:386 (알림장 아이 명단)
+// Figma: 140:4015 (알림장 게시판 · 원아 명단)
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 

@@ -1,4 +1,4 @@
-// Figma: 53:507 (알림장 상세)
+// Figma: 140:4104 (알림장 상세)
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
