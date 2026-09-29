@@ -32,4 +32,18 @@ describe("ParentNoteDetailPage", () => {
     // 제목에도 "모래 놀이터"가 있어서 본문에만 있는 문구로 확인합니다.
     expect(await screen.findByText(/조개껍데기를 하나씩 모았어요/)).toBeInTheDocument();
   });
+
+  // 오늘은 게시본이 없어도 이동 대상에 들어갑니다. 과거로 간 뒤 돌아올 길이 없으면 안 됩니다.
+  it("과거로 옮긴 뒤 다음 기록으로 오늘에 돌아올 수 있다", async () => {
+    const user = userEvent.setup();
+    renderDetail();
+    await screen.findByText("이 날짜에는 게시된 알림장이 없어요.");
+
+    await user.click(screen.getByRole("button", { name: "이전 기록" }));
+    await screen.findByText(/조개껍데기를 하나씩 모았어요/);
+
+    await user.click(screen.getByRole("button", { name: "다음 기록" }));
+
+    expect(await screen.findByText("이 날짜에는 게시된 알림장이 없어요.")).toBeInTheDocument();
+  });
 });

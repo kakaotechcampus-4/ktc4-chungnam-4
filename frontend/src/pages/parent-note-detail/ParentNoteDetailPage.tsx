@@ -58,11 +58,13 @@ export function ParentNoteDetailPage() {
     );
   }
 
-  // 목록이 최신순이라, 앞에서 찾으면 가장 가까운 과거·미래 날짜가 됩니다.
-  const prevDate = notes.find((note) => note.record_date < selectedDate)?.record_date;
-  const nextDate = [...notes]
-    .reverse()
-    .find((note) => note.record_date > selectedDate)?.record_date;
+  // 게시본이 있는 날짜에 오늘을 더해 최신순으로 둡니다.
+  // 오늘은 게시본이 없어도 이동 대상에 넣어야 과거로 간 뒤 다시 오늘로 돌아올 수 있습니다.
+  const movableDates = [...new Set([kstToday(), ...notes.map((note) => note.record_date)])].sort(
+    (a, b) => b.localeCompare(a),
+  );
+  const prevDate = movableDates.find((date) => date < selectedDate);
+  const nextDate = [...movableDates].reverse().find((date) => date > selectedDate);
 
   const draft = draftQuery.data;
   const photos: MediaUrl[] = draft
