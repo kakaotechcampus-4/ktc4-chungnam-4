@@ -4,6 +4,7 @@ import { Flower, Flower2, Plus, Sprout, Star, Sun, type LucideIcon } from "lucid
 import { Link, useNavigate } from "react-router";
 
 import { assignClass, organizationKeys, setClassFavorite } from "@/api/organization";
+import { selectClass } from "@/features/class-context/current-class-store";
 import { useTeacherCenter } from "@/features/organization/use-teacher-center";
 import { cn } from "@/lib/utils";
 import type { ClassSummary } from "@/types/api-draft/organization";
@@ -40,7 +41,9 @@ export function OnboardingClassSelectPage() {
   // 반을 고르면 그 반의 담임으로 배정한 뒤 들어갑니다.
   const assign = useMutation({
     mutationFn: assignClass,
-    onSuccess: async () => {
+    onSuccess: async (_saved, classId) => {
+      // 고른 반을 현재 반으로 둡니다(#85).
+      selectClass(classId);
       await refreshClasses();
       navigate("/t/today");
     },

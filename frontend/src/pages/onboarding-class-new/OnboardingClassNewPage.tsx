@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { selectClass } from "@/features/class-context/current-class-store";
 import { AGE_BAND_LABELS } from "@/features/organization/labels";
 import { useTeacherCenter } from "@/features/organization/use-teacher-center";
 import { cn } from "@/lib/utils";
@@ -47,7 +48,9 @@ export function OnboardingClassNewPage() {
 
   const create = useMutation({
     mutationFn: createClass,
-    onSuccess: async () => {
+    onSuccess: async (created) => {
+      // 만든 반을 현재 반으로 둡니다(#85).
+      selectClass(created.class_id);
       await queryClient.invalidateQueries({ queryKey: organizationKeys.classes() });
       navigate("/t/children/new");
     },

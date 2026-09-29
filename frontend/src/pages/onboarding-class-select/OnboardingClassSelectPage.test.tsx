@@ -2,6 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 
+import { useCurrentClassStore } from "@/features/class-context/current-class-store";
 import { fixtureId } from "@/mocks/fixtures/ids";
 
 import { apiPath, listResponse } from "@/mocks/http";
@@ -15,6 +16,8 @@ function renderPage() {
 }
 
 describe("OnboardingClassSelectPage", () => {
+  afterEach(() => useCurrentClassStore.setState({ selectedClassId: null }));
+
   it("즐겨찾기한 반을 먼저 보여 주고 끝에 반 추가하기를 둔다", async () => {
     renderPage();
 
@@ -54,6 +57,8 @@ describe("OnboardingClassSelectPage", () => {
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/t/today"));
     expect(assigned).toEqual([fixtureId("class", 3)]);
+    // 고른 반이 현재 반이 됩니다(#85).
+    expect(useCurrentClassStore.getState().selectedClassId).toBe(fixtureId("class", 3));
   });
 
   it("반이 없으면 반 추가하기 카드만 보여 준다", async () => {

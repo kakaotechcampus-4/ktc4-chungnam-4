@@ -2,6 +2,7 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http } from "msw";
 
+import { useCurrentClassStore } from "@/features/class-context/current-class-store";
 import { apiPath, errorResponse } from "@/mocks/http";
 import { server } from "@/mocks/server";
 import { renderRoutes } from "@/test/render";
@@ -27,6 +28,8 @@ async function fillForm() {
 }
 
 describe("OnboardingClassNewPage", () => {
+  afterEach(() => useCurrentClassStore.setState({ selectedClassId: null }));
+
   it("반을 만들면 원아 추가로 간다", async () => {
     const { router } = renderPage();
 
@@ -34,6 +37,8 @@ describe("OnboardingClassNewPage", () => {
 
     expect(await screen.findByText("원아 추가")).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/t/children/new");
+    // 만든 반이 현재 반이 됩니다(#85).
+    expect(useCurrentClassStore.getState().selectedClassId).not.toBeNull();
   });
 
   it("만들기에 실패하면 서버 문구를 보여 주고 머문다", async () => {
