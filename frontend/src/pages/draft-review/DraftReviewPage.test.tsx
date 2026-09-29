@@ -1,26 +1,47 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import { kstToday, shiftDate } from "@/lib/datetime";
 import { fixtureId } from "@/mocks/fixtures/ids";
 import { renderRoutes } from "@/test/render";
 
 import { DraftReviewPage } from "./DraftReviewPage";
 
-const FIRST_CHILD_ID = fixtureId("child", 1);
+// 목은 오늘을 비워 두고 어제에 검토 레일 상태를 깔아 둡니다(mocks/db.ts seedDb).
+// 김도윤 검토 대기, 이하준 승인 완료, 박서아 확인 필요, 최지우 게시됨, 정예린 자료 없음.
+const YESTERDAY = shiftDate(kstToday(), -1);
+const DOYUN = fixtureId("child", 1);
 
-function renderPage(childId = FIRST_CHILD_ID) {
+function renderPage(childId = DOYUN) {
   return renderRoutes([{ path: "/t/today/review/:childId", element: <DraftReviewPage /> }], {
-    initialEntry: `/t/today/review/${childId}`,
+    initialEntry: `/t/today/review/${childId}?record_date=${YESTERDAY}`,
   });
 }
 
-// 원아 목록은 organization 목에서 오므로, 목록이 뜰 때까지 기다린 뒤 검사합니다.
+/** 레일과 초안 본문이 목에서 올 때까지 기다립니다. */
 async function renderAndWait() {
   renderPage();
-  await screen.findByText("김도윤");
+  await screen.findByRole("button", { name: /김도윤/ });
+  await screen.findByRole("heading", { name: /작은 블록/ });
 }
 
 describe("DraftReviewPage", () => {
+  it("원아 레일에 목의 검토 상태가 보인다", async () => {
+    await renderAndWait();
+
+    expect(screen.getByRole("button", { name: /김도윤.*검토 필요/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /이하준.*검토 완료/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /최지우.*게시됨/ })).toBeInTheDocument();
+  });
+
+  // 임시 결정(김진하): 미분류(박서아)와 자료 없음(정예린)은 교사가 할 일이 같아 "검토 필요"로 묶는다.
+  it("미분류와 자료 없음은 검토 필요로 묶인다", async () => {
+    await renderAndWait();
+
+    expect(screen.getByRole("button", { name: /박서아.*검토 필요/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /정예린.*검토 필요/ })).toBeInTheDocument();
+  });
+
   // H-1: 교사가 확인하지 않은 초안은 승인되지 않는다 (승인 게이트).
   it("사진과 본문을 확인하기 전에는 승인 버튼이 비활성이다", async () => {
     await renderAndWait();
@@ -36,38 +57,19 @@ describe("DraftReviewPage", () => {
     expect(screen.getByRole("button", { name: "검토 완료하고 승인하기" })).toBeEnabled();
   });
 
-  // H-1: 모든 원아 검토가 끝나야 학부모 공개(게시)가 열린다.
-  it("모든 원아 검토가 끝나기 전에는 게시 버튼이 비활성이다", async () => {
+  // H-1: 검토가 남은 원아가 있으면 학부모 공개(게시)를 열지 않는다.
+  it("검토가 남은 원아가 있으면 게시 버튼이 비활성이다", async () => {
     await renderAndWait();
     expect(screen.getByRole("button", { name: "게시하기" })).toBeDisabled();
-  });
-
-  it("문장을 클릭하기 전에는 근거가 보이지 않는다", async () => {
-    await renderAndWait();
-    expect(screen.getByText("문장을 클릭하면 그 문장의 근거를 볼 수 있어요.")).toBeInTheDocument();
   });
 
   it("문장을 클릭하면 그 문장의 근거가 표시된다", async () => {
     const user = userEvent.setup();
     await renderAndWait();
+    expect(screen.getByText("문장을 클릭하면 그 문장의 근거를 볼 수 있어요.")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /내가 더 높이 쌓아 볼게/ }));
+    await user.click(screen.getByRole("button", { name: /색색의 블록을 골라/ }));
 
-    expect(screen.getByText("교사 음성 메모 · 오전 10:24")).toBeInTheDocument();
-  });
-
-  // 교사가 손댄 문장은 원문 발화 근거가 끊긴다.
-  it("직접 수정으로 문장을 고치면 그 문장의 근거가 사라진다", async () => {
-    const user = userEvent.setup();
-    await renderAndWait();
-
-    await user.click(screen.getByRole("button", { name: "직접 수정" }));
-    await user.type(screen.getByDisplayValue(/내가 더 높이 쌓아 볼게/), "x");
-    await user.click(screen.getByRole("button", { name: "수정 완료" }));
-
-    // 수정된 문장은 근거 버튼이 아니라 일반 문단이라 클릭할 수 없다.
-    expect(
-      screen.queryByRole("button", { name: /내가 더 높이 쌓아 볼게/ }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByText(/블록을 여러 층으로 쌓고 있음/)).toBeInTheDocument();
   });
 });

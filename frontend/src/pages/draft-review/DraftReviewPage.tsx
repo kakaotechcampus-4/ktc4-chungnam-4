@@ -1,135 +1,198 @@
 // Figma: 53:294 (초안 검토 / 왼쪽 원아 목록)
-import { useQuery } from "@tanstack/react-query";
-import { CheckIcon, X } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Plus } from "lucide-react";
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 
+import {
+  approveDraft,
+  classDraftsQueryOptions,
+  documentsKeys,
+  draftQueryOptions,
+  patchDraft,
+  publishParentNotes,
+} from "@/api/documents";
 import { classChildrenQueryOptions } from "@/api/organization";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
+import { formatDate, kstToday } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
+import type { ClassDraftItem } from "@/types/api-draft/documents";
+import type { MediaUrl } from "@/types/api-draft/media";
 
+import { EvidencePanel } from "./components/EvidencePanel";
 import { PublishConfirmDialog } from "./components/PublishConfirmDialog";
+import { RosterList, type RosterRow, type RosterState } from "./components/RosterList";
 
-interface DraftSentence {
-  id: string;
-  text: string;
-  // 문장별 근거입니다. 실제로는 SentenceEvidence(미디어·타임스탬프·원문)로 받습니다.
-  evidence: { timestamp: string; source: string };
-}
-
-// 교사가 문장을 고치면 원문 발화 근거가 더 이상 보장되지 않으므로 근거를 끊습니다(edited).
-interface EditableSentence extends DraftSentence {
-  edited: boolean;
-}
-
-const DRAFT = {
-  title: "작은 블록으로 큰 세상을 만들었어요",
-  photoCount: 3,
-  activityName: "알록달록 블록 놀이",
-};
-
-// 선택한 아이의 초안 예시입니다. 실제로는 childId로 조회합니다.
-const SOURCE_SENTENCES: DraftSentence[] = [
-  {
-    id: "s1",
-    text: "도윤이는 색색의 블록을 골라 차곡차곡 쌓아 보았어요. 높이가 달라지는 모습을 살피며 여러 번 다시 도전했답니다.",
-    evidence: { timestamp: "▶  00:05부터 보기", source: "활동 영상 · 오전 10:22" },
-  },
-  {
-    id: "s2",
-    text: "“내가 더 높이 쌓아 볼게!”라고 말하며 블록을 올렸어요.",
-    evidence: { timestamp: "▶  00:18부터 듣기", source: "교사 음성 메모 · 오전 10:24" },
-  },
-  {
-    id: "s3",
-    text: "놀이가 끝난 뒤에는 사용한 블록을 바구니에 함께 정리했어요.",
-    evidence: { timestamp: "▶  00:41부터 보기", source: "활동 영상 · 오전 10:31" },
-  },
-];
-
-function makeSentences(): EditableSentence[] {
-  return SOURCE_SENTENCES.map((sentence) => ({ ...sentence, edited: false }));
+// 미분류·자료 없음은 "검토 필요"로 묶습니다 — 임시 결정(김진하), docs/api/documents.md §레일·목록 표기.
+function toRosterState(item: ClassDraftItem | undefined): RosterState {
+  if (item?.parent_note) {
+    if (item.parent_note.published_at !== null) return "published";
+    if (item.parent_note.status === "approved") return "approved";
+  }
+  return "pending";
 }
 
 export function DraftReviewPage() {
   const { childId } = useParams<{ childId: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  // 기본은 오늘입니다. 지난 날짜는 ?record_date=YYYY-MM-DD로 봅니다(목 데이터 확인용).
+  const recordDate = searchParams.get("record_date") ?? kstToday();
 
   const { currentClass, isPending: classPending, isError: classError } = useCurrentClass();
+  const classId = currentClass?.class_id ?? "";
   const childrenQuery = useQuery({
-    ...classChildrenQueryOptions(currentClass?.class_id ?? ""),
-    enabled: currentClass != null,
+    ...classChildrenQueryOptions(classId),
+    enabled: classId !== "",
+  });
+  const draftsQuery = useQuery({
+    ...classDraftsQueryOptions(classId, recordDate),
+    enabled: classId !== "",
   });
 
-  const [reviewedIds, setReviewedIds] = useState<Set<string>>(() => new Set());
   const [confirmed, setConfirmed] = useState(false);
-  const [sentences, setSentences] = useState<EditableSentence[]>(makeSentences);
-  const [isEditing, setIsEditing] = useState(false);
-  const [selectedSentenceId, setSelectedSentenceId] = useState<string | null>(null);
+  const [selectedSentenceIndex, setSelectedSentenceIndex] = useState<number | null>(null);
+  /** 편집 중인 문장 텍스트(sentence_index → text). null이면 읽기 모드 */
+  const [editing, setEditing] = useState<Record<number, string> | null>(null);
+  /** 이번 검토에서 교사가 직접 고친 문장. 근거를 더 이상 보여 주지 않습니다. */
+  const [editedIndexes, setEditedIndexes] = useState<Set<number>>(() => new Set());
   const [publishOpen, setPublishOpen] = useState(false);
 
   const children = childrenQuery.data ?? [];
-  const isLoading = classPending || (currentClass != null && childrenQuery.isPending);
-  const isError = classError || childrenQuery.isError;
+  const draftItems = draftsQuery.data ?? [];
+  const rows: RosterRow[] = children.map((child) => {
+    const item = draftItems.find((draft) => draft.child_id === child.child_id);
+    return { child, note: item?.parent_note ?? null, state: toRosterState(item) };
+  });
 
-  if (isLoading) {
-    return (
-      <>
-        <PageHeader eyebrow="오늘의 기록  /  초안 검토" title="오늘의 기록을 완성해요" />
-        <p className="text-body text-ink-muted">원아 목록을 불러오는 중이에요.</p>
-      </>
-    );
-  }
-  if (isError) {
-    return (
-      <>
-        <PageHeader eyebrow="오늘의 기록  /  초안 검토" title="오늘의 기록을 완성해요" />
-        <p className="text-body text-ink-muted">원아 목록을 불러오지 못했어요.</p>
-      </>
-    );
-  }
+  const selectedChildId = childId ?? rows[0]?.child.child_id ?? "";
+  const selectedRow = rows.find((row) => row.child.child_id === selectedChildId);
+  const draftId = selectedRow?.note?.draft_id ?? "";
+  const draftQuery = useQuery({ ...draftQueryOptions(draftId), enabled: draftId !== "" });
+  const draft = draftQuery.data;
 
-  const selectedId = childId ?? children[0]?.child_id;
-  const selected = children.find((child) => child.child_id === selectedId);
-  if (!selected) return null;
-
-  const selectedChildId = selected.child_id;
-  const isSelectedReviewed = reviewedIds.has(selectedChildId);
-  const reviewedCount = reviewedIds.size;
-  const allReviewed =
-    children.length > 0 && children.every((child) => reviewedIds.has(child.child_id));
-  const selectedSentence =
-    sentences.find((sentence) => sentence.id === selectedSentenceId && !sentence.edited) ?? null;
-
-  function approveSelected() {
-    setReviewedIds((prev) => new Set(prev).add(selectedChildId));
+  function resetDraftState() {
     setConfirmed(false);
+    setSelectedSentenceIndex(null);
+    setEditing(null);
+    setEditedIndexes(new Set());
   }
+
+  const approveMutation = useMutation({
+    mutationFn: (input: { draftId: string; version: number }) =>
+      // "사진과 본문을 확인했어요" 체크가 reviewed로 들어갑니다(H-1 승인 게이트).
+      approveDraft(input.draftId, { expected_version: input.version, reviewed: true }),
+    onSuccess: async (updated) => {
+      setConfirmed(false);
+      queryClient.setQueryData(documentsKeys.draft(updated.draft_id), updated);
+      await queryClient.invalidateQueries({
+        queryKey: documentsKeys.classDrafts(classId, recordDate),
+      });
+    },
+  });
+
+  const patchMutation = useMutation({
+    mutationFn: (input: {
+      draftId: string;
+      version: number;
+      sentences: { sentence_index: number; text: string }[];
+    }) =>
+      patchDraft(input.draftId, { expected_version: input.version, sentences: input.sentences }),
+    onSuccess: async (updated, input) => {
+      queryClient.setQueryData(documentsKeys.draft(updated.draft_id), updated);
+      setEditedIndexes((prev) => {
+        const next = new Set(prev);
+        for (const sentence of input.sentences) next.add(sentence.sentence_index);
+        return next;
+      });
+      setEditing(null);
+      await queryClient.invalidateQueries({
+        queryKey: documentsKeys.classDrafts(classId, recordDate),
+      });
+    },
+  });
+
+  const publishMutation = useMutation({
+    mutationFn: (items: { draft_id: string; expected_version: number }[]) =>
+      publishParentNotes({ request_id: crypto.randomUUID(), include_photos: true, items }),
+    onSuccess: (response) => {
+      const published = response.results.filter((result) => result.status === "published").length;
+      navigate("/t/notes/publish/done", { state: { publishedCount: published } });
+    },
+  });
+
+  if (classPending) {
+    return (
+      <>
+        <PageHeader eyebrow="오늘의 기록  /  초안 검토" title="오늘의 기록을 완성해요" />
+        <p className="text-body text-ink-muted">반 정보를 불러오는 중이에요.</p>
+      </>
+    );
+  }
+  if (classError || childrenQuery.isError || draftsQuery.isError) {
+    return (
+      <>
+        <PageHeader eyebrow="오늘의 기록  /  초안 검토" title="오늘의 기록을 완성해요" />
+        <p className="text-body text-ink-muted">기록을 불러오지 못했어요.</p>
+      </>
+    );
+  }
+
+  const klassName = currentClass?.name ?? "";
+  const selectedSentence =
+    draft?.sentences.find((sentence) => sentence.sentence_index === selectedSentenceIndex) ?? null;
+  const photos: MediaUrl[] = draft
+    ? draft.selected_media_ids
+        .map((id) => draft.media.find((media) => media.media_id === id))
+        .filter((media): media is MediaUrl => media !== undefined && media.type === "photo")
+    : [];
+
+  // 승인은 검증을 마친 초안만(목·API 문서 규칙). 게시는 검토가 남은 원아가 없을 때만 엽니다.
+  const canApprove = draft?.status === "verified";
+  const publishable = rows.flatMap((row) =>
+    row.note && row.state === "approved"
+      ? [{ draft_id: row.note.draft_id, expected_version: row.note.version }]
+      : [],
+  );
+  // 초안이 있는데 아직 승인하지 않은 원아가 있으면 게시를 막습니다.
+  // 초안이 없는 원아(자료 없음·미분류)는 승인할 대상이 없어 게시를 막지 않고, 이번 게시에서 빠집니다.
+  const hasUnreviewedDraft = rows.some((row) => row.note !== null && row.state === "pending");
+  const canPublish = publishable.length > 0 && !hasUnreviewedDraft;
 
   function selectChild(id: string) {
-    setConfirmed(false);
-    setSelectedSentenceId(null);
-    setIsEditing(false);
-    setSentences(makeSentences());
-    navigate(`/t/today/review/${id}`);
+    resetDraftState();
+    const query = searchParams.toString();
+    navigate(`/t/today/review/${id}${query ? `?${query}` : ""}`);
   }
 
   function toggleEditing() {
-    setSelectedSentenceId(null);
-    setIsEditing((prev) => !prev);
-  }
-
-  function updateSentence(id: string, text: string) {
-    const original = SOURCE_SENTENCES.find((sentence) => sentence.id === id)?.text;
-    setSentences((prev) =>
-      prev.map((sentence) =>
-        sentence.id === id ? { ...sentence, text, edited: text !== original } : sentence,
-      ),
-    );
+    if (!draft) return;
+    if (editing === null) {
+      setSelectedSentenceIndex(null);
+      setEditing(
+        Object.fromEntries(
+          draft.sentences.map((sentence) => [sentence.sentence_index, sentence.text]),
+        ),
+      );
+      return;
+    }
+    const changed = draft.sentences.flatMap((sentence) => {
+      const text = editing[sentence.sentence_index];
+      return text !== undefined && text !== sentence.text
+        ? [{ sentence_index: sentence.sentence_index, text }]
+        : [];
+    });
+    if (changed.length === 0) {
+      setEditing(null);
+      return;
+    }
+    patchMutation.mutate({ draftId: draft.draft_id, version: draft.version, sentences: changed });
   }
 
   return (
@@ -137,187 +200,162 @@ export function DraftReviewPage() {
       <PageHeader
         eyebrow="오늘의 기록  /  초안 검토"
         title="오늘의 기록을 완성해요"
-        subtitle="2026년 9월 15일 화요일  ·  햇살반"
+        subtitle={`${formatDate(recordDate)}  ·  ${klassName}`}
       />
 
       <div className="flex items-start gap-5">
-        {/* 왼쪽 원아 목록 */}
-        <aside className="flex w-55 shrink-0 flex-col gap-4 rounded-xl bg-paper p-5">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-lead font-bold text-ink">햇살반 원아</h2>
-            <p className="text-label text-ink-muted">
-              {reviewedCount} / {children.length}명 검토 완료
-            </p>
-          </div>
-          <ul className="flex flex-col gap-1">
-            {children.map((child) => {
-              const reviewed = reviewedIds.has(child.child_id);
-              const isSelected = child.child_id === selected.child_id;
-              return (
-                <li key={child.child_id}>
+        <RosterList
+          klassName={klassName}
+          rows={rows}
+          selectedChildId={selectedChildId}
+          onSelect={selectChild}
+        />
+
+        <section className="flex min-w-0 flex-1 flex-col gap-3.5">
+          {draftQuery.isPending && draftId !== "" ? (
+            <p className="text-body text-ink-muted">초안을 불러오는 중이에요.</p>
+          ) : draft === undefined ? (
+            <div className="flex flex-col gap-5 rounded-xl bg-paper p-7">
+              {/* TODO(김진하): 빈 상태 문구와 디자인이 Figma에 없어 임시로 둡니다. */}
+              <p className="text-body text-ink-muted">
+                아직 이 아이의 기록이 없어요. 사진을 추가하거나 직접 작성할 수 있어요.
+              </p>
+              <div className="grid grid-cols-3 gap-4">
+                {/* TODO(김진하): 사진 추가는 업로드 흐름(media, 정은·김동건)이 정해지지 않아 자리만 둡니다. */}
+                <button
+                  type="button"
+                  disabled
+                  aria-label="사진 추가 (준비 중)"
+                  className="flex aspect-square flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-line text-ink-muted disabled:opacity-60"
+                >
+                  <Plus className="size-6" />
+                  <span className="text-label">사진 추가</span>
+                </button>
+              </div>
+              {/* 직접 작성은 정은 담당 화면(today/write)입니다. 그 화면이 생기면 이어집니다. */}
+              <Button className="self-start" onClick={() => navigate("/t/today/write")}>
+                직접 작성하기
+              </Button>
+            </div>
+          ) : (
+            <>
+              {photos.length > 0 ? (
+                <>
+                  <div className="grid grid-cols-3 gap-4">
+                    {photos.map((photo) => (
+                      <img
+                        key={photo.media_id}
+                        src={photo.url}
+                        alt=""
+                        className="aspect-square w-full rounded-lg object-cover"
+                      />
+                    ))}
+                  </div>
+                  <p className="text-caption text-ink-muted">선택 사진 {photos.length}장</p>
+                </>
+              ) : null}
+
+              <div className="flex flex-col gap-3.5 rounded-xl bg-paper p-7">
+                <div className="flex items-center justify-between">
+                  <span className="rounded-md bg-brand px-6 py-1.5 text-body font-bold text-brand-ink">
+                    알림장
+                  </span>
+                  <span className="text-caption text-ink-muted">
+                    {editing !== null ? "수정 중" : `버전 ${draft.version}`}
+                  </span>
+                </div>
+                {draft.title ? <h3 className="text-h3 font-bold text-ink">{draft.title}</h3> : null}
+
+                {editing !== null
+                  ? draft.sentences.map((sentence) => (
+                      <Textarea
+                        key={sentence.sentence_index}
+                        value={editing[sentence.sentence_index] ?? sentence.text}
+                        rows={2}
+                        aria-label="초안 문장 수정"
+                        onChange={(event) =>
+                          setEditing((prev) => ({
+                            ...prev,
+                            [sentence.sentence_index]: event.target.value,
+                          }))
+                        }
+                      />
+                    ))
+                  : draft.sentences.map((sentence) =>
+                      // 직접 고친 문장은 근거가 끊겨서 밑줄·클릭 없이 일반 문단으로 보여 줍니다.
+                      editedIndexes.has(sentence.sentence_index) ? (
+                        <p key={sentence.sentence_index} className="text-lead text-ink">
+                          {sentence.text}
+                        </p>
+                      ) : (
+                        <button
+                          key={sentence.sentence_index}
+                          type="button"
+                          onClick={() => setSelectedSentenceIndex(sentence.sentence_index)}
+                          aria-pressed={sentence.sentence_index === selectedSentenceIndex}
+                          className={cn(
+                            "block text-left text-lead text-ink underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50",
+                            sentence.sentence_index === selectedSentenceIndex && "underline",
+                          )}
+                        >
+                          {sentence.text}
+                        </button>
+                      ),
+                    )}
+
+                {canApprove ? (
                   <button
                     type="button"
-                    onClick={() => selectChild(child.child_id)}
-                    aria-current={isSelected ? "true" : undefined}
-                    className={cn(
-                      "flex w-full items-center justify-between rounded-md p-2 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
-                      isSelected ? "bg-brand" : "hover:bg-tint-2",
-                    )}
+                    onClick={toggleEditing}
+                    disabled={patchMutation.isPending}
+                    className="self-start text-label font-bold text-ink-muted underline-offset-4 outline-none transition-colors hover:text-brand-ink hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
                   >
-                    <span className="flex items-center gap-2.5">
-                      <span
-                        className={cn(
-                          "flex size-5 items-center justify-center rounded-full border",
-                          reviewed
-                            ? "border-transparent bg-brand-ink text-paper"
-                            : isSelected
-                              ? "border-ink bg-paper"
-                              : "border-line bg-paper",
-                        )}
-                      >
-                        {reviewed ? <CheckIcon className="size-3" strokeWidth={3} /> : null}
-                      </span>
-                      <span className={cn("text-nav text-ink", isSelected && "font-bold")}>
-                        {child.name}
-                      </span>
-                    </span>
-                    {reviewed ? (
-                      <span className="text-label text-brand-ink">검토 완료</span>
-                    ) : (
-                      <span className="text-label text-ink-muted">검토 필요</span>
-                    )}
+                    {editing !== null ? "수정 완료" : "직접 수정"}
                   </button>
-                </li>
-              );
-            })}
-          </ul>
-          <p className="text-label text-ink-muted">자료 없는 아이는 직접 작성할 수 있어요.</p>
-        </aside>
-
-        {/* 가운데 초안 본문 */}
-        <section className="flex min-w-0 flex-1 flex-col gap-3.5">
-          <div className="grid grid-cols-3 gap-4">
-            {Array.from({ length: DRAFT.photoCount }).map((_, index) => (
-              <div key={index} className="aspect-square rounded-lg bg-neutral-soft" />
-            ))}
-          </div>
-          <p className="text-caption text-ink-muted">
-            선택 사진 {DRAFT.photoCount}장 · {DRAFT.activityName}
-          </p>
-
-          <div className="flex flex-col gap-3.5 rounded-xl bg-paper p-7">
-            <div className="flex items-center justify-between">
-              <span className="rounded-md bg-brand px-6 py-1.5 text-body font-bold text-brand-ink">
-                알림장
-              </span>
-              <span className="text-caption text-ink-muted">
-                {isEditing ? "수정 중" : "방금 저장됨"}
-              </span>
-            </div>
-            <h3 className="text-h3 font-bold text-ink">{DRAFT.title}</h3>
-
-            {isEditing
-              ? sentences.map((sentence) => (
-                  <Textarea
-                    key={sentence.id}
-                    value={sentence.text}
-                    rows={2}
-                    aria-label="초안 문장 수정"
-                    onChange={(event) => updateSentence(sentence.id, event.target.value)}
-                  />
-                ))
-              : sentences.map((sentence) =>
-                  sentence.edited ? (
-                    // 수정된 문장은 근거가 없어 밑줄·클릭 없이 일반 문단으로 보여 줍니다.
-                    <p key={sentence.id} className="text-lead text-ink">
-                      {sentence.text}
-                    </p>
-                  ) : (
-                    <button
-                      key={sentence.id}
-                      type="button"
-                      onClick={() => setSelectedSentenceId(sentence.id)}
-                      aria-pressed={sentence.id === selectedSentenceId}
-                      className={cn(
-                        "block text-left text-lead text-ink underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50",
-                        sentence.id === selectedSentenceId && "underline",
-                      )}
-                    >
-                      {sentence.text}
-                    </button>
-                  ),
-                )}
-
-            <button
-              type="button"
-              onClick={toggleEditing}
-              className="self-start text-label font-bold text-ink-muted underline-offset-4 outline-none transition-colors hover:text-brand-ink hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
-            >
-              {isEditing ? "수정 완료" : "직접 수정"}
-            </button>
-          </div>
+                ) : null}
+                {patchMutation.isError ? (
+                  <p className="text-caption text-destructive">
+                    수정을 저장하지 못했어요. 다시 시도해 주세요.
+                  </p>
+                ) : null}
+              </div>
+            </>
+          )}
         </section>
 
-        {/* 오른쪽 근거 사이드바 */}
-        <aside className="flex w-58 shrink-0 flex-col gap-5 rounded-xl border border-line bg-paper p-6">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lead font-bold text-ink">근거 상세</h3>
-            {selectedSentence ? (
-              <button
-                type="button"
-                onClick={() => setSelectedSentenceId(null)}
-                aria-label="근거 상세 닫기"
-                className="text-ink-muted outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-              >
-                <X className="size-4" />
-              </button>
-            ) : null}
-          </div>
-          {selectedSentence ? (
-            <>
-              <div className="flex flex-col gap-2">
-                <p className="text-caption text-ink-muted">선택한 문장</p>
-                <div className="rounded-md bg-brand px-3.5 py-3">
-                  <p className="text-body font-bold text-ink">{selectedSentence.text}</p>
-                </div>
-              </div>
-              <div className="flex flex-col gap-2">
-                <p className="text-caption text-ink-muted">근거 발화</p>
-                <div className="flex flex-col gap-1.5 rounded-md border border-line bg-canvas px-3.5 py-3">
-                  <p className="text-label font-bold text-ink">
-                    {selectedSentence.evidence.timestamp}
-                  </p>
-                  <p className="text-caption text-ink-muted">{selectedSentence.evidence.source}</p>
-                </div>
-              </div>
-              <p className="text-caption text-ink-muted">
-                발화를 다시 들으며 문장이 정확한지 확인해보세요.
-              </p>
-            </>
-          ) : (
-            <p className="text-caption text-ink-muted">
-              문장을 클릭하면 그 문장의 근거를 볼 수 있어요.
-            </p>
-          )}
-        </aside>
+        <EvidencePanel
+          sentence={selectedSentence}
+          edited={selectedSentenceIndex !== null && editedIndexes.has(selectedSentenceIndex)}
+          onClose={() => setSelectedSentenceIndex(null)}
+        />
       </div>
 
-      {/* 하단 확인·실행 */}
       <div className="mt-6 flex items-center justify-between border-t border-line pt-4">
         <p className="text-caption text-ink-muted">승인 전에는 학부모에게 공개되지 않아요.</p>
         <div className="flex items-center gap-4">
+          {approveMutation.isError || publishMutation.isError ? (
+            <p className="text-caption text-destructive">처리하지 못했어요. 다시 시도해 주세요.</p>
+          ) : null}
           <label className="flex items-center gap-2 text-body text-ink">
             <Checkbox
               checked={confirmed}
-              disabled={isSelectedReviewed}
+              disabled={!canApprove}
               onCheckedChange={(value) => setConfirmed(value === true)}
             />
             사진과 본문을 확인했어요
           </label>
-          <Button onClick={approveSelected} disabled={!confirmed || isSelectedReviewed}>
+          <Button
+            onClick={() =>
+              draft && approveMutation.mutate({ draftId: draft.draft_id, version: draft.version })
+            }
+            disabled={!confirmed || !canApprove || approveMutation.isPending}
+          >
             검토 완료하고 승인하기
           </Button>
-          <Button onClick={() => setPublishOpen(true)} disabled={!allReviewed}>
+          <Button
+            onClick={() => setPublishOpen(true)}
+            disabled={!canPublish || publishMutation.isPending}
+          >
             게시하기
           </Button>
         </div>
@@ -326,8 +364,8 @@ export function DraftReviewPage() {
       <PublishConfirmDialog
         open={publishOpen}
         onOpenChange={setPublishOpen}
-        count={reviewedCount}
-        onConfirm={() => navigate("/t/notes/publish/done")}
+        count={publishable.length}
+        onConfirm={() => publishMutation.mutate(publishable)}
       />
     </>
   );
