@@ -174,7 +174,7 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 
 ## 상의 필요 — 김동건 제안 (정은과 함께)
 
-> ④ 하루 정리 확인·추가 근거 화면을 만들며 필요한 API를 채운 것입니다. agents 담당(정은) 영역이라 혼자 정하지 않았고, 팀 결정이 아닙니다. FE 타입·목은 이 모양으로 먼저 만들어 두었습니다(`types/api-draft/agents.ts` 아래쪽, `mocks/handlers/agents-summary.ts`). 합의되면 위 본문으로 옮깁니다.
+> ④ 하루 정리 확인·추가 근거 화면을 만들며 필요한 API를 채운 것입니다. agents 담당(정은) 영역이라 혼자 정하지 않았고, 팀 결정이 아닙니다. FE 타입·목은 이 모양으로 먼저 만들어 두었습니다(`types/api-draft/agents.ts`, `mocks/handlers/agents.ts`). 합의되면 위 본문으로 옮깁니다.
 
 ### 1. 하루 정리 확인(FR-27) — 작업을 정리·초안 둘로 나누기
 
@@ -204,7 +204,7 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 }
 ```
 
-- 응답은 본문 Job 모양에 `kind`를 더합니다(FE 목은 정은 님 `Job` 타입을 그대로 써서 아직 `kind`를 싣지 않습니다).
+- 응답은 본문 Job 모양에 `kind`를 더합니다.
   - `kind: "summary"`의 `stage`는 `transcribing` → `collecting_evidence`이고, `succeeded`가 "하루 일과 준비됨"입니다. `children[].drafts`는 늘 빈 배열입니다.
   - `kind: "draft"`의 `stage`는 `generating` → `verifying`이고, 끝나면 `drafts`가 채워집니다.
 - `JOB_ALREADY_RUNNING`은 같은 반·날짜·`kind` 기준으로 봅니다.
@@ -260,7 +260,7 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 - "정리 다시 해주세요"(재정리 요청): 바로 응답할지, 작업으로 돌릴지
 - 하루 정리 화면의 피드백 문장("이건 틀렸어요: …")을 초안 작업에 넘기는 방법
 - Figma의 "2 / 5명 확인": 초안을 반 단위로 한 번 만들면 아이별 확인 표시 API는 필요 없습니다. FE는 이 자리에 정리된 아이 사이 이동을 두었습니다.
-- 처리 중 화면(③ 정은)에 정리 단계와 `?step=draft`를 붙이는 것. 그전까지 FE는 임시 처리 화면(`/t/today/processing-temp`)으로 순서를 확인합니다.
+- 처리 중 화면(③ 정은)에는 정리 단계와 `?step=draft`를 붙여 두었습니다(#80 채택을 가정한 FE 브랜치 `feat/fe/classify-mock-flow`).
 
 ### 2. 추가 근거(교사 관찰 메모) — screens.md "목록에 없는 것"
 

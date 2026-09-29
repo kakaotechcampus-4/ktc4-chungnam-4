@@ -51,7 +51,6 @@
 | ④ 김동건 | 추가 근거 작성 | `GET /classes/{class_id}/children`(연결할 아이), `GET /classes/{class_id}/evidence?record_date=`·`PUT /children/{child_id}/evidence/{record_date}`(제안, agents.md 하단) | 제안 |
 | ④ 김동건 | 하루 정리 입구(Figma 없음) | `GET /classes/{class_id}/daily-routines?record_date=`(제안, agents.md 하단). 명단 첫 아이의 하루 정리로 보냄 | 제안 |
 | ④ 김동건 | 하루 정리 확인 | `GET /classes/{class_id}/daily-routines?record_date=`, `PATCH /children/{child_id}/daily-routines/{record_date}/scenes/{scene_id}`(장면 빼기), "초안 만들기"는 `POST /classes/{class_id}/jobs`에 `kind: "draft"`(모두 제안, agents.md 하단), `GET /classes/{class_id}/children` | 제안 |
-| ④ 김동건 | 임시 처리 화면(Figma 없음, 임시) | 서버 전송의 호출 그대로, `POST /classes/{class_id}/jobs`에 `kind: "summary"`·`"draft"`, `GET /jobs/{job_id}`. ③ 처리 중 화면에 정리 단계가 붙으면 지움 | 제안 |
 | ④ 김동건 | 얼굴 정보 등록 | `PUT /children/{child_id}/face-embedding`(상세 작성, 임시 결정(김동건)), `GET /children/{child_id}`(동의·등록 상태, 경로만) | 둘 다 |
 | ④ 김동건 | 얼굴 정보 삭제 확인 | 얼굴 정보 등록의 호출 그대로, `DELETE /children/{child_id}/face-embedding`(상세 작성, 임시 결정(김동건)), `POST /children/{child_id}/consents/revoke`(동의 철회, 경로만) | 둘 다 |
 | ⑤ 김진하 | 초안 검토 / 왼쪽 원아 목록 | `GET /classes/{class_id}/children`·`GET /classes/{class_id}/drafts`(레일), `GET /drafts/{draft_id}`, `PATCH /drafts/{draft_id}`, `GET /media/{media_id}`(URL 만료 시), `POST /drafts/{draft_id}/revision-requests`(AI에게 다듬기 요청). "사진과 본문을 확인했어요" 체크는 승인 확인 모달의 `POST /drafts/{draft_id}/approve`에 `reviewed`로 들어감 | 둘 다 |
@@ -93,4 +92,4 @@
 - "발화 N개" → "음성 N개": FE 분류 결과 화면은 이미 "사진 N장 · 영상 N개 · 음성 N개"로 셉니다. 확정되면 위 항목을 닫아 주세요.
 - "얼굴 가림" 문구: 분류 결과의 확인 체크 문구가 아직 "아이 분류와 얼굴 가림을 확인했어요"입니다. 블러 폐기(09/13)와 맞지 않아 바꿀 문구가 필요합니다.
 - 숨길 UI의 "+ 추가 근거 작성"·"직접 기록 →": FE는 지금 보여 줍니다. 추가 근거는 agents.md 하단 제안이 채택되면 남기고, 아니면 숨깁니다. "직접 기록 →"은 ③ 직접 작성 화면(정은)이 생기면 이어집니다.
-- 하루 정리 입구·임시 처리 화면은 Figma에 없는 화면입니다. 처리 중 화면(③)에서 하루 정리로 넘어가는 자리가 Figma에 없어 둔 것입니다.
+- 하루 정리 입구는 Figma에 없는 화면입니다. 처리 중 화면(③)의 정리 단계에서 하루 정리로 넘어가는 자리가 Figma에 없어 둔 것입니다. ③ 처리 중 화면에도 "하루 정리 중" 단계가 필요합니다(지금은 단계 칸 5개 중 서버 전송 칸에 표시).
