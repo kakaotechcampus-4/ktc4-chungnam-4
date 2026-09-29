@@ -52,7 +52,7 @@ export function OnboardingClassSelectPage() {
   const title = `${greeting}, 안녕하세요!`;
 
   return (
-    <div className="flex w-full max-w-5xl flex-col py-16">
+    <div className="flex w-full max-w-245 flex-col py-16">
       <h1 className="text-h2 font-bold text-ink">{title}</h1>
       <p className="mt-2 text-nav text-ink-muted">
         어떤 반으로 들어갈까요? 즐겨찾기한 반이 먼저 보여요
