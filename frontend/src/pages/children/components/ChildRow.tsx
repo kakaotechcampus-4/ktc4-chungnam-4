@@ -67,7 +67,7 @@ export function ChildRow({ child, klassName }: ChildRowProps) {
             <Link to={`${detailPath}/edit`}>기본 정보 수정</Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
-            <Link to={`${detailPath}/consent`}>동의 확인</Link>
+            <Link to={`${detailPath}/invite`}>초대 링크</Link>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

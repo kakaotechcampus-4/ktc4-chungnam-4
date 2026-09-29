@@ -12,7 +12,6 @@ import type {
   ClassChild,
   ClassCreateRequest,
   ClassSummary,
-  ConsentUpdateRequest,
   EducationPlan,
   EducationPlanRequest,
   MyChild,
@@ -159,10 +158,6 @@ export function createChild(body: ChildUpsertRequest) {
 
 export function updateChild(childId: string, body: ChildUpsertRequest) {
   return api.patch<ChildDetail>(`/children/${enc(childId)}`, body);
-}
-
-export function updateConsents(childId: string, body: ConsentUpdateRequest) {
-  return api.post<ChildDetail>(`/children/${enc(childId)}/consents`, body);
 }
 
 /** 초대 링크 다시 만들기. 이전 링크는 쓸 수 없게 됩니다 */

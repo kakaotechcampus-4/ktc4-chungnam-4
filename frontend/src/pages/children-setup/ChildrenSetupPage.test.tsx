@@ -30,10 +30,16 @@ describe("ChildrenSetupPage", () => {
     expect(locked).toBeDefined();
     const card = within(locked as HTMLElement);
     expect(card.getByRole("button", { name: "얼굴 정보 관리" })).toBeDisabled();
-    expect(card.getByText("보호자 동의 결과를 먼저 기록해 주세요.")).toBeInTheDocument();
-    expect(card.getByRole("link", { name: "동의 확인" })).toHaveAttribute(
+    expect(card.getByText("보호자가 초대 링크로 동의하면 등록할 수 있어요.")).toBeInTheDocument();
+    expect(card.getByRole("link", { name: "초대 링크" })).toHaveAttribute(
       "href",
-      `/t/children/${fixtureId("child", 5)}/consent`,
+      `/t/children/${fixtureId("child", 5)}/invite`,
+    );
+    // 동의는 학부모가 하므로 교사가 동의를 입력하는 버튼은 없습니다(FR-28).
+    expect(card.queryByRole("link", { name: "동의 확인" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "원아 추가" })).toHaveAttribute(
+      "href",
+      "/t/children/new",
     );
     expect(card.getByRole("link", { name: "개인 페이지 보기 →" })).toHaveAttribute(
       "href",

@@ -206,7 +206,7 @@ export function ChildDetailPage() {
             <Link to={`${base}/edit`}>기본 정보 수정</Link>
           </Button>
           <Button asChild className="w-55">
-            <Link to={`${base}/consent`}>동의 · 얼굴 정보</Link>
+            <Link to="/t/children/setup">동의 · 얼굴 정보</Link>
           </Button>
           <Button asChild className="w-55">
             <Link to={`${base}/invite`}>학부모 연결 관리</Link>

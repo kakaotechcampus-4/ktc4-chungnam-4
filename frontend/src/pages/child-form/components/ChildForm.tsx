@@ -59,9 +59,7 @@ export function ChildForm({ childId, classes, defaultValues }: ChildFormProps) {
         }),
         queryClient.invalidateQueries({ queryKey: organizationKeys.child(saved.child_id) }),
       ]);
-      void navigate(
-        isEdit ? `/t/children/${saved.child_id}` : `/t/children/${saved.child_id}/consent`,
-      );
+      void navigate(isEdit ? `/t/children/${saved.child_id}` : "/t/children/setup");
     },
   });
 

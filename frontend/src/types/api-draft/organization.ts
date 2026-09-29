@@ -89,7 +89,7 @@ export interface ConsentItem {
   agreed: boolean;
 }
 
-/** GET /children/{child_id}. 원아 개인 페이지 · 추가/수정 · 동의 확인. 응답 모양은 가정입니다 */
+/** GET /children/{child_id}. 원아 개인 페이지 · 추가/수정. 응답 모양은 가정입니다 */
 export interface ChildDetail extends ClassChild {
   class_name: string;
   consents: ConsentItem[];
@@ -106,11 +106,6 @@ export interface ChildUpsertRequest {
   name: string;
   birth_date: DateOnly;
   class_id: string;
-}
-
-/** POST /children/{child_id}/consents. 동의 확인 화면. 본문은 가정입니다(⛔ #39) */
-export interface ConsentUpdateRequest {
-  items: ConsentItem[];
 }
 
 /** 누리과정 5영역. 가정: 원아 개인 페이지의 레이더 차트, 교육 계획의 관련 영역 */

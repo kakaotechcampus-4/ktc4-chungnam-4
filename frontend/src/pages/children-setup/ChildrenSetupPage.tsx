@@ -14,8 +14,8 @@ interface ChildSetupCardProps {
   child: ClassChild;
 }
 
-// TODO(이한나): #39로 교사 동의 입력이 폐기되어, 이 화면은 학부모 동의 결과를 보여 주기만 해야 할 수 있습니다.
-// "동의 확인" 버튼과 "보호자 동의 결과를 먼저 기록해 주세요." 문구를 어떻게 둘지 팀 결정이 필요합니다.
+// 동의는 학부모가 초대 링크로 합니다(FR-28, FR-01 폐기). 이 화면은 동의 결과를 보기만 하고,
+// 동의가 없는 원아는 초대 링크로 보냅니다. ③ 동의 전에는 얼굴 정보 등록을 막습니다(H-3).
 
 const EYEBROW = "우리 반 관리 / 원아 등록";
 const TITLE = "아이를 등록하고, 동의를 확인해 주세요";
@@ -26,7 +26,7 @@ function faceGuide(child: ClassChild) {
     return `사진 ${child.face_photo_count}장 기준으로 등록했어요.`;
   }
   if (faceStatus(child) === "unregistered") return "얼굴 사진 3장을 등록해 주세요.";
-  if (child.consent_agreed_count === 0) return "보호자 동의 결과를 먼저 기록해 주세요.";
+  if (child.consent_agreed_count === 0) return "보호자가 초대 링크로 동의하면 등록할 수 있어요.";
   return "얼굴 특징정보 처리 동의를 확인해 주세요.";
 }
 
@@ -44,7 +44,7 @@ function ChildSetupCard({ child }: ChildSetupCardProps) {
       </p>
       <div className="flex gap-3">
         <Button asChild className="flex-1">
-          <Link to={`${base}/consent`}>동의 확인</Link>
+          <Link to={`${base}/invite`}>초대 링크</Link>
         </Button>
         {locked ? (
           <Button disabled className="flex-1">
@@ -112,7 +112,16 @@ export function ChildrenSetupPage() {
 
   return (
     <>
-      <PageHeader eyebrow={EYEBROW} title={TITLE} subtitle={subtitle} />
+      <PageHeader
+        eyebrow={EYEBROW}
+        title={TITLE}
+        subtitle={subtitle}
+        actions={
+          <Button asChild>
+            <Link to="/t/children/new">원아 추가</Link>
+          </Button>
+        }
+      />
       {childrenQuery.isError ? (
         <p role="alert" className="text-body text-destructive">
           {childrenQuery.error.message}
@@ -143,9 +152,7 @@ export function ChildrenSetupPage() {
         </ul>
       )}
       <div className="mt-9 flex items-start justify-between gap-8 pb-10">
-        <p className="text-body text-ink-muted">
-          동의 항목을 확인한 뒤 얼굴 정보를 등록할 수 있어요.
-        </p>
+        <p className="text-body text-ink-muted">보호자가 동의한 뒤 얼굴 정보를 등록할 수 있어요.</p>
         <Button asChild className="w-50">
           <Link to="/t/children">원아 명단으로</Link>
         </Button>

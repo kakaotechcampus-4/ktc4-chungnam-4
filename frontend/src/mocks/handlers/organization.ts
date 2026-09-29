@@ -7,7 +7,6 @@ import type {
   ClassCreateRequest,
   ClassFavoriteRequest,
   ClassSummary,
-  ConsentUpdateRequest,
   EducationPlan,
   EducationPlanRequest,
   MyChild,
@@ -239,28 +238,6 @@ export const handlers = [
     if ("denied" in found) return found.denied;
     const body = (await request.json()) as ChildUpsertRequest;
     const updated = { ...found.child, ...body };
-    children.set(updated.child_id, updated);
-    return HttpResponse.json(updated);
-  }),
-  http.post(apiPath("/children/:childId/consents"), async ({ params, request }) => {
-    const found = guardChild(params.childId);
-    if ("denied" in found) return found.denied;
-    const { child } = found;
-    const body = (await request.json()) as ConsentUpdateRequest;
-    const agreed = body.items.filter((item) => item.agreed).length;
-    const faceAgreed = body.items.some(
-      (item) => item.consent_type === "face_feature" && item.agreed,
-    );
-    const updated: ChildDetail = {
-      ...child,
-      consents: body.items,
-      consent_agreed_count: agreed,
-      face_feature_agreed: faceAgreed,
-      // 동의를 철회하면 얼굴 정보도 지웁니다(FR-22).
-      is_face_registered: faceAgreed && child.is_face_registered,
-      consent_checked_at: "2026-09-15",
-      consent_checked_by: TEACHER_ME.name,
-    };
     children.set(updated.child_id, updated);
     return HttpResponse.json(updated);
   }),
