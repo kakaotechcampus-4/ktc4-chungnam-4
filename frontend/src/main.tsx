@@ -5,6 +5,7 @@ import { RouterProvider } from "react-router/dom";
 
 import { AppProviders } from "@/app/AppProviders";
 import { routes } from "@/app/router";
+import { API_BASE } from "@/lib/api-client";
 
 import "./index.css";
 
@@ -13,7 +14,13 @@ import "./index.css";
 async function enableMocking() {
   if (!import.meta.env.DEV || import.meta.env.VITE_USE_MSW === "false") return;
   const { worker } = await import("@/mocks/browser");
-  await worker.start({ onUnhandledRequest: "bypass" });
+  const apiRoot = new URL(API_BASE, window.location.origin).href;
+  await worker.start({
+    // 목이 없는 API 요청만 콘솔에 알립니다. 이미지·글꼴 같은 요청은 그대로 보냅니다.
+    onUnhandledRequest(request, print) {
+      if (request.url.startsWith(apiRoot)) print.warning();
+    },
+  });
 }
 
 const rootElement = document.getElementById("root");

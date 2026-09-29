@@ -130,6 +130,8 @@
   --text-h1--line-height: 1.6; /* 교사 화면 제목 */
   --text-logo: 32px;
   --text-logo--line-height: 40px; /* Jua 워드마크 */
+  --text-display: 56px;
+  --text-display--line-height: 1.35; /* 홈 첫 인사 제목 1:307 */
 
   /* layout widths → max-w-* */
   --container-app: 1200px; /* 교사: 1440 기준 좌우 거터 120 */
@@ -137,9 +139,22 @@
   --container-reading: 760px; /* 빈 상태 카드, 학부모 목록 열, W3/W4 후보 A 한 열 */
   --container-form: 480px; /* 온보딩 후보 A 폼 */
   --container-form-sm: 380px; /* 현행 로그인 폼 */
+  --container-form-md: 420px; /* 회원가입 폼 1:387 */
   --container-rail: 300px; /* 학부모 오른쪽 레일 */
 
   --spacing-nav: 80px; /* h-nav: 교사 Nav, Public header */
   --spacing-parent-bar: 64px; /* h-parent-bar: 학부모 상단바 */
   --spacing-gutter: 120px; /* px-gutter */
+
+  /* 시험 적용(미확정): 세로 간격이 화면 높이에 맞춰 줄고 늘어납니다(최소, 화면 높이 비례, 최대 = Figma 값).
+     폭과 글자 크기는 고정입니다. 13인치 맥북(브라우저 안 높이 약 830)에서도 한 화면에 들어오게 정했습니다. */
+  --spacing-landing-top: clamp(32px, 7dvh, 144px); /* 홈: 헤더 → 첫 인사, 단계 카드 아래 */
+  --spacing-landing-gap: clamp(32px, 6dvh, 76px); /* 홈: 첫 인사 → 단계 카드 */
+  --spacing-landing-media: clamp(160px, 24dvh, 260px); /* 홈: 미리보기 사진 높이 */
+  --spacing-landing-step: clamp(116px, 15dvh, 150px); /* 홈: 단계 카드 최소 높이 */
+  --spacing-status-card: clamp(
+    360px,
+    calc(100dvh - 330px),
+    560px
+  ); /* 교사 화면 제목 아래 안내 카드(403 등) 최소 높이 */
 }

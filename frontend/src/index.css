@@ -3,3 +3,12 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/noto-sans-kr";
 @import "./styles/tokens.css";
+
+/* 화면 전환(react-router의 viewTransition) 크로스페이드는 동작 줄이기 설정이면 끕니다. */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
