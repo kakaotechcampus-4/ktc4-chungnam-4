@@ -1,4 +1,5 @@
 import {
+  firstDayOfMonth,
   formatDate,
   formatDateTime,
   formatDotDate,
@@ -6,7 +7,9 @@ import {
   formatTime,
   formatWeekday,
   formatYearMonth,
+  isoWeekday,
   kstToday,
+  lastDayOfMonth,
   shiftDate,
   toKstDate,
 } from "./datetime";
@@ -54,6 +57,45 @@ describe("한국 날짜", () => {
 
   it("없는 날짜는 옮기지 않는다", () => {
     expect(() => shiftDate("2026-02-30", 1)).toThrow(RangeError);
+  });
+});
+
+describe("요일과 달의 처음·끝", () => {
+  it.each([
+    ["2026-09-14", 1], // 월
+    ["2026-09-18", 5], // 금
+    ["2026-09-19", 6], // 토
+    ["2026-09-20", 7], // 일은 0이 아니라 7
+    ["2027-01-01", 5],
+    ["2028-02-29", 2],
+  ])("isoWeekday(%s) → %i", (date, expected) => {
+    expect(isoWeekday(date)).toBe(expected);
+  });
+
+  it.each([
+    ["2026-02-10", "2026-02-01"],
+    ["2026-09-01", "2026-09-01"],
+    ["2026-12-31", "2026-12-01"],
+  ])("firstDayOfMonth(%s) → %s", (date, expected) => {
+    expect(firstDayOfMonth(date)).toBe(expected);
+  });
+
+  it.each([
+    ["2026-02-10", "2026-02-28"], // 평년 2월
+    ["2028-02-01", "2028-02-29"], // 윤년 2월
+    ["2100-02-15", "2100-02-28"], // 100의 배수는 평년
+    ["2000-02-10", "2000-02-29"], // 400의 배수는 윤년
+    ["2026-01-31", "2026-01-31"], // 31일에서 3월로 넘어가지 않는다
+    ["2026-04-15", "2026-04-30"], // 30일인 달
+    ["2026-12-05", "2026-12-31"], // 다음 해로 넘어가지 않는다
+  ])("lastDayOfMonth(%s) → %s", (date, expected) => {
+    expect(lastDayOfMonth(date)).toBe(expected);
+  });
+
+  it.each(["2026-02-30", "2026-13-01", ""])("없는 날짜는 받지 않는다: %s", (date) => {
+    expect(() => isoWeekday(date)).toThrow(RangeError);
+    expect(() => firstDayOfMonth(date)).toThrow(RangeError);
+    expect(() => lastDayOfMonth(date)).toThrow(RangeError);
   });
 });
 
@@ -138,5 +180,12 @@ describe.each(["Asia/Seoul", "America/Los_Angeles"])("기기 시간대가 %s여�
     expect(datetime.formatWeekday("2026-09-15")).toBe("화");
     expect(datetime.toKstDate("2026-09-14T15:00:00Z")).toBe("2026-09-15");
     expect(datetime.formatTime("2026-09-15T09:04:00Z")).toBe("18:04");
+  });
+
+  it("요일과 달 계산", () => {
+    expect(datetime.isoWeekday("2026-09-27")).toBe(7);
+    expect(datetime.firstDayOfMonth("2026-10-01")).toBe("2026-10-01");
+    expect(datetime.lastDayOfMonth("2026-02-10")).toBe("2026-02-28");
+    expect(datetime.shiftDate("2026-10-01", -1)).toBe("2026-09-30");
   });
 });
