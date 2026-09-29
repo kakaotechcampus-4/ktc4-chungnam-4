@@ -3,7 +3,9 @@ import { queryOptions } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import type { ListResponse } from "@/types/api-draft/common";
 import type {
+  ChildDraftItem,
   ClassDraftItem,
+  DocType,
   DraftApproveRequest,
   DraftDetail,
   DraftPatchRequest,
@@ -18,6 +20,11 @@ import type {
 export const documentsKeys = {
   classDrafts: (classId: string, recordDate: string) =>
     ["classes", classId, "drafts", recordDate] as const,
+  /** 반에서 게시된 알림장이 있는 원아(알림장 명단) */
+  publishedNotes: (classId: string) => ["classes", classId, "drafts", "published"] as const,
+  /** 한 원아의 문서 목록(알림장 상세의 날짜 이동) */
+  childDrafts: (childId: string, docType: DocType) =>
+    ["children", childId, "drafts", docType] as const,
   draft: (draftId: string) => ["drafts", draftId] as const,
   parentNotes: (childId: string) => ["children", childId, "parent-notes"] as const,
   parentNote: (parentNoteId: string) => ["parent-notes", parentNoteId] as const,
@@ -32,6 +39,34 @@ export function classDraftsQueryOptions(classId: string, recordDate: string) {
         await api.get<ListResponse<ClassDraftItem>>(
           `/classes/${encodeURIComponent(classId)}/drafts`,
           { query: { record_date: recordDate }, signal },
+        )
+      ).items,
+  });
+}
+
+/** 교사용: 게시된 알림장이 있는 원아(알림장 명단). 원아마다 가장 최근 게시본 1건만 옵니다. */
+export function publishedParentNotesQueryOptions(classId: string) {
+  return queryOptions({
+    queryKey: documentsKeys.publishedNotes(classId),
+    queryFn: async ({ signal }) =>
+      (
+        await api.get<ListResponse<ClassDraftItem>>(
+          `/classes/${encodeURIComponent(classId)}/drafts`,
+          { query: { doc_type: "parent_note", published: true }, signal },
+        )
+      ).items,
+  });
+}
+
+/** 교사용: 한 원아의 문서 목록(record_date 최신순). 알림장 상세의 ‹ › 날짜 이동에 씁니다. */
+export function childDraftsQueryOptions(childId: string, docType: DocType, published = false) {
+  return queryOptions({
+    queryKey: documentsKeys.childDrafts(childId, docType),
+    queryFn: async ({ signal }) =>
+      (
+        await api.get<ListResponse<ChildDraftItem>>(
+          `/children/${encodeURIComponent(childId)}/drafts`,
+          { query: { doc_type: docType, published }, signal },
         )
       ).items,
   });

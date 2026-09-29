@@ -2,6 +2,7 @@ import { http, HttpResponse } from "msw";
 
 import { kstToday, toKstDate } from "@/lib/datetime";
 import type {
+  ChildDraftItem,
   ClassDraftItem,
   DocType,
   DraftApproveRequest,
@@ -119,8 +120,12 @@ export const handlers = [
   http.get(apiPath("/classes/:classId/drafts"), ({ request, params }) => {
     const denied = requireTeacherOfClass(params.classId);
     if (denied) return denied;
-    const recordDate = new URL(request.url).searchParams.get("record_date");
-    if (!recordDate || !DATE_ONLY.test(recordDate)) {
+    const query = new URL(request.url).searchParams;
+    const recordDate = query.get("record_date");
+    const docTypeFilter = query.get("doc_type");
+    const publishedOnly = query.get("published") === "true";
+    // record_date는 published=true일 때만 생략할 수 있습니다(임시 결정(김진하)).
+    if (recordDate === null ? !publishedOnly : !DATE_ONLY.test(recordDate)) {
       return validationError("query.record_date", "YYYY-MM-DD가 필요합니다");
     }
     if (isMockScenario("documents.drafts-empty")) {
@@ -128,15 +133,26 @@ export const handlers = [
     }
     const db = readDb();
     const drafts = Object.values(db.drafts).filter(
-      (draft) => draft.class_id === params.classId && draft.record_date === recordDate,
+      (draft) =>
+        draft.class_id === params.classId &&
+        (recordDate === null || draft.record_date === recordDate) &&
+        (docTypeFilter === null || draft.doc_type === docTypeFilter) &&
+        (!publishedOnly || draft.published_at !== null),
     );
-    const unclassified = db.unclassified.filter(
-      (item) => item.class_id === params.classId && item.record_date === recordDate,
-    );
+    // 미분류는 하루치 조회에서만 의미가 있습니다.
+    const unclassified =
+      recordDate === null
+        ? []
+        : db.unclassified.filter(
+            (item) => item.class_id === params.classId && item.record_date === recordDate,
+          );
     // 그날 초안이나 미분류 기록이 있는 원아만, 명단 순서(이름 가나다순)로
     const items = SUNSHINE_CHILDREN.flatMap((child): ClassDraftItem[] => {
+      // record_date 없이 조회하면 원아마다 가장 최근 것 1건만 담습니다(임시 결정(김진하)).
       const byType = (docType: DocType) =>
-        drafts.find((draft) => draft.child_id === child.child_id && draft.doc_type === docType);
+        drafts
+          .filter((draft) => draft.child_id === child.child_id && draft.doc_type === docType)
+          .sort((a, b) => b.record_date.localeCompare(a.record_date))[0];
       const log = byType("observation_log");
       const note = byType("parent_note");
       const skipped = unclassified.find((item) => item.child_id === child.child_id);
@@ -150,6 +166,32 @@ export const handlers = [
         },
       ];
     });
+    return HttpResponse.json({ items, next_cursor: null });
+  }),
+
+  // 원아별 문서 목록(알림장 상세의 ‹ › 날짜 이동). record_date 최신순입니다.
+  http.get(apiPath("/children/:childId/drafts"), ({ request, params }) => {
+    const denied = requireTeacher();
+    if (denied) return denied;
+    const query = new URL(request.url).searchParams;
+    const docType = query.get("doc_type");
+    if (docType !== "parent_note" && docType !== "observation_log") {
+      return validationError("query.doc_type", "parent_note 또는 observation_log가 필요합니다");
+    }
+    const childId = String(params.childId);
+    if (!SUNSHINE_CHILDREN.some((child) => child.child_id === childId)) {
+      return errorResponse(403, "CHILD_ACCESS_DENIED", "이 아이의 기록은 볼 수 없어요.");
+    }
+    const publishedOnly = query.get("published") === "true";
+    const items = Object.values(readDb().drafts)
+      .filter(
+        (draft) =>
+          draft.child_id === childId &&
+          draft.doc_type === docType &&
+          (!publishedOnly || draft.published_at !== null),
+      )
+      .sort((a, b) => b.record_date.localeCompare(a.record_date))
+      .map((draft): ChildDraftItem => ({ ...summary(draft), record_date: draft.record_date }));
     return HttpResponse.json({ items, next_cursor: null });
   }),
 
