@@ -16,9 +16,10 @@ beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 afterEach(() => {
   cleanup();
   server.resetHandlers();
-  // 목 시나리오(?mock=)가 다음 테스트로 넘어가지 않게 주소와 탭 저장소를 비웁니다.
+  // 목 시나리오(?mock=)와 고른 반이 다음 테스트로 넘어가지 않게 주소와 브라우저 저장소를 비웁니다.
   window.history.replaceState(null, "", "/");
   window.sessionStorage.clear();
+  window.localStorage.clear();
   expect(unhandled.splice(0), "목 핸들러가 없는 요청").toEqual([]);
 });
 afterAll(() => server.close());

@@ -1,7 +1,7 @@
-"""documents 서비스 로직 — 후속 구현.
+"""documents 서비스 로직.
 
-이번 주는 함수 자리와 의도만 정의한다. 실제 권한 검사·상태 전이·게시/회수 로직은
-다음 스프린트에서 채운다 (Notion 백엔드 계획 "이번 주 범위" 참고).
+save_draft()(agents 생성 결과 저장)만 구현돼 있다. 권한 검사·상태 전이·게시/회수
+로직은 함수 자리와 의도만 정의돼 있고 후속 작업에서 채운다.
 
 H-1: 학부모 노출은 반드시 get_letter_for_parent()/list_letters_for_parent() 두
 게이트 함수를 거친다. 이 함수들 밖에서 학부모에게 초안 본문을 반환하지 않는다.
@@ -80,19 +80,118 @@ WHERE에 넣는다 — rowcount가 곧 판단 결과다.
 
 from __future__ import annotations
 
+import uuid
 from uuid import UUID
 
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from core.exceptions import DraftVersionConflict
+from domains.documents.models import DraftDocument, DraftStatus
 from domains.documents.schemas import (
     ApproveResponse,
     DraftDetailResponse,
+    DraftSaveInput,
     ParentLetterDetailResponse,
     ParentLetterListResponse,
     PublishItem,
     PublishResponse,
     RevokeResponse,
 )
+
+# 자동 생성 결과로 덮어쓰지 않는 상태. 승인·회수된 문서는 교사가 확정한 내용이다.
+_AI_LOCKED_STATUSES = (DraftStatus.APPROVED.value, DraftStatus.REVOKED.value)
+
+
+def save_draft(db: Session, data: DraftSaveInput, *, expected_version: int | None) -> DraftDocument:
+    """AI가 최종 통과(PASS)한 초안을 저장한다 (FR-05, FR-06, #35).
+
+    - expected_version이 None이면 최초 생성이다. (child_id, doc_type, record_date)
+      문서가 이미 있으면 덮어쓰지 않고 충돌로 거부한다.
+    - 값이 있으면 재생성이다. 같은 문서 ID를 유지한 채, 버전이 그대로이고 승인·회수
+      전이고 원아·문서 종류·날짜가 기존 문서와 같을 때만 본문을 바꾼다. 비교와 갱신은
+      UPDATE 한 문장으로 묶는다(모듈 docstring).
+      그 사이 교사 수정·승인이 있었으면 교사 문서를 그대로 두고 충돌로 거부한다 —
+      반영하지 못한 AI 결과를 따로 보관하지 않는다.
+
+    커밋하지 않고 flush만 한다. 근거(SentenceEvidence) 저장과 최종 커밋은 호출한 쪽
+    트랜잭션에서 처리한다 — 담당 분담은 정은님 확인 전이다 (#35).
+    """
+    if expected_version is None:
+        return _insert_draft(db, data)
+    return _update_generated_draft(db, data, expected_version=expected_version)
+
+
+def _insert_draft(db: Session, data: DraftSaveInput) -> DraftDocument:
+    draft = DraftDocument(
+        id=data.draft_id or uuid.uuid4(),
+        child_id=data.child_id,
+        author_teacher_id=data.author_teacher_id,
+        doc_type=data.doc_type.value,
+        record_date=data.record_date,
+        status=DraftStatus.DRAFT.value,
+        content=data.content,
+        ai_version=data.ai_version,
+        evidence_bundle_id=data.evidence_bundle_id,
+    )
+    # begin_nested()는 savepoint를 만들기 전에 대기 중인 변경을 먼저 flush한다. 그
+    # 오류를 문서 중복으로 오인하지 않도록 호출자의 변경은 여기서 따로 flush한다 —
+    # 실패하면 원래 예외를 그대로 올린다.
+    db.flush()
+    # 중복 INSERT가 호출자 트랜잭션 전체를 깨지 않도록 savepoint 안에서 넣는다.
+    try:
+        with db.begin_nested():
+            db.add(draft)
+    except IntegrityError:
+        # 예상한 중복(같은 원아·종류·날짜)만 충돌로 바꾼다. 제약 이름은 DB 드라이버마다
+        # 꺼내는 방법이 달라서, savepoint를 되돌린 뒤 실제로 그 문서가 있는지 확인한다.
+        if _find_draft_id(db, data) is None:
+            raise
+        raise DraftVersionConflict("같은 원아·문서 종류·날짜의 초안이 이미 있습니다.") from None
+    return draft
+
+
+def _find_draft_id(db: Session, data: DraftSaveInput) -> UUID | None:
+    return db.scalar(
+        select(DraftDocument.id).where(
+            DraftDocument.child_id == data.child_id,
+            DraftDocument.doc_type == data.doc_type.value,
+            DraftDocument.record_date == data.record_date,
+        )
+    )
+
+
+def _update_generated_draft(
+    db: Session, data: DraftSaveInput, *, expected_version: int
+) -> DraftDocument:
+    if data.draft_id is None:
+        raise ValueError("재생성 저장에는 draft_id가 필요합니다.")
+
+    result = db.execute(
+        update(DraftDocument)
+        .where(
+            DraftDocument.id == data.draft_id,
+            # 다른 원아·종류·날짜의 내용이 잘못된 ID로 들어오는 것을 막는다
+            DraftDocument.child_id == data.child_id,
+            DraftDocument.doc_type == data.doc_type.value,
+            DraftDocument.record_date == data.record_date,
+            DraftDocument.version == expected_version,
+            DraftDocument.status.notin_(_AI_LOCKED_STATUSES),
+        )
+        .values(
+            content=data.content,
+            ai_version=data.ai_version,
+            evidence_bundle_id=data.evidence_bundle_id,
+            version=DraftDocument.version + 1,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount == 0:
+        raise DraftVersionConflict(
+            "초안이 없거나, 대상이 다르거나, 그 사이 수정·승인됐습니다. 기존 문서를 유지합니다."
+        )
+    return db.get(DraftDocument, data.draft_id, populate_existing=True)
 
 
 def get_draft_for_teacher(db: Session, *, draft_id: UUID, teacher_id: UUID) -> DraftDetailResponse:

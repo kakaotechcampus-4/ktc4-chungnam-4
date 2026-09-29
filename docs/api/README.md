@@ -1,6 +1,6 @@
 # 아이담 API 문서
 
-> 원본은 이 폴더(`docs/api/`)입니다. 노션 "아이담 API 문서 (9.22)"는 09-28에 이 폴더로 옮긴 뒤 더 고치지 않는 사본이라 근거로 쓰지 않습니다.
+> 원본은 이 폴더(`docs/api/`)입니다. 노션 "아이담 API 문서 (9.22)"는 09-28에 이 폴더로 옮기기 전 상태를 남긴 기록용 사본이라 근거로 쓰지 않습니다.
 
 > 지금은 초안입니다. 도메인 담당이 확인해 확정하며, 확인 요청과 답은 이슈 #58과 이 폴더를 고치는 PR로 주고받습니다.
 
@@ -84,7 +84,7 @@
 | 단계 | 화면 | 호출 | 담당 |
 |---|---|---|---|
 | 1. 로그인 | 로그인 | `POST /api/v1/sessions` → `GET /api/v1/me` | auth |
-| 2. 오늘의 기록 진입 | 오늘의 기록·빈 상태 | `GET /api/v1/classes`, `GET /api/v1/classes/{class_id}/drafts?record_date=`(오늘 초안이 이미 있으면 검토 화면으로) | organization, documents |
+| 2. 오늘의 기록 진입 | 오늘의 기록·빈 상태 | `GET /api/v1/classes`, `GET /api/v1/classes/{class_id}/drafts?record_date=`(오늘 초안이 이미 있으면 검토 화면으로), `GET /api/v1/classes/{class_id}/jobs?record_date=`(하던 작업으로 돌아가기, 경로만) | organization, documents, agents |
 | 3. 자료 올리기 | 자료 올리기 | 로컬(API 없음). IndexedDB에 적재 | FE |
 | 4. 적재 진행 | 오늘의 기록·업로드 중 | `GET /api/v1/classes/{class_id}/children`("· 5명". 이후 분류 단계에서도 씀) | organization |
 | 5. 모델 준비 | 처리 중/모델 다운로드 | 로컬(API 없음). 정적 모델 파일 | FE |

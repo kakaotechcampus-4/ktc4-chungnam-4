@@ -40,3 +40,14 @@ class InvalidAttributionMethod(AidamError):
 
     code = "MEDIA_INVALID_ATTRIBUTION_METHOD"
     status_code = 400
+
+
+class DraftVersionConflict(AidamError):
+    """초안의 버전이 저장·수정 요청이 기대한 값과 다른 경우.
+
+    그 사이 교사 수정·승인이나 다른 생성 결과가 먼저 반영됐다는 뜻입니다. 최신 문서를
+    그대로 두고 이 요청은 반영하지 않습니다 (docs/api/documents.md `DRAFT_VERSION_CONFLICT`).
+    """
+
+    code = "DRAFT_VERSION_CONFLICT"
+    status_code = 409
