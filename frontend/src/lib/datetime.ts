@@ -103,6 +103,27 @@ export function shiftDate(date: DateOnly, days: number): DateOnly {
   return fromUtcMidnight(value);
 }
 
+/** 요일 번호. 월 1 ~ 일 7(ISO 8601). isoWeekday("2026-09-27") → 7. 표기는 formatWeekday를 씁니다. */
+export function isoWeekday(date: DateOnly): number {
+  // getUTCDay는 일요일이 0이라 7로 바꿉니다.
+  return parseDateOnly(date).getUTCDay() || 7;
+}
+
+/** 그달 1일. firstDayOfMonth("2026-02-10") → "2026-02-01" */
+export function firstDayOfMonth(date: DateOnly): DateOnly {
+  const value = parseDateOnly(date);
+  value.setUTCDate(1);
+  return fromUtcMidnight(value);
+}
+
+/** 그달 말일. 윤년을 따릅니다. lastDayOfMonth("2028-02-10") → "2028-02-29" */
+export function lastDayOfMonth(date: DateOnly): DateOnly {
+  const value = parseDateOnly(date);
+  // 다음 달 0일이 이번 달 말일입니다. 달과 일을 한 번에 바꾸므로 1월 31일에서도 3월로 넘어가지 않습니다.
+  value.setUTCMonth(value.getUTCMonth() + 1, 0);
+  return fromUtcMidnight(value);
+}
+
 interface FormatDateOptions {
   /** 연도를 붙입니다. 기본 true */
   year?: boolean;
