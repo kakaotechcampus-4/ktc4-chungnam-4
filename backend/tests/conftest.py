@@ -12,3 +12,6 @@ DB에 실제로 연결하지는 않으며, 이미 환경변수가 있으면 덮�
 import os
 
 os.environ.setdefault("POSTGRES_PASSWORD", "test-only-password")
+# 토큰 서명 키. get_settings()가 lru_cache라 테스트 모듈에서 채우면 늦습니다 —
+# 먼저 Settings를 만든 테스트가 있으면 그 값이 굳어버립니다.
+os.environ.setdefault("JWT_SECRET", "test-only-secret-that-is-long-enough-32")

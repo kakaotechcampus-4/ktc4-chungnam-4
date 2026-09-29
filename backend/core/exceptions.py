@@ -40,3 +40,28 @@ class InvalidAttributionMethod(AidamError):
 
     code = "MEDIA_INVALID_ATTRIBUTION_METHOD"
     status_code = 400
+
+
+class InvalidCredentials(AidamError):
+    """이메일이 없거나 비밀번호가 틀렸습니다.
+
+    두 경우를 **구분하지 않습니다** — 구분하면 어떤 이메일이 가입돼 있는지가 샙니다
+    (domains/auth/CLAUDE.md). 메시지에 이메일을 넣지 않습니다 (H-4).
+    """
+
+    code = "INVALID_CREDENTIALS"
+    status_code = 401
+
+
+class InvalidToken(AidamError):
+    """토큰이 위조됐거나 만료됐습니다. 사유를 구분하지 않습니다."""
+
+    code = "INVALID_TOKEN"
+    status_code = 401
+
+
+class JwtSecretNotConfigured(AidamError):
+    """JWT_SECRET이 설정되지 않아 토큰을 발급·검증할 수 없습니다."""
+
+    code = "JWT_SECRET_NOT_CONFIGURED"
+    status_code = 500
