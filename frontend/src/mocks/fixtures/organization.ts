@@ -57,7 +57,7 @@ function consents(agreedCount: number): ConsentItem[] {
 const base = { class_id: SUNSHINE_CLASS.class_id, age_group: "만 4세", consent_total: 3 };
 
 // 응답은 이름 가나다순이고, id는 등록 순서입니다.
-// 동의·보호자 값은 아래 FACE_CONSENTED_CHILD_IDS(③ 미동의는 정예린뿐)·PARENT_OF_CHILD(모두 연결)와 맞춥니다(#68).
+// 동의·보호자 값은 아래 FACE_CONSENTED_CHILD_IDS·PARENT_OF_CHILD와 맞춥니다. 정예린은 보호자가 아직 없어 동의 0/3입니다.
 export const SUNSHINE_CHILDREN: ClassChild[] = [
   {
     ...base,
@@ -101,7 +101,7 @@ export const SUNSHINE_CHILDREN: ClassChild[] = [
     is_face_registered: false,
     face_feature_agreed: false,
     face_photo_count: 0,
-    parent_linked: true,
+    parent_linked: false,
   },
   {
     ...base,
@@ -239,7 +239,6 @@ export const PARENT_OF_CHILD: Record<string, string> = {
   [fixtureId("child", 2)]: fixtureId("parent", 2),
   [fixtureId("child", 3)]: fixtureId("parent", 3),
   [fixtureId("child", 4)]: fixtureId("parent", 4),
-  [fixtureId("child", 5)]: fixtureId("parent", 5),
 };
 
 // ③ 얼굴특징정보처리에 동의한 원아(테크스펙 동의 항목). 정예린(5번)은 ③ 미동의입니다.
