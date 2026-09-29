@@ -8,12 +8,11 @@ import { useNavigate } from "react-router";
 import { z } from "zod";
 
 import { createCenter, findCenterByCode, saveTeacherProfile } from "@/api/organization";
+import { FormField } from "@/components/common/FormField";
+import { Stepper } from "@/components/common/Stepper";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { CenterSummary } from "@/types/api-draft/organization";
-
-import { FormField } from "./components/FormField";
-import { Stepper } from "./components/Stepper";
 
 const SIGNUP_STEPS = ["이메일 가입", "교사 정보"] as const;
 
