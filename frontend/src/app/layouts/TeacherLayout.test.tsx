@@ -1,9 +1,11 @@
 import { screen, waitFor, within } from "@testing-library/react";
-import { http } from "msw";
+import { http, HttpResponse } from "msw";
 
+import { authKeys } from "@/api/auth";
 import { organizationKeys } from "@/api/organization";
+import { TEACHER_ME } from "@/mocks/fixtures/auth";
 import { SUNSHINE_CLASS } from "@/mocks/fixtures/organization";
-import { apiPath, listResponse } from "@/mocks/http";
+import { apiPath, errorResponse, listResponse } from "@/mocks/http";
 import { server } from "@/mocks/server";
 import { renderRoutes } from "@/test/render";
 
@@ -62,6 +64,36 @@ describe("TeacherLayout", () => {
     renderAt("/t/today");
 
     expect(await screen.findByText("달님어린이집 / 달님반")).toBeInTheDocument();
+  });
+
+  it("교사 이름을 /me에서 받아 보여 준다", async () => {
+    server.use(http.get(apiPath("/me"), () => HttpResponse.json({ ...TEACHER_ME, name: "박별" })));
+    renderAt("/t/today");
+
+    expect(await screen.findByRole("link", { name: "박별 선생님" })).toHaveAttribute(
+      "href",
+      "/t/settings",
+    );
+  });
+
+  it("계정 설정에 있으면 교사 이름 링크를 현재 페이지로 표시한다", async () => {
+    renderAt("/t/settings");
+
+    expect(await screen.findByRole("link", { name: "김하늘 선생님" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
+  it("로그인이 끊겼으면 교사 이름 자리를 비운다", async () => {
+    server.use(
+      http.get(apiPath("/me"), () => errorResponse(401, "UNAUTHENTICATED", "로그인이 필요해요.")),
+    );
+    const { queryClient } = renderAt("/t/today");
+
+    // 응답이 온 뒤에 확인합니다. 먼저 보면 요청 전이라 항상 통과합니다.
+    await waitFor(() => expect(queryClient.getQueryState(authKeys.me())?.status).toBe("error"));
+    expect(screen.queryByText(/선생님$/)).not.toBeInTheDocument();
   });
 
   it("담당 반이 없으면 반 이름 자리를 비운다", async () => {

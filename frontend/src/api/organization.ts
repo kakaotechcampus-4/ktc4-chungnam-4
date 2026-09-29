@@ -15,6 +15,7 @@ import type {
   ConsentUpdateRequest,
   EducationPlan,
   EducationPlanRequest,
+  MyChild,
   PlanType,
   TeacherProfileRequest,
 } from "@/types/api-draft/organization";
@@ -32,9 +33,19 @@ export const organizationKeys = {
     ["classes", classId, "education-plans", planType] as const,
   allPlans: (classId: string) => ["classes", classId, "education-plans"] as const,
   plan: (planId: string) => ["education-plans", planId] as const,
+  myChildren: () => ["me", "children"] as const,
 };
 
 const enc = encodeURIComponent;
+
+/** 학부모의 자녀 목록(W3·W4 상단 자녀 표시). 연결된 자녀가 없으면 빈 배열 */
+export function myChildrenQueryOptions() {
+  return queryOptions({
+    queryKey: organizationKeys.myChildren(),
+    queryFn: async ({ signal }) =>
+      (await api.get<ListResponse<MyChild>>("/me/children", { signal })).items,
+  });
+}
 
 /** 교사가 담당하는 반 목록 */
 export function classesQueryOptions() {

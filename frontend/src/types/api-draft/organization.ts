@@ -171,3 +171,17 @@ export type EducationPlanRequest = Pick<
   EducationPlan,
   "plan_type" | "start_date" | "end_date" | "title" | "goal" | "daily_activities" | "domains"
 >;
+
+/** GET /me/children 항목(학부모용). 교사용 명단과 스키마를 나눕니다(H-1). */
+export interface MyChild {
+  child_id: string;
+  name: string;
+  class_id: string;
+  class_name: string;
+  age_group: string;
+  center_name: string;
+  /** (제안) 현재 담임. 알림장 작성자 author_name과는 다른 값입니다. */
+  class_teacher_name: string;
+  /** (제안) 졸업 후 1년이 지나면 true. 이 자녀의 알림장 조회는 CHILD_ACCESS_EXPIRED로 막힙니다. */
+  access_expired: boolean;
+}

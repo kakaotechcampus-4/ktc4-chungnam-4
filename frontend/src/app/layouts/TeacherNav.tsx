@@ -9,7 +9,8 @@ import { activeNavItem, TEACHER_NAV_ITEMS } from "./teacher-nav";
 interface TeacherNavProps {
   /** 반을 받기 전이거나 담당 반이 없으면 비웁니다 */
   klass: { centerName: string; name: string } | null;
-  teacherName: string;
+  /** 받기 전이거나 교사 계정이 아니면 비웁니다 */
+  teacherName: string | null;
 }
 
 // Figma: 1:1898 (F / Navigation · 정렬 개선 · L2). 배경과 테두리 없이 canvas 위에 놓입니다.
@@ -54,7 +55,21 @@ export function TeacherNav({ klass, teacherName }: TeacherNavProps) {
           })}
         </ul>
       </nav>
-      <p className="w-32 shrink-0 text-right text-label text-ink-muted">{teacherName} 선생님</p>
+      {/* Figma에는 계정 설정으로 가는 곳이 없어서 교사 이름을 설정 링크로 둡니다. 칸 폭 128은 그대로입니다. */}
+      <p className="w-32 shrink-0 text-right text-label">
+        {teacherName ? (
+          <Link
+            to="/t/settings"
+            aria-current={pathname === "/t/settings" ? "page" : undefined}
+            className={cn(
+              "rounded-xs outline-none hover:text-brand-ink focus-visible:ring-3 focus-visible:ring-ring/50",
+              pathname === "/t/settings" ? "text-brand-ink" : "text-ink-muted",
+            )}
+          >
+            {teacherName} 선생님
+          </Link>
+        ) : null}
+      </p>
     </div>
   );
 }
