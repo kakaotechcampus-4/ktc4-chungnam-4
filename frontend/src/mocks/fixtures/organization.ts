@@ -56,6 +56,7 @@ function consents(agreedCount: number): ConsentItem[] {
 const base = { class_id: SUNSHINE_CLASS.class_id, age_group: "만 4세", consent_total: 3 };
 
 // 응답은 이름 가나다순이고, id는 등록 순서입니다.
+// 동의·보호자 값은 아래 FACE_CONSENTED_CHILD_IDS(③ 미동의는 정예린뿐)·PARENT_OF_CHILD(모두 연결)와 맞춥니다(#68).
 export const SUNSHINE_CHILDREN: ClassChild[] = [
   {
     ...base,
@@ -77,7 +78,7 @@ export const SUNSHINE_CHILDREN: ClassChild[] = [
     is_face_registered: false,
     face_feature_agreed: true,
     face_photo_count: 0,
-    parent_linked: false,
+    parent_linked: true,
   },
   {
     ...base,
@@ -99,18 +100,18 @@ export const SUNSHINE_CHILDREN: ClassChild[] = [
     is_face_registered: false,
     face_feature_agreed: false,
     face_photo_count: 0,
-    parent_linked: false,
+    parent_linked: true,
   },
   {
     ...base,
     child_id: fixtureId("child", 4),
     name: "최지우",
     birth_date: "2021-12-25",
-    consent_agreed_count: 2,
+    consent_agreed_count: 3,
     is_face_registered: false,
-    face_feature_agreed: false,
+    face_feature_agreed: true,
     face_photo_count: 0,
-    parent_linked: false,
+    parent_linked: true,
   },
 ];
 

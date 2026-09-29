@@ -30,14 +30,15 @@ function renderPage(childId: string) {
 
 describe("ChildConsentPage", () => {
   it("항목별 동의를 보여 주고 저장하면 준비 화면으로 간다", async () => {
-    const { router } = renderPage(fixtureId("child", 4));
+    // 정예린은 동의 기록이 없는 원아입니다(③ 미동의, #68 픽스처).
+    const { router } = renderPage(fixtureId("child", 5));
 
-    expect(await screen.findByText("최지우 · 보호자 동의 확인")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "개인정보 수집·이용 동의" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "활동 사진·영상 촬영 동의" })).toBeChecked();
+    expect(await screen.findByText("정예린 · 보호자 동의 확인")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "개인정보 수집·이용 동의" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "활동 사진·영상 촬영 동의" })).not.toBeChecked();
     const face = screen.getByRole("checkbox", { name: "얼굴 특징정보 처리 동의" });
     expect(face).not.toBeChecked();
-    expect(screen.getByText("확인일 2026. 9. 15. · 확인자 김하늘 선생님")).toBeInTheDocument();
+    expect(screen.queryByText(/확인일/)).not.toBeInTheDocument();
 
     await userEvent.click(face);
     expect(face).toBeChecked();

@@ -2,7 +2,6 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http } from "msw";
 
-import { fixtureId } from "@/mocks/fixtures/ids";
 import { apiPath, errorResponse, listResponse } from "@/mocks/http";
 import { server } from "@/mocks/server";
 import { renderRoute } from "@/test/render";
@@ -28,13 +27,10 @@ describe("ChildrenPage", () => {
     expect(within(list).getAllByRole("listitem")).toHaveLength(5);
     expect(screen.getByText("햇살반 · 재원 원아 5명")).toBeInTheDocument();
 
-    const choi = rowOf("최지우");
-    expect(within(choi).getByText("동의 2 / 3 확인")).toBeInTheDocument();
-    expect(within(choi).getByText("등록 잠김")).toBeInTheDocument();
-    expect(within(choi).getByRole("link", { name: "초대 링크 만들기" })).toHaveAttribute(
-      "href",
-      `/t/children/${fixtureId("child", 4)}/invite`,
-    );
+    const jung = rowOf("정예린");
+    expect(within(jung).getByText("동의 0 / 3 확인")).toBeInTheDocument();
+    expect(within(jung).getByText("등록 잠김")).toBeInTheDocument();
+    expect(within(rowOf("최지우")).getByText("얼굴 정보 미등록")).toBeInTheDocument();
 
     await userEvent.type(screen.getByRole("searchbox", { name: "이름으로 검색" }), "도윤");
     expect(within(list).getAllByRole("listitem")).toHaveLength(1);
