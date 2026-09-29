@@ -133,28 +133,28 @@ export function toChildDetail(child: ClassChild): ChildDetail {
 export const CHILD_OVERVIEW: ChildOverview = {
   recent_notes: [
     {
-      note_id: fixtureId("note", 4),
+      parent_note_id: fixtureId("note", 4),
       record_date: "2026-09-15",
-      status: "sent",
+      published: true,
       summary:
         "친구에게 블록을 나눠주며 같이 하자고 말했어요. 바깥놀이에서는 미끄럼틀을 혼자 올라갔어요.",
     },
     {
-      note_id: fixtureId("note", 3),
+      parent_note_id: fixtureId("note", 3),
       record_date: "2026-09-14",
-      status: "sent",
+      published: true,
       summary: "점심시간에 새로 나온 반찬을 먼저 먹어보겠다고 했어요.",
     },
     {
-      note_id: fixtureId("note", 2),
+      parent_note_id: fixtureId("note", 2),
       record_date: "2026-09-11",
-      status: "sent",
+      published: true,
       summary: "그림 그리기 시간에 가족을 그리고 한 명씩 누구인지 설명해줬어요.",
     },
     {
-      note_id: fixtureId("note", 1),
+      parent_note_id: fixtureId("note", 1),
       record_date: "2026-09-10",
-      status: "sent",
+      published: true,
       summary: "블록으로 높은 탑을 쌓고 무너지자 다시 시도했어요.",
     },
   ],

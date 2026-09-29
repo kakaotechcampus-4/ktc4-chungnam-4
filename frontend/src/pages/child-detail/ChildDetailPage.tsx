@@ -40,7 +40,7 @@ function NoteItem({ note, today }: NoteItemProps) {
             <span className={cn(TAG, "bg-brand text-brand-ink")}>오늘</span>
           ) : null}
           <span className={cn(TAG, "bg-canvas text-ink")}>
-            {note.status === "sent" ? "발송 완료" : "발송 전"}
+            {note.published ? "발송 완료" : "발송 전"}
           </span>
         </div>
         <p className="text-label text-ink">{note.summary}</p>
@@ -156,7 +156,7 @@ export function ChildDetailPage() {
             ) : (
               <ul>
                 {overview.recent_notes.map((note) => (
-                  <NoteItem key={note.note_id} note={note} today={today} />
+                  <NoteItem key={note.parent_note_id} note={note} today={today} />
                 ))}
               </ul>
             )}

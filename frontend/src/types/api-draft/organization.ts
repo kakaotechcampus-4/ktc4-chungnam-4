@@ -111,12 +111,11 @@ export interface ChildUpsertRequest {
 /** 누리과정 5영역. 가정: 원아 개인 페이지의 레이더 차트, 교육 계획의 관련 영역 */
 export type NuriDomain = "physical" | "communication" | "social" | "art" | "nature";
 
-export type NoteStatus = "sent" | "draft";
-
 export interface ChildNoteSummary {
-  note_id: string;
+  parent_note_id: string;
   record_date: DateOnly;
-  status: NoteStatus;
+  /** 학부모에게 게시됐는지. documents의 게시(publication)와 같은 뜻입니다 */
+  published: boolean;
   summary: string;
 }
 
