@@ -76,13 +76,22 @@ fi
 echo "== 헬스 체크 2/2: 공개 경로 =="
 # 앱이 살아 있어도 프록시가 앞에서 막히면 사용자에게는 장애입니다(502).
 # 도메인은 Caddyfile이 원본이라 거기서 읽습니다 — 두 곳에 적어두면 한 곳이 낡습니다.
-PUBLIC_HOST=$(grep -v '^[[:space:]]*#' Caddyfile | grep -m1 '{[[:space:]]*$' | sed 's/[[:space:]]*{.*//' | tr -d '[:space:]')
+# set -euo pipefail 아래에서는 grep이 못 찾으면 메시지 없이 스크립트가 끝납니다.
+# 배포 로그에 이유가 안 남으므로 실패를 눈에 보이게 만듭니다.
+PUBLIC_HOST=$(grep -v '^[[:space:]]*#' Caddyfile | grep -m1 '{[[:space:]]*$' | sed 's/[[:space:]]*{.*//' | tr -d '[:space:]' || true)
+if [ -z "$PUBLIC_HOST" ]; then
+    echo "실패: Caddyfile에서 도메인을 읽지 못했습니다."
+    echo "'도메인 {' 형태의 블록이 있는지 확인하세요. 현재 내용:"
+    grep -v '^[[:space:]]*#' Caddyfile | head -20
+    exit 1
+fi
 echo "도메인: $PUBLIC_HOST"
 
 # --resolve로 이 서버의 Caddy에 직접 붙습니다. 외부 DNS를 한 바퀴 돌지 않아
 # 프록시 자체의 문제와 DNS 문제가 섞이지 않습니다. 인증서 검증은 그대로 합니다.
+# Let's Encrypt 첫 발급은 60초를 넘길 수 있습니다. 앱 체크(60초)보다 길게 줍니다.
 proxy_ok=""
-for _ in $(seq 1 30); do
+for _ in $(seq 1 90); do
     if curl -fsS --resolve "${PUBLIC_HOST}:443:127.0.0.1" "https://${PUBLIC_HOST}/health"; then
         proxy_ok=1
         echo
@@ -91,7 +100,7 @@ for _ in $(seq 1 30); do
     sleep 2
 done
 if [ -z "$proxy_ok" ]; then
-    echo "실패: 공개 경로가 60초 안에 응답하지 않았습니다."
+    echo "실패: 공개 경로가 180초 안에 응답하지 않았습니다."
     echo "확인할 것:"
     echo "  - 보안그룹에 80·443 인바운드가 열려 있는지 (80은 인증서 발급에 필요)"
     echo "  - ${PUBLIC_HOST}의 A 레코드가 이 서버의 Elastic IP를 가리키는지"
