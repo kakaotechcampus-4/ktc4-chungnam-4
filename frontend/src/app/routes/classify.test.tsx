@@ -95,8 +95,8 @@ describe("얼굴 분류 결과 · 수동 분류", () => {
     await user.click(screen.getByRole("checkbox", { name: /아이 분류/ }));
     await user.click(next);
 
-    // 정은 님 처리 중 화면에 정리 단계가 붙기 전까지 임시 처리 화면으로 갑니다.
-    expect(router.state.location.pathname).toBe("/t/today/processing-temp");
+    expect(router.state.location.pathname).toBe("/t/today/processing");
+    expect(router.state.location.search).toBe("?step=send");
     expect(photo(3)).toMatchObject({
       review_state: "확정",
       assigned_child_ids: [DOYUN, HAJUN],
@@ -258,7 +258,7 @@ describe("하루 정리 (가정 API)", () => {
 
     expect(await screen.findByRole("link", { name: /초안 만들기/ })).toHaveAttribute(
       "href",
-      "/t/today/processing-temp?step=draft",
+      "/t/today/processing?step=draft",
     );
   });
 
@@ -273,7 +273,7 @@ describe("하루 정리 (가정 API)", () => {
   });
 });
 
-describe("임시 처리 화면 (정은 님 화면에 정리 단계가 붙기 전까지)", () => {
+describe("처리 중 화면 ↔ 하루 정리 (#80)", () => {
   function finishedJob(jobId: string, drafted: string): Job {
     const child = {
       status: "succeeded" as const,
@@ -284,6 +284,7 @@ describe("임시 처리 화면 (정은 님 화면에 정리 단계가 붙기 전
     };
     return {
       job_id: jobId,
+      kind: "draft",
       class_id: fixtureId("class", 1),
       record_date: "2026-09-29",
       status: "succeeded",
@@ -304,7 +305,7 @@ describe("임시 처리 화면 (정은 님 화면에 정리 단계가 붙기 전
     };
   }
 
-  it("임시 화면임을 알리고, 전송 → 정리 작업이 끝나면 하루 정리로 간다", async () => {
+  it("전송 → 정리 작업이 끝나면 하루 정리로 가고, 큐는 초안 단계를 위해 남긴다", async () => {
     const created: unknown[] = [];
     server.events.on("request:start", ({ request }) => {
       if (request.method === "POST" && request.url.endsWith("/jobs")) {
@@ -321,27 +322,21 @@ describe("임시 처리 화면 (정은 님 화면에 정리 단계가 붙기 전
         file: new NodeFile(["x"], item.file.name, { type: item.file.type }) as unknown as File,
       })),
     );
-    const { router } = renderAt("/t/today/processing-temp");
+    const { router } = renderAt("/t/today/processing?step=send");
 
-    expect(await screen.findByRole("note")).toHaveTextContent(
-      /정은 님이 만든 처리 중 화면이 아니라/,
-    );
     expect(
       await screen.findByRole("heading", { name: "아이별 하루를 정리하고 있어요", level: 1 }),
     ).toBeInTheDocument();
-    await waitFor(
-      () => expect(router.state.location.pathname).not.toBe("/t/today/processing-temp"),
-      {
-        timeout: 6000,
-      },
-    );
+    await waitFor(() => expect(router.state.location.pathname).not.toBe("/t/today/processing"), {
+      timeout: 8000,
+    });
     server.events.removeAllListeners("request:start");
 
     // 입구를 거쳐 명단 첫 아이의 하루 정리로 갑니다. 큐는 초안 단계에서 다시 쓰므로 남아 있습니다.
     expect(await screen.findByRole("heading", { name: "오늘 도윤이는 이랬어요" })).toBeVisible();
     expect(created).toEqual([expect.objectContaining({ kind: "summary" })]);
     expect(useUploadQueue.getState().items).toHaveLength(7);
-  }, 10000);
+  }, 12000);
 
   it("?step=draft면 초안 작업만 하고, 초안이 생긴 첫 원아의 초안 검토로 가며 큐를 비운다", async () => {
     server.use(
@@ -356,20 +351,21 @@ describe("임시 처리 화면 (정은 님 화면에 정리 단계가 붙기 전
       ),
     );
     seedQueue(confirmedQueue());
-    const { router } = renderAt("/t/today/processing-temp?step=draft");
+    const created: unknown[] = [];
+    server.events.on("request:start", ({ request }) => {
+      if (request.method === "POST" && request.url.endsWith("/jobs")) {
+        void request
+          .clone()
+          .json()
+          .then((body) => created.push(body));
+      }
+    });
+    const { router } = renderAt("/t/today/processing?step=draft");
 
     await waitFor(() => expect(router.state.location.pathname).toBe(`/t/today/review/${HAJUN}`));
+    server.events.removeAllListeners("request:start");
+    expect(created).toEqual([expect.objectContaining({ kind: "draft" })]);
     expect(useUploadQueue.getState().items).toEqual([]);
-  });
-
-  it("큐가 비었으면(새로고침) 자료 올리기로 안내한다", async () => {
-    renderAt("/t/today/processing-temp");
-
-    expect(await screen.findByRole("heading", { name: "처리할 자료가 없어요" })).toBeVisible();
-    expect(screen.getByRole("link", { name: "자료 올리러 가기" })).toHaveAttribute(
-      "href",
-      "/t/today/upload",
-    );
   });
 });
 

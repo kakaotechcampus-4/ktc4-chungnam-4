@@ -7,14 +7,14 @@ import type {
   JobCreateRequest,
   RoutineScene,
   RoutineSceneUpdateRequest,
-  SummaryJobCreateRequest,
   TeacherEvidence,
   TeacherEvidenceUpsertRequest,
 } from "@/types/api-draft/agents";
 import type { ListResponse } from "@/types/api-draft/common";
 
 // 초안 생성 작업(Job) 요청과 query key는 이 파일에서만 만듭니다(frontend/CLAUDE.md §데이터).
-// 서버 전송이 끝나면 createJob을 한 번 부르고(#60 B안), jobQueryOptions로 끝날 때까지 폴링합니다.
+// 서버 전송이 끝나면 정리 작업(kind: "summary")을, 하루 정리를 확인하면 초안 작업(kind: "draft")을
+// createJob으로 한 번씩 부르고(#60 B안, #80), jobQueryOptions로 끝날 때까지 폴링합니다.
 export const agentsKeys = {
   job: (jobId: string) => ["jobs", jobId] as const,
   classJobs: (classId: string, recordDate: string) =>
@@ -24,7 +24,7 @@ export const agentsKeys = {
 /** (제안) 폴링 간격 2초 */
 export const JOB_POLL_INTERVAL_MS = 2000;
 
-/** 반·날짜의 초안 생성을 시작합니다. 같은 request_id로 다시 부르면 기존 작업이 옵니다. */
+/** 반·날짜의 정리 작업이나 초안 작업을 시작합니다. 같은 request_id로 다시 부르면 기존 작업이 옵니다. */
 export function createJob(classId: string, body: JobCreateRequest) {
   return api.post<Job>(`/classes/${encodeURIComponent(classId)}/jobs`, body);
 }
@@ -121,15 +121,4 @@ export function updateRoutineScene(
     `/children/${encodeURIComponent(childId)}/daily-routines/${encodeURIComponent(recordDate)}/scenes/${encodeURIComponent(sceneId)}`,
     body,
   );
-}
-
-/**
- * (가정) 정리 작업(하루 일과 만들기)을 시작합니다. 진행 조회는 초안 작업과 같은 jobQueryOptions를 씁니다.
- * succeeded가 되면 하루 일과가 준비된 것입니다(하루 정리 입구로 이동).
- */
-export function createSummaryJob(classId: string, body: Omit<SummaryJobCreateRequest, "kind">) {
-  return api.post<Job>(`/classes/${encodeURIComponent(classId)}/jobs`, {
-    ...body,
-    kind: "summary",
-  } satisfies SummaryJobCreateRequest);
 }

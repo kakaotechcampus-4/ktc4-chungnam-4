@@ -18,6 +18,7 @@ function renderProcessing(initialEntry: string) {
       { path: "/t/today/processing", element: <ProcessingPage /> },
       { path: "/t/today/upload", element: <p>자료 올리기</p> },
       { path: "/t/today/classification", element: <p>얼굴 분류</p> },
+      { path: "/t/today/summary", element: <p>하루 정리</p> },
       { path: "/t/today/review/:childId", element: <p>초안 검토</p> },
     ],
     { initialEntry },
@@ -46,7 +47,7 @@ describe("ProcessingPage", () => {
     expect(photos.map((item) => item.classify_state)).toEqual(["classified", "classified"]);
   }, 15000);
 
-  it("확정한 사진만 보내고, 초안이 생긴 첫 원아의 초안 검토로 간다", async () => {
+  it("확정한 사진만 보내고, 정리 작업이 끝나면 하루 정리로 간다", async () => {
     const queue = useUploadQueue.getState();
     queue.addFiles([photo("confirmed.jpg"), photo("unreviewed.jpg")]);
     const [confirmed] = useUploadQueue.getState().items;
@@ -83,10 +84,11 @@ describe("ProcessingPage", () => {
       drafts: [],
     };
     server.use(
-      // 폴링을 기다리지 않게 첫 조회에서 끝난 것으로 둡니다. 첫 원아는 미분류라 초안이 없습니다.
+      // 폴링을 기다리지 않게 첫 조회에서 끝난 것으로 둡니다.
       http.get(apiPath("/jobs/:jobId"), ({ params }) =>
         HttpResponse.json<Job>({
           job_id: String(params.jobId),
+          kind: "summary",
           class_id: fixtureId("class", 1),
           record_date: "2026-09-15",
           status: "succeeded",
@@ -114,10 +116,9 @@ describe("ProcessingPage", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: "선택한 자료를 전송하고 있어요" }),
     ).toBeInTheDocument();
-    await waitFor(
-      () => expect(router.state.location.pathname).toBe(`/t/today/review/${fixtureId("child", 2)}`),
-      { timeout: 3000 },
-    );
+    await waitFor(() => expect(router.state.location.pathname).toBe("/t/today/summary"), {
+      timeout: 3000,
+    });
     server.events.removeListener("request:start", record);
 
     const writes = requests.filter((request) => request.method !== "GET");
@@ -141,7 +142,81 @@ describe("ProcessingPage", () => {
         { child_id: fixtureId("child", 2), method: "manual", confidence_score: null },
       ],
     });
-    expect(writes[4]?.body).toMatchObject({ media_ids: [mediaId] });
+    expect(writes[4]?.body).toMatchObject({ kind: "summary", media_ids: [mediaId] });
+    // 초안 단계가 server_media_id를 다시 쓰므로 하루 정리로 갈 때는 큐를 비우지 않습니다(#80).
+    expect(useUploadQueue.getState().items).toHaveLength(2);
+  });
+
+  it("하루 정리에서 ?step=draft로 오면 초안 작업을 하고, 초안이 생긴 첫 원아의 초안 검토로 간다", async () => {
+    useUploadQueue.getState().addFiles([photo("confirmed.jpg")]);
+    const child = {
+      status: "succeeded" as const,
+      stage: null,
+      failed_stage: null,
+      error_code: null,
+    };
+    server.use(
+      http.post(apiPath("/classes/:classId/jobs"), () =>
+        HttpResponse.json<Job>(
+          {
+            job_id: fixtureId("job", 1),
+            kind: "draft",
+            class_id: fixtureId("class", 1),
+            record_date: "2026-09-15",
+            status: "pending",
+            stage: null,
+            progress: { percent: 0, total_children: 2, finished_children: 0 },
+            failed_stage: null,
+            error_code: null,
+            children: [],
+            created_at: "2026-09-15T06:30:00Z",
+            updated_at: "2026-09-15T06:30:00Z",
+          },
+          { status: 202 },
+        ),
+      ),
+      // 첫 원아는 미분류라 초안이 없습니다.
+      http.get(apiPath("/jobs/:jobId"), ({ params }) =>
+        HttpResponse.json<Job>({
+          job_id: String(params.jobId),
+          kind: "draft",
+          class_id: fixtureId("class", 1),
+          record_date: "2026-09-15",
+          status: "succeeded",
+          stage: null,
+          progress: { percent: 100, total_children: 2, finished_children: 2 },
+          failed_stage: null,
+          error_code: null,
+          children: [
+            {
+              ...child,
+              child_id: fixtureId("child", 1),
+              outcome: "unclassified",
+              unclassified_reason: "insufficient_evidence",
+              drafts: [],
+            },
+            {
+              ...child,
+              child_id: fixtureId("child", 2),
+              outcome: "drafted",
+              unclassified_reason: null,
+              drafts: [{ draft_id: fixtureId("draft", 21), doc_type: "parent_note" }],
+            },
+          ],
+          created_at: "2026-09-15T06:30:00Z",
+          updated_at: "2026-09-15T06:31:40Z",
+        }),
+      ),
+    );
+    const { router } = renderProcessing("/t/today/processing?step=draft");
+
+    expect(
+      screen.getByRole("heading", { level: 1, name: "아이별 초안을 준비하고 있어요" }),
+    ).toBeInTheDocument();
+    await waitFor(
+      () => expect(router.state.location.pathname).toBe(`/t/today/review/${fixtureId("child", 2)}`),
+      { timeout: 3000 },
+    );
     expect(useUploadQueue.getState().items).toEqual([]);
   });
 

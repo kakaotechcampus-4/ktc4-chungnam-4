@@ -1,18 +1,36 @@
 import { http, HttpResponse } from "msw";
 
 import { kstToday } from "@/lib/datetime";
-import type { Job, JobChild, JobCreateRequest, JobStage } from "@/types/api-draft/agents";
+import type {
+  Job,
+  JobChild,
+  JobCreateRequest,
+  JobKind,
+  JobStage,
+  RoutineSceneUpdateRequest,
+  TeacherEvidence,
+  TeacherEvidenceUpsertRequest,
+} from "@/types/api-draft/agents";
 
 import { nextId, nowIso, readDb, updateDb } from "../db";
 import type { JobChildRecord, JobRecord, MediaRecord, MockDb } from "../db";
+import {
+  buildRoutines,
+  excludedScenes,
+  nextEvidenceId,
+  sceneKey,
+  teacherEvidence,
+} from "../fixtures/agents";
 import { buildDrafts } from "../fixtures/documents";
 import { SUNSHINE_CHILDREN } from "../fixtures/organization";
 import { requireTeacher, requireTeacherOfClass } from "../guards";
 import { apiPath, errorResponse, listResponse, validationError } from "../http";
 import { isMockScenario } from "../scenario";
 
-// API 문서 §agents 목입니다. 서버 전송이 끝나면 FE가 POST /jobs를 한 번 부르고(#60 B안), GET /jobs/{job_id}를 폴링합니다.
-// - 폴링할 때마다 안 끝난 원아가 한 단계씩 나아갑니다(4번이면 끝). 2초 간격이면 약 8초입니다.
+// API 문서 §agents 목입니다. 서버 전송이 끝나면 FE가 정리 작업을, 하루 정리를 확인하면 초안 작업을
+// POST /jobs로 한 번씩 부르고(#60 B안, #80), GET /jobs/{job_id}를 폴링합니다.
+// - 정리 작업(kind: "summary")은 STT 대기 → 근거 수집, 초안 작업(kind: "draft")은 생성 → 검증을 거칩니다.
+// - 폴링할 때마다 안 끝난 원아가 한 단계씩 나아갑니다(작업마다 2번이면 끝). 2초 간격이면 약 4초입니다.
 // - 근거는 요청의 media_ids 가운데 그 원아에게 귀속되고 llm_allowed인 자료만 씁니다(김동건 님 #60 [must], 잠정).
 //   근거가 없으면 미분류(insufficient_evidence)로 끝납니다. ③ 미동의 원아만 귀속된 사진이 여기에 해당합니다.
 // - 날짜 대조("이 반·날짜의 자료가 아닌 것")는 목에서 하지 않습니다. 시연 파일의 촬영일이 제각각이라서입니다.
@@ -24,6 +42,12 @@ const STAGES: readonly JobStage[] = [
   "generating",
   "verifying",
 ];
+/** 작업 종류마다 거치는 단계. 정리 작업은 하루 일과(5단계)까지, 초안 작업은 그 뒤입니다. */
+const STAGES_BY_KIND: Record<JobKind, readonly JobStage[]> = {
+  summary: ["transcribing", "collecting_evidence"],
+  draft: ["generating", "verifying"],
+};
+const JOB_KINDS: readonly string[] = Object.keys(STAGES_BY_KIND);
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 function isFinished(child: JobChildRecord) {
@@ -34,11 +58,11 @@ function stageIndex(stage: JobStage | null) {
   return stage === null ? Number.POSITIVE_INFINITY : STAGES.indexOf(stage);
 }
 
-function childView(child: JobChildRecord): JobChild {
+function childView(child: JobChildRecord, stages: readonly JobStage[]): JobChild {
   return {
     child_id: child.child_id,
     status: child.status,
-    stage: child.status === "running" ? (STAGES[child.steps] ?? null) : null,
+    stage: child.status === "running" ? (stages[child.steps] ?? null) : null,
     outcome: child.outcome,
     unclassified_reason: child.unclassified_reason,
     failed_stage: child.failed_stage,
@@ -48,20 +72,22 @@ function childView(child: JobChildRecord): JobChild {
 }
 
 function jobView(job: JobRecord): Job {
-  const children = job.children.map(childView);
+  const stages = STAGES_BY_KIND[job.kind];
+  const children = job.children.map((child) => childView(child, stages));
   const unfinished = job.children.filter((child) => !isFinished(child));
   const failed = job.children
     .filter((child) => child.status === "failed")
     .sort((a, b) => stageIndex(a.failed_stage) - stageIndex(b.failed_stage));
   const doneSteps = job.children.reduce(
-    (sum, child) => sum + (isFinished(child) ? STAGES.length : child.steps),
+    (sum, child) => sum + (isFinished(child) ? stages.length : child.steps),
     0,
   );
   const running = unfinished.filter((child) => child.status === "running");
   const stage =
-    running.length > 0 ? (STAGES[Math.min(...running.map((child) => child.steps))] ?? null) : null;
+    running.length > 0 ? (stages[Math.min(...running.map((child) => child.steps))] ?? null) : null;
   return {
     job_id: job.job_id,
+    kind: job.kind,
     class_id: job.class_id,
     record_date: job.record_date,
     status:
@@ -74,7 +100,7 @@ function jobView(job: JobRecord): Job {
           : "succeeded",
     stage: unfinished.length > 0 ? stage : null,
     progress: {
-      percent: Math.floor((doneSteps / (job.children.length * STAGES.length)) * 100),
+      percent: Math.floor((doneSteps / (job.children.length * stages.length)) * 100),
       total_children: job.children.length,
       finished_children: job.children.length - unfinished.length,
     },
@@ -135,7 +161,8 @@ function finishChild(db: MockDb, job: JobRecord, child: JobChildRecord, now: str
 /** 폴링 한 번마다 안 끝난 원아를 한 단계씩 나아가게 합니다. 처음 한 번은 대기(pending)에서 시작만 합니다. */
 function advance(db: MockDb, job: JobRecord) {
   const now = nowIso();
-  const failsFirstChild = isMockScenario("agents.job-fails");
+  const stages = STAGES_BY_KIND[job.kind];
+  const failsFirstChild = job.kind === "draft" && isMockScenario("agents.job-fails");
   for (const child of job.children) {
     if (isFinished(child)) continue;
     if (child.status === "pending") {
@@ -143,15 +170,28 @@ function advance(db: MockDb, job: JobRecord) {
       continue;
     }
     child.steps += 1;
-    if (failsFirstChild && child === job.children[0] && STAGES[child.steps] === "generating") {
+    if (failsFirstChild && child === job.children[0] && stages[child.steps] === "verifying") {
       child.status = "failed";
       child.failed_stage = "generating";
       child.error_code = "LLM_TIMEOUT";
       continue;
     }
-    if (child.steps >= STAGES.length) finishChild(db, job, child, now);
+    if (child.steps < stages.length) continue;
+    // 정리 작업은 하루 일과만 만들고 끝납니다. 초안은 초안 작업에서 만듭니다.
+    if (job.kind === "summary") child.status = "succeeded";
+    else finishChild(db, job, child, now);
   }
   job.updated_at = now;
+}
+
+/** 원아 단위 요청: 교사이고 담당 반의 원아인지 */
+function requireClassChild(childId: unknown): Response | null {
+  const denied = requireTeacher();
+  if (denied) return denied;
+  if (!SUNSHINE_CHILDREN.some((child) => child.child_id === childId)) {
+    return errorResponse(403, "CHILD_ACCESS_DENIED", "이 원아의 기록을 볼 수 없어요.");
+  }
+  return null;
 }
 
 export const handlers = [
@@ -161,13 +201,16 @@ export const handlers = [
     if (denied) return denied;
     const body = (await request.json()) as Partial<JobCreateRequest>;
     if (
+      typeof body.kind !== "string" ||
+      !JOB_KINDS.includes(body.kind) ||
       typeof body.request_id !== "string" ||
       typeof body.record_date !== "string" ||
       !DATE_ONLY.test(body.record_date) ||
       !Array.isArray(body.media_ids)
     ) {
-      return validationError("body", "request_id, record_date, media_ids가 필요합니다");
+      return validationError("body", "kind, request_id, record_date, media_ids가 필요합니다");
     }
+    const kind = body.kind as JobKind;
     const { request_id: requestId, record_date: recordDate, media_ids: mediaIds } = body;
     if (recordDate > kstToday()) {
       return errorResponse(400, "INVALID_RECORD_DATE", "오늘보다 뒤 날짜로는 만들 수 없어요.");
@@ -179,6 +222,7 @@ export const handlers = [
 
       const running = Object.values(db.jobs).find(
         (job) =>
+          job.kind === kind &&
           job.class_id === classId &&
           job.record_date === recordDate &&
           job.children.some((child) => !isFinished(child)),
@@ -201,6 +245,7 @@ export const handlers = [
       const now = nowIso();
       const job: JobRecord = {
         job_id: nextId(db, "job"),
+        kind,
         request_id: requestId,
         class_id: classId,
         record_date: recordDate,
@@ -270,4 +315,77 @@ export const handlers = [
       .map(jobView);
     return listResponse(jobs);
   }),
+
+  // ── (가정) 하루 정리·추가 근거(#80, docs/api/agents.md 하단 제안) ──
+  http.get(apiPath("/classes/:classId/evidence"), ({ params, request }) => {
+    const denied = requireTeacherOfClass(params.classId);
+    if (denied) return denied;
+    const recordDate = new URL(request.url).searchParams.get("record_date");
+    return listResponse(teacherEvidence.filter((note) => note.record_date === recordDate));
+  }),
+
+  // 아이·날짜마다 한 건. 없으면 만들고(201) 있으면 덮어씁니다(200).
+  http.put(apiPath("/children/:childId/evidence/:recordDate"), async ({ params, request }) => {
+    const denied = requireClassChild(params.childId);
+    if (denied) return denied;
+    const body = (await request.json()) as TeacherEvidenceUpsertRequest;
+    if (!body.text?.trim()) {
+      return errorResponse(422, "VALIDATION_ERROR", "관찰 내용을 적어 주세요.");
+    }
+    const childId = String(params.childId);
+    const recordDate = String(params.recordDate);
+    const existing = teacherEvidence.find(
+      (note) => note.child_id === childId && note.record_date === recordDate,
+    );
+    if (existing) {
+      Object.assign(existing, { activity_time: body.activity_time, text: body.text.trim() });
+      return HttpResponse.json(existing, { status: 200 });
+    }
+    const saved: TeacherEvidence = {
+      evidence_id: nextEvidenceId(),
+      child_id: childId,
+      record_date: recordDate,
+      activity_time: body.activity_time,
+      text: body.text.trim(),
+      source: "teacher_note",
+      created_at: new Date().toISOString(),
+    };
+    teacherEvidence.push(saved);
+    return HttpResponse.json(saved, { status: 201 });
+  }),
+
+  http.get(apiPath("/classes/:classId/daily-routines"), ({ params, request }) => {
+    const denied = requireTeacherOfClass(params.classId);
+    if (denied) return denied;
+    const recordDate = new URL(request.url).searchParams.get("record_date");
+    if (!recordDate || !DATE_ONLY.test(recordDate)) {
+      return validationError("query.record_date", "YYYY-MM-DD가 필요합니다");
+    }
+    return listResponse(buildRoutines(readDb(), String(params.classId), recordDate));
+  }),
+
+  http.patch(
+    apiPath("/children/:childId/daily-routines/:recordDate/scenes/:sceneId"),
+    async ({ params, request }) => {
+      const denied = requireClassChild(params.childId);
+      if (denied) return denied;
+      const body = (await request.json()) as Partial<RoutineSceneUpdateRequest>;
+      if (typeof body.excluded !== "boolean") {
+        return validationError("body.excluded", "true 또는 false가 필요합니다");
+      }
+      const childId = String(params.childId);
+      const recordDate = String(params.recordDate);
+      // 원아의 반은 명단에서 찾습니다(경로에 반이 없음).
+      const classId = SUNSHINE_CHILDREN.find((child) => child.child_id === childId)?.class_id ?? "";
+      const routine = buildRoutines(readDb(), classId, recordDate).find(
+        (item) => item.child_id === childId,
+      );
+      const scene = routine?.scenes.find((item) => item.scene_id === params.sceneId);
+      if (!scene) return errorResponse(404, "SCENE_NOT_FOUND", "장면을 찾을 수 없어요.");
+      const key = sceneKey(childId, recordDate, scene.scene_id);
+      if (body.excluded) excludedScenes.add(key);
+      else excludedScenes.delete(key);
+      return HttpResponse.json({ ...scene, excluded: body.excluded });
+    },
+  ),
 ];

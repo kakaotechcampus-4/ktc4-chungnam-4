@@ -1,4 +1,3 @@
-import { kstToday } from "@/lib/datetime";
 import type {
   DailyRoutine,
   RoutineQuote,
@@ -9,8 +8,8 @@ import type {
 import type { MockDb } from "../db";
 import { fixtureId } from "./ids";
 
-// ④ 하루 정리·추가 근거의 가정 API 목 상태입니다(types/api-draft/agents.ts 아래쪽).
-// 공통 목 DB(mocks/db.ts)의 모양을 바꾸지 않으려고 이 모듈의 메모리에 둡니다. 새로고침하면 처음 상태입니다.
+// ④ 하루 정리·추가 근거의 가정 API 목 상태입니다(types/api-draft/agents.ts 아래쪽, #80).
+// 교사가 쓴 값(추가 근거, 뺀 장면)은 이 모듈의 메모리에 둡니다. 새로고침하면 처음 상태입니다.
 // 테스트는 resetAgentsFixtures로 비웁니다. 문장은 모두 합성이고 실명을 넣지 않습니다.
 
 // ── 추가 근거 ────────────────────────────────────────────
@@ -95,21 +94,20 @@ function sceneId(n: number) {
 }
 
 /**
- * 그날 하루 일과가 있는 원아. 그날 귀속까지 끝난 자료(attributed_at)에 연결된 원아이고, 없으면 FALLBACK_CHILD_IDS입니다.
- * 실제로는 정리 작업(가정)이 끝난 원아만 옵니다.
+ * 그날 하루 일과가 있는 원아: 그 반·날짜에서 가장 최근에 끝난 정리 작업(kind: "summary")의 원아입니다.
+ * 정리 작업이 없으면(주소로 바로 들어온 개발 화면) FALLBACK_CHILD_IDS를 씁니다.
  */
 function routineChildIds(db: MockDb, classId: string, recordDate: string): string[] {
-  const linked = new Set(
-    Object.values(db.media)
-      .filter(
-        (media) =>
-          media.class_id === classId &&
-          media.attributed_at !== null &&
-          kstToday(new Date(media.attributed_at)) === recordDate,
-      )
-      .flatMap((media) => media.child_links.map((link) => link.child_id)),
-  );
-  return linked.size > 0 ? [...linked] : FALLBACK_CHILD_IDS;
+  const summary = Object.values(db.jobs)
+    .filter(
+      (job) =>
+        job.kind === "summary" &&
+        job.class_id === classId &&
+        job.record_date === recordDate &&
+        job.children.every((child) => child.status === "succeeded"),
+    )
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+  return summary ? summary.children.map((child) => child.child_id) : FALLBACK_CHILD_IDS;
 }
 
 /** 원아마다 장면 순서를 조금씩 달리해 화면에서 구분되게 합니다. 같은 입력이면 늘 같은 결과입니다. */
@@ -139,34 +137,8 @@ export function buildRoutines(db: MockDb, classId: string, recordDate: string): 
   });
 }
 
-// ── 정리 작업(가정) ──────────────────────────────────────
-
-export interface SummaryJobRecord {
-  job_id: string;
-  request_id: string;
-  class_id: string;
-  record_date: string;
-  child_ids: string[];
-  /** 끝낸 조회 수. SUMMARY_STAGES 길이만큼 조회하면 끝납니다. */
-  polls: number;
-  created_at: string;
-  updated_at: string;
-}
-
-/** 정리 작업. 초안 작업(정은 목, mocks/db.ts의 jobs)과 섞이지 않게 따로 둡니다. 키는 job_id */
-export const summaryJobs = new Map<string, SummaryJobRecord>();
-
-let nextSummaryJob = 1;
-
-export function nextSummaryJobId() {
-  const n = nextSummaryJob++;
-  return `5a0b0000-0000-4000-8000-${String(n).padStart(12, "0")}`;
-}
-
 export function resetAgentsFixtures() {
   teacherEvidence.length = 0;
   nextNumber = 1;
   excludedScenes.clear();
-  summaryJobs.clear();
-  nextSummaryJob = 1;
 }

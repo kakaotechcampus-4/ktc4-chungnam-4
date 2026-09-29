@@ -16,9 +16,8 @@ import { formatCounts, summarize } from "./classification-summary";
 import { EmptyQueueCard } from "./components/EmptyQueueCard";
 import { ChildCard, UnclassifiedCard } from "./components/ResultCards";
 
-// 확인을 마치면 전송부터 합니다. 원래는 정은 님 처리 중 화면(?step=send)이지만, 그 화면에 정리 단계가 붙기 전까지
-// 전송 → 정리 → 하루 정리 순서를 보려고 임시 처리 화면으로 보냅니다(pages/processing-temp).
-const PROCESSING_SEND = "/t/today/processing-temp";
+// 확인을 마치면 처리 중 화면(③ 정은)의 전송 단계로 돌아갑니다. 전송 → 정리가 끝나면 하루 정리로 옵니다.
+const PROCESSING_SEND = "/t/today/processing?step=send";
 
 export function ClassificationPage() {
   const navigate = useNavigate();

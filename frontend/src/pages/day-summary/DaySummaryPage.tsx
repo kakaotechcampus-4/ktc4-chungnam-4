@@ -18,12 +18,10 @@ import { FeedbackCard } from "./components/FeedbackCard";
 import { type Scene, SceneList } from "./components/SceneList";
 import { useClassRoutines } from "./use-class-routines";
 
-// 하루 일과는 가정 API(GET /classes/{id}/daily-routines)에서 옵니다. 방법 1(정리 작업 → 하루 정리 → 초안 작업,
-// 09/29 김동건 제안) 기준이고, 팀 합의 전입니다(types/api-draft/agents.ts 아래쪽).
+// 하루 일과는 정리 작업(kind: "summary")이 끝난 뒤 GET /classes/{id}/daily-routines에서 옵니다(#80).
 
-// 초안 단계. 초안 작업(Job)은 반 단위로 한 번 시작합니다. 원래는 정은 님 처리 중 화면(?step=draft)이지만,
-// 그 화면이 ?step=draft를 받기 전까지 임시 처리 화면(pages/processing-temp)으로 보냅니다.
-const PROCESSING_DRAFT = "/t/today/processing-temp?step=draft";
+// 처리 중 화면(③ 정은)의 초안 단계. 초안 작업(kind: "draft")은 반 단위로 한 번 시작합니다(#80).
+const PROCESSING_DRAFT = "/t/today/processing?step=draft";
 
 function toScene(scene: RoutineScene): Scene {
   const quotes = scene.quote_count > 0 ? `멘트 ${scene.quote_count}개` : "멘트 없음";
@@ -168,7 +166,7 @@ export function DaySummaryPage() {
               만든 뒤에도 문장을 직접 고치거나 다시 써달라고 하실 수 있어요.
             </p>
           </div>
-          {/* 초안 작업이 끝나면 처리 화면이 초안 검토(documents 영역 today/review/:childId)로 보냅니다. */}
+          {/* 초안 작업이 끝나면 처리 중 화면이 초안 검토(documents 영역 today/review/:childId)로 보냅니다. */}
           <Button asChild size="lg" className="px-7 text-lead">
             <Link to={PROCESSING_DRAFT}>
               초안 만들기

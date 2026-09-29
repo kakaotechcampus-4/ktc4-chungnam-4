@@ -1,11 +1,12 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
-import { createSummaryJob, jobQueryOptions } from "@/api/agents";
+import { createJob, jobQueryOptions } from "@/api/agents";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
 import { useUploadQueue } from "@/features/upload-queue/upload-queue-store";
 import { kstToday } from "@/lib/datetime";
-import { ProcessingCard } from "@/pages/processing/components/ProcessingCard";
+
+import { ProcessingCard } from "./ProcessingCard";
 
 interface SummaryStepProps {
   /** 정리 작업이 succeeded가 되면 부릅니다. */
@@ -13,10 +14,11 @@ interface SummaryStepProps {
   onCancel: () => void;
 }
 
-/** 정은 님 ProcessingCard의 단계 칸에는 "하루 정리"가 없어 서버 전송 칸(3번)에 둡니다. */
+/** 단계 칸(Figma 5칸)에는 "하루 정리"가 없어 서버 전송 칸(3번)에 둡니다. */
 const SERVER_STEP_INDEX = 3;
 
-// (가정) 정리 작업을 한 번 시작하고 하루 일과가 준비될 때까지 폴링합니다. 정은 님 DraftStep과 같은 틀입니다.
+// 정리 작업(kind: "summary", 파이프라인 1~5단계)을 한 번 시작하고 하루 일과가 준비될 때까지 폴링합니다(#80, FR-27).
+// 폴링 간격과 멈춤은 jobQueryOptions가 정합니다. DraftStep과 같은 틀입니다.
 export function SummaryStep({ onDone, onCancel }: SummaryStepProps) {
   const { currentClass } = useCurrentClass();
   const [requestId] = useState(() => crypto.randomUUID());
@@ -28,7 +30,8 @@ export function SummaryStep({ onDone, onCancel }: SummaryStepProps) {
 
   const create = useMutation({
     mutationFn: (classId: string) =>
-      createSummaryJob(classId, {
+      createJob(classId, {
+        kind: "summary",
         request_id: requestId,
         record_date: kstToday(),
         media_ids: mediaIds,

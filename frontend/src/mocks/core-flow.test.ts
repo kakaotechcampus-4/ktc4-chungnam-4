@@ -104,6 +104,7 @@ describe("핵심 흐름 목", () => {
 
     // 2. Job → 폴링. 근거가 있는 원아만 초안이 생기고, 근거가 없으면 미분류로 끝납니다.
     const started = await createJob(CLASS_ID, {
+      kind: "draft",
       request_id: fixtureId("request", 900),
       record_date: today,
       media_ids: [doyunPhoto.media_id, yerinPhoto.media_id],
@@ -293,6 +294,7 @@ describe("목의 판정 규칙", () => {
     const client = queryClient();
     const twoDaysAgo = shiftDate(kstToday(), -2);
     const started = await createJob(CLASS_ID, {
+      kind: "draft",
       request_id: fixtureId("request", 970),
       record_date: twoDaysAgo,
       media_ids: [fixtureId("media", 51)],
@@ -345,6 +347,7 @@ describe("목의 판정 규칙", () => {
     const photo = await uploadPhoto(910);
     await expect(
       createJob(CLASS_ID, {
+        kind: "draft",
         request_id: fixtureId("request", 910),
         record_date: kstToday(),
         media_ids: [photo.media_id],
@@ -450,6 +453,7 @@ describe("목의 판정 규칙", () => {
     const photo = await uploadPhoto(940);
     await saveChildLinks(photo.media_id, { llm_allowed: true, child_links: [manual(DOYUN)] });
     const started = await createJob(CLASS_ID, {
+      kind: "draft",
       request_id: fixtureId("request", 940),
       record_date: kstToday(),
       media_ids: [photo.media_id],

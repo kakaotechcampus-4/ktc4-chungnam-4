@@ -3,10 +3,16 @@
 
 import type { DocType } from "./documents";
 
+/**
+ * 작업 종류(#80). 정리 작업(파이프라인 1~5단계, 하루 일과)과 초안 작업(6~7단계)을 따로 만듭니다.
+ * 교사가 하루 정리를 확인한 뒤 초안 작업을 시작합니다(FR-27).
+ */
+export type JobKind = "summary" | "draft";
+
 /** 원아별·반 전체 작업 상태 */
 export type JobStatus = "pending" | "running" | "succeeded" | "failed";
 
-/** 차례로 STT 대기, 근거 수집, 생성, 검증 */
+/** 차례로 STT 대기, 근거 수집(여기까지 정리 작업), 생성, 검증(초안 작업) */
 export type JobStage = "transcribing" | "collecting_evidence" | "generating" | "verifying";
 
 /** succeeded일 때만. 미분류는 예외가 아니라 정상 종료입니다. */
@@ -19,6 +25,7 @@ export type JobErrorCode = "STT_FAILED" | "LLM_TIMEOUT" | "LLM_CALL_FAILED" | "I
 
 /** POST /classes/{class_id}/jobs 요청 */
 export interface JobCreateRequest {
+  kind: JobKind;
   /** FE가 만든 UUID. 같은 값으로 다시 보내면 작업을 새로 만들지 않습니다. */
   request_id: string;
   /** "YYYY-MM-DD", KST 하루 */
@@ -47,13 +54,14 @@ export interface JobChild {
   unclassified_reason: UnclassifiedReason | null;
   failed_stage: JobStage | null;
   error_code: JobErrorCode | null;
-  /** 만든 초안. 미분류면 빈 배열 */
+  /** 만든 초안. 미분류이거나 정리 작업이면 빈 배열 */
   drafts: JobDraftRef[];
 }
 
 /** POST /classes/{class_id}/jobs(202)와 GET /jobs/{job_id}(200) 응답 */
 export interface Job {
   job_id: string;
+  kind: JobKind;
   class_id: string;
   record_date: string;
   status: JobStatus;
@@ -123,7 +131,7 @@ export interface RoutineQuote {
 
 /**
  * (가정) 아이 한 명의 하루 일과. GET /classes/{class_id}/daily-routines?record_date= 목록 항목입니다.
- * 방법 1(정리 작업과 초안 작업을 나눔, 09/29 김동건 제안) 기준으로, 정리 작업이 끝난 아이만 옵니다.
+ * 정리 작업(kind: "summary")이 끝난 아이만 옵니다.
  */
 export interface DailyRoutine {
   child_id: string;
@@ -139,15 +147,4 @@ export interface DailyRoutine {
 /** (가정) PATCH /children/{child_id}/daily-routines/{record_date}/scenes/{scene_id} 요청 */
 export interface RoutineSceneUpdateRequest {
   excluded: boolean;
-}
-
-/**
- * (가정) 작업 종류. 방법 1(09/29 김동건 제안)은 정리 작업(1~5단계)과 초안 작업(6~7단계)을 나눕니다.
- * 정은 님 JobCreateRequest·Job에 kind가 들어가기 전까지, 정리 작업만 이 요청으로 따로 보냅니다.
- */
-export type JobKind = "summary" | "draft";
-
-/** (가정) POST /classes/{class_id}/jobs 요청 중 정리 작업. 응답은 Job과 같은 모양이고 drafts는 늘 빈 배열입니다. */
-export interface SummaryJobCreateRequest extends JobCreateRequest {
-  kind: "summary";
 }
