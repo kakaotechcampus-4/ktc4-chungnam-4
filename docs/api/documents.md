@@ -28,6 +28,8 @@
 
 - [ ] 레일 "검토 완료" 기준(두 문서가 모두 `approved`인지). 한 원아의 두 문서를 한 번에 승인하는 UX가 필요한지
 - [ ] 레일을 organization 명단, drafts 목록, Job `children[]`로 합치는 방식
+- [ ] **게시한 알림장의 "수정하기"** — 알림장 상세에서 뺐습니다(이번 범위 밖). 게시본은 학부모가 이미 본 뒤라 바로 고칠 수 없고, 회수(`POST /drafts/{draft_id}/revoke`, 경로만)를 거치는 흐름이 필요합니다. 회수 명세가 정해지면 화면에 다시 넣습니다
+- [x] 알림장 게시판을 날짜별 목록에서 **원아 명단**으로 바꿈 → 임시 결정(김진하): 게시판은 지난 기록 보관함이라 원아 → 날짜 순서로 들어갑니다(오늘 게시 상태는 초안 검토 레일이 이미 보여 줍니다). 반영: 이 문서 §`GET /classes/{class_id}/drafts`(쿼리 확장), §`GET /children/{child_id}/drafts`
 
 ## develop 코드와 다른 점
 
@@ -102,7 +104,11 @@ documents의 상세 작성 엔드포인트는 7개(교사용 5, 학부모용 2)�
   - 알림장 발행 완료
 - 요구사항: FR-06, FR-16
 - 권한: 교사 — 담당 반만
-- 요청: 경로 `class_id`, 쿼리 `record_date`(필수, "YYYY-MM-DD"). 반 단위 목록이라 페이지네이션이 없습니다.
+- 요청: 경로 `class_id`, 쿼리는 아래와 같습니다. 반 단위 목록이라 페이지네이션이 없습니다.
+  - `record_date`: "YYYY-MM-DD". **`published=true`일 때만 생략할 수 있고**, 생략하면 기간 전체입니다 — 임시 결정(김진하)
+  - `doc_type`(선택): `parent_note` / `observation_log`. 없으면 둘 다 담습니다
+  - `published`(선택, 기본 `false`): `true`면 게시된 문서(`published_at`이 있는 것)만 담습니다
+- `published=true`이고 `record_date`가 없으면 원아마다 **가장 최근 게시본 1건**만 담습니다 — 알림장 명단 화면은 "게시된 알림장이 있는지"만 보기 때문입니다(임시 결정(김진하)).
 - 응답 `200`:
 
 ```json
@@ -131,6 +137,36 @@ documents의 상세 작성 엔드포인트는 7개(교사용 5, 학부모용 2)�
 - 게시할 수 있는 행은 FE가 `status == approved && published_at == null`로 판단합니다.
 - 에러: `CLASS_ACCESS_DENIED` (403) — 담당 반이 아닐 때
 - [확인 필요: 김진하] 레일 "2 / 5명 검토 완료"에서 무엇을 "검토 완료"로 셀지 정해야 합니다(두 문서가 모두 `approved`일 때인지).
+
+### `GET /api/v1/children/{child_id}/drafts` — 교사용: 원아별 문서 목록(날짜 이동용)
+
+- 쓰는 화면: 알림장 상세(‹ › 날짜 이동), 관찰일지 목록
+- 요구사항: (미정) 원아별로 지난 기록을 보는 경로의 FR 번호가 테크스펙에 없습니다
+- 권한: 교사 — 담당 반만
+- 요청: 경로 `child_id`, 쿼리 — 임시 결정(김진하)
+  - `doc_type`(필수): `parent_note` / `observation_log`
+  - `published`(선택, 기본 `false`): `true`면 게시된 것만
+- 응답 `200`: `record_date` **최신순**입니다. 한 원아 기준이라 페이지네이션을 두지 않습니다(임시 결정(김진하) — 학기 단위로도 백 건 남짓이라 한 번에 받습니다).
+
+```json
+{
+  "items": [
+    {
+      "draft_id": "d7af0000-0000-4000-8000-000000000012",
+      "record_date": "2026-09-30",
+      "status": "approved",
+      "version": 4,
+      "published_at": "2026-09-30T09:40:00Z",
+      "preview": "도윤이는 색색의 블록을 골라 차곡차곡 쌓아 보았어요."
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+- 본문·사진·근거는 `GET /api/v1/drafts/{draft_id}`로 따로 받습니다. 이 목록은 **날짜 이동에 필요한 값만** 담습니다.
+- 화면은 이 목록으로 ‹ › 이동을 만듭니다. 기록이 없는 날짜는 목록에 없으므로 자연스럽게 건너뜁니다.
+- 에러: `CHILD_ACCESS_DENIED` (403) — 담당 반의 원아가 아닐 때
 
 ### `GET /api/v1/drafts/{draft_id}` — 교사용: 초안 상세(문장, 문장별 근거, 사진 URL)
 
@@ -394,12 +430,10 @@ documents의 상세 작성 엔드포인트는 7개(교사용 5, 학부모용 2)�
 |---|---|---|---|
 | `POST /api/v1/drafts/{draft_id}/reopen` | 승인을 되돌려 다시 검토 | 경로만 | 한상균 |
 | `POST /api/v1/drafts/{draft_id}/revoke` | 게시 회수(지금 화면 없음) | 경로만 | 한상균 |
-| `GET /api/v1/children/{child_id}/drafts?doc_type=observation_log` | 원아별 관찰일지 목록 | 경로만 | 한상균 |
 | `POST /api/v1/children/{child_id}/drafts` | 자료 없이 직접 쓴 초안 만들기 | 경로만 | 한상균 |
 | `GET /api/v1/classes/{class_id}/unclassified-items` | 미분류 목록(전용 화면 없음) | 경로만 | 한상균 |
 | `POST /api/v1/unclassified-items/{item_id}/resolve` | 미분류 처리 | 경로만 | 한상균 |
 | `GET /api/v1/drafts/{draft_id}/read-receipts` | 보호자 확인(읽음) 현황 | 경로만 | 한상균 |
-| `GET /api/v1/classes/{class_id}/drafts?doc_type=parent_note&published=true` | 게시된 알림장만 걸러 보기(알림장 게시판) | 확장(경로만) | 한상균 |
 | `GET /api/v1/classes/{class_id}/notices` | 공지 목록(프레임 없음) | 경로만 | 한상균 |
 | `POST /api/v1/classes/{class_id}/notices` | 공지 쓰기 | 경로만 | 한상균 |
 | `GET /api/v1/notices/{notice_id}` | 공지 상세 | 경로만 | 한상균 |
