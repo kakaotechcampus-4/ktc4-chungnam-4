@@ -22,7 +22,7 @@
 - [ ] `organization/CLAUDE.md`의 `/organization` 표기 수정
 - [ ] 학부모 초대 링크의 만료 기한(7일 제안)과 보호자 여러 명이 한 링크를 쓸지(엄태은·송유진과 함께)
 - [ ] 교사 정보 입력의 가입 완료: 문서는 `POST /accounts`(auth)로 이메일 가입과 합쳐 보냄. FE는 #65와 맞추기 전까지 임시 경로 `PUT /teachers/me/profile`(`{ "name", "center_id" }`)을 목으로 씀(엄태은·송유진과 함께)
-- [ ] 원아 개인 페이지의 이번 달 기록 수·누리과정 5영역별 수(documents). FE는 정해지기 전까지 임시 경로 `GET /children/{child_id}/overview`를 목으로 씀(김진하·한상균과 함께)
+- [ ] 원아 개인 페이지의 이번 달 기록 수·누리과정 5영역별 수(documents). FE는 정해지기 전까지 임시 경로 `GET /children/{child_id}/overview`를 목으로 씀. 응답은 §② 화면용으로 채운 엔드포인트의 `ChildOverview`(김진하·한상균과 함께)
 
 ## 이 도메인의 규칙
 
@@ -90,7 +90,7 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 ```
 
 - ③ 미동의 원아도 명단에 넣습니다. 업로드와 수동 분류를 막지 않습니다(H-3).
-- 동의, 얼굴 등록, 보호자 연결 상태는 상세 작성 범위의 화면 17개 어디에도 나오지 않아 뺐습니다. 이 필드들을 추가하는 확장(경로만)은 아래 "경로만 정한 엔드포인트" 표에 있습니다. LLM 제외 대상과 얼굴 대조 대상은 서버가 `get_consented_children`으로 판정합니다.
+- 동의, 얼굴 등록, 보호자 연결 상태는 상세 작성 범위의 화면 17개 어디에도 나오지 않아 뺐습니다. 이 필드들을 더한 확장 응답은 아래 §② 화면용으로 채운 엔드포인트의 `ClassChild`에 있습니다. LLM 제외 대상과 얼굴 대조 대상은 서버가 `get_consented_children`으로 판정합니다.
 - 이니셜은 FE가 이름에서 만듭니다.
 - 에러:
   - `CLASS_ACCESS_DENIED` (403) — 담당 반이 아님
@@ -249,9 +249,27 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 | `POST /classes/{class_id}/children` | `{ "name", "birth_date", "class_id" }` | `201 ChildDetail`. 동의 0건, 보호자 미연결 | 공통 |
 | `GET /children/{child_id}` | — | `200 ChildDetail` | `CHILD_NOT_FOUND`(404) |
 | `PATCH /children/{child_id}` | `{ "name", "birth_date", "class_id" }` | `200 ChildDetail` | `CHILD_NOT_FOUND`(404) |
-| `POST /children/{child_id}/consents` | `{ "items": [{ "consent_type", "agreed" }] }` | `200 ChildDetail`. ③을 철회하면 `is_face_registered`도 false | `CHILD_NOT_FOUND`(404) |
+| `GET /children/{child_id}/overview` **(임시 경로)** | — | `200 ChildOverview` | `CHILD_NOT_FOUND`(404) |
 
-- ⛔ `POST /children/{child_id}/consents`는 #39로 교사 동의 등록(FR-01)이 폐기돼 초대 수락으로 옮길지 정해야 합니다(위 체크리스트). 화면은 우선 Figma대로 두었습니다.
+`ChildOverview` — 원아 개인 페이지의 최근 알림장과 누리과정 5영역별 기록 수
+
+```json
+{
+  "recent_notes": [
+    {
+      "parent_note_id": "407e0000-0000-4000-8000-000000000004",
+      "record_date": "2026-09-15",
+      "published": true,
+      "summary": "친구에게 블록을 나눠주며 같이 하자고 말했어요. 바깥놀이에서는 미끄럼틀을 혼자 올라갔어요."
+    }
+  ],
+  "domain_counts": { "physical": 7, "communication": 9, "social": 5, "art": 7, "nature": 3 }
+}
+```
+
+- `recent_notes`는 `record_date` 최신순 최대 4개입니다. 필드 이름은 documents(`parent_note_id`, 게시 여부)와 맞췄습니다. `published`는 학부모에게 게시됐는지입니다.
+- `domain_counts`의 키는 위 `EducationPlan.domains`와 같은 누리과정 5영역 코드입니다.
+- 임시 경로입니다. 알림장 목록은 documents의 `GET /children/{child_id}/drafts?doc_type=parent_note`로 옮기고, 5영역 수를 어느 도메인이 줄지는 위 체크리스트에 있습니다.
 
 ### 학부모 초대 링크
 
@@ -260,7 +278,7 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 | `GET /children/{child_id}/parent-invites` **(추가)** | — | `200 { "invite_url", "parent_linked" }`. 지금 쓸 수 있는 링크 | `CHILD_NOT_FOUND`(404) |
 | `POST /children/{child_id}/parent-invites` | 없음 | `201 { "invite_url", "parent_linked" }`. 이전 링크는 바로 무효 | `CHILD_NOT_FOUND`(404) |
 
-- `invite_url`은 `https://idam.app/invite/<무작위 토큰>`입니다. 원아 이름·id를 넣지 않습니다(H-2, H-4). FE는 토큰을 가려서 보여 주고 복사할 때만 원문을 씁니다.
+- `invite_url`은 `https://<서비스 도메인>/invite/<무작위 토큰>`입니다(목은 `aidam.test`). 토큰에 원아 이름·id를 넣지 않습니다(H-2, H-4). FE는 토큰을 가려서 보여 주고 복사할 때만 원문을 씁니다.
 - 만료 기한, 보호자 여러 명 사용 여부는 아직 정하지 않았습니다(위 체크리스트).
 
 ### 교육 계획
