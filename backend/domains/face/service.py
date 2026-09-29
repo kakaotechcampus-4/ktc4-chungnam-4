@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from core.config import get_settings
 from core.exceptions import EmbeddingDecryptionFailed, EmbeddingKeyNotConfigured
+from domains.audit import service as audit
 from domains.face.models import EmbeddingLifecycleLog, FaceEmbedding
 
 _FORMAT_VERSION = 1
@@ -118,18 +119,29 @@ def _consented_child_ids(db: Session, class_id: UUID) -> list[UUID]:
     organization 담당(이한나)에게 요청한 함수로 교체합니다:
         get_consented_children(db, class_id, consent_type) -> list[UUID]
     """
-    # TODO(donggeon): organization.service.get_consented_children 대기 (issue 미등록)
+    # TODO(donggeon): organization.service.get_consented_children 대기 (#31)
     raise NotImplementedError("organization 동의 판정 함수 대기 중")
 
 
-def _record_access(db: Session, child_ids: Sequence[UUID]) -> None:
-    """임베딩 열람을 AccessLog에 남깁니다 (NFR-05, H-4).
+# 감사 로그 코드. audit 담당과 코드 목록을 맞추는 중이라(#32, #74) 값은 여기 한곳에만 둡니다.
+_AUDIT_TARGET_TYPE = "face_embedding"
+_AUDIT_ACTION_LOAD = "load_for_classification"
+# 임베딩을 지우는 이유. DeletionLog.reason과 EmbeddingLifecycleLog.event_type에 같은 값을 남깁니다.
+# 사유는 부르는 쪽이 정합니다 — face는 동의 상태를 모르므로 "지웠으니 철회"라고 추측하지 않습니다(#74).
+DELETE_REASONS = frozenset({"consent_revoked", "teacher_removed"})
 
-    audit 담당(한상균)에게 요청할 함수로 교체합니다. 기록 대상·보존 기간이
-    아직 미정이라(docs/open-questions.md) 무엇을 넘길지도 함께 확인이 필요합니다.
-    """
-    # TODO(donggeon): audit.service.record_access 대기 (issue 미등록)
-    raise NotImplementedError("audit 열람 기록 함수 대기 중")
+
+def _record_access(db: Session, teacher_id: UUID, embedding_ids: Sequence[UUID]) -> None:
+    """내려보낸 임베딩마다 AccessLog를 남깁니다 (NFR-05, H-4). 벡터 값은 넘기지 않습니다."""
+    for embedding_id in embedding_ids:
+        audit.record_access(
+            db,
+            actor_type="teacher",
+            actor_id=teacher_id,
+            target_type=_AUDIT_TARGET_TYPE,
+            target_id=embedding_id,
+            action=_AUDIT_ACTION_LOAD,
+        )
 
 
 def register_embedding(
@@ -174,20 +186,56 @@ def register_embedding(
     return embedding
 
 
-def load_embedding_cache(db: Session, class_id: UUID) -> dict[UUID, list[float]]:
+def load_embedding_cache(db: Session, class_id: UUID, teacher_id: UUID) -> dict[UUID, list[float]]:
     """분류 배치 시작 시 브라우저로 내려보낼 기준 임베딩 (파이프라인 0단계).
 
     **동의 레코드와 임베딩을 함께 확인합니다.** 철회 처리가 중간에 실패해 임베딩이
     남아 있더라도 미동의 원아가 대조 대상에 들어가지 않도록, 두 값이 어긋나면
     제외되는 쪽으로 실패시킵니다 (테크스펙 0단계).
+
+    내려보낸 임베딩마다 열람 기록을 남깁니다. 기록은 같은 Session에 flush만 하므로
+    커밋은 부른 쪽(라우터)이 합니다.
     """
     consented = _consented_child_ids(db, class_id)
     if not consented:
         return {}
 
     rows = db.scalars(select(FaceEmbedding).where(FaceEmbedding.child_id.in_(consented))).all()
-    _record_access(db, [row.child_id for row in rows])
+    _record_access(db, teacher_id, [row.id for row in rows])
     return {row.child_id: decrypt_embedding(row.embedding_enc, row.key_ref) for row in rows}
+
+
+def delete_embedding(db: Session, child_id: UUID, reason: str) -> bool:
+    """원아의 얼굴 임베딩을 물리 삭제합니다 (FR-22, H-4).
+
+    - 교사의 "얼굴 정보 삭제": `teacher_removed`. 동의는 그대로입니다.
+    - 동의 철회: organization이 철회를 저장하면서 `consent_revoked`로 부릅니다(#74).
+
+    지우기 전에 `FaceEmbedding.id`로 파기 기록을 남기고, 생애주기 로그에는 같은 사유를
+    남깁니다. flush만 하므로 동의 철회와 한 트랜잭션으로 묶어 부른 쪽이 커밋합니다.
+    지울 임베딩이 없으면 아무것도 남기지 않고 False를 돌려줍니다(다시 불러도 결과가 같음).
+    """
+    if reason not in DELETE_REASONS:
+        # 자유 문자열을 받으면 로그에 개인정보가 섞일 수 있습니다 (H-4).
+        raise ValueError(f"Unknown deletion reason: {reason}")
+
+    embedding = db.scalars(
+        select(FaceEmbedding).where(FaceEmbedding.child_id == child_id)
+    ).one_or_none()
+    if embedding is None:
+        return False
+
+    audit.record_deletion(db, target_type=_AUDIT_TARGET_TYPE, target_id=embedding.id, reason=reason)
+    db.delete(embedding)
+    db.add(
+        EmbeddingLifecycleLog(
+            child_id=child_id,
+            event_type=reason,
+            created_at=datetime.now(UTC),
+        )
+    )
+    db.flush()
+    return True
 
 
 def get_embedded_child_ids(db: Session, child_ids: Sequence[UUID]) -> set[UUID]:
