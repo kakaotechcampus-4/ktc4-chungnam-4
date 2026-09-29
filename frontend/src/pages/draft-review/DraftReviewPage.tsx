@@ -481,6 +481,7 @@ export function DraftReviewPage() {
         open={publishOpen}
         onOpenChange={setPublishOpen}
         count={publishable.length}
+        excludedCount={rows.filter((row) => row.note === null).length}
         onConfirm={() => publishMutation.mutate(publishable)}
       />
     </>

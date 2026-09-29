@@ -15,6 +15,8 @@ interface PublishConfirmDialogProps {
   onOpenChange: (open: boolean) => void;
   /** 게시할 승인 완료 인원 수 */
   count: number;
+  /** 초안이 없어 이번 게시에서 빠지는 원아 수 */
+  excludedCount: number;
   onConfirm: () => void;
 }
 
@@ -23,6 +25,7 @@ export function PublishConfirmDialog({
   open,
   onOpenChange,
   count,
+  excludedCount,
   onConfirm,
 }: PublishConfirmDialogProps) {
   return (
@@ -38,6 +41,12 @@ export function PublishConfirmDialog({
           <span className="text-body font-bold text-ink">승인 완료 {count}명</span>
           <span className="text-label text-ink-muted">의 알림장을 게시해요</span>
         </div>
+        {/* 자료가 없어 빠지는 아이를 교사가 모르고 지나치지 않게 알려 줍니다. */}
+        {excludedCount > 0 ? (
+          <p className="text-center text-caption text-ink-muted">
+            자료가 없는 {excludedCount}명은 이번 게시에서 빠져요.
+          </p>
+        ) : null}
         <AlertDialogFooter>
           <AlertDialogCancel>취소</AlertDialogCancel>
           <AlertDialogAction onClick={onConfirm}>게시하기</AlertDialogAction>
