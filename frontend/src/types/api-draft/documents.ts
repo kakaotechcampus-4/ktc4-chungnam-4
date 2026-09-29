@@ -87,8 +87,10 @@ export interface DraftCreateRequest {
 /** PATCH /drafts/{draft_id} 요청. sentences와 selected_media_ids 중 하나 이상 */
 export interface DraftPatchRequest {
   expected_version: number;
-  /** 바뀐 문장만 */
+  /** 바뀐 문장만. 고친 문장은 응답에서 evidences가 빈 배열이 됩니다 */
   sentences?: { sentence_index: number; text: string }[];
+  /** 새로 쓴 문장. 맨 뒤에 이어 붙고 evidences는 비어 있습니다 — 임시 결정(김진하) */
+  added_sentences?: { text: string }[];
   selected_media_ids?: string[];
 }
 

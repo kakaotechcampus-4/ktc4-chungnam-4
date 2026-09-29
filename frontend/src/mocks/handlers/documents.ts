@@ -172,11 +172,11 @@ export const handlers = [
     const body = (await request.json()) as Partial<DraftPatchRequest>;
     if (
       typeof body.expected_version !== "number" ||
-      (!body.sentences && !body.selected_media_ids)
+      (!body.sentences && !body.added_sentences && !body.selected_media_ids)
     ) {
       return validationError(
         "body",
-        "expected_version과 sentences 또는 selected_media_ids가 필요합니다",
+        "expected_version과 sentences·added_sentences·selected_media_ids 중 하나가 필요합니다",
       );
     }
     const outcome = updateDb((db) => {
@@ -216,6 +216,14 @@ export const handlers = [
         sentence.text = edit.text;
         // 교사가 고친 문장은 원문 발화가 뒷받침한다고 볼 수 없어 근거를 끊습니다(임시 결정(김진하)).
         sentence.evidences = [];
+      }
+      // 새로 쓴 문장은 맨 뒤에 이어 붙입니다. 교사가 쓴 글이라 근거가 없습니다.
+      for (const added of body.added_sentences ?? []) {
+        draft.sentences.push({
+          sentence_index: draft.sentences.length,
+          text: added.text,
+          evidences: [],
+        });
       }
       if (selected) draft.selected_media_ids = selected;
       draft.version += 1;

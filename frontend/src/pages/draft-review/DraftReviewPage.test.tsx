@@ -113,6 +113,23 @@ describe("DraftReviewPage", () => {
     expect(screen.getByRole("button", { name: /모래 놀이터에서/ })).toBeInTheDocument();
   });
 
+  // 교사가 새로 쓴 문장은 원문 근거가 없으므로 밑줄·클릭 없이 문단으로만 보인다.
+  it("직접 수정에서 문장을 추가할 수 있다", async () => {
+    const user = userEvent.setup();
+    await renderAndWait();
+
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    await user.click(screen.getByRole("button", { name: "+ 문장 추가" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "새 문장" }),
+      "정리 시간에 바구니를 옮겼어요.",
+    );
+    await user.click(screen.getByRole("button", { name: "수정 완료" }));
+
+    expect(await screen.findByText("정리 시간에 바구니를 옮겼어요.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /정리 시간에 바구니/ })).not.toBeInTheDocument();
+  });
+
   it("문장을 클릭하면 그 문장의 근거가 표시된다", async () => {
     const user = userEvent.setup();
     await renderAndWait();

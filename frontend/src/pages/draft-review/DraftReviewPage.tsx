@@ -71,6 +71,8 @@ export function DraftReviewPage() {
   const [selectedSentenceIndex, setSelectedSentenceIndex] = useState<number | null>(null);
   /** 편집 중인 문장 텍스트(sentence_index → text). null이면 읽기 모드 */
   const [editing, setEditing] = useState<Record<number, string> | null>(null);
+  /** 편집 중 새로 쓴 문장. 저장할 때 added_sentences로 보냅니다. */
+  const [addedTexts, setAddedTexts] = useState<string[]>([]);
   /** 초안이 없는 원아에게 교사가 직접 쓰는 글 */
   const [newText, setNewText] = useState("");
   const [publishOpen, setPublishOpen] = useState(false);
@@ -131,12 +133,18 @@ export function DraftReviewPage() {
       draftId: string;
       version: number;
       sentences: { sentence_index: number; text: string }[];
+      addedSentences: { text: string }[];
     }) =>
-      patchDraft(input.draftId, { expected_version: input.version, sentences: input.sentences }),
+      patchDraft(input.draftId, {
+        expected_version: input.version,
+        sentences: input.sentences,
+        added_sentences: input.addedSentences,
+      }),
     onSuccess: async (updated) => {
-      // 고친 문장의 근거는 서버가 끊어서 돌려줍니다(API 문서 §PATCH).
+      // 고친 문장의 근거는 서버가 끊고, 새로 쓴 문장도 근거 없이 돌아옵니다(API 문서 §PATCH).
       queryClient.setQueryData(documentsKeys.draft(updated.draft_id), updated);
       setEditing(null);
+      setAddedTexts([]);
       await queryClient.invalidateQueries({
         queryKey: documentsKeys.classDrafts(classId, recordDate),
       });
@@ -219,6 +227,7 @@ export function DraftReviewPage() {
           draft.sentences.map((sentence) => [sentence.sentence_index, sentence.text]),
         ),
       );
+      setAddedTexts([]);
       return;
     }
     const changed = draft.sentences.flatMap((sentence) => {
@@ -227,11 +236,21 @@ export function DraftReviewPage() {
         ? [{ sentence_index: sentence.sentence_index, text }]
         : [];
     });
-    if (changed.length === 0) {
+    const added = addedTexts
+      .map((text) => text.trim())
+      .filter((text) => text !== "")
+      .map((text) => ({ text }));
+    if (changed.length === 0 && added.length === 0) {
       setEditing(null);
+      setAddedTexts([]);
       return;
     }
-    patchMutation.mutate({ draftId: draft.draft_id, version: draft.version, sentences: changed });
+    patchMutation.mutate({
+      draftId: draft.draft_id,
+      version: draft.version,
+      sentences: changed,
+      addedSentences: added,
+    });
   }
 
   return (
@@ -323,8 +342,9 @@ export function DraftReviewPage() {
                 </div>
                 {draft.title ? <h3 className="text-h3 font-bold text-ink">{draft.title}</h3> : null}
 
-                {editing !== null
-                  ? draft.sentences.map((sentence) => (
+                {editing !== null ? (
+                  <>
+                    {draft.sentences.map((sentence) => (
                       <Textarea
                         key={sentence.sentence_index}
                         value={editing[sentence.sentence_index] ?? sentence.text}
@@ -337,32 +357,56 @@ export function DraftReviewPage() {
                           }))
                         }
                       />
-                    ))
-                  : draft.sentences.map((sentence) =>
-                      // 근거가 없는 문장은 밑줄·클릭 없이 일반 문단으로 보여 줍니다.
-                      // 교사가 직접 쓴 글과 교사가 고친 문장(서버가 근거를 끊음)이 여기에 해당합니다.
-                      sentence.evidences.length === 0 ? (
-                        <p
-                          key={sentence.sentence_index}
-                          className="text-lead whitespace-pre-line text-ink"
-                        >
-                          {sentence.text}
-                        </p>
-                      ) : (
-                        <button
-                          key={sentence.sentence_index}
-                          type="button"
-                          onClick={() => setSelectedSentenceIndex(sentence.sentence_index)}
-                          aria-pressed={sentence.sentence_index === selectedSentenceIndex}
-                          className={cn(
-                            "block text-left text-lead whitespace-pre-line text-ink underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50",
-                            sentence.sentence_index === selectedSentenceIndex && "underline",
-                          )}
-                        >
-                          {sentence.text}
-                        </button>
-                      ),
-                    )}
+                    ))}
+                    {addedTexts.map((text, index) => (
+                      <Textarea
+                        key={`added-${String(index)}`}
+                        value={text}
+                        rows={2}
+                        aria-label="새 문장"
+                        placeholder="새로 쓸 문장을 적어 주세요."
+                        onChange={(event) =>
+                          setAddedTexts((prev) =>
+                            prev.map((item, at) => (at === index ? event.target.value : item)),
+                          )
+                        }
+                      />
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setAddedTexts((prev) => [...prev, ""])}
+                      className="self-start text-label font-bold text-ink-muted underline-offset-4 outline-none transition-colors hover:text-brand-ink hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+                    >
+                      + 문장 추가
+                    </button>
+                  </>
+                ) : (
+                  draft.sentences.map((sentence) =>
+                    // 근거가 없는 문장은 밑줄·클릭 없이 일반 문단으로 보여 줍니다.
+                    // 교사가 직접 쓴 글과 교사가 고친 문장(서버가 근거를 끊음)이 여기에 해당합니다.
+                    sentence.evidences.length === 0 ? (
+                      <p
+                        key={sentence.sentence_index}
+                        className="text-lead whitespace-pre-line text-ink"
+                      >
+                        {sentence.text}
+                      </p>
+                    ) : (
+                      <button
+                        key={sentence.sentence_index}
+                        type="button"
+                        onClick={() => setSelectedSentenceIndex(sentence.sentence_index)}
+                        aria-pressed={sentence.sentence_index === selectedSentenceIndex}
+                        className={cn(
+                          "block text-left text-lead whitespace-pre-line text-ink underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50",
+                          sentence.sentence_index === selectedSentenceIndex && "underline",
+                        )}
+                      >
+                        {sentence.text}
+                      </button>
+                    ),
+                  )
+                )}
 
                 {canApprove ? (
                   <button
