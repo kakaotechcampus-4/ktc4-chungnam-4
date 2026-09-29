@@ -55,7 +55,7 @@ export function ParentNoteBoardPage() {
         title="우리 반 알림장"
         subtitle="아이를 눌러 알림장을 확인해요."
       />
-      <ul className="flex flex-col rounded-xl bg-paper p-2">
+      <ul className="divide-y divide-line overflow-hidden rounded-xl bg-paper">
         {children.map((child) => {
           const hasNote = publishedChildIds.has(child.child_id);
           return (
@@ -65,13 +65,13 @@ export function ParentNoteBoardPage() {
                 disabled={!hasNote}
                 onClick={() => navigate(`/t/notes/children/${child.child_id}`)}
                 className={cn(
-                  "flex w-full items-center justify-between rounded-md px-5 py-4 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+                  "flex w-full items-center justify-between px-8 py-7 text-left outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/50",
                   hasNote ? "hover:bg-tint-2" : "cursor-default",
                 )}
               >
-                <span className="flex items-center gap-4">
+                <span className="flex items-center gap-5">
                   <span
-                    className={cn("text-nav font-bold", hasNote ? "text-ink" : "text-ink-muted")}
+                    className={cn("text-h3 font-bold", hasNote ? "text-ink" : "text-ink-muted")}
                   >
                     {child.name}
                   </span>

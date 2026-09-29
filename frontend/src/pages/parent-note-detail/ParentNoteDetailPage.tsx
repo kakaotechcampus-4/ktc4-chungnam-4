@@ -107,25 +107,24 @@ export function ParentNoteDetailPage() {
         ) : null}
       </div>
 
-      <div className="mt-4">
+      {/* 본문이 길면 이 안에서 스크롤합니다. 높이를 고정해야 아래 "목록으로"가 늘 같은 자리에 옵니다. */}
+      <div className="mt-4 h-96 overflow-y-auto rounded-xl bg-paper p-8">
         {current === undefined ? (
-          <div className="rounded-xl bg-paper p-8">
-            <p className="text-body text-ink-muted">이 날짜에는 게시된 알림장이 없어요.</p>
-          </div>
+          <p className="text-body text-ink-muted">이 날짜에는 게시된 알림장이 없어요.</p>
         ) : draftQuery.isPending ? (
           <p className="text-body text-ink-muted">본문을 불러오는 중이에요.</p>
         ) : draft === undefined ? (
           <p className="text-body text-ink-muted">본문을 불러오지 못했어요.</p>
         ) : (
-          <div className="flex flex-col gap-6 rounded-xl bg-paper p-8">
+          <div className="flex flex-col gap-6">
             {photos.length > 0 ? (
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid shrink-0 grid-cols-3 gap-4">
                 {photos.map((photo) => (
                   <img
                     key={photo.media_id}
                     src={photo.url}
                     alt=""
-                    className="aspect-[4/3] w-full rounded-lg object-cover"
+                    className="h-44 w-full rounded-lg object-cover"
                   />
                 ))}
               </div>
