@@ -17,6 +17,8 @@ interface SceneListProps {
   sourceLabel: string;
   excluded: ReadonlySet<string>;
   onToggleExcluded: (sceneId: string) => void;
+  /** 빼기·되돌리기를 서버에 저장하는 중이면 버튼을 잠급니다. */
+  pending?: boolean;
   /** 틀린 장면이나 빠진 일을 피드백 칸에 적도록 넘깁니다. */
   onFeedback: (prefix: string) => void;
 }
@@ -27,6 +29,7 @@ export function SceneList({
   sourceLabel,
   excluded,
   onToggleExcluded,
+  pending = false,
   onFeedback,
 }: SceneListProps) {
   return (
@@ -75,7 +78,12 @@ export function SceneList({
                     <span className="rounded-full bg-destructive/10 px-2.5 py-1 text-caption font-bold text-destructive">
                       뺐어요
                     </span>
-                    <Button variant="outline" size="sm" onClick={() => onToggleExcluded(scene.id)}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={pending}
+                      onClick={() => onToggleExcluded(scene.id)}
+                    >
                       되돌리기
                     </Button>
                   </>
@@ -92,6 +100,7 @@ export function SceneList({
                       variant="outline"
                       size="sm"
                       className="text-destructive"
+                      disabled={pending}
                       onClick={() => onToggleExcluded(scene.id)}
                     >
                       빼기

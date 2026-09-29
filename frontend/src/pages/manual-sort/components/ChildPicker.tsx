@@ -3,20 +3,22 @@ import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { SAMPLE_CHILDREN } from "@/features/classify/sample-data";
+import type { ClassChild } from "@/types/api-draft/organization";
 
 interface ChildPickerProps {
   title: string;
+  childList: ClassChild[];
+  /** 확실한 아이는 선택된 채로 보여 주고 애매한 아이만 교사가 고르게 합니다(frontend/CLAUDE.md 다인원 귀속). */
   initialSelected: readonly string[];
-  onConnect: () => void;
+  onConnect: (childIds: string[]) => void;
 }
 
 // 수동 분류 오른쪽의 아이 귀속 패널입니다. 여러 아이를 고를 수 있습니다.
-export function ChildPicker({ title, initialSelected, onConnect }: ChildPickerProps) {
+export function ChildPicker({ title, childList, initialSelected, onConnect }: ChildPickerProps) {
   const titleId = useId();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set(initialSelected));
-  const visible = SAMPLE_CHILDREN.filter((child) => child.name.includes(query.trim()));
+  const visible = childList.filter((child) => child.name.includes(query.trim()));
 
   function toggle(childId: string, checked: boolean) {
     setSelected((prev) => {
@@ -45,11 +47,11 @@ export function ChildPicker({ title, initialSelected, onConnect }: ChildPickerPr
       />
       <ul className="flex flex-col gap-1 overflow-y-auto text-lg text-ink">
         {visible.map((child) => (
-          <li key={child.id}>
+          <li key={child.child_id}>
             <label className="flex cursor-pointer items-center gap-2.5">
               <Checkbox
-                checked={selected.has(child.id)}
-                onCheckedChange={(value) => toggle(child.id, value === true)}
+                checked={selected.has(child.child_id)}
+                onCheckedChange={(value) => toggle(child.child_id, value === true)}
               />
               {child.name}
             </label>
@@ -60,7 +62,11 @@ export function ChildPicker({ title, initialSelected, onConnect }: ChildPickerPr
         ) : null}
       </ul>
       <p className="text-label text-ink-muted">선택 {selected.size}명 · 여러 아이 선택 가능</p>
-      <Button className="mt-auto w-full" disabled={selected.size === 0} onClick={onConnect}>
+      <Button
+        className="mt-auto w-full"
+        disabled={selected.size === 0}
+        onClick={() => onConnect([...selected])}
+      >
         선택한 아이에게 연결
       </Button>
     </section>

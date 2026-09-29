@@ -52,7 +52,7 @@ export function FeedbackCard({ value, onChange, textareaRef }: FeedbackCardProps
             {phrase}
           </button>
         ))}
-        {/* TODO(김동건): 재정리 요청 API가 정해지면 붙입니다. 지금은 모양만 있습니다. */}
+        {/* TODO(김동건): 재정리 요청 API는 모양(동기/작업)부터 정은 님과 정합니다. 피드백을 초안 작업에 넘기는 방법도 미정입니다. */}
         <Button variant="outline" className="ml-auto" disabled={!value.trim()}>
           <RefreshCw aria-hidden="true" />
           정리 다시 해주세요

@@ -1,87 +1,99 @@
 // Figma: 원안 1:3115 (추출본 Untitled 1:1618) · 후보 A 추출본 Untitled 1:3144 (타임라인·근거 열 미완성)
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight } from "lucide-react";
 import { useRef, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link } from "react-router";
 
+import { summaryKeys, updateRoutineScene } from "@/api/agents";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
-import { findSampleChild } from "@/features/classify/sample-data";
-import { NotFoundPage } from "@/pages/not-found/NotFoundPage";
+import { nickname } from "@/features/classify/nickname";
+import { RouteChildFallback } from "@/features/classify/RouteChildFallback";
+import { useRouteChild } from "@/features/classify/use-route-child";
+import { cn } from "@/lib/utils";
+import type { DailyRoutine, RoutineScene } from "@/types/api-draft/agents";
 
 import { EvidencePanel, type Quote } from "./components/EvidencePanel";
 import { FeedbackCard } from "./components/FeedbackCard";
 import { type Scene, SceneList } from "./components/SceneList";
+import { useClassRoutines } from "./use-class-routines";
 
-// TODO(김동건): 하루 정리 API가 정해지면 목으로 옮깁니다. 지금은 Figma 예시 값(김도윤)입니다.
-const SCENES: readonly Scene[] = [
-  {
-    id: "scene-1",
-    time: "10:34",
-    activity: "미술 활동",
-    text: "색종이를 반으로 접어 나비를 만들었고, 다 만든 뒤 친구에게 보여주며 만드는 방법을 알려줬어요.",
-    meta: "사진 3장 · 멘트 1개",
-  },
-  {
-    id: "scene-2",
-    time: "11:41",
-    activity: "점심 식사",
-    text: "국그릇을 두 손으로 들고 자리까지 옮겼어요. 흘린 자리는 스스로 닦았어요.",
-    meta: "사진 2장 · 멘트 1개",
-  },
-  {
-    id: "scene-3",
-    time: "13:20",
-    activity: "낮잠",
-    text: "이불을 혼자 펴고 누웠어요.",
-    meta: "사진 1장 · 멘트 없음",
-  },
-  {
-    id: "scene-4",
-    time: "15:12",
-    activity: "바깥놀이",
-    text: "미끄럼틀 차례를 기다리다가 뒤에 선 친구에게 먼저 타라고 양보했어요.",
-    meta: "사진 6장 · 멘트 2개",
-  },
-];
+// 하루 일과는 가정 API(GET /classes/{id}/daily-routines)에서 옵니다. 방법 1(정리 작업 → 하루 정리 → 초안 작업,
+// 09/29 김동건 제안) 기준이고, 팀 합의 전입니다(types/api-draft/agents.ts 아래쪽).
 
-const QUOTES: readonly Quote[] = [
-  {
-    id: "quote-1",
-    source: "audio",
-    label: "10:34 · 미술 활동",
-    text: "“도윤이 나비 만들었네, 친구한테도 보여줄래?”",
-  },
-  {
-    id: "quote-2",
-    source: "photo",
-    label: "11:41 · 점심 식사",
-    text: "“국그릇 두 손으로 잘 들었어요”",
-  },
-  {
-    id: "quote-3",
-    source: "audio",
-    label: "15:12 · 바깥놀이",
-    text: "“먼저 타, 하고 양보해줬구나”",
-  },
-];
+// 초안 단계. 초안 작업(Job)은 반 단위로 한 번 시작합니다. 원래는 정은 님 처리 중 화면(?step=draft)이지만,
+// 그 화면이 ?step=draft를 받기 전까지 임시 처리 화면(pages/processing-temp)으로 보냅니다.
+const PROCESSING_DRAFT = "/t/today/processing-temp?step=draft";
+
+function toScene(scene: RoutineScene): Scene {
+  const quotes = scene.quote_count > 0 ? `멘트 ${scene.quote_count}개` : "멘트 없음";
+  return {
+    id: scene.scene_id,
+    time: scene.activity_time,
+    activity: scene.activity,
+    text: scene.text,
+    meta: `사진 ${scene.photo_count}장 · ${quotes}`,
+  };
+}
+
+function toQuotes(routine: DailyRoutine): Quote[] {
+  return routine.quotes.map((quote) => ({
+    id: quote.quote_id,
+    source: quote.source,
+    label: `${quote.activity_time} · ${quote.activity}`,
+    text: quote.text,
+  }));
+}
+
+/** 근거 패널은 사진 3장을 보여 주고 나머지를 +N으로 셉니다. */
+const VISIBLE_PHOTOS = 3;
 
 export function DaySummaryPage() {
-  const { childId } = useParams();
-  const child = findSampleChild(childId);
-  // Figma는 낮잠 장면을 뺀 상태로 그립니다.
-  const [excluded, setExcluded] = useState<ReadonlySet<string>>(new Set(["scene-3"]));
+  const route = useRouteChild();
+  const { recordDate, entries, isPending, error } = useClassRoutines();
+  const queryClient = useQueryClient();
   const [feedback, setFeedback] = useState("");
   const feedbackRef = useRef<HTMLTextAreaElement>(null);
+  const toggle = useMutation({
+    mutationFn: ({ childId, scene }: { childId: string; scene: RoutineScene }) =>
+      updateRoutineScene(childId, recordDate, scene.scene_id, { excluded: !scene.excluded }),
+    onSuccess: (_saved, { childId }) =>
+      queryClient.invalidateQueries({
+        queryKey: summaryKeys.classRoutines(
+          entries.find((entry) => entry.child.child_id === childId)?.child.class_id ?? "",
+          recordDate,
+        ),
+      }),
+  });
 
-  if (!child) return <NotFoundPage />;
+  if (route.status !== "ready") return <RouteChildFallback state={route} />;
+  const { child } = route;
+  if (isPending || error) {
+    return (
+      <p role={error ? "alert" : "status"} className="py-11 text-lead text-ink-muted">
+        {error ? error.message : "하루 정리를 불러오는 중이에요"}
+      </p>
+    );
+  }
+  const routine = entries.find((entry) => entry.child.child_id === child.child_id)?.routine;
+  if (!routine) {
+    return (
+      <p role="status" className="py-11 text-lead text-ink-muted">
+        {nickname(child.name)}의 하루는 아직 정리되지 않았어요.{" "}
+        <Link to="/t/today/summary" className="font-bold text-brand-ink underline">
+          정리된 아이 보기
+        </Link>
+      </p>
+    );
+  }
+  const current = routine;
+  const excluded = new Set(
+    current.scenes.filter((scene) => scene.excluded).map((scene) => scene.scene_id),
+  );
 
   function toggleExcluded(sceneId: string) {
-    setExcluded((prev) => {
-      const next = new Set(prev);
-      if (next.has(sceneId)) next.delete(sceneId);
-      else next.add(sceneId);
-      return next;
-    });
+    const scene = current.scenes.find((item) => item.scene_id === sceneId);
+    if (scene) toggle.mutate({ childId: child.child_id, scene });
   }
 
   function startFeedback(prefix: string) {
@@ -94,41 +106,71 @@ export function DaySummaryPage() {
     <div className="pb-32">
       <PageHeader
         eyebrow="오늘의 기록 / 하루 정리"
-        title={`오늘 ${child.nickname}는 이랬어요`}
+        title={`오늘 ${nickname(child.name)}는 이랬어요`}
         subtitle="사진과 선생님 말씀에서 모은 하루입니다. 맞는지 봐주시면 이걸로 관찰일지와 알림장을 씁니다."
         actions={
-          // TODO(김동건): 확인한 원아 수는 하루 정리 API가 정해지면 응답으로 바꿉니다.
-          <span className="rounded-full border border-line bg-paper px-4 py-1.5 text-label text-ink">
-            2 / 5명 확인
-          </span>
+          // Figma의 "2 / 5명 확인" 대신 정리된 아이 사이를 오갑니다. 초안은 반 단위로 한 번 만들어서(방법 1)
+          // 아이마다 확인 표시를 남기는 API를 두지 않았습니다.
+          <nav aria-label="정리된 아이" className="flex flex-wrap gap-2">
+            {entries.map((entry) => {
+              const active = entry.child.child_id === child.child_id;
+              return (
+                <Link
+                  key={entry.child.child_id}
+                  to={`/t/today/children/${entry.child.child_id}/summary`}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "rounded-full border px-4 py-1.5 text-label outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+                    active
+                      ? "border-brand-border bg-brand font-bold text-brand-ink"
+                      : "border-line bg-paper text-ink hover:bg-tint-2",
+                  )}
+                >
+                  {entry.child.name}
+                </Link>
+              );
+            })}
+          </nav>
         }
       />
 
       <div className="flex items-start gap-5.5">
         <div className="flex min-w-0 flex-1 flex-col gap-5">
           <SceneList
-            scenes={SCENES}
-            sourceLabel="사진 12장 · 멘트 4개에서 모았어요"
+            scenes={current.scenes.map(toScene)}
+            sourceLabel={`사진 ${current.source_photo_count}장 · 멘트 ${current.source_quote_count}개에서 모았어요`}
             excluded={excluded}
             onToggleExcluded={toggleExcluded}
+            pending={toggle.isPending}
             onFeedback={startFeedback}
           />
+          {toggle.error ? (
+            <p role="alert" className="text-body text-destructive">
+              {toggle.error.message}
+            </p>
+          ) : null}
           <FeedbackCard value={feedback} onChange={setFeedback} textareaRef={feedbackRef} />
         </div>
-        <EvidencePanel quotes={QUOTES} quoteTotal={4} morePhotoCount={9} />
+        <EvidencePanel
+          quotes={toQuotes(current)}
+          quoteTotal={current.source_quote_count}
+          morePhotoCount={Math.max(0, current.source_photo_count - VISIBLE_PHOTOS)}
+        />
       </div>
 
       <div className="fixed inset-x-0 bottom-0 z-10 border-t border-line bg-paper px-6">
         <div className="mx-auto flex h-24 max-w-app items-center justify-between gap-6">
           <div className="flex flex-col gap-1 font-bold">
-            <p className="text-nav text-ink">이 내용으로 관찰일지와 알림장을 만듭니다</p>
+            <p className="text-nav text-ink">
+              정리된 아이 {entries.length}명의 관찰일지와 알림장을 만듭니다
+            </p>
             <p className="text-caption text-ink-muted">
               만든 뒤에도 문장을 직접 고치거나 다시 써달라고 하실 수 있어요.
             </p>
           </div>
-          {/* 초안 검토는 documents 영역(김진하)의 today/review/:childId입니다. 등록 전에는 404가 뜹니다. */}
+          {/* 초안 작업이 끝나면 처리 화면이 초안 검토(documents 영역 today/review/:childId)로 보냅니다. */}
           <Button asChild size="lg" className="px-7 text-lead">
-            <Link to={`/t/today/review/${child.id}`}>
+            <Link to={PROCESSING_DRAFT}>
               초안 만들기
               <ChevronRight aria-hidden="true" />
             </Link>

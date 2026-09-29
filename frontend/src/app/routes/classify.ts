@@ -1,19 +1,25 @@
 import { ClassificationPage } from "@/pages/classification/ClassificationPage";
+import { DaySummaryEntryPage } from "@/pages/day-summary/DaySummaryEntryPage";
 import { DaySummaryPage } from "@/pages/day-summary/DaySummaryPage";
 import { EvidenceNewPage } from "@/pages/evidence-new/EvidenceNewPage";
 import { FaceDeletePage } from "@/pages/face-delete/FaceDeletePage";
 import { FaceRegisterPage } from "@/pages/face-register/FaceRegisterPage";
 import { ManualSortPage } from "@/pages/manual-sort/ManualSortPage";
+import { ProcessingTempPage } from "@/pages/processing-temp/ProcessingTempPage";
 
 import type { AreaRoutes } from "./types";
 
 // 담당: 김동건 (④ 얼굴 분류 · 수동 분류 · 하루 정리 · 얼굴 정보). 이 파일은 담당만 고칩니다.
-// 화면 사이 이동: 분류 결과 → 수동 분류 / 추가 근거 / 하루 정리 → (⑤ 초안 검토)
+// 화면 사이 이동: (③ 처리 중: 분류) → 분류 결과 → 수동 분류 / 추가 근거
+//                → 임시 처리(전송 → 정리, 가정) → 하루 정리 입구 → 아이별 하루 정리 → 임시 처리(초안) → (⑤ 초안 검토)
+// 임시 처리는 정은 님 처리 중 화면에 정리 단계가 붙기 전까지만 둡니다(pages/processing-temp 머리 주석).
 //                얼굴 정보 → 얼굴 정보 삭제 → 얼굴 정보
 export const classifyRoutes: AreaRoutes = {
   teacher: [
     { path: "today/classification", Component: ClassificationPage }, // 1:2952
-    { path: "today/manual-sort", Component: ManualSortPage }, // 사진 1:3037, 발화 1:3064 (?item=)
+    { path: "today/manual-sort", Component: ManualSortPage }, // 사진·영상 1:3037 (?item=). 발화 1:3064는 숨김(페이지 주석)
+    { path: "today/processing-temp", Component: ProcessingTempPage }, // 임시. Figma 없음(정은 화면 아님)
+    { path: "today/summary", Component: DaySummaryEntryPage }, // Figma 없음. 명단 첫 아이로 보냄
     { path: "today/children/:childId/summary", Component: DaySummaryPage }, // 1:3115
     { path: "today/children/:childId/evidence/new", Component: EvidenceNewPage }, // 1:3095
     { path: "children/:childId/face", Component: FaceRegisterPage }, // 1:3451. 메뉴는 '우리 반 관리'
