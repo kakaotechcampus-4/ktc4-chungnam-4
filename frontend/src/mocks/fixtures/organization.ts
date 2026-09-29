@@ -16,6 +16,7 @@ export const SUNSHINE_CLASS: ClassSummary = {
   center_name: "햇살어린이집",
   name: "햇살반",
   age_group: "만 4세",
+  age_band: "preschool",
   child_count: 5,
   is_favorite: true,
   needs_record_today: false,

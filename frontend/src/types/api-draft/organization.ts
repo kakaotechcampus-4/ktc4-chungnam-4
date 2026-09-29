@@ -14,8 +14,10 @@ export interface ClassSummary {
   /** 가정: API 문서 제안 필드(헤더의 어린이집 이름) */
   center_name: string;
   name: string;
-  /** 표시용 문자열("만 4세"). 형식이 미정이라 이 값으로 분기하지 않습니다. */
+  /** 표시용 문자열("만 4세"). 분기는 age_band로 합니다. 임시 결정(이한나): 코드와 표시를 나눔 */
   age_group: string;
+  /** 연령 구분 코드. 에이전트가 이 값으로 교육과정(표준보육과정·누리과정)을 고릅니다. 임시 결정(이한나) */
+  age_band: AgeBand;
   /** 가정: 반 선택 카드의 "원아 18명" */
   child_count: number;
   /** 가정: 반 선택 카드의 별. 교사별 값입니다 */

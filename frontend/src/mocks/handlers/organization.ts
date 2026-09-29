@@ -158,6 +158,7 @@ export const handlers = [
       center_id: body.center_id,
       name: body.name,
       age_group: body.age_band === "infant" ? "만 0~2세" : "만 3~5세",
+      age_band: body.age_band,
       child_count: 0,
       is_favorite: false,
       needs_record_today: false,
