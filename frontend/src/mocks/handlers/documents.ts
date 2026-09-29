@@ -5,8 +5,10 @@ import type {
   ClassDraftItem,
   DocType,
   DraftApproveRequest,
+  DraftCreateRequest,
   DraftDetail,
   DraftPatchRequest,
+  DraftReopenRequest,
   DraftSummary,
   ParentNoteDetail,
   ParentNoteList,
@@ -17,8 +19,9 @@ import type {
 } from "@/types/api-draft/documents";
 import type { MediaUrl } from "@/types/api-draft/media";
 
-import { nowIso, readDb, toMediaUrl, updateDb } from "../db";
+import { nextId, nowIso, readDb, toMediaUrl, updateDb } from "../db";
 import type { DraftRecord, MediaRecord, MockDb } from "../db";
+import { TEACHER_ME } from "../fixtures/auth";
 import { previewOf } from "../fixtures/documents";
 import { PARENT_OF_CHILD, SUNSHINE_CHILDREN, SUNSHINE_CLASS } from "../fixtures/organization";
 import { MOCK_PARENT_ID, requireParent, requireTeacher, requireTeacherOfClass } from "../guards";
@@ -209,7 +212,10 @@ export const handlers = [
       }
       for (const edit of edits) {
         const sentence = draft.sentences[edit.sentence_index];
-        if (sentence) sentence.text = edit.text;
+        if (!sentence || sentence.text === edit.text) continue;
+        sentence.text = edit.text;
+        // 교사가 고친 문장은 원문 발화가 뒷받침한다고 볼 수 없어 근거를 끊습니다(임시 결정(김진하)).
+        sentence.evidences = [];
       }
       if (selected) draft.selected_media_ids = selected;
       draft.version += 1;
@@ -217,6 +223,61 @@ export const handlers = [
       return HttpResponse.json<DraftDetail>(detail(db, draft));
     });
     return outcome;
+  }),
+
+  // 자료 없이 직접 쓴 초안 만들기. 사진·발화가 없어 evidences는 빈 배열입니다(임시 결정(김진하)).
+  http.post(apiPath("/children/:childId/drafts"), async ({ request, params }) => {
+    const denied = requireTeacher();
+    if (denied) return denied;
+    const body = (await request.json()) as Partial<DraftCreateRequest>;
+    const { record_date: recordDate, doc_type: docType, sentences } = body;
+    if (!recordDate || !DATE_ONLY.test(recordDate) || !docType || !sentences?.length) {
+      return validationError("body", "record_date·doc_type·sentences가 필요합니다");
+    }
+    const childId = String(params.childId);
+    if (!SUNSHINE_CHILDREN.some((child) => child.child_id === childId)) {
+      return errorResponse(403, "CLASS_ACCESS_DENIED", "이 반을 볼 수 없어요.");
+    }
+    return updateDb((db) => {
+      const exists = Object.values(db.drafts).some(
+        (draft) =>
+          draft.child_id === childId &&
+          draft.record_date === recordDate &&
+          draft.doc_type === docType,
+      );
+      if (exists) {
+        return errorResponse(409, "DRAFT_ALREADY_EXISTS", "이미 이 날짜의 초안이 있어요.");
+      }
+      const now = nowIso();
+      const draft: DraftRecord = {
+        draft_id: nextId(db, "draft"),
+        child_id: childId,
+        class_id: SUNSHINE_CLASS.class_id,
+        doc_type: docType,
+        record_date: recordDate,
+        status: "verified",
+        version: 1,
+        title: body.title ?? null,
+        sentences: sentences.map((sentence, index) => ({
+          sentence_index: index,
+          text: sentence.text,
+          evidences: [],
+        })),
+        selected_media_ids: [],
+        author_teacher_id: TEACHER_ME.teacher_id,
+        author_name: TEACHER_ME.name,
+        approved_at: null,
+        published_at: null,
+        include_photos: false,
+        updated_at: now,
+      };
+      db.drafts[draft.draft_id] = draft;
+      // 직접 쓰면 그 원아·날짜의 미분류는 해소됩니다.
+      db.unclassified = db.unclassified.filter(
+        (item) => !(item.child_id === childId && item.record_date === recordDate),
+      );
+      return HttpResponse.json<DraftDetail>(detail(db, draft), { status: 201 });
+    });
   }),
 
   // 승인(H-1 승인 게이트). 승인만으로는 학부모에게 보이지 않습니다.
@@ -253,6 +314,46 @@ export const handlers = [
       const now = nowIso();
       draft.status = "approved";
       draft.approved_at = now;
+      draft.version += 1;
+      draft.updated_at = now;
+      return HttpResponse.json<DraftDetail>(detail(db, draft));
+    });
+  }),
+
+  // 승인 되돌리기. 게시 전까지만 되고, 게시한 뒤에는 회수(revoke)가 필요합니다(H-1).
+  http.post(apiPath("/drafts/:draftId/reopen"), async ({ request, params }) => {
+    const denied = requireTeacher();
+    if (denied) return denied;
+    const body = (await request.json()) as Partial<DraftReopenRequest>;
+    if (typeof body.expected_version !== "number") {
+      return validationError("body.expected_version", "expected_version이 필요합니다");
+    }
+    return updateDb((db) => {
+      const draft = db.drafts[String(params.draftId)];
+      if (!draft) return errorResponse(404, "DRAFT_NOT_FOUND", "초안을 찾을 수 없어요.");
+      if (draft.class_id !== SUNSHINE_CLASS.class_id) {
+        return errorResponse(403, "CLASS_ACCESS_DENIED", "이 반을 볼 수 없어요.");
+      }
+      if (draft.version !== body.expected_version) {
+        return errorResponse(
+          409,
+          "DRAFT_VERSION_CONFLICT",
+          "다른 곳에서 먼저 고쳤어요. 새로 불러와 주세요.",
+        );
+      }
+      if (draft.status !== "approved") {
+        return errorResponse(409, "DRAFT_NOT_APPROVED", "승인한 초안만 되돌릴 수 있어요.");
+      }
+      if (draft.published_at !== null) {
+        return errorResponse(
+          409,
+          "DRAFT_ALREADY_PUBLISHED",
+          "이미 게시한 알림장은 되돌릴 수 없어요.",
+        );
+      }
+      const now = nowIso();
+      draft.status = "verified";
+      draft.approved_at = null;
       draft.version += 1;
       draft.updated_at = now;
       return HttpResponse.json<DraftDetail>(detail(db, draft));

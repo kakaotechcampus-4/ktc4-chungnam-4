@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { kstToday, shiftDate } from "@/lib/datetime";
@@ -61,6 +61,56 @@ describe("DraftReviewPage", () => {
   it("검토가 남은 원아가 있으면 게시 버튼이 비활성이다", async () => {
     await renderAndWait();
     expect(screen.getByRole("button", { name: "게시하기" })).toBeDisabled();
+  });
+
+  // 자료 없는 원아도 교사가 직접 써서 검토·승인할 수 있어야 한다.
+  it("자료 없는 원아에게 직접 쓰면 초안이 생겨 승인할 수 있다", async () => {
+    const user = userEvent.setup();
+    renderPage(fixtureId("child", 5)); // 정예린 — 시드에 초안이 없다
+    await screen.findByRole("button", { name: /정예린/ });
+
+    // 초안이 없으면 승인할 대상이 없어 체크박스가 잠겨 있다.
+    expect(screen.getByRole("checkbox")).toBeDisabled();
+
+    await user.type(
+      screen.getByRole("textbox", { name: "직접 작성" }),
+      "오늘은 그림책을 보았어요.",
+    );
+    await user.click(screen.getByRole("button", { name: "저장하기" }));
+
+    await waitFor(() => expect(screen.getByRole("checkbox")).toBeEnabled());
+  });
+
+  // 승인은 잠금이지만 게시 전까지는 되돌릴 수 있어야 한다.
+  it("승인한 초안은 다시 검토하기로 되돌려 수정할 수 있다", async () => {
+    const user = userEvent.setup();
+    renderPage(fixtureId("child", 2)); // 이하준 — 시드에서 승인 완료
+    await screen.findByRole("button", { name: /이하준/ });
+
+    await user.click(await screen.findByRole("button", { name: "다시 검토하기" }));
+
+    // 되돌리면 검토 대기로 돌아가 직접 수정과 승인이 다시 열린다.
+    expect(await screen.findByRole("button", { name: "직접 수정" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("checkbox")).toBeEnabled());
+  });
+
+  // 교사가 고친 문장은 원문 발화가 뒷받침한다고 볼 수 없어 서버가 근거를 끊는다.
+  it("직접 수정한 문장은 근거가 끊겨 밑줄·클릭이 사라진다", async () => {
+    const user = userEvent.setup();
+    await renderAndWait();
+    const before = screen.getByRole("button", { name: /색색의 블록을 골라/ });
+    expect(before).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    const [firstSentence] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
+    await user.type(firstSentence as HTMLElement, " 오늘도 즐거웠어요.");
+    await user.click(screen.getByRole("button", { name: "수정 완료" }));
+
+    // 고친 문장은 더 이상 근거 버튼이 아니다. 고치지 않은 문장은 그대로 남는다.
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /색색의 블록을 골라/ })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: /모래 놀이터에서/ })).toBeInTheDocument();
   });
 
   it("문장을 클릭하면 그 문장의 근거가 표시된다", async () => {

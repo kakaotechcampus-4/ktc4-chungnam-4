@@ -7,10 +7,12 @@ import { useNavigate, useParams, useSearchParams } from "react-router";
 import {
   approveDraft,
   classDraftsQueryOptions,
+  createDraft,
   documentsKeys,
   draftQueryOptions,
   patchDraft,
   publishParentNotes,
+  reopenDraft,
 } from "@/api/documents";
 import { classChildrenQueryOptions } from "@/api/organization";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -26,6 +28,15 @@ import type { MediaUrl } from "@/types/api-draft/media";
 import { EvidencePanel } from "./components/EvidencePanel";
 import { PublishConfirmDialog } from "./components/PublishConfirmDialog";
 import { RosterList, type RosterRow, type RosterState } from "./components/RosterList";
+
+/** 교사가 쓴 글을 줄바꿈으로 나눠 문장 배열로 만듭니다(API 문서 §직접 쓴 초안 만들기). */
+function toSentences(text: string) {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "")
+    .map((line) => ({ text: line }));
+}
 
 // 미분류·자료 없음은 "검토 필요"로 묶습니다 — 임시 결정(김진하), docs/api/documents.md §레일·목록 표기.
 function toRosterState(item: ClassDraftItem | undefined): RosterState {
@@ -60,8 +71,8 @@ export function DraftReviewPage() {
   const [selectedSentenceIndex, setSelectedSentenceIndex] = useState<number | null>(null);
   /** 편집 중인 문장 텍스트(sentence_index → text). null이면 읽기 모드 */
   const [editing, setEditing] = useState<Record<number, string> | null>(null);
-  /** 이번 검토에서 교사가 직접 고친 문장. 근거를 더 이상 보여 주지 않습니다. */
-  const [editedIndexes, setEditedIndexes] = useState<Set<number>>(() => new Set());
+  /** 초안이 없는 원아에게 교사가 직접 쓰는 글 */
+  const [newText, setNewText] = useState("");
   const [publishOpen, setPublishOpen] = useState(false);
 
   const children = childrenQuery.data ?? [];
@@ -81,8 +92,26 @@ export function DraftReviewPage() {
     setConfirmed(false);
     setSelectedSentenceIndex(null);
     setEditing(null);
-    setEditedIndexes(new Set());
+    setNewText("");
   }
+
+  // 자료가 없는 원아도 교사가 직접 써서 검토·승인할 수 있게 합니다.
+  const createMutation = useMutation({
+    mutationFn: (input: { childId: string; text: string }) =>
+      createDraft(input.childId, {
+        record_date: recordDate,
+        doc_type: "parent_note",
+        title: null,
+        sentences: toSentences(input.text),
+      }),
+    onSuccess: async (created) => {
+      setNewText("");
+      queryClient.setQueryData(documentsKeys.draft(created.draft_id), created);
+      await queryClient.invalidateQueries({
+        queryKey: documentsKeys.classDrafts(classId, recordDate),
+      });
+    },
+  });
 
   const approveMutation = useMutation({
     mutationFn: (input: { draftId: string; version: number }) =>
@@ -104,14 +133,22 @@ export function DraftReviewPage() {
       sentences: { sentence_index: number; text: string }[];
     }) =>
       patchDraft(input.draftId, { expected_version: input.version, sentences: input.sentences }),
-    onSuccess: async (updated, input) => {
+    onSuccess: async (updated) => {
+      // 고친 문장의 근거는 서버가 끊어서 돌려줍니다(API 문서 §PATCH).
       queryClient.setQueryData(documentsKeys.draft(updated.draft_id), updated);
-      setEditedIndexes((prev) => {
-        const next = new Set(prev);
-        for (const sentence of input.sentences) next.add(sentence.sentence_index);
-        return next;
-      });
       setEditing(null);
+      await queryClient.invalidateQueries({
+        queryKey: documentsKeys.classDrafts(classId, recordDate),
+      });
+    },
+  });
+
+  // 승인은 잠금이지만, 게시 전까지는 교사가 되돌려 다시 고칠 수 있어야 합니다.
+  const reopenMutation = useMutation({
+    mutationFn: (input: { draftId: string; version: number }) =>
+      reopenDraft(input.draftId, { expected_version: input.version }),
+    onSuccess: async (updated) => {
+      queryClient.setQueryData(documentsKeys.draft(updated.draft_id), updated);
       await queryClient.invalidateQueries({
         queryKey: documentsKeys.classDrafts(classId, recordDate),
       });
@@ -155,6 +192,8 @@ export function DraftReviewPage() {
 
   // 승인은 검증을 마친 초안만(목·API 문서 규칙). 게시는 검토가 남은 원아가 없을 때만 엽니다.
   const canApprove = draft?.status === "verified";
+  // 게시한 뒤에는 되돌릴 수 없습니다. 이미 학부모에게 나갔으므로 회수가 따로 필요합니다(H-1).
+  const canReopen = draft?.status === "approved" && draft.published_at === null;
   const publishable = rows.flatMap((row) =>
     row.note && row.state === "approved"
       ? [{ draft_id: row.note.draft_id, expected_version: row.note.version }]
@@ -232,9 +271,27 @@ export function DraftReviewPage() {
                   <span className="text-label">사진 추가</span>
                 </button>
               </div>
-              {/* 직접 작성은 정은 담당 화면(today/write)입니다. 그 화면이 생기면 이어집니다. */}
-              <Button className="self-start" onClick={() => navigate("/t/today/write")}>
-                직접 작성하기
+              <Textarea
+                value={newText}
+                rows={4}
+                aria-label="직접 작성"
+                placeholder="예) 지우가 블록을 쌓는 동안 옆에서 색을 골라 건네주었어요."
+                onChange={(event) => setNewText(event.target.value)}
+              />
+              <p className="text-caption text-ink-muted">
+                사진·녹음이 없으니 근거 표시는 붙지 않아요.
+              </p>
+              {createMutation.isError ? (
+                <p className="text-caption text-destructive">
+                  저장하지 못했어요. 다시 시도해 주세요.
+                </p>
+              ) : null}
+              <Button
+                className="self-start"
+                disabled={newText.trim() === "" || createMutation.isPending}
+                onClick={() => createMutation.mutate({ childId: selectedChildId, text: newText })}
+              >
+                저장하기
               </Button>
             </div>
           ) : (
@@ -282,9 +339,13 @@ export function DraftReviewPage() {
                       />
                     ))
                   : draft.sentences.map((sentence) =>
-                      // 직접 고친 문장은 근거가 끊겨서 밑줄·클릭 없이 일반 문단으로 보여 줍니다.
-                      editedIndexes.has(sentence.sentence_index) ? (
-                        <p key={sentence.sentence_index} className="text-lead text-ink">
+                      // 근거가 없는 문장은 밑줄·클릭 없이 일반 문단으로 보여 줍니다.
+                      // 교사가 직접 쓴 글과 교사가 고친 문장(서버가 근거를 끊음)이 여기에 해당합니다.
+                      sentence.evidences.length === 0 ? (
+                        <p
+                          key={sentence.sentence_index}
+                          className="text-lead whitespace-pre-line text-ink"
+                        >
                           {sentence.text}
                         </p>
                       ) : (
@@ -294,7 +355,7 @@ export function DraftReviewPage() {
                           onClick={() => setSelectedSentenceIndex(sentence.sentence_index)}
                           aria-pressed={sentence.sentence_index === selectedSentenceIndex}
                           className={cn(
-                            "block text-left text-lead text-ink underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50",
+                            "block text-left text-lead whitespace-pre-line text-ink underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50",
                             sentence.sentence_index === selectedSentenceIndex && "underline",
                           )}
                         >
@@ -312,10 +373,21 @@ export function DraftReviewPage() {
                   >
                     {editing !== null ? "수정 완료" : "직접 수정"}
                   </button>
+                ) : canReopen ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      reopenMutation.mutate({ draftId: draft.draft_id, version: draft.version })
+                    }
+                    disabled={reopenMutation.isPending}
+                    className="self-start text-label font-bold text-ink-muted underline-offset-4 outline-none transition-colors hover:text-brand-ink hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+                  >
+                    다시 검토하기
+                  </button>
                 ) : null}
-                {patchMutation.isError ? (
+                {patchMutation.isError || reopenMutation.isError ? (
                   <p className="text-caption text-destructive">
-                    수정을 저장하지 못했어요. 다시 시도해 주세요.
+                    처리하지 못했어요. 다시 시도해 주세요.
                   </p>
                 ) : null}
               </div>
@@ -323,11 +395,7 @@ export function DraftReviewPage() {
           )}
         </section>
 
-        <EvidencePanel
-          sentence={selectedSentence}
-          edited={selectedSentenceIndex !== null && editedIndexes.has(selectedSentenceIndex)}
-          onClose={() => setSelectedSentenceIndex(null)}
-        />
+        <EvidencePanel sentence={selectedSentence} onClose={() => setSelectedSentenceIndex(null)} />
       </div>
 
       <div className="mt-6 flex items-center justify-between border-t border-line pt-4">

@@ -30,14 +30,12 @@ function EvidenceCard({ evidence }: { evidence: Evidence }) {
 }
 
 interface EvidencePanelProps {
-  /** 교사가 고른 문장. 고르기 전이면 null */
+  /** 교사가 고른 문장. 고르기 전이면 null. 근거가 있는 문장만 고를 수 있습니다. */
   sentence: Sentence | null;
-  /** 교사가 고친 문장은 원문 발화 근거가 보장되지 않아 근거를 보여 주지 않습니다 */
-  edited: boolean;
   onClose: () => void;
 }
 
-export function EvidencePanel({ sentence, edited, onClose }: EvidencePanelProps) {
+export function EvidencePanel({ sentence, onClose }: EvidencePanelProps) {
   return (
     <aside className="flex w-58 shrink-0 flex-col gap-5 rounded-xl border border-line bg-paper p-6">
       <div className="flex items-center justify-between">
@@ -67,25 +65,15 @@ export function EvidencePanel({ sentence, edited, onClose }: EvidencePanelProps)
             </div>
           </div>
 
-          {edited ? (
-            <p className="text-caption text-ink-muted">
-              직접 고친 문장이라 원문 근거가 연결되어 있지 않아요.
-            </p>
-          ) : sentence.evidences.length === 0 ? (
-            <p className="text-caption text-ink-muted">이 문장에는 연결된 근거가 없어요.</p>
-          ) : (
-            <>
-              <div className="flex flex-col gap-2">
-                <p className="text-caption text-ink-muted">근거</p>
-                {sentence.evidences.map((evidence) => (
-                  <EvidenceCard key={evidence.evidence_id} evidence={evidence} />
-                ))}
-              </div>
-              <p className="text-caption text-ink-muted">
-                발화를 다시 들으며 문장이 정확한지 확인해보세요.
-              </p>
-            </>
-          )}
+          <div className="flex flex-col gap-2">
+            <p className="text-caption text-ink-muted">근거</p>
+            {sentence.evidences.map((evidence) => (
+              <EvidenceCard key={evidence.evidence_id} evidence={evidence} />
+            ))}
+          </div>
+          <p className="text-caption text-ink-muted">
+            발화를 다시 들으며 문장이 정확한지 확인해보세요.
+          </p>
         </>
       )}
     </aside>
