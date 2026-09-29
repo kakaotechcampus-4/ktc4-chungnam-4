@@ -161,7 +161,7 @@ export const CHILD_OVERVIEW: ChildOverview = {
   domain_counts: { physical: 7, communication: 9, social: 5, art: 7, nature: 3 },
 };
 
-export const INVITE_BASE_URL = "https://idam.app/invite/";
+export const INVITE_BASE_URL = "https://aidam.test/invite/";
 
 const planBase = {
   class_id: SUNSHINE_CLASS.class_id,

@@ -26,14 +26,14 @@ describe("ChildInviteLinkPage", () => {
 
     expect(await screen.findByText("서아의 보호자를 초대해요")).toBeInTheDocument();
     expect(screen.getByText("박서아 · 햇살반")).toBeInTheDocument();
-    expect(screen.getByText("idam.app/invite/••••••••")).toBeInTheDocument();
+    expect(screen.getByText("aidam.test/invite/••••••••")).toBeInTheDocument();
     expect(screen.getByText("보호자가 연결됐어요")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "초대 링크 복사" }));
 
     expect(await screen.findByRole("button", { name: "복사했어요" })).toBeInTheDocument();
     await expect(navigator.clipboard.readText()).resolves.toMatch(
-      /^https:\/\/idam\.app\/invite\/.+/,
+      /^https:\/\/aidam\.test\/invite\/.+/,
     );
   });
 

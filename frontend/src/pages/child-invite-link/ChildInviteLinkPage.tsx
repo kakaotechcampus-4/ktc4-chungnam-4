@@ -38,7 +38,7 @@ function givenName(name: string) {
   return chars.length >= 2 ? chars.slice(1).join("") : name;
 }
 
-/** 초대 링크는 토큰을 가려 보여 줍니다. "https://idam.app/invite/abc" → "idam.app/invite/••••••••" */
+/** 초대 링크는 토큰을 가려 보여 줍니다. "https://aidam.test/invite/abc" → "aidam.test/invite/••••••••" */
 function maskInviteUrl(inviteUrl: string) {
   try {
     const url = new URL(inviteUrl);

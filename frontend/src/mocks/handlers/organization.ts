@@ -44,18 +44,25 @@ const children = new Map<string, ChildDetail>(
   SUNSHINE_CHILDREN.map((child) => [child.child_id, toChildDetail(child)]),
 );
 let plans: EducationPlan[] = [...SUNSHINE_PLANS];
-const invites = new Map<string, number>();
+// 원아별 지금 쓰는 초대 토큰. 토큰에는 원아 id·이름을 넣지 않습니다(H-2, H-4).
+const invites = new Map<string, string>();
 let serial = 100;
 
 const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, "ko");
 const byStartDesc = (a: EducationPlan, b: EducationPlan) =>
   b.start_date.localeCompare(a.start_date);
 
+const newInviteToken = () => crypto.randomUUID().replaceAll("-", "");
+
 function inviteOf(childId: string) {
-  const version = invites.get(childId) ?? 1;
+  let token = invites.get(childId);
+  if (!token) {
+    token = newInviteToken();
+    invites.set(childId, token);
+  }
   const child = children.get(childId);
   return {
-    invite_url: `${INVITE_BASE_URL}${childId.slice(-6)}${version}`,
+    invite_url: `${INVITE_BASE_URL}${token}`,
     parent_linked: child?.parent_linked ?? false,
   };
 }
@@ -253,7 +260,7 @@ export const handlers = [
     const found = guardChild(params.childId);
     if ("denied" in found) return found.denied;
     const childId = found.child.child_id;
-    invites.set(childId, (invites.get(childId) ?? 1) + 1);
+    invites.set(childId, newInviteToken());
     return HttpResponse.json(inviteOf(childId), { status: 201 });
   }),
 
