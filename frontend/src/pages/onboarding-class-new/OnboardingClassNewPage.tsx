@@ -159,10 +159,8 @@ export function OnboardingClassNewPage() {
               {create.error.message}
             </p>
           ) : null}
-          {/* Figma의 청록(#00c8b3)은 토큰에 없어서 진녹 solid로 둡니다. */}
           <Button
             type="submit"
-            variant="solid"
             size="lg"
             className="w-full text-lead"
             disabled={!teacherCenterId || create.isPending}
