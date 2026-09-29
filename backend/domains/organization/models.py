@@ -40,10 +40,10 @@ class Klass(Base):
     center_id = Column(UUID(as_uuid=True), ForeignKey("centers.id"), nullable=False)
     teacher_id = Column(
         UUID(as_uuid=True), nullable=False
-    )  # auth.Teacher 참조 (반은 항상 교사 1명)
+    )  # auth.Teacher 참조. 담당교사 개념 폐지(팀 회의 결정)로 접근 권한 판단에는 쓰지 않음 — 반 생성 기록용
     name = Column(String, nullable=False)
     age_group = Column(String, nullable=False)
-    # TODO(이한나): 이미 teacher_id가 있는 반을 다른 교사가 선택했을 때 처리 미정 (FR-25, docs/open-questions.md)
+    # TODO(이한나): 이 컬럼을 유지할지(생성자 기록용) 삭제할지 미정
 
 
 class Child(Base):
@@ -74,8 +74,8 @@ class ConsentRecord(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     child_id = Column(UUID(as_uuid=True), ForeignKey("children.id"), nullable=False)
     parent_id = Column(UUID(as_uuid=True), nullable=False)  # auth.Parent(법정대리인) 참조
-    # 개인정보수집이용 / 얼굴특징정보처리 / 활동사진영상촬영. 얼굴특징정보처리만 선택 동의(전제조건)
-    # TODO(이한나): 정식 명칭·화면 문구 확정 전이라 영문 토큰 미정 (docs/open-questions.md §C)
+    # personal_info(① 개인정보수집이용) / activity_media(② 활동사진영상촬영) /
+    # face_feature(③ 얼굴특징정보처리). face_feature만 선택 동의(전제조건). 화면 문구와 값은 따로 둡니다
     consent_type = Column(String, nullable=False)
     # agreed(동의) / revoked(철회). 행은 동의가 실제로 이뤄질 때만 생성되므로 "미동의"는 행 부재로 판정
     status = Column(String, nullable=False)
