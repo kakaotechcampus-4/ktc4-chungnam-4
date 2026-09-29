@@ -29,6 +29,9 @@
 - [ ] 레일 "검토 완료" 기준(두 문서가 모두 `approved`인지). 한 원아의 두 문서를 한 번에 승인하는 UX가 필요한지
 - [ ] 레일을 organization 명단, drafts 목록, Job `children[]`로 합치는 방식
 - [x] 레일에서 `확인 필요`와 `자료 없음`을 구분할지 → 임시 결정(김진하): 초안 검토 레일에서는 하나로 묶어 `검토 필요`로 표시. 반영: 이 문서 §레일·목록 표기
+- [x] 교사가 고친 문장의 근거를 어떻게 할지 → 임시 결정(김진하): `PATCH`에서 바뀐 문장의 `evidences`를 비움. 반영: 이 문서 §`PATCH /api/v1/drafts/{draft_id}`. 고친 문장을 원문 발화로 뒷받침한다고 볼 수 없어서입니다
+- [x] 승인 뒤 수정할 방법 → 임시 결정(김진하): `POST /drafts/{draft_id}/reopen`을 경로만에서 상세 작성으로 올리고 요청·응답을 정함(`approved` → `verified`, 게시 뒤에는 불가). 반영: 이 문서 §상세 작성 엔드포인트. 승인은 잠금이지만 게시 전까지는 교사가 되돌릴 수 있어야 해서입니다
+- [x] 자료 없는 원아를 검토 완료하려면 초안이 먼저 있어야 함 → 임시 결정(김진하): `POST /children/{child_id}/drafts`를 경로만에서 상세 작성으로 올리고 요청·응답을 정함(`status: verified`로 만들어 바로 승인 가능). 반영: 이 문서 §상세 작성 엔드포인트. 초안 검토 화면에서도 직접 작성할 수 있게 되므로 정은 님 `today/write` 화면과 같은 API를 씁니다
 
 ## develop 코드와 다른 점
 
@@ -206,6 +209,33 @@ documents의 상세 작성 엔드포인트는 7개(교사용 5, 학부모용 2)�
 - [확인 필요: 한상균·정은] 본문 저장 형태를 정해야 합니다. `DraftDocument.content`는 텍스트 하나인데, 화면과 근거는 문장 단위로 움직입니다. `sentences[]` 한 항목은 문법상 문장이 아니라 근거를 함께 쓰는 표시 단위로 정의해야 합니다. 예: 초안 검토 화면의 한 문단은 두 문장이 한 덩어리로 보이는데, 승인 모달은 "문장 3개"라고 셉니다.
 - [확인 필요: 정은] `SentenceEvidence`에는 `source_type`·`end_ms`·`captured_at`이 없어서 조인 경로를 정해야 합니다. `source_text`가 비식별 토큰(`CHILD_A`) 상태로 저장되는지, 그렇다면 교사 응답의 어디에서 실명을 되살릴지 정해야 합니다. `evidence_id`를 UUID로 바꿀지도 정해야 합니다.
 
+### `POST /api/v1/children/{child_id}/drafts` — 교사용: 자료 없이 직접 쓴 초안 만들기
+
+- 쓰는 화면: 초안 검토/왼쪽 원아 목록(자료 없는 원아를 고른 자리), 오늘의 기록/직접 작성
+- 요구사항: (미정) 자료 없이 직접 쓰는 경로의 FR 번호가 테크스펙에 없습니다
+- 권한: 교사 — 담당 반만
+- 요청: 임시 결정(김진하). 사진·발화가 없으므로 근거는 함께 보내지 않습니다.
+  - `record_date`: 필수, "YYYY-MM-DD"
+  - `doc_type`: 필수, `parent_note` / `observation_log`
+  - `title`: 선택, 없으면 `null`
+  - `sentences`: 필수, 하나 이상. 교사가 쓴 글을 줄바꿈으로 나눠 순서대로 보냅니다. 항목은 `text`만 있습니다
+
+```json
+{
+  "record_date": "2026-09-15",
+  "doc_type": "parent_note",
+  "title": null,
+  "sentences": [
+    { "text": "오늘은 친구와 그림책을 함께 보았어요." },
+    { "text": "좋아하는 장면에서 한참 웃었어요." }
+  ]
+}
+```
+
+- 응답 `201`: 상세(`GET /api/v1/drafts/{draft_id}`)와 같은 교사용 스키마입니다. `status`는 `verified`(교사 검토 대기)라 바로 승인할 수 있고, `version`은 1입니다. `sentences[].evidences`, `selected_media_ids`, `media`는 모두 빈 배열입니다 — Figma "직접 작성" 화면의 안내(*사진·녹음이 없으니 근거 표시는 붙지 않아요*)와 같습니다.
+- 만들고 나면 그 원아·날짜의 미분류 항목은 해소된 것으로 봅니다(레일에서 "확인 필요"가 사라집니다).
+- 에러: 같은 원아·날짜·`doc_type`의 초안이 이미 있으면 `409 DRAFT_ALREADY_EXISTS`, 담당 반이 아니면 `403 CLASS_ACCESS_DENIED`입니다.
+
 ### `PATCH /api/v1/drafts/{draft_id}` — 교사용: 초안 직접 수정(문장 텍스트·선택 사진)
 
 - 쓰는 화면: 초안 검토/왼쪽 원아 목록 — "직접 수정", "방금 저장됨", "임시저장하고 나가기"
@@ -229,6 +259,7 @@ documents의 상세 작성 엔드포인트는 7개(교사용 5, 학부모용 2)�
 ```
 
 - 응답 `200`: 상세와 같은 교사용 스키마를 돌려주고, `version`이 1 오릅니다. 바뀐 문장마다 `RevisionLog`(action=edit, edit_method=manual)를 남깁니다.
+- **바뀐 문장의 `evidences`는 빈 배열로 돌려줍니다** — 임시 결정(김진하). 교사가 직접 고친 문장은 원문 발화가 그 문장을 뒷받침한다고 보장할 수 없어, 근거 연결을 끊고 화면에서도 근거를 보여 주지 않습니다(FR-07). 고치지 않은 문장의 근거는 그대로입니다.
 
 ```json
 { "draft_id": "d7af0000-0000-4000-8000-000000000012", "status": "verified", "version": 4, "...": "상세와 같은 필드" }
@@ -267,6 +298,21 @@ documents의 상세 작성 엔드포인트는 7개(교사용 5, 학부모용 2)�
   - `DRAFT_NOT_FOUND` (404) — 없는 초안일 때
   - `CLASS_ACCESS_DENIED` (403) — 담당 반이 아닐 때
 - [확인 필요: 한상균] 필드 이름을 `reviewed`로 바꿀지 정해야 합니다. PR #14의 `review_confirmed`는 금지어 confirm을 씁니다. 정은과 함께 `unclassified` 초안 승인 허용 여부(이 문서에서는 409), 이미 승인된 초안을 다시 승인할 때 멱등 200으로 처리할지, 승인 차단 조건(`DraftDecisionLog`)도 정해야 합니다.
+
+### `POST /api/v1/drafts/{draft_id}/reopen` — 교사용: 승인을 되돌려 다시 검토
+
+- 쓰는 화면: 초안 검토/왼쪽 원아 목록("다시 검토하기"), 승인 확인 모달
+- 요구사항: (미정) 승인을 되돌리는 경로의 FR 번호가 테크스펙에 없습니다
+- 권한: 교사 — 담당 반만
+- 요청: 임시 결정(김진하). `expected_version`만 보냅니다.
+
+```json
+{ "expected_version": 2 }
+```
+
+- 응답 `200`: 상세와 같은 교사용 스키마입니다. `status`가 `approved` → `verified`로 돌아가고 `approved_at`은 `null`이 되며, `version`이 1 오릅니다. 되돌린 뒤에는 다시 수정(`PATCH`)하고 승인할 수 있습니다.
+- **게시한 알림장은 되돌릴 수 없습니다** — `published_at`이 있으면 `409 DRAFT_ALREADY_PUBLISHED`입니다. 이미 학부모에게 나갔으므로 회수(`POST /api/v1/drafts/{draft_id}/revoke`)가 따로 필요합니다(H-1).
+- 에러: 승인 상태가 아니면 `409 DRAFT_NOT_APPROVED`, 버전이 다르면 `409 DRAFT_VERSION_CONFLICT`입니다.
 
 ### `POST /api/v1/publications` — 교사용: 승인된 알림장을 골라 학부모에게 게시(일괄, 건별 결과)
 
@@ -395,10 +441,8 @@ documents의 상세 작성 엔드포인트는 7개(교사용 5, 학부모용 2)�
 
 | 메서드·경로 | 하는 일 | 단계 | BE 담당 |
 |---|---|---|---|
-| `POST /api/v1/drafts/{draft_id}/reopen` | 승인을 되돌려 다시 검토 | 경로만 | 한상균 |
 | `POST /api/v1/drafts/{draft_id}/revoke` | 게시 회수(지금 화면 없음) | 경로만 | 한상균 |
 | `GET /api/v1/children/{child_id}/drafts?doc_type=observation_log` | 원아별 관찰일지 목록 | 경로만 | 한상균 |
-| `POST /api/v1/children/{child_id}/drafts` | 자료 없이 직접 쓴 초안 만들기 | 경로만 | 한상균 |
 | `GET /api/v1/classes/{class_id}/unclassified-items` | 미분류 목록(전용 화면 없음) | 경로만 | 한상균 |
 | `POST /api/v1/unclassified-items/{item_id}/resolve` | 미분류 처리 | 경로만 | 한상균 |
 | `GET /api/v1/drafts/{draft_id}/read-receipts` | 보호자 확인(읽음) 현황 | 경로만 | 한상균 |
