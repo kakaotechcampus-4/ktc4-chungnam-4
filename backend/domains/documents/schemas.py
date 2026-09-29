@@ -14,6 +14,33 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from domains.documents.models import DocType, DraftStatus
 
+# ---- agents → documents (API 아님) ----
+
+
+class DraftSaveInput(BaseModel):
+    """agents가 최종 통과(PASS)한 생성 결과를 save_draft()로 넘길 때 쓰는 값.
+
+    tools/contracts.py의 DraftDocument를 그대로 받지 않는다 — documents는 tools/를
+    참조할 수 없으므로(backend/CLAUDE.md 계층 규칙) 변환은 agents 쪽에서 한다.
+
+    - draft_id: 최초 저장이면 None일 수 있다(서버가 발급). 갱신이면 필수.
+      최초 ID를 누가 언제 만드는지는 정은님 확인 전이라 양쪽을 다 받는다 (#35).
+    - ai_version: contracts.DraftDocument.version(AI 생성 회차). 잠금용
+      DraftDocument.version과 다르다.
+    - content: 문장을 합친 본문. 문장 단위(sentences[]) 저장 형태는 미정이다
+      (docs/api/documents.md "본문 저장 형태").
+    """
+
+    draft_id: UUID | None = None
+    child_id: UUID
+    author_teacher_id: UUID
+    doc_type: DocType
+    record_date: date
+    content: str = Field(min_length=1)
+    ai_version: int = Field(ge=1)
+    evidence_bundle_id: UUID | None = None
+
+
 # ---- 교사용 ----
 
 
