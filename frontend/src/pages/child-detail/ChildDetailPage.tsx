@@ -5,6 +5,7 @@ import { Link, useParams } from "react-router";
 
 import { childOverviewQueryOptions, childQueryOptions } from "@/api/organization";
 import { FocusCard } from "@/components/common/FocusCard";
+import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import { faceStatus, NURI_DOMAIN_LABELS, NURI_DOMAINS } from "@/features/organization/labels";
 import { ApiError } from "@/lib/api-client";
@@ -49,17 +50,16 @@ function NoteItem({ note, today }: NoteItemProps) {
   );
 }
 
-function BackBar() {
+const EYEBROW = "우리 반 관리 / 원아 개인 페이지";
+
+function BackButton() {
   return (
-    <div className="flex h-18 items-center bg-paper px-10">
-      <Link
-        to="/t/children"
-        className="flex items-center gap-3 text-label text-ink hover:underline"
-      >
-        <ChevronLeft aria-hidden="true" className="size-5 text-ink-muted" />
+    <Button asChild variant="outline">
+      <Link to="/t/children">
+        <ChevronLeft aria-hidden="true" />
         원아 명단으로
       </Link>
-    </div>
+    </Button>
   );
 }
 
@@ -73,9 +73,9 @@ export function ChildDetailPage() {
     const notFound =
       childQuery.error instanceof ApiError && childQuery.error.code === "CHILD_NOT_FOUND";
     return (
-      <div className="pt-10 pb-10">
-        <BackBar />
-        <div className="py-7">
+      <div className="pb-10">
+        <PageHeader eyebrow={EYEBROW} title="원아 개인 페이지" actions={<BackButton />} />
+        <div>
           {notFound ? (
             <FocusCard
               centered
@@ -89,7 +89,7 @@ export function ChildDetailPage() {
               <p className="text-lead text-ink-muted">{childQuery.error.message}</p>
             </FocusCard>
           ) : (
-            <p role="alert" className="px-10 text-body text-destructive">
+            <p role="alert" className="text-body text-destructive">
               {childQuery.error.message}
             </p>
           )}
@@ -100,9 +100,9 @@ export function ChildDetailPage() {
 
   if (!child) {
     return (
-      <div className="pt-10">
-        <BackBar />
-        <p role="status" className="px-10 py-7 text-body text-ink-muted">
+      <div>
+        <PageHeader eyebrow={EYEBROW} title="원아 개인 페이지" actions={<BackButton />} />
+        <p role="status" className="text-body text-ink-muted">
           원아 정보를 불러오고 있어요.
         </p>
       </div>
@@ -114,24 +114,19 @@ export function ChildDetailPage() {
   const overview = overviewQuery.data;
 
   return (
-    <div className="pt-10 pb-10">
-      <BackBar />
-      <div className="flex flex-col gap-5 px-10 py-7">
-        <section className="flex items-center gap-4 rounded-xl bg-paper px-7 py-6">
-          <div aria-hidden="true" className="size-14 shrink-0 rounded-full bg-canvas" />
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <h1 className="text-h3 font-bold text-ink">{child.name}</h1>
-              {child.today_note_sent ? (
-                <span className={cn(TAG, "bg-canvas text-ink")}>오늘 발송 완료</span>
-              ) : null}
-            </div>
-            <p className="text-label text-ink-muted">
-              {child.class_name} · {child.age_group} · 이번 달 기록 {child.month_record_count}건
-            </p>
-          </div>
-        </section>
-
+    <div className="pb-10">
+      <PageHeader
+        eyebrow={EYEBROW}
+        title={child.name}
+        subtitle={[
+          child.class_name,
+          child.age_group,
+          `이번 달 기록 ${child.month_record_count}건`,
+          ...(child.today_note_sent ? ["오늘 발송 완료"] : []),
+        ].join(" · ")}
+        actions={<BackButton />}
+      />
+      <div className="flex flex-col gap-5">
         <div className="flex items-start gap-5">
           <section
             aria-labelledby="child-notes-title"

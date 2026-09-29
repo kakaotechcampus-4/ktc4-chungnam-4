@@ -30,8 +30,13 @@ describe("ChildDetailPage", () => {
     renderPage();
 
     expect(await screen.findByRole("heading", { level: 1, name: "김도윤" })).toBeInTheDocument();
-    expect(screen.getByText("오늘 발송 완료")).toBeInTheDocument();
-    expect(screen.getByText("햇살반 · 만 4세 · 이번 달 기록 21건")).toBeInTheDocument();
+    expect(
+      screen.getByText("햇살반 · 만 4세 · 이번 달 기록 21건 · 오늘 발송 완료"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "원아 명단으로" })).toHaveAttribute(
+      "href",
+      "/t/children",
+    );
 
     const notes = screen.getByRole("region", { name: "알림장" });
     const items = await within(notes).findAllByRole("listitem");
