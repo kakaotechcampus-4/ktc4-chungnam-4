@@ -29,7 +29,7 @@
 | ② 이한나 | 동의 확인 모달 | 원아 등록 · 동의와 얼굴 정보의 호출 그대로, `GET /children/{child_id}/consents`, `POST /children/{child_id}/consents`, `POST /children/{child_id}/consents/revoke` | 경로만 |
 | ② 이한나 | 원아 명단 관리 | `GET /classes/{class_id}/children`에 `?status=`·동의·얼굴·보호자 연결 필드(확장(경로만)), `POST /classes/{class_id}/children` | 경로만 |
 | ② 이한나 | 원아 추가 · 수정 | `POST /classes/{class_id}/children`(추가), `GET /children/{child_id}`, `PATCH /children/{child_id}`(수정) | 경로만 |
-| ② 이한나 | 학부모 초대 링크 | `GET /children/{child_id}`(이름·연결 상태), `POST /children/{child_id}/parent-invites`(링크 다시 만들기), (목록에 없음: 지금 쓰는 초대 링크 조회, 복사용) | 경로만 |
+| ② 이한나 | 학부모 초대 링크 | `GET /children/{child_id}`(이름·연결 상태), `POST /children/{child_id}/parent-invites`(링크 다시 만들기), `GET /children/{child_id}/parent-invites`(지금 쓰는 링크, 복사용. 임시 결정(이한나)) | 경로만 |
 | ② 이한나 | 원아 개인 페이지 | `GET /children/{child_id}`, `GET /children/{child_id}/drafts?doc_type=parent_note`(알림장 목록, 관찰일지 목록과 같은 경로), (목록에 없음: 이번 달 기록 수와 누리과정 5영역별 수) | 경로만 |
 | ② 이한나 | 교육 계획 · 빈 상태 | `GET /classes/{class_id}/education-plans`(0건) | 경로만 |
 | ② 이한나 | 교육 계획 · 작성 | `POST /classes/{class_id}/education-plans`, `PATCH /education-plans/{plan_id}`(수정) | 경로만 |
@@ -65,7 +65,7 @@
 화면에는 필요한데 상세 작성 엔드포인트에도, 경로만 정한 엔드포인트에도 없는 것입니다. 괄호는 맡을 만한 도메인입니다. 해당 도메인 파일에 먼저 적고 이 화면을 만들어 주세요.
 
 - **계정 · 설정**: 알림 설정 3개(초안 준비 완료 알림, 학부모 확인 알림, 주간 요약 메일)를 읽고 저장할 곳. `GET /me`·`PATCH /me`에 넣을지 정해야 합니다. (auth)
-- **학부모 초대 링크**: 지금 쓰는 초대 링크 조회. "초대 링크 복사"에 필요합니다. 경로만 정한 API에는 만들기(`POST`)만 있습니다. (organization)
+- **학부모 초대 링크**: 지금 쓰는 초대 링크 조회. "초대 링크 복사"에 필요합니다. 경로만 정한 API에는 만들기(`POST`)만 있습니다. (organization) → 임시 결정(이한나): `GET /children/{child_id}/parent-invites` 추가. 반영: organization.md §② 화면용으로 채운 엔드포인트
 - **원아 개인 페이지**: 이번 달 기록 수와 누리과정 5영역별 기록 수. (documents)
 - **추가 근거 작성**: 교사가 쓴 관찰 메모(연결할 아이, 활동 시각, 음성, 관련 사진)를 그날 근거로 저장. (agents 또는 media · face) → 글만 받는 모양으로 제안: agents.md 하단 §상의 필요 2
 - **알림장 상세**: 게시한 알림장의 "수정하기". `reopen`은 게시 전까지만 적혀 있습니다. (documents)
