@@ -29,6 +29,7 @@
 - [ ] 레일 "검토 완료" 기준(두 문서가 모두 `approved`인지). 한 원아의 두 문서를 한 번에 승인하는 UX가 필요한지
 - [ ] 레일을 organization 명단, drafts 목록, Job `children[]`로 합치는 방식
 - [ ] **게시한 알림장의 "수정하기"** — 알림장 상세에서 뺐습니다(이번 범위 밖). 게시본은 학부모가 이미 본 뒤라 바로 고칠 수 없고, 회수(`POST /drafts/{draft_id}/revoke`, 경로만)를 거치는 흐름이 필요합니다. 회수 명세가 정해지면 화면에 다시 넣습니다
+- [x] **교사 상세가 학부모와 다른 사진을 보여 줌** → 임시 결정(김진하): `GET /drafts/{draft_id}` 응답에 `include_photos`를 싣고(게시 전에는 `null`), `false`면 교사 화면도 사진을 감춥니다. 반영: 이 문서 §`GET /api/v1/drafts/{draft_id}`. 사진 없이 게시했는데 교사에게 사진이 보이면 "보냈다"고 착각합니다
 - [x] 알림장 게시판을 날짜별 목록에서 **원아 명단**으로 바꿈 → 임시 결정(김진하): 게시판은 지난 기록 보관함이라 원아 → 날짜 순서로 들어갑니다(오늘 게시 상태는 초안 검토 레일이 이미 보여 줍니다). 반영: 이 문서 §`GET /classes/{class_id}/drafts`(쿼리 확장), §`GET /children/{child_id}/drafts`
 
 ## develop 코드와 다른 점
@@ -219,10 +220,12 @@ documents의 상세 작성 엔드포인트는 7개(교사용 5, 학부모용 2)�
   "author_name": "김하늘",
   "approved_at": null,
   "published_at": null,
+  "include_photos": null,
   "updated_at": "2026-09-15T06:40:11Z"
 }
 ```
 
+- `include_photos`는 게시할 때 정해지는 값이라 **게시 전에는 `null`** 입니다 — 임시 결정(김진하). `false`면 학부모에게 글만 갔다는 뜻이고, 교사 화면(알림장 상세)도 사진을 감춥니다. 보낸 것과 교사가 보는 것이 달라지면 교사가 "사진을 보냈다"고 착각합니다. 초안 검토 화면은 아직 게시 전(`null`)이라 선택 사진을 그대로 보여 줍니다.
 - `sentence_index`는 0부터 셉니다(agents 코드와 같음).
 - `evidences[]`는 `SentenceEvidence`와 근거 계약(EvidenceItem)을 agents service 함수로 조인한 값입니다.
   - `evidence_id`는 초안 안에서만 유일한 불투명 문자열입니다. "ID는 UUID"라는 공통 규약의 예외입니다.
