@@ -205,7 +205,8 @@ def collect_media_for_llm(db: Session, child_id: UUID, target_date: date) -> lis
     for segment in db.scalars(
         select(TranscriptSegment)
         .where(TranscriptSegment.media_id.in_(media_ids))
-        .order_by(TranscriptSegment.start_time)
+        # start_time이 nullable이라 NULL 위치가 DB마다 달라서(PostgreSQL은 뒤, SQLite는 앞) 고정합니다.
+        .order_by(TranscriptSegment.start_time.nulls_last())
     ):
         segments.setdefault(segment.media_id, []).append(
             TranscriptPart(segment.start_time, segment.end_time, segment.raw_text)

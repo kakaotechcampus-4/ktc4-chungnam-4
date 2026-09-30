@@ -136,6 +136,37 @@ def test_영상_음성은_STT_구간을_시간순으로_함께_싣는다(db: Ses
     assert item.type == "voice_memo"
 
 
+def test_구간_시작_시각이_없으면_맨_뒤로_보낸다(db: Session) -> None:
+    """NULL 위치가 DB마다 달라(PostgreSQL은 뒤, SQLite는 앞) 명시적으로 고정합니다."""
+    voice = add_media(db, [DOYUN], type="voice_memo")
+    db.add_all(
+        [
+            TranscriptSegment(
+                media_id=voice.id, start_time=5.0, end_time=7.5, raw_text="둘", source="voice_memo"
+            ),
+            TranscriptSegment(
+                media_id=voice.id,
+                start_time=None,
+                end_time=None,
+                raw_text="멘트 없음",
+                source="voice_memo",
+            ),
+            TranscriptSegment(
+                media_id=voice.id,
+                start_time=0.0,
+                end_time=2.0,
+                raw_text="하나",
+                source="voice_memo",
+            ),
+        ]
+    )
+    db.flush()
+
+    [item] = service.collect_media_for_llm(db, DOYUN, DAY)
+
+    assert [part.raw_text for part in item.transcript] == ["하나", "둘", "멘트 없음"]
+
+
 def test_없으면_빈_리스트이고_동의_판정도_부르지_않는다(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
