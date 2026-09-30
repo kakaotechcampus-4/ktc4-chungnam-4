@@ -29,6 +29,12 @@ import { EvidencePanel } from "./components/EvidencePanel";
 import { PublishConfirmDialog } from "./components/PublishConfirmDialog";
 import { RosterList, type RosterRow, type RosterState } from "./components/RosterList";
 
+// 근거가 문장 단위로 붙어서 수정도 문장별 칸으로 받습니다. 한 칸으로 합치면 교사가 문장을
+// 합치거나 쪼갤 때 sentence_index가 어긋나 안 고친 문장의 근거까지 엉뚱한 곳에 붙습니다.
+// 대신 칸의 테두리·그림자를 지워 읽을 때와 같은 한 덩어리 글로 보이게 합니다.
+const EDIT_FIELD =
+  "min-h-0 resize-none rounded-md border-0 bg-transparent p-0 text-lead whitespace-pre-line shadow-none focus-visible:border-0 focus-visible:ring-0";
+
 // TODO(김진하): 사진 추가는 업로드 흐름(media, 정은·김동건)이 정해지지 않아 자리만 둡니다.
 function AddPhotoTile() {
   return (
@@ -303,9 +309,6 @@ export function DraftReviewPage() {
                 placeholder="예) 지우가 블록을 쌓는 동안 옆에서 색을 골라 건네주었어요."
                 onChange={(event) => setNewText(event.target.value)}
               />
-              <p className="text-caption text-ink-muted">
-                사진·녹음이 없으니 근거 표시는 붙지 않아요.
-              </p>
               {createMutation.isError ? (
                 <p className="text-caption text-destructive">
                   저장하지 못했어요. 다시 시도해 주세요.
@@ -352,7 +355,8 @@ export function DraftReviewPage() {
                       <Textarea
                         key={sentence.sentence_index}
                         value={editing[sentence.sentence_index] ?? sentence.text}
-                        rows={2}
+                        rows={1}
+                        className={EDIT_FIELD}
                         aria-label="초안 문장 수정"
                         onChange={(event) =>
                           setEditing((prev) => ({
@@ -366,7 +370,8 @@ export function DraftReviewPage() {
                       <Textarea
                         key={`added-${String(index)}`}
                         value={text}
-                        rows={2}
+                        rows={1}
+                        className={EDIT_FIELD}
                         aria-label="새 문장"
                         placeholder="새로 쓸 문장을 적어 주세요."
                         onChange={(event) =>
@@ -399,6 +404,10 @@ export function DraftReviewPage() {
                       <button
                         key={sentence.sentence_index}
                         type="button"
+                        // 올리기만 해도 옆 근거 상세가 바뀝니다. 벗어나도 되돌리지 않아야
+                        // 근거를 읽는 동안 패널이 비지 않습니다. 클릭·키보드 초점도 같습니다.
+                        onMouseEnter={() => setSelectedSentenceIndex(sentence.sentence_index)}
+                        onFocus={() => setSelectedSentenceIndex(sentence.sentence_index)}
                         onClick={() => setSelectedSentenceIndex(sentence.sentence_index)}
                         aria-pressed={sentence.sentence_index === selectedSentenceIndex}
                         className={cn(
