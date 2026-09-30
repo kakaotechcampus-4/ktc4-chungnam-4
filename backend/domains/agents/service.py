@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from core.database import SessionLocal
 from core.exceptions import DraftVersionConflict
 from domains.agents.llm import call_claude
-from domains.agents.models import DraftDecisionLog, EvidenceBundle, Job
+from domains.agents.models import DraftDecisionLog, EvidenceBundle, Job, JobStatus
 from domains.agents.models import SentenceEvidence as SentenceEvidenceRow
 from domains.agents.models import VerificationResult as VerificationResultRow
 from domains.documents import service as documents
@@ -36,8 +36,14 @@ GeneratedDraft = tuple[
 
 
 def orchestrate_drafts(job_id: str, child_id: str) -> None:
+    """원아 한 명의 초안을 만든다. 초안 저장이나 미분류로 끝나면 Job을 SUCCEEDED로 둔다.
+
+    예외는 잡지 않고 올린다 — 재시도와 최종 실패 표시는 tasks.py의 Celery 설정이
+    record_job_retry / mark_job_failed로 처리한다.
+    """
     with SessionLocal() as session:
         job = _get_job(session, job_id)
+        _set_job_status(session, job, JobStatus.RUNNING)
         bundle = _collect_evidence(session, child_id, job.target_date)
 
         # 재생성 상한은 tools/verification/decision.py의 decide()가 판정한다
@@ -57,13 +63,39 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
 
             if decision_result.decision == contracts.Decision.PASS:
                 _save_passed_draft(session, job, bundle, document, evidence_by_id)
-                return
+                break
             if decision_result.decision == contracts.Decision.NEEDS_TEACHER_REVIEW:
+                _send_to_unclassified(session, job_id, child_id)
                 break
             # 남은 경우는 REGENERATE뿐이다 — 초안을 다시 만든다.
             regeneration_count += 1
 
-        _send_to_unclassified(session, job_id, child_id)
+        # 미분류도 예외가 아니라 정상 종료다 (docs/api/agents.md 상태값).
+        _set_job_status(session, job, JobStatus.SUCCEEDED)
+
+
+def record_job_retry(job_id: str) -> None:
+    """Celery가 재시도를 걸 때 부른다. 상태는 RUNNING 그대로 두고 횟수만 올린다."""
+    with SessionLocal() as session:
+        job = _get_job(session, job_id)
+        job.retry_count += 1
+        _set_job_status(session, job, JobStatus.RUNNING)
+
+
+def mark_job_failed(job_id: str) -> None:
+    """재시도를 다 쓰거나 재시도 대상이 아닌 오류로 끝났을 때 부른다.
+
+    TODO(eun): docs/api/agents.md의 error_code·failed_stage를 채울 컬럼이 Job에 없다.
+    agents 모델 후속 마이그레이션에서 추가한 뒤 여기서 함께 남긴다.
+    """
+    with SessionLocal() as session:
+        job = _get_job(session, job_id)
+        _set_job_status(session, job, JobStatus.FAILED)
+
+
+def _set_job_status(session: Session, job: Job, status: JobStatus) -> None:
+    job.status = status.value
+    session.commit()
 
 
 def _verify_with_critic_retry(
