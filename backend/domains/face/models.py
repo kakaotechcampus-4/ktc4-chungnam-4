@@ -35,5 +35,6 @@ class EmbeddingLifecycleLog(Base):
     child_id = Column(UUID(as_uuid=True), nullable=False)
     device_id = Column(String, nullable=True)  # 별도 참조 테이블 없이 식별값 문자열만 기록
     # register / re_register / device_change / device_revoked / consent_revoked(FR-22)
+    # / teacher_removed(교사의 얼굴 정보 삭제, 동의는 유지)
     event_type = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False)  # UTC 저장

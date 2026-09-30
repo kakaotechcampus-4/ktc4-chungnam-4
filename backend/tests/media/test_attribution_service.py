@@ -67,9 +67,70 @@ def test_같은_요청이_두_번_와도_행이_늘지_않는다(db: Session, as
     child_id = uuid.uuid4()
     save_attributions(db, asset.id, [Attribution(child_id, "manual")], llm_allowed=False)
 
-    saved = save_attributions(db, asset.id, [Attribution(child_id, "manual")], llm_allowed=False)
+    links = save_attributions(db, asset.id, [Attribution(child_id, "manual")], llm_allowed=False)
 
-    assert saved == []
+    assert [link.child_id for link in links] == [child_id]
+    assert db.query(MediaChildLink).count() == 1
+
+
+def test_다시_저장할_때_빠진_원아의_귀속은_지워진다(db: Session, asset: MediaAsset) -> None:
+    """옆 반 아이를 빼고 다시 저장했는데 링크가 남으면 그 사진이 LLM으로 넘어갑니다 (H-2).
+
+    PR #13 리뷰: [c1, c2]를 llm_allowed=False로 저장한 뒤 [c1]만 True로 다시 저장하면
+    링크는 2건 그대로인데 llm_allowed만 True가 되던 문제.
+    """
+    minsu, jia = uuid.uuid4(), uuid.uuid4()
+    save_attributions(
+        db,
+        asset.id,
+        [Attribution(minsu, "manual"), Attribution(jia, "manual")],
+        llm_allowed=False,
+    )
+
+    save_attributions(db, asset.id, [Attribution(minsu, "manual")], llm_allowed=True)
+
+    remaining = {link.child_id for link in db.query(MediaChildLink).all()}
+    assert remaining == {minsu}
+    assert asset.llm_allowed is True
+
+
+def test_빈_목록으로_다시_저장하면_미분류로_돌아간다(db: Session, asset: MediaAsset) -> None:
+    save_attributions(db, asset.id, [Attribution(uuid.uuid4(), "manual")], llm_allowed=True)
+
+    links = save_attributions(db, asset.id, [], llm_allowed=False)
+
+    assert links == []
+    assert db.query(MediaChildLink).count() == 0
+    assert asset.llm_allowed is False
+
+
+def test_다시_저장하면_귀속_방법과_신뢰도도_새_값으로_바뀐다(
+    db: Session, asset: MediaAsset
+) -> None:
+    """자동 분류를 교사가 수동으로 확정하면 신뢰도가 사라져야 정확도 집계가 맞습니다."""
+    child_id = uuid.uuid4()
+    save_attributions(
+        db, asset.id, [Attribution(child_id, "face_recognition", 0.71)], llm_allowed=False
+    )
+
+    save_attributions(db, asset.id, [Attribution(child_id, "manual")], llm_allowed=True)
+
+    link = db.query(MediaChildLink).one()
+    assert (link.method, link.confidence_score) == ("manual", None)
+
+
+def test_검사에_걸리면_기존_귀속도_그대로_남는다(db: Session, asset: MediaAsset) -> None:
+    """재저장 요청이 검사에 걸리면 지우기도 하지 않습니다 — 절반만 바뀐 상태를 남기지 않습니다."""
+    child_id = uuid.uuid4()
+    save_attributions(db, asset.id, [Attribution(child_id, "manual")], llm_allowed=False)
+
+    with pytest.raises(InvalidAttributionMethod):
+        save_attributions(
+            db, asset.id, [Attribution(uuid.uuid4(), "face_recognition")], llm_allowed=True
+        )
+
+    assert {link.child_id for link in db.query(MediaChildLink).all()} == {child_id}
+    assert asset.llm_allowed is False
 
 
 def test_알_수_없는_귀속_방법은_거부된다(db: Session, asset: MediaAsset) -> None:
