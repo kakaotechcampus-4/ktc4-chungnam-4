@@ -194,7 +194,8 @@ def load_embedding_cache(db: Session, class_id: UUID, teacher_id: UUID) -> dict[
     제외되는 쪽으로 실패시킵니다 (테크스펙 0단계).
 
     내려보낸 임베딩마다 열람 기록을 남깁니다. 기록은 같은 Session에 flush만 하므로
-    커밋은 부른 쪽(라우터)이 합니다.
+    커밋은 부른 쪽(라우터)이 합니다. **라우터는 커밋이 성공한 뒤에 임베딩을 응답으로
+    돌려줘야 합니다** — 응답이 먼저 나가고 커밋이 실패하면 열람 기록 없이 임베딩이 나갑니다 (NFR-05).
     """
     consented = _consented_child_ids(db, class_id)
     if not consented:
@@ -217,7 +218,7 @@ def delete_embedding(db: Session, child_id: UUID, reason: str) -> bool:
     """
     if reason not in DELETE_REASONS:
         # 자유 문자열을 받으면 로그에 개인정보가 섞일 수 있습니다 (H-4).
-        raise ValueError(f"Unknown deletion reason: {reason}")
+        raise ValueError(f"Deletion reason must be one of: {sorted(DELETE_REASONS)}")
 
     embedding = db.scalars(
         select(FaceEmbedding).where(FaceEmbedding.child_id == child_id)

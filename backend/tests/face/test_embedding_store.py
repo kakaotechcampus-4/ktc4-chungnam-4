@@ -146,7 +146,41 @@ def test_정해진_사유가_아니면_지우지_않는다(db: Session) -> None:
     service.register_embedding(db, child_id, VECTOR, model_version="buffalo_l-1.0")
     db.commit()
 
-    with pytest.raises(ValueError):
-        service.delete_embedding(db, child_id, reason="김도윤 부모 요청")
+    with pytest.raises(ValueError) as exc:
+        service.delete_embedding(db, child_id, reason="CHILD_A 부모 요청")
+
+    # 잘못된 입력값이 예외 메시지(=로그)에 그대로 남지 않아야 합니다 (H-4).
+    assert "CHILD_A" not in str(exc.value)
+    assert db.query(FaceEmbedding).count() == 1
+
+
+def test_호출자가_롤백하면_삭제와_로그가_모두_취소된다(db: Session) -> None:
+    child_id = uuid.uuid4()
+    service.register_embedding(db, child_id, VECTOR, model_version="buffalo_l-1.0")
+    db.commit()
+
+    service.delete_embedding(db, child_id, reason="teacher_removed")
+    db.rollback()
+
+    assert db.query(FaceEmbedding).count() == 1
+    assert db.query(DeletionLog).count() == 0
+    assert [log.event_type for log in db.query(EmbeddingLifecycleLog).all()] == ["register"]
+
+
+def test_파기_기록이_실패하면_예외가_전달되고_임베딩이_남는다(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    child_id = uuid.uuid4()
+    service.register_embedding(db, child_id, VECTOR, model_version="buffalo_l-1.0")
+    db.commit()
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("audit failed")
+
+    monkeypatch.setattr(service.audit, "record_deletion", fail)
+
+    with pytest.raises(RuntimeError):
+        service.delete_embedding(db, child_id, reason="teacher_removed")
+    db.rollback()
 
     assert db.query(FaceEmbedding).count() == 1
