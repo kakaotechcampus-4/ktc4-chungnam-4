@@ -55,6 +55,7 @@
 | ⑤ 김진하 | 전체 게시 확인 모달 | 초안 검토 / 왼쪽 원아 목록의 호출 그대로, `POST /publications`(승인한 원아 중 교사가 뺀 아이를 제외하고 보냄), 학부모 알림 발송은 `POST /publications` 확장(경로만). **개편 전 "알림장 올리기" 화면을 대신합니다** — 게시는 반 전체·하루 한 번이라 별도 화면 없이 오버레이로 확인합니다(임시 결정(김진하), [documents.md](documents.md) §`POST /api/v1/publications`) | 둘 다 |
 | ⑤ 김진하 | 알림장 발행 완료 | `POST /publications` 결과, `GET /classes/{class_id}/drafts`(미작성 원아 보기) | 상세 작성 |
 | ⑤ 김진하 | 알림장 게시판 | `GET /classes/{class_id}/drafts?doc_type=parent_note&published=true`(확장(경로만)), `GET /classes/{class_id}/children`(미작성 카드) | 둘 다 |
+| ⑤ 김진하 | 알림장 목록(원아별) | `GET /children/{child_id}/drafts?doc_type=parent_note&published=true`(최신순, `preview`), `GET /classes/{class_id}/children`(아이 이름). **Figma 없음** — 알림장 게시판에서 바로 상세로 보내면 ‹ › 로 한 칸씩만 움직일 수 있어 기록이 쌓이면 못 찾습니다(임시 결정(김진하), #89 리뷰) | 상세 작성 |
 | ⑤ 김진하 | 알림장 상세 | `GET /drafts/{draft_id}`, `GET /drafts/{draft_id}/read-receipts`(보호자 확인 수), (목록에 없음: 게시한 알림장 수정) | 둘 다 |
 | ⑤ 김진하 | 관찰일지 목록 | `GET /classes/{class_id}/children`, `GET /children/{child_id}/drafts?doc_type=observation_log`(원아마다), (목록에 없음: 반 전체 관찰일지를 기간으로 조회) | 둘 다 |
 | ⑤ 김진하 | 관찰일지 | `GET /drafts/{draft_id}`, `PATCH /drafts/{draft_id}`(저장하기) | 상세 작성 |
