@@ -24,9 +24,13 @@ export const documentsKeys = {
     ["classes", classId, "drafts", recordDate] as const,
   /** 반에서 게시된 알림장이 있는 원아(알림장 명단) */
   publishedNotes: (classId: string) => ["classes", classId, "drafts", "published"] as const,
-  /** 한 원아의 문서 목록(알림장 상세의 날짜 이동) */
-  childDrafts: (childId: string, docType: DocType) =>
-    ["children", childId, "drafts", docType] as const,
+  /**
+   * 한 원아의 문서 목록(알림장 상세의 날짜 이동).
+   * `published`까지 넣습니다 — 빼면 "게시된 것만"과 "전부"가 같은 캐시를 써서,
+   * 미게시 초안을 받아 온 화면을 본 뒤에는 게시본 목록에 그 초안이 섞입니다(H-1).
+   */
+  childDrafts: (childId: string, docType: DocType, published: boolean) =>
+    ["children", childId, "drafts", docType, published] as const,
   draft: (draftId: string) => ["drafts", draftId] as const,
   parentNotes: (childId: string) => ["children", childId, "parent-notes"] as const,
   parentNote: (parentNoteId: string) => ["parent-notes", parentNoteId] as const,
@@ -63,7 +67,7 @@ export function publishedParentNotesQueryOptions(classId: string) {
 /** 교사용: 한 원아의 문서 목록(record_date 최신순). 알림장 상세의 ‹ › 날짜 이동에 씁니다. */
 export function childDraftsQueryOptions(childId: string, docType: DocType, published = false) {
   return queryOptions({
-    queryKey: documentsKeys.childDrafts(childId, docType),
+    queryKey: documentsKeys.childDrafts(childId, docType, published),
     queryFn: async ({ signal }) =>
       (
         await api.get<ListResponse<ChildDraftItem>>(
