@@ -37,6 +37,7 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 - API의 날짜 필드는 `record_date`이고, `Job.target_date`에 저장합니다. AI 계약의 `GenerationRequest.record_date`, documents와 이름을 맞췄습니다.
 - SSE는 쓰지 않고 폴링만 씁니다. 원아 이름은 응답에 넣지 않으며, FE가 organization 명단과 `child_id`로 합칩니다.
 - 교사 전용이라 학부모용 응답이 없습니다. agents는 초안의 승인 상태를 바꾸지 않습니다(H-1).
+- 교사 권한은 반이 속한 center 기준입니다. 담당교사 개념은 폐지돼, center 소속 교사는 그 center의 모든 반에 접근합니다(팀 회의 결정). 테크스펙 반영은 PR #38에서 합니다.
 
 **상태값 (제안)**
 
@@ -55,7 +56,7 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 
 - 쓰는 화면: 처리 중/서버 전송이 끝나면 자동으로 부르고, 처리 중/초안 생성으로 넘어갑니다.
 - 요구사항: FR-05, FR-06, FR-26
-- 권한: 교사 — 담당 반만
+- 권한: 교사 — 반이 속한 center의 소속 교사만
 - 요청: 본문 필드는 아래와 같습니다.
   - `request_id`: FE가 만든 UUID입니다. 같은 값으로 다시 보내면 작업을 새로 만들지 않습니다. AI 계약의 `request_id` 규칙과 같습니다.
   - `record_date`: "YYYY-MM-DD", KST 기준 하루입니다.
@@ -96,7 +97,7 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 ```
 
 - 에러:
-  - `CLASS_ACCESS_DENIED` (403) — 담당 반이 아닐 때
+  - `CLASS_ACCESS_DENIED` (403) — 반이 속한 center의 소속 교사가 아닐 때
   - `CLASS_NOT_FOUND` (404) — 없는 반일 때
   - `INVALID_RECORD_DATE` (400) — 오늘(KST)보다 뒤 날짜일 때
   - `MEDIA_NOT_READY` (409) — `media_ids` 가운데 완료 통지 전이거나, `attributed_at`이 null이거나, 이 반·날짜의 자료가 아닌 것이 있을 때. 해당 ID는 `detail.media_ids`에 담습니다.
@@ -110,7 +111,7 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 
 - 쓰는 화면: 처리 중/초안 생성 — "84%"와 단계 문구
 - 요구사항: FR-06
-- 권한: 교사 — 작업이 속한 반의 담당 교사만
+- 권한: 교사 — 작업이 속한 반의 center 소속 교사만
 - 요청: 경로 `job_id`. 2초 간격으로 부릅니다(제안).
 - 응답 `200`:
 
@@ -150,7 +151,7 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 - 미분류 원아 예: `{ "child_id": "c41d0000-0000-4000-8000-000000000003", "status": "succeeded", "stage": null, "outcome": "unclassified", "unclassified_reason": "insufficient_evidence", "failed_stage": null, "error_code": null, "drafts": [] }`
 - 실패 원아 예: `{ "child_id": "c41d0000-0000-4000-8000-000000000003", "status": "failed", "stage": null, "outcome": null, "unclassified_reason": null, "failed_stage": "generating", "error_code": "LLM_TIMEOUT", "drafts": [] }`
 - 에러:
-  - `CLASS_ACCESS_DENIED` (403) — 작업이 속한 반의 담당 교사가 아닐 때
+  - `CLASS_ACCESS_DENIED` (403) — 작업이 속한 반의 center 소속 교사가 아닐 때
   - `JOB_NOT_FOUND` (404) — 없는 작업일 때
 - [확인 필요: 정은] 반 전체 `status` 규칙(일부 원아만 실패해도 `failed`로 볼지), 진행률 계산식, `stage` 4값을 정해야 합니다. `transcribing`을 넣을지는 STT를 누가 실행하느냐에 달려 있습니다.
 - [확인 필요: 정은·한상균] 미분류 사유 코드를 합의해야 합니다. 검증 실패로 미분류된 초안을 `drafts[]`로 보여 줄지도 정해야 합니다.
