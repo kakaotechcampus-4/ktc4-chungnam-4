@@ -45,12 +45,10 @@
 | ③ 정은 | 처리 실패 · 단계 재시도 | `GET /jobs/{job_id}`(실패한 단계), `POST /jobs/{job_id}/retry` | 둘 다 |
 | ③ 정은 | 직접 작성 | `GET /classes/{class_id}/children`·`GET /classes/{class_id}/drafts?record_date=`(기록 없는 아이), `POST /children/{child_id}/drafts`(초안·임시저장), `POST /drafts/{draft_id}/approve`(저장하고 승인하기) | 둘 다 |
 | ③ 정은 | 대시보드 | `GET /classes/{class_id}/drafts?record_date=`(승인 완료·기록 전), `GET /classes/{class_id}/children`(명단, 동의·얼굴 필드는 확장(경로만)), `GET /classes/{class_id}/jobs?record_date=`(오늘의 기록 이어하기) | 둘 다 |
-| ④ 김동건 | 얼굴 분류 · 결과 확인 | `GET /classes/{class_id}/children`("전체 5명"), 추가 근거 표시는 `GET /classes/{class_id}/evidence?record_date=`(제안, agents.md 하단). 분류 자체는 브라우저 안에서. 귀속과 `llm_allowed`(확인 체크)는 서버 전송 때 보냄. 발화는 업로드 뒤 서버 STT가 만들어서 이 화면에서 보이지 않음 | 둘 다 |
+| ④ 김동건 | 얼굴 분류 · 결과 확인 | `GET /classes/{class_id}/children`("전체 5명"), `GET /media/{media_id}/transcript-segments`("발화 N개", 상세 작성·임시 결정(김동건)), 추가 근거 표시는 `GET /classes/{class_id}/evidence?record_date=`(제안, agents.md 하단). 사진 분류는 브라우저 안에서, 영상·음성은 이 화면 전에 먼저 올림(제안, media-face.md 하단 §6). 사진 귀속과 `llm_allowed`(확인 체크)는 서버 전송 때 보냄 | 둘 다 |
 | ④ 김동건 | 수동 분류 / 사진 | `GET /classes/{class_id}/children`(원아 선택지). 귀속은 서버 전송 때 보냄. 아이 카드의 사진을 눌러 아이를 바꾸는 화면(Figma 없음)도 같은 호출 | 상세 작성 |
-| ④ 김동건 | 수동 분류 / 발화 | 숨김. 업로드 전 로컬 검수 화면이라 발화가 아직 없음(`transcript-segments`는 쓰는 화면 미정) | API 없음(숨김) |
-| ④ 김동건 | 추가 근거 작성 | `GET /classes/{class_id}/children`(연결할 아이), `GET /classes/{class_id}/evidence?record_date=`·`PUT /children/{child_id}/evidence/{record_date}`(제안, agents.md 하단) | 제안 |
-| ④ 김동건 | 하루 정리 입구(Figma 없음) | `GET /classes/{class_id}/daily-routines?record_date=`(제안, agents.md 하단). 명단 첫 아이의 하루 정리로 보냄 | 제안 |
-| ④ 김동건 | 하루 정리 확인 | `GET /classes/{class_id}/daily-routines?record_date=`, `PATCH /children/{child_id}/daily-routines/{record_date}/scenes/{scene_id}`(장면 빼기), "초안 만들기"는 `POST /classes/{class_id}/jobs`에 `kind: "draft"`(모두 제안, agents.md 하단), `GET /classes/{class_id}/children` | 제안 |
+| ④ 김동건 | 수동 분류 / 발화 | `GET /classes/{class_id}/children`, `GET /media/{media_id}/transcript-segments`, `PATCH /transcript-segments/{segment_id}`(아이 연결·화자·문장 수정·제외, 상세 작성·임시 결정(김동건)) | 상세 작성 |
+| ④ 김동건 | 아이별 하루 확인(하루 정리 확인 + 추가 근거 작성) | 전송 전 자료로 그림: 이 기기의 사진, `GET /media/{media_id}/transcript-segments`·`PATCH /transcript-segments/{segment_id}`(발화 빼기), `GET /classes/{class_id}/evidence?record_date=`·`PUT /children/{child_id}/evidence/{record_date}`(추가 근거, 제안, agents.md 하단). "초안 만들기" 없음 — 전송은 분류 결과에서(#83 리뷰) | 둘 다 |
 | ④ 김동건 | 얼굴 정보 등록 | `PUT /children/{child_id}/face-embedding`(상세 작성, 임시 결정(김동건)), `GET /children/{child_id}`(동의·등록 상태, 경로만) | 둘 다 |
 | ④ 김동건 | 얼굴 정보 삭제 확인 | 얼굴 정보 등록의 호출 그대로, `DELETE /children/{child_id}/face-embedding`(상세 작성, 임시 결정(김동건)), `POST /children/{child_id}/consents/revoke`(동의 철회, 경로만) | 둘 다 |
 | ⑤ 김진하 | 초안 검토 / 왼쪽 원아 목록 | `GET /classes/{class_id}/children`·`GET /classes/{class_id}/drafts`(레일), `GET /drafts/{draft_id}`, `PATCH /drafts/{draft_id}`, `GET /media/{media_id}`(URL 만료 시), `POST /drafts/{draft_id}/revision-requests`(AI에게 다듬기 요청). "사진과 본문을 확인했어요" 체크는 승인 확인 모달의 `POST /drafts/{draft_id}/approve`에 `reviewed`로 들어감 | 둘 다 |
@@ -89,7 +87,6 @@
 
 > 위 체크리스트는 송유진 님 항목이라 닫지 않았습니다. ④ 화면을 만들며 걸린 것만 적습니다.
 
-- "발화 N개" → "음성 N개": FE 분류 결과 화면은 이미 "사진 N장 · 영상 N개 · 음성 N개"로 셉니다. 확정되면 위 항목을 닫아 주세요.
-- "얼굴 가림" 문구: 분류 결과의 확인 체크 문구가 아직 "아이 분류와 얼굴 가림을 확인했어요"입니다. 블러 폐기(09/13)와 맞지 않아 바꿀 문구가 필요합니다.
-- 숨길 UI의 "+ 추가 근거 작성"·"직접 기록 →": FE는 지금 보여 줍니다. 추가 근거는 agents.md 하단 제안이 채택되면 남기고, 아니면 숨깁니다. "직접 기록 →"은 ③ 직접 작성 화면(정은)이 생기면 이어집니다.
-- 하루 정리 입구는 Figma에 없는 화면입니다. 처리 중 화면(③)의 정리 단계에서 하루 정리로 넘어가는 자리가 Figma에 없어 둔 것입니다. ③ 처리 중 화면에도 "하루 정리 중" 단계가 필요합니다(지금은 단계 칸 5개 중 서버 전송 칸에 표시).
+- "발화 N개" → "음성 N개": #83 리뷰 흐름(영상·음성을 분류와 함께 먼저 올려 STT)이면 분류 결과에 "발화 N개"를 그대로 보일 수 있어 이 항목은 필요 없어집니다. FE는 "사진 N장 · 영상 N개 · 음성 N개 · 발화 N개"로 셉니다.
+- 숨길 UI의 "+ 추가 근거 작성": 아이 카드에서 "오늘 하루 확인 →"로 바꾸고, 추가 근거는 아이별 하루 확인 안에서 씁니다(#83 리뷰). "직접 기록 →"은 ③ 직접 작성 화면(정은)이 생기면 이어집니다.
+- 아이별 하루 확인은 Figma 1:3115(하루 정리 확인)를 전송 전 자료로 그린 것입니다. 서버 하루 일과가 아니라서 Figma의 활동 이름("미술 활동")과 장면 문장은 없고, 사진·발화를 시간순으로 보여 줍니다. "2 / 5명 확인"은 자료가 있는 아이 사이 이동으로 바꿨습니다.
