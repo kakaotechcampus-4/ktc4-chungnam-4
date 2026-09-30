@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     JSON,
@@ -93,7 +94,12 @@ class TeacherPersona(Base):
     style_rules = Column(JSON, nullable=False)  # 즐겨 쓰는 표현·피하는 표현 등 규칙 목록
     sample_phrases = Column(JSON, nullable=False)
     version = Column(Integer, nullable=False, default=1)  # 갱신마다 증가, 이전 버전은 이력으로 보존
-    updated_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
 
 
 class PersonaFeedback(Base):
@@ -106,7 +112,7 @@ class PersonaFeedback(Base):
         Text, nullable=False
     )  # 교사의 수정 지시·결과에서 추출한 문체 신호 (NFR-10, NFR-11)
     applied = Column(Boolean, nullable=False, default=False)  # true인 항목만 다음 version에 반영
-    created_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
 
 
 class EducationPlan(Base):
@@ -120,4 +126,4 @@ class EducationPlan(Base):
     end_date = Column(Date, nullable=False)
     title = Column(String, nullable=False)
     content = Column(Text, nullable=False)
-    created_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
