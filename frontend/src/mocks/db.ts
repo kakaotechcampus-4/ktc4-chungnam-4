@@ -235,8 +235,9 @@ export function seedDb(now: Date = new Date()): MockDb {
   const sand = seedMedia(42, 1, at(yesterday, "02:05:00"), [manual(1), manual(2)]);
   const book = seedMedia(43, 2, at(yesterday, "03:20:00"), [face(4, 0.88)]);
   const sand2 = seedMedia(51, 1, at(twoDaysAgo, "01:40:00"), [face(1, 0.9)]);
+  const book2 = seedMedia(52, 2, at(twoDaysAgo, "03:10:00"), [face(4, 0.87)]);
   const book3 = seedMedia(61, 2, at(threeDaysAgo, "02:30:00"), [face(1, 0.91)]);
-  const media = [blocks, sand, book, sand2, book3];
+  const media = [blocks, sand, book, sand2, book2, book3];
   const drafts = (
     child: number,
     date: string,
@@ -272,17 +273,23 @@ export function seedDb(now: Date = new Date()): MockDb {
   const [hajunLog, hajunNote] = drafts(2, yesterday, [sand], 21, 22);
   const [jiwooLog, jiwooNote] = drafts(4, yesterday, [book], 41, 42);
   const [doyunLog2, doyunNote2] = drafts(1, twoDaysAgo, [sand2], 101, 102);
+  const [jiwooLog2, jiwooNote2] = drafts(4, twoDaysAgo, [book2], 141, 142);
   const [doyunLog3, doyunNote3] = drafts(1, threeDaysAgo, [book3], 201, 202);
 
+  // 게시는 반 전체를 하루 한 번 합니다 — 임시 결정(김진하), docs/api/documents.md §POST /publications.
+  // 그래서 한 날짜는 "아무도 게시 안 됨"(검토 중)이거나 "그날 게시분이 다 나감"(닫힘) 둘 중 하나입니다.
+  // 어제 = 검토 중(초안 검토 화면 확인용), 그제·사흘 전 = 게시를 마친 날.
   const allDrafts: DraftRecord[] = [
     doyunLog,
     doyunNote,
     hajunLog,
     approve(hajunNote, yesterday),
     approve(jiwooLog, yesterday),
-    publish(approve(jiwooNote, yesterday), yesterday, true),
+    approve(jiwooNote, yesterday),
     approve(doyunLog2, twoDaysAgo),
     publish(approve(doyunNote2, twoDaysAgo), twoDaysAgo, true),
+    approve(jiwooLog2, twoDaysAgo),
+    publish(approve(jiwooNote2, twoDaysAgo), twoDaysAgo, true),
     approve(doyunLog3, threeDaysAgo),
     publish(approve(doyunNote3, threeDaysAgo), threeDaysAgo, false),
   ];

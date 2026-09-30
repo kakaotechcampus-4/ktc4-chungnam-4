@@ -193,11 +193,12 @@ describe("핵심 흐름 목", () => {
             : item.parent_note?.status,
       ]),
     );
+    // 게시는 반 전체를 하루 한 번 하므로 검토 중인 날짜에는 게시된 원아가 없습니다.
     expect(state).toEqual({
       [DOYUN]: "verified",
       [fixtureId("child", 3)]: "확인 필요",
       [HAJUN]: "approved",
-      [fixtureId("child", 4)]: "게시됨",
+      [fixtureId("child", 4)]: "approved",
     });
   });
 });
@@ -246,8 +247,8 @@ describe("목의 판정 규칙", () => {
     expect(results[0]).toMatchObject({ status: "failed", error_code: "DRAFT_NOT_APPROVED" });
 
     setMockSession("parent");
-    // 최지우(parent 4번의 자녀)의 알림장은 게시돼 있지만 김서연에게는 없는 것과 같습니다.
-    for (const draftId of [fixtureId("draft", 42), unapproved]) {
+    // 최지우(parent 4번의 자녀)의 그제 알림장은 게시돼 있지만 김서연에게는 없는 것과 같습니다.
+    for (const draftId of [fixtureId("draft", 142), unapproved]) {
       await expect(client.fetchQuery(parentNoteQueryOptions(draftId))).rejects.toMatchObject({
         status: 404,
         code: "PARENT_NOTE_NOT_FOUND",
