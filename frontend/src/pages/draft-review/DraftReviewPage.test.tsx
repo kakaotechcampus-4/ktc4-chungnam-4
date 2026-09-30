@@ -2,6 +2,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http } from "msw";
 
+import { documentsKeys } from "@/api/documents";
 import { kstToday, shiftDate } from "@/lib/datetime";
 import { fixtureId } from "@/mocks/fixtures/ids";
 import { apiPath, errorResponse } from "@/mocks/http";
@@ -196,6 +197,30 @@ describe("DraftReviewPage", () => {
 
     await waitFor(() => expect(sent).not.toBeNull());
     expect(sent!.include_photos).toBe(false);
+  });
+
+  // 게시하면 published_at과 include_photos가 정해집니다. 캐시를 비우지 않으면 알림장 상세가
+  // 게시 전 값을 읽어 사진을 뺀 게시본에도 사진을 보여 줍니다.
+  it("게시하면 그 초안의 캐시를 비운다", async () => {
+    const user = userEvent.setup();
+    const { queryClient } = renderPage();
+    await screen.findByRole("button", { name: /김도윤/ });
+    await screen.findByRole("heading", { name: /작은 블록/ });
+    const doyunNote = fixtureId("draft", 12);
+    expect(queryClient.getQueryData(documentsKeys.draft(doyunNote))).toBeDefined();
+
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+    await user.click(await screen.findByRole("checkbox", { name: "사진도 함께 보내기" }));
+    await user.click(await screen.findByRole("button", { name: "게시하기" }));
+
+    await waitFor(() => {
+      const cached = queryClient.getQueryData(documentsKeys.draft(doyunNote));
+      expect(cached).toMatchObject({ include_photos: false });
+    });
   });
 
   // 게시를 마친 날짜를 다시 열면 고칠 수 있다고 착각하지 않도록 화면 전체가 끝난 상태가 된다.

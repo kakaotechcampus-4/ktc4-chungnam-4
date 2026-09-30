@@ -223,7 +223,18 @@ export function DraftReviewPage() {
         include_photos: input.includePhotos,
         items: input.items,
       }),
-    onSuccess: (response) => {
+    onSuccess: async (response) => {
+      // 게시하면 published_at과 include_photos가 정해집니다. 비워 두지 않으면 알림장 상세가
+      // 게시 전 캐시(include_photos가 null)를 읽어 사진을 뺀 게시본에도 사진을 보여 줍니다.
+      await Promise.all([
+        ...response.results.map((result) =>
+          queryClient.invalidateQueries({ queryKey: documentsKeys.draft(result.draft_id) }),
+        ),
+        queryClient.invalidateQueries({
+          queryKey: documentsKeys.classDrafts(classId, recordDate),
+        }),
+        queryClient.invalidateQueries({ queryKey: documentsKeys.publishedNotes(classId) }),
+      ]);
       const published = response.results.filter((result) => result.status === "published").length;
       navigate("/t/notes/publish/done", { state: { publishedCount: published } });
     },
