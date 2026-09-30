@@ -1,26 +1,19 @@
 // Figma: 140:4104 (알림장 상세)
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
 
 import { childDraftsQueryOptions, draftQueryOptions } from "@/api/documents";
 import { classChildrenQueryOptions } from "@/api/organization";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
-import { formatDate, formatDateTime, isDateOnly, kstToday } from "@/lib/datetime";
+import { formatDate, formatDateTime } from "@/lib/datetime";
 import type { MediaUrl } from "@/types/api-draft/media";
 
 export function ParentNoteDetailPage() {
-  const { childId = "" } = useParams<{ childId: string }>();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const { childId = "", draftId = "" } = useParams<{ childId: string; draftId: string }>();
   const navigate = useNavigate();
-
-  // 기본은 오늘입니다. ‹ › 로 옮기면 주소의 date가 바뀝니다.
-  // 주소는 누구나 고칠 수 있어서, 날짜가 아니면(빈 값·2026-9-28 등) 오늘로 돌립니다.
-  // 거르지 않고 넘기면 날짜를 그리다 터져 화면 전체가 오류로 바뀝니다.
-  const dateParam = searchParams.get("date");
-  const selectedDate = isDateOnly(dateParam) ? dateParam : kstToday();
 
   const { currentClass, isPending: classPending, isError: classError } = useCurrentClass();
   const classId = currentClass?.class_id ?? "";
@@ -28,17 +21,17 @@ export function ParentNoteDetailPage() {
     ...classChildrenQueryOptions(classId),
     enabled: classId !== "",
   });
-  // 게시된 알림장만 받습니다. 기록이 없는 날짜는 목록에 없어서 ‹ › 가 자연스럽게 건너뜁니다.
+  // 목록 화면과 같은 요청이라 캐시를 그대로 씁니다. ‹ › 이동에 쓸 이웃 알림장을 여기서 찾습니다.
   const notesQuery = useQuery({
     ...childDraftsQueryOptions(childId, "parent_note", true),
     enabled: childId !== "",
   });
 
   const notes = notesQuery.data ?? [];
-  const current = notes.find((note) => note.record_date === selectedDate);
+  const current = notes.find((note) => note.draft_id === draftId);
   const draftQuery = useQuery({
-    ...draftQueryOptions(current?.draft_id ?? ""),
-    enabled: current !== undefined,
+    ...draftQueryOptions(draftId),
+    enabled: draftId !== "",
   });
 
   const childName = childrenQuery.data?.find((child) => child.child_id === childId)?.name ?? "";
@@ -61,13 +54,11 @@ export function ParentNoteDetailPage() {
     );
   }
 
-  // 게시본이 있는 날짜에 오늘을 더해 최신순으로 둡니다.
-  // 오늘은 게시본이 없어도 이동 대상에 넣어야 과거로 간 뒤 다시 오늘로 돌아올 수 있습니다.
-  const movableDates = [...new Set([kstToday(), ...notes.map((note) => note.record_date)])].sort(
-    (a, b) => b.localeCompare(a),
-  );
-  const prevDate = movableDates.find((date) => date < selectedDate);
-  const nextDate = [...movableDates].reverse().find((date) => date > selectedDate);
+  // 목록이 최신순이라 뒤가 더 지난 기록입니다. 게시본만 담겨 있어 빈 날짜를 밟지 않습니다.
+  const at = notes.findIndex((note) => note.draft_id === draftId);
+  const olderNote = at === -1 ? undefined : notes[at + 1];
+  const newerNote = at <= 0 ? undefined : notes[at - 1];
+  const goTo = (id: string) => navigate(`/t/notes/children/${childId}/${id}`, { replace: true });
 
   const draft = draftQuery.data;
   // 사진 없이 게시했으면 학부모에게 글만 갔습니다. 여기는 "학부모가 받은 것"을 보는 자리라
@@ -90,18 +81,18 @@ export function ParentNoteDetailPage() {
       <div className="flex items-center gap-3">
         <button
           type="button"
-          disabled={prevDate === undefined}
-          onClick={() => prevDate && setSearchParams({ date: prevDate })}
+          disabled={olderNote === undefined}
+          onClick={() => olderNote && goTo(olderNote.draft_id)}
           aria-label="이전 기록"
           className="flex size-7 items-center justify-center rounded-md text-ink-muted outline-none hover:bg-tint-2 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-40 disabled:hover:bg-transparent"
         >
           <ChevronLeft className="size-4" />
         </button>
-        <span className="text-body text-ink">{formatDate(selectedDate)}</span>
+        <span className="text-body text-ink">{current ? formatDate(current.record_date) : ""}</span>
         <button
           type="button"
-          disabled={nextDate === undefined}
-          onClick={() => nextDate && setSearchParams({ date: nextDate })}
+          disabled={newerNote === undefined}
+          onClick={() => newerNote && goTo(newerNote.draft_id)}
           aria-label="다음 기록"
           className="flex size-7 items-center justify-center rounded-md text-ink-muted outline-none hover:bg-tint-2 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-40 disabled:hover:bg-transparent"
         >
@@ -117,7 +108,7 @@ export function ParentNoteDetailPage() {
       {/* 본문이 길면 이 안에서 스크롤합니다. 높이를 고정해야 아래 "목록으로"가 늘 같은 자리에 옵니다. */}
       <div className="mt-4 h-96 overflow-y-auto rounded-xl bg-paper p-8">
         {current === undefined ? (
-          <p className="text-body text-ink-muted">이 날짜에는 게시된 알림장이 없어요.</p>
+          <p className="text-body text-ink-muted">이 알림장을 찾을 수 없어요.</p>
         ) : draftQuery.isPending ? (
           <p className="text-body text-ink-muted">본문을 불러오는 중이에요.</p>
         ) : draft === undefined ? (
@@ -153,7 +144,7 @@ export function ParentNoteDetailPage() {
           {current?.published_at ? `${formatDateTime(current.published_at)} 게시` : ""}
         </p>
         {/* TODO(김진하): 게시한 알림장의 "수정하기"는 회수(revoke) 명세가 정해지면 넣습니다(docs/api/documents.md). */}
-        <Button variant="outline" onClick={() => navigate("/t/notes")}>
+        <Button variant="outline" onClick={() => navigate(`/t/notes/children/${childId}`)}>
           목록으로
         </Button>
       </div>
