@@ -9,14 +9,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+
+export interface PublishTarget {
+  childId: string;
+  name: string;
+}
 
 interface PublishConfirmDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** 게시할 승인 완료 인원 수 */
-  count: number;
-  /** 초안이 없어 이번 게시에서 빠지는 원아 수 */
-  excludedCount: number;
+  /** 승인을 마쳐 게시할 수 있는 원아 */
+  targets: PublishTarget[];
+  /** 이번 게시에서 뺀 원아의 child_id */
+  excludedChildIds: Set<string>;
+  onToggle: (childId: string) => void;
+  /** 초안이 없어 게시할 것이 없는 원아 수 */
+  noDraftCount: number;
   onConfirm: () => void;
 }
 
@@ -24,32 +33,57 @@ interface PublishConfirmDialogProps {
 export function PublishConfirmDialog({
   open,
   onOpenChange,
-  count,
-  excludedCount,
+  targets,
+  excludedChildIds,
+  onToggle,
+  noDraftCount,
   onConfirm,
 }: PublishConfirmDialogProps) {
+  const count = targets.length - excludedChildIds.size;
+
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>학부모님께 알림장을 게시할까요?</AlertDialogTitle>
           <AlertDialogDescription>
-            게시하면 학부모님께 바로 공개돼요. 게시 후에도 수정할 수 있어요.
+            게시하면 학부모님께 바로 공개돼요. 게시한 뒤에는 고칠 수 없어요.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="flex items-center justify-center gap-2 rounded-md bg-canvas px-3.5 py-3">
-          <span className="text-body font-bold text-ink">승인 완료 {count}명</span>
+          <span className="text-body font-bold text-ink">{count}명</span>
           <span className="text-label text-ink-muted">의 알림장을 게시해요</span>
         </div>
+        {/* 승인했더라도 오늘은 안 보낼 아이를 교사가 직접 뺍니다. 조용히 빠지면 결석한 아이와
+            "등원했는데 자료가 안 잡힌" 아이를 구분할 수 없습니다. */}
+        <ul className="flex max-h-56 flex-col gap-1 overflow-y-auto">
+          {targets.map((target) => {
+            const included = !excludedChildIds.has(target.childId);
+            return (
+              <li key={target.childId}>
+                <label className="flex items-center gap-2.5 rounded-md p-2 text-body text-ink hover:bg-tint-2">
+                  <Checkbox
+                    checked={included}
+                    onCheckedChange={() => onToggle(target.childId)}
+                    aria-label={`${target.name} 게시`}
+                  />
+                  {target.name}
+                </label>
+              </li>
+            );
+          })}
+        </ul>
         {/* 자료가 없어 빠지는 아이를 교사가 모르고 지나치지 않게 알려 줍니다. */}
-        {excludedCount > 0 ? (
+        {noDraftCount > 0 ? (
           <p className="text-center text-caption text-ink-muted">
-            자료가 없는 {excludedCount}명은 이번 게시에서 빠져요.
+            초안이 없는 {noDraftCount}명은 이번 게시에서 빠져요.
           </p>
         ) : null}
         <AlertDialogFooter>
           <AlertDialogCancel>취소</AlertDialogCancel>
-          <AlertDialogAction onClick={onConfirm}>게시하기</AlertDialogAction>
+          <AlertDialogAction onClick={onConfirm} disabled={count === 0}>
+            게시하기
+          </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

@@ -8,7 +8,7 @@ import type { ClassChild } from "@/types/api-draft/organization";
  * 레일 한 줄의 상태. 미분류("확인 필요")와 초안 없음("자료 없음")은 교사가 할 일이
  * 사진 추가·직접 작성으로 같아서 `pending`으로 묶습니다 — 임시 결정(김진하), docs/api/documents.md §레일·목록 표기.
  */
-export type RosterState = "published" | "approved" | "pending";
+export type RosterState = "approved" | "pending";
 
 export interface RosterRow {
   child: ClassChild;
@@ -17,15 +17,16 @@ export interface RosterRow {
   state: RosterState;
 }
 
+// 게시는 반 전체를 하루 한 번 하므로, 검토 중인 날짜에는 게시된 원아가 있을 수 없습니다.
+// 게시를 마친 날짜는 화면 전체가 잠기고 레일을 쓰지 않습니다 — 그래서 "게시됨" 상태가 없습니다.
 const STATE_LABEL: Record<RosterState, string> = {
-  published: "게시됨",
   approved: "검토 완료",
   pending: "검토 필요",
 };
 
-/** 승인·게시를 마친 줄만 체크로 표시합니다(H-1: 승인 전은 검토 대기). */
+/** 승인을 마친 줄만 체크로 표시합니다(H-1: 승인 전은 검토 대기). */
 function isDone(state: RosterState) {
-  return state === "approved" || state === "published";
+  return state === "approved";
 }
 
 interface RosterListProps {

@@ -12,7 +12,8 @@ import type { PublicationRequest } from "@/types/api-draft/documents";
 import { DraftReviewPage } from "./DraftReviewPage";
 
 // 목은 오늘을 비워 두고 어제에 검토 레일 상태를 깔아 둡니다(mocks/db.ts seedDb).
-// 김도윤 검토 대기, 이하준 승인 완료, 박서아 확인 필요, 최지우 게시됨, 정예린 자료 없음.
+// 김도윤 검토 대기, 이하준·최지우 승인 완료, 박서아 확인 필요, 정예린 자료 없음.
+// 게시는 반 전체를 하루 한 번 하므로 검토 중인 어제에는 게시된 원아가 없습니다.
 const YESTERDAY = shiftDate(kstToday(), -1);
 const DOYUN = fixtureId("child", 1);
 
@@ -35,7 +36,7 @@ describe("DraftReviewPage", () => {
 
     expect(screen.getByRole("button", { name: /김도윤.*검토 필요/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /이하준.*검토 완료/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /최지우.*게시됨/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /최지우.*검토 완료/ })).toBeInTheDocument();
   });
 
   // 임시 결정(김진하): 미분류(박서아)와 자료 없음(정예린)은 교사가 할 일이 같아 "검토 필요"로 묶는다.
@@ -146,9 +147,9 @@ describe("DraftReviewPage", () => {
     expect(screen.getByText(/블록을 여러 층으로 쌓고 있음/)).toBeInTheDocument();
   });
 
-  // H-1: 게시 요청에는 승인했고 아직 게시되지 않은 초안만 담겨야 한다.
-  // 미승인 초안이 섞이면 교사가 확인하지 않은 글이 그대로 학부모에게 나간다.
-  it("게시할 때 승인하고 아직 게시되지 않은 초안만 보낸다", async () => {
+  // H-1: 게시 요청에는 승인한 초안만 담겨야 한다. 미승인 초안이 섞이면 교사가 확인하지 않은
+  // 글이 그대로 학부모에게 나간다. 승인했더라도 교사가 뺀 아이는 보내지 않는다.
+  it("게시할 때 승인한 초안만 보내고, 교사가 뺀 아이는 뺀다", async () => {
     const user = userEvent.setup();
     let sent: PublicationRequest | null = null;
     server.use(
@@ -164,13 +165,25 @@ describe("DraftReviewPage", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
 
     await user.click(screen.getByRole("button", { name: "게시하기" }));
+    await user.click(await screen.findByRole("checkbox", { name: "최지우 게시" }));
     await user.click(await screen.findByRole("button", { name: "게시하기" }));
 
     await waitFor(() => expect(sent).not.toBeNull());
     const ids = sent!.items.map((item) => item.draft_id);
     expect(ids).toContain(fixtureId("draft", 12)); // 김도윤 — 방금 승인
     expect(ids).toContain(fixtureId("draft", 22)); // 이하준 — 시드에서 승인
-    expect(ids).not.toContain(fixtureId("draft", 42)); // 최지우 — 이미 게시됨
+    expect(ids).not.toContain(fixtureId("draft", 42)); // 최지우 — 교사가 뺌
+  });
+
+  // 게시를 마친 날짜를 다시 열면 고칠 수 있다고 착각하지 않도록 화면 전체가 끝난 상태가 된다.
+  it("게시를 마친 날짜를 열면 검토 화면 대신 끝난 안내가 나온다", async () => {
+    renderRoutes([{ path: "/t/today/review/:childId", element: <DraftReviewPage /> }], {
+      initialEntry: `/t/today/review/${DOYUN}?record_date=${shiftDate(kstToday(), -2)}`,
+    });
+
+    expect(await screen.findByRole("heading", { name: "게시를 마쳤어요" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "게시하기" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "직접 수정" })).not.toBeInTheDocument();
   });
 
   // 4번: "수정 완료" 없이 승인하면 고치기 전 문장이 승인·게시되는데 화면에는 고친 글이

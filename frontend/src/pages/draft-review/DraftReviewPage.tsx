@@ -70,11 +70,7 @@ function toSentences(text: string) {
 
 // 미분류·자료 없음은 "검토 필요"로 묶습니다 — 임시 결정(김진하), docs/api/documents.md §레일·목록 표기.
 function toRosterState(item: ClassDraftItem | undefined): RosterState {
-  if (item?.parent_note) {
-    if (item.parent_note.published_at !== null) return "published";
-    if (item.parent_note.status === "approved") return "approved";
-  }
-  return "pending";
+  return item?.parent_note?.status === "approved" ? "approved" : "pending";
 }
 
 export function DraftReviewPage() {
@@ -111,6 +107,8 @@ export function DraftReviewPage() {
   /** 초안이 없는 원아에게 교사가 직접 쓰는 글 */
   const [newText, setNewText] = useState("");
   const [publishOpen, setPublishOpen] = useState(false);
+  /** 승인했지만 이번 게시에서는 빼기로 한 원아 */
+  const [excludedChildIds, setExcludedChildIds] = useState<Set<string>>(new Set());
 
   const children = childrenQuery.data ?? [];
   const draftItems = draftsQuery.data ?? [];
@@ -259,15 +257,22 @@ export function DraftReviewPage() {
   const canApprove = isVerified && !isEditing;
   // 게시한 뒤에는 되돌릴 수 없습니다. 이미 학부모에게 나갔으므로 회수가 따로 필요합니다(H-1).
   const canReopen = draft?.status === "approved" && draft.published_at === null;
-  const publishable = rows.flatMap((row) =>
+  // 게시는 반 전체를 하루 한 번 합니다 — 임시 결정(김진하), docs/api/documents.md §POST /publications.
+  // 그래서 한 날짜에 게시된 초안이 하나라도 있으면 그날은 끝난 날입니다. 게시본은 학부모가
+  // 이미 봤으므로 고칠 수 없고, 되돌리려면 회수(revoke)가 필요합니다(H-1).
+  const isDayClosed = rows.some((row) => row.note?.published_at != null);
+  const publishTargets = rows.flatMap((row) =>
     row.note && row.state === "approved"
-      ? [{ draft_id: row.note.draft_id, expected_version: row.note.version }]
+      ? [{ childId: row.child.child_id, name: row.child.name, note: row.note }]
       : [],
   );
+  const publishable = publishTargets
+    .filter((target) => !excludedChildIds.has(target.childId))
+    .map((target) => ({ draft_id: target.note.draft_id, expected_version: target.note.version }));
   // 초안이 있는데 아직 승인하지 않은 원아가 있으면 게시를 막습니다.
   // 초안이 없는 원아(자료 없음·미분류)는 승인할 대상이 없어 게시를 막지 않고, 이번 게시에서 빠집니다.
   const hasUnreviewedDraft = rows.some((row) => row.note !== null && row.state === "pending");
-  const canPublish = publishable.length > 0 && !hasUnreviewedDraft;
+  const canPublish = publishTargets.length > 0 && !hasUnreviewedDraft;
 
   function selectChild(id: string) {
     resetDraftState();
@@ -310,6 +315,32 @@ export function DraftReviewPage() {
       sentences: changed,
       addedSentences: added,
     });
+  }
+
+  // 게시를 마친 날짜는 다시 열어도 고칠 수 없습니다. 검토 화면을 그대로 보여 주면
+  // 교사가 고칠 수 있다고 착각하므로, 화면 전체를 끝난 상태로 바꿉니다.
+  if (isDayClosed) {
+    const publishedNames = rows
+      .filter((row) => row.note?.published_at != null)
+      .map((row) => row.child.name);
+    return (
+      <>
+        <PageHeader
+          eyebrow="오늘의 기록  /  초안 검토"
+          title="게시를 마쳤어요"
+          subtitle={`${formatDate(recordDate)}  ·  ${klassName}`}
+        />
+        <div className="flex flex-col gap-4 rounded-xl bg-paper p-7">
+          <p className="text-lead text-ink">
+            이 날짜의 알림장 {publishedNames.length}건을 학부모님께 게시했어요.
+          </p>
+          <p className="text-body text-ink-muted">{publishedNames.join(" · ")}</p>
+          {/* TODO(김진하): 게시본을 고치려면 회수(POST /drafts/{draft_id}/revoke)가 필요합니다.
+              명세가 `경로만`이라 이번 범위에서는 안내만 합니다(docs/api/documents.md). */}
+          <p className="text-caption text-ink-muted">게시한 알림장은 이 화면에서 고칠 수 없어요.</p>
+        </div>
+      </>
+    );
   }
 
   return (
@@ -531,8 +562,16 @@ export function DraftReviewPage() {
       <PublishConfirmDialog
         open={publishOpen}
         onOpenChange={setPublishOpen}
-        count={publishable.length}
-        excludedCount={rows.filter((row) => row.note === null).length}
+        targets={publishTargets.map(({ childId, name }) => ({ childId, name }))}
+        excludedChildIds={excludedChildIds}
+        onToggle={(id) =>
+          setExcludedChildIds((prev) => {
+            const next = new Set(prev);
+            if (!next.delete(id)) next.add(id);
+            return next;
+          })
+        }
+        noDraftCount={rows.filter((row) => row.note === null).length}
         onConfirm={() => publishMutation.mutate(publishable)}
       />
     </>
