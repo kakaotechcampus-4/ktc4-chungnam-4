@@ -26,6 +26,9 @@ interface PublishConfirmDialogProps {
   onToggle: (childId: string) => void;
   /** 초안이 없어 게시할 것이 없는 원아 수 */
   noDraftCount: number;
+  /** 선택 사진을 함께 보낼지(`POST /publications`의 `include_photos`) */
+  includePhotos: boolean;
+  onIncludePhotosChange: (value: boolean) => void;
   onConfirm: () => void;
 }
 
@@ -37,6 +40,8 @@ export function PublishConfirmDialog({
   excludedChildIds,
   onToggle,
   noDraftCount,
+  includePhotos,
+  onIncludePhotosChange,
   onConfirm,
 }: PublishConfirmDialogProps) {
   const count = targets.length - excludedChildIds.size;
@@ -73,6 +78,14 @@ export function PublishConfirmDialog({
             );
           })}
         </ul>
+        {/* 사진은 반 전체에 한 번만 정합니다. 게시 뒤에는 고칠 수 없으므로 여기서 결정합니다. */}
+        <label className="flex items-center gap-2.5 rounded-md p-2 text-body text-ink hover:bg-tint-2">
+          <Checkbox
+            checked={includePhotos}
+            onCheckedChange={(value) => onIncludePhotosChange(value === true)}
+          />
+          사진도 함께 보내기
+        </label>
         {/* 자료가 없어 빠지는 아이를 교사가 모르고 지나치지 않게 알려 줍니다. */}
         {noDraftCount > 0 ? (
           <p className="text-center text-caption text-ink-muted">

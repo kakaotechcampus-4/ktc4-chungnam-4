@@ -175,6 +175,29 @@ describe("DraftReviewPage", () => {
     expect(ids).not.toContain(fixtureId("draft", 42)); // 최지우 — 교사가 뺌
   });
 
+  // 사진을 뺀 게시는 학부모에게 글만 갑니다. 교사가 게시할 때 한 번만 정할 수 있습니다.
+  it("사진도 함께 보내기를 끄면 include_photos를 false로 보낸다", async () => {
+    const user = userEvent.setup();
+    let sent: PublicationRequest | null = null;
+    server.use(
+      http.post(apiPath("/publications"), async ({ request }) => {
+        sent = (await request.clone().json()) as PublicationRequest;
+      }),
+    );
+    await renderAndWait();
+
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+    await user.click(await screen.findByRole("checkbox", { name: "사진도 함께 보내기" }));
+    await user.click(await screen.findByRole("button", { name: "게시하기" }));
+
+    await waitFor(() => expect(sent).not.toBeNull());
+    expect(sent!.include_photos).toBe(false);
+  });
+
   // 게시를 마친 날짜를 다시 열면 고칠 수 있다고 착각하지 않도록 화면 전체가 끝난 상태가 된다.
   it("게시를 마친 날짜를 열면 검토 화면 대신 끝난 안내가 나온다", async () => {
     renderRoutes([{ path: "/t/today/review/:childId", element: <DraftReviewPage /> }], {

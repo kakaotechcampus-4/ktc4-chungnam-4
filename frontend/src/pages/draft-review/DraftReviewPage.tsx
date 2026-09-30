@@ -109,6 +109,8 @@ export function DraftReviewPage() {
   const [publishOpen, setPublishOpen] = useState(false);
   /** 승인했지만 이번 게시에서는 빼기로 한 원아 */
   const [excludedChildIds, setExcludedChildIds] = useState<Set<string>>(new Set());
+  /** 선택 사진을 학부모에게 함께 보낼지. 기본은 보냄 */
+  const [includePhotos, setIncludePhotos] = useState(true);
 
   const children = childrenQuery.data ?? [];
   const draftItems = draftsQuery.data ?? [];
@@ -212,8 +214,15 @@ export function DraftReviewPage() {
   });
 
   const publishMutation = useMutation({
-    mutationFn: (items: { draft_id: string; expected_version: number }[]) =>
-      publishParentNotes({ request_id: crypto.randomUUID(), include_photos: true, items }),
+    mutationFn: (input: {
+      items: { draft_id: string; expected_version: number }[];
+      includePhotos: boolean;
+    }) =>
+      publishParentNotes({
+        request_id: crypto.randomUUID(),
+        include_photos: input.includePhotos,
+        items: input.items,
+      }),
     onSuccess: (response) => {
       const published = response.results.filter((result) => result.status === "published").length;
       navigate("/t/notes/publish/done", { state: { publishedCount: published } });
@@ -572,7 +581,9 @@ export function DraftReviewPage() {
           })
         }
         noDraftCount={rows.filter((row) => row.note === null).length}
-        onConfirm={() => publishMutation.mutate(publishable)}
+        includePhotos={includePhotos}
+        onIncludePhotosChange={setIncludePhotos}
+        onConfirm={() => publishMutation.mutate({ items: publishable, includePhotos })}
       />
     </>
   );
