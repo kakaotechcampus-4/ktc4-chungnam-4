@@ -1,9 +1,13 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { http } from "msw";
 
 import { kstToday, shiftDate } from "@/lib/datetime";
 import { fixtureId } from "@/mocks/fixtures/ids";
+import { apiPath, errorResponse } from "@/mocks/http";
+import { server } from "@/mocks/server";
 import { renderRoutes } from "@/test/render";
+import type { PublicationRequest } from "@/types/api-draft/documents";
 
 import { DraftReviewPage } from "./DraftReviewPage";
 
@@ -133,10 +137,73 @@ describe("DraftReviewPage", () => {
   it("문장을 클릭하면 그 문장의 근거가 표시된다", async () => {
     const user = userEvent.setup();
     await renderAndWait();
-    expect(screen.getByText("문장을 클릭하면 그 문장의 근거를 볼 수 있어요.")).toBeInTheDocument();
+    expect(
+      screen.getByText("문장에 마우스를 올리면 그 문장의 근거를 볼 수 있어요."),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /색색의 블록을 골라/ }));
 
     expect(screen.getByText(/블록을 여러 층으로 쌓고 있음/)).toBeInTheDocument();
+  });
+
+  // H-1: 게시 요청에는 승인했고 아직 게시되지 않은 초안만 담겨야 한다.
+  // 미승인 초안이 섞이면 교사가 확인하지 않은 글이 그대로 학부모에게 나간다.
+  it("게시할 때 승인하고 아직 게시되지 않은 초안만 보낸다", async () => {
+    const user = userEvent.setup();
+    let sent: PublicationRequest | null = null;
+    server.use(
+      http.post(apiPath("/publications"), async ({ request }) => {
+        sent = (await request.clone().json()) as PublicationRequest;
+      }),
+    );
+    await renderAndWait();
+
+    // 김도윤을 승인해야 검토가 남은 원아가 없어져 게시가 열린다.
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+    await user.click(await screen.findByRole("button", { name: "게시하기" }));
+
+    await waitFor(() => expect(sent).not.toBeNull());
+    const ids = sent!.items.map((item) => item.draft_id);
+    expect(ids).toContain(fixtureId("draft", 12)); // 김도윤 — 방금 승인
+    expect(ids).toContain(fixtureId("draft", 22)); // 이하준 — 시드에서 승인
+    expect(ids).not.toContain(fixtureId("draft", 42)); // 최지우 — 이미 게시됨
+  });
+
+  // 4번: "수정 완료" 없이 승인하면 고치기 전 문장이 승인·게시되는데 화면에는 고친 글이
+  // 남아 있어 교사가 알아채지 못한다. 그래서 수정 중에는 승인 자체를 막는다.
+  it("직접 수정 중에는 확인 체크와 승인 버튼이 잠긴다", async () => {
+    const user = userEvent.setup();
+    await renderAndWait();
+
+    await user.click(screen.getByRole("checkbox"));
+    expect(screen.getByRole("button", { name: "검토 완료하고 승인하기" })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+
+    // 고치기 전 문장을 보고 눌러 둔 체크라 풀리고, 승인도 잠긴다.
+    expect(screen.getByRole("checkbox")).not.toBeChecked();
+    expect(screen.getByRole("checkbox")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "검토 완료하고 승인하기" })).toBeDisabled();
+    expect(screen.getByText("수정을 마치면 승인할 수 있어요.")).toBeInTheDocument();
+
+    // "수정 완료"로 빠져나오면 다시 승인할 수 있다.
+    await user.click(screen.getByRole("button", { name: "수정 완료" }));
+    await waitFor(() => expect(screen.getByRole("checkbox")).toBeEnabled());
+  });
+
+  // 무엇이 막혔는지 알려 줘야 교사가 다음 행동을 고를 수 있다(고정 문구 대신 응답 message).
+  it("목록을 불러오지 못하면 서버가 준 문구를 보여 준다", async () => {
+    server.use(
+      http.get(apiPath("/classes/:classId/children"), () =>
+        errorResponse(403, "CLASS_ACCESS_DENIED", "담당 반이 아니에요."),
+      ),
+    );
+    renderPage();
+
+    expect(await screen.findByText("담당 반이 아니에요.")).toBeInTheDocument();
   });
 });

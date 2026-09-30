@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
+import { ApiError } from "@/lib/api-client";
 import { formatDate, kstToday } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 import type { ClassDraftItem } from "@/types/api-draft/documents";
@@ -28,6 +29,12 @@ import type { MediaUrl } from "@/types/api-draft/media";
 import { EvidencePanel } from "./components/EvidencePanel";
 import { PublishConfirmDialog } from "./components/PublishConfirmDialog";
 import { RosterList, type RosterRow, type RosterState } from "./components/RosterList";
+
+// 서버가 왜 막았는지(담당 반 아님·이미 승인됨·버전 밀림)를 교사가 알아야 다음 행동을 고릅니다.
+// 그래서 고정 문구 대신 응답의 message를 보여 줍니다(다른 화면과 같은 방식).
+function failureText(error: unknown) {
+  return error instanceof ApiError ? error.message : "잠시 후 다시 시도해 주세요.";
+}
 
 // 근거가 문장 단위로 붙어서 수정도 문장별 칸으로 받습니다. 한 칸으로 합치면 교사가 문장을
 // 합치거나 쪼갤 때 sentence_index가 어긋나 안 고친 문장의 근거까지 엉뚱한 곳에 붙습니다.
@@ -79,7 +86,12 @@ export function DraftReviewPage() {
   // 기본은 오늘입니다. 지난 날짜는 ?record_date=YYYY-MM-DD로 봅니다(목 데이터 확인용).
   const recordDate = searchParams.get("record_date") ?? kstToday();
 
-  const { currentClass, isPending: classPending, isError: classError } = useCurrentClass();
+  const {
+    currentClass,
+    isPending: classPending,
+    isError: classError,
+    error: classErrorValue,
+  } = useCurrentClass();
   const classId = currentClass?.class_id ?? "";
   const childrenQuery = useQuery({
     ...classChildrenQueryOptions(classId),
@@ -120,6 +132,18 @@ export function DraftReviewPage() {
     setNewText("");
   }
 
+  // 버전이 밀리면 화면이 든 version이 낡은 값입니다. 다시 받아 두지 않으면 교사가 다시 눌러도
+  // 같은 낡은 version을 또 보내 계속 실패합니다(새로고침 말고는 빠져나갈 길이 없습니다).
+  async function refetchOnVersionConflict(error: unknown, conflictedDraftId?: string) {
+    if (!(error instanceof ApiError) || error.code !== "DRAFT_VERSION_CONFLICT") return;
+    if (conflictedDraftId !== undefined) {
+      await queryClient.invalidateQueries({ queryKey: documentsKeys.draft(conflictedDraftId) });
+    }
+    await queryClient.invalidateQueries({
+      queryKey: documentsKeys.classDrafts(classId, recordDate),
+    });
+  }
+
   // 자료가 없는 원아도 교사가 직접 써서 검토·승인할 수 있게 합니다.
   const createMutation = useMutation({
     mutationFn: (input: { childId: string; text: string }) =>
@@ -149,6 +173,7 @@ export function DraftReviewPage() {
         queryKey: documentsKeys.classDrafts(classId, recordDate),
       });
     },
+    onError: (error, variables) => refetchOnVersionConflict(error, variables.draftId),
   });
 
   const patchMutation = useMutation({
@@ -172,6 +197,7 @@ export function DraftReviewPage() {
         queryKey: documentsKeys.classDrafts(classId, recordDate),
       });
     },
+    onError: (error, variables) => refetchOnVersionConflict(error, variables.draftId),
   });
 
   // 승인은 잠금이지만, 게시 전까지는 교사가 되돌려 다시 고칠 수 있어야 합니다.
@@ -184,6 +210,7 @@ export function DraftReviewPage() {
         queryKey: documentsKeys.classDrafts(classId, recordDate),
       });
     },
+    onError: (error, variables) => refetchOnVersionConflict(error, variables.draftId),
   });
 
   const publishMutation = useMutation({
@@ -193,6 +220,7 @@ export function DraftReviewPage() {
       const published = response.results.filter((result) => result.status === "published").length;
       navigate("/t/notes/publish/done", { state: { publishedCount: published } });
     },
+    onError: (error) => refetchOnVersionConflict(error),
   });
 
   if (classPending) {
@@ -207,7 +235,9 @@ export function DraftReviewPage() {
     return (
       <>
         <PageHeader eyebrow="오늘의 기록  /  초안 검토" title="오늘의 기록을 완성해요" />
-        <p className="text-body text-ink-muted">기록을 불러오지 못했어요.</p>
+        <p className="text-body text-ink-muted">
+          {failureText(classErrorValue ?? childrenQuery.error ?? draftsQuery.error)}
+        </p>
       </>
     );
   }
@@ -222,7 +252,11 @@ export function DraftReviewPage() {
     : [];
 
   // 승인은 검증을 마친 초안만(목·API 문서 규칙). 게시는 검토가 남은 원아가 없을 때만 엽니다.
-  const canApprove = draft?.status === "verified";
+  // 수정 중에는 잠급니다 — "수정 완료" 없이 승인하면 고치기 전 문장이 승인·게시되는데
+  // 화면에는 고친 글이 남아 있어 교사가 알아채지 못합니다(H-1 승인 게이트).
+  const isEditing = editing !== null;
+  const isVerified = draft?.status === "verified";
+  const canApprove = isVerified && !isEditing;
   // 게시한 뒤에는 되돌릴 수 없습니다. 이미 학부모에게 나갔으므로 회수가 따로 필요합니다(H-1).
   const canReopen = draft?.status === "approved" && draft.published_at === null;
   const publishable = rows.flatMap((row) =>
@@ -244,6 +278,8 @@ export function DraftReviewPage() {
   function toggleEditing() {
     if (!draft) return;
     if (editing === null) {
+      // 고치기 전 문장을 보고 눌러 둔 체크입니다. 수정이 끝나면 다시 확인해야 합니다.
+      setConfirmed(false);
       setSelectedSentenceIndex(null);
       setEditing(
         Object.fromEntries(
@@ -312,9 +348,7 @@ export function DraftReviewPage() {
                 onChange={(event) => setNewText(event.target.value)}
               />
               {createMutation.isError ? (
-                <p className="text-caption text-destructive">
-                  저장하지 못했어요. 다시 시도해 주세요.
-                </p>
+                <p className="text-caption text-destructive">{failureText(createMutation.error)}</p>
               ) : null}
               <Button
                 className="self-start"
@@ -423,7 +457,8 @@ export function DraftReviewPage() {
                   )
                 )}
 
-                {canApprove ? (
+                {/* 수정 중에도 이 버튼은 남아야 "수정 완료"로 빠져나올 수 있습니다. */}
+                {isVerified ? (
                   <button
                     type="button"
                     onClick={toggleEditing}
@@ -446,7 +481,7 @@ export function DraftReviewPage() {
                 ) : null}
                 {patchMutation.isError || reopenMutation.isError ? (
                   <p className="text-caption text-destructive">
-                    처리하지 못했어요. 다시 시도해 주세요.
+                    {failureText(patchMutation.error ?? reopenMutation.error)}
                   </p>
                 ) : null}
               </div>
@@ -461,7 +496,12 @@ export function DraftReviewPage() {
         <p className="text-caption text-ink-muted">승인 전에는 학부모에게 공개되지 않아요.</p>
         <div className="flex items-center gap-4">
           {approveMutation.isError || publishMutation.isError ? (
-            <p className="text-caption text-destructive">처리하지 못했어요. 다시 시도해 주세요.</p>
+            <p className="text-caption text-destructive">
+              {failureText(approveMutation.error ?? publishMutation.error)}
+            </p>
+          ) : null}
+          {isEditing ? (
+            <p className="text-caption text-ink-muted">수정을 마치면 승인할 수 있어요.</p>
           ) : null}
           <label className="flex items-center gap-2 text-body text-ink">
             <Checkbox
