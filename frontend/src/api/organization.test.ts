@@ -13,15 +13,17 @@ describe("organization 요청", () => {
   it("담당 반 목록", async () => {
     const classes = await queryClient.fetchQuery(classesQueryOptions());
 
-    expect(classes).toEqual([
-      {
-        class_id: fixtureId("class", 1),
-        center_id: fixtureId("center", 1),
-        center_name: "햇살어린이집",
-        name: "햇살반",
-        age_group: "만 4세",
-      },
-    ]);
+    expect(classes[0]).toEqual({
+      class_id: fixtureId("class", 1),
+      center_id: fixtureId("center", 1),
+      center_name: "햇살어린이집",
+      name: "햇살반",
+      age_group: "만 4세",
+      age_band: "preschool",
+      child_count: 5,
+      is_favorite: true,
+      needs_record_today: false,
+    });
   });
 
   it("반 원아 명단은 이름 가나다순이다", async () => {
