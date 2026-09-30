@@ -53,6 +53,12 @@ def test_offline_sql_runs_from_another_directory(tmp_path: Path) -> None:
 
 
 def test_revision_template_generates_importable_script(tmp_path: Path) -> None:
+    # 복사하기 전의 head를 먼저 잡아둔다. 새 리비전이 "그 뒤에 붙는지"를 보려면
+    # 비교 대상이 생성 이전 값이어야 한다 (PR #77 리뷰).
+    previous_head = ScriptDirectory.from_config(
+        Config(str(BACKEND / "alembic.ini"))
+    ).get_current_head()
+
     script_dir = tmp_path / "alembic"
     shutil.copytree(BACKEND / "alembic", script_dir)
     config = Config(str(BACKEND / "alembic.ini"))
@@ -61,7 +67,5 @@ def test_revision_template_generates_importable_script(tmp_path: Path) -> None:
     assert revision is not None
     assert callable(revision.module.upgrade)
     assert callable(revision.module.downgrade)
-    # 새 리비전은 현재 head 뒤에 붙는다. 첫 마이그레이션이 없던 때는 None이었다.
-    current_head = ScriptDirectory.from_config(config).get_current_head()
-    assert revision.down_revision is not None
-    assert revision.revision == current_head
+    # 새 리비전은 생성 직전의 head 뒤에 붙는다. 첫 마이그레이션이 없던 때는 None이었다.
+    assert revision.down_revision == previous_head
