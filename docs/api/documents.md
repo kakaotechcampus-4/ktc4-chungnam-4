@@ -16,7 +16,7 @@
 - [ ] `title`, `selected_media_ids`, `include_photos`, `published_at`의 저장 위치
 - [ ] AccessLog 범위: 목록 `view_list` 기록 단위, 교사 상세 조회 기록 여부, 본문 `target_type`, 서명 URL 발급·임베딩 조회 로그 값
 - [ ] `is_read`·`unread_count`·`this_month_count`의 출처와, 목록 응답 봉투 확장 허용 여부
-- [ ] 수정·승인 규칙: 승인 후 수정은 이 문서에서 409로 두었고, `reopen`은 경로만 정했습니다. `unclassified` 초안 수정·승인, 재승인 멱등 처리, 승인 차단 조건(정은과 함께)
+- [ ] 수정·승인 규칙: 승인 후 수정은 이 문서에서 409로 두고, 되돌리기는 `reopen`으로 다룹니다(상세 작성 — 임시 결정(김진하)). `unclassified` 초안 수정·승인, 재승인 멱등 처리, 승인 차단 조건(정은과 함께)
 - [ ] 자동저장과 RevisionLog 최근 5회 보관의 충돌. 문장 추가·삭제, 사진 변경 로그
 - [ ] `NO_LINKED_PARENT` 처리, `parent_note_id = draft_id` 재사용 확정
 - [ ] 학부모에게 `llm_allowed == true`인 선택 사진만 보이게 할지(김동건과 함께)
@@ -66,7 +66,7 @@ develop의 documents(PR #14)는 경로·요청·응답 모양만 있고, 서비�
 
 ## 이 도메인의 규칙
 
-documents의 상세 작성 엔드포인트는 7개(교사용 5, 학부모용 2)입니다.
+documents의 상세 작성 엔드포인트는 9개(교사용 7, 학부모용 2)입니다.
 
 - 교사: 반·날짜별 초안을 검토·수정·승인하고, 알림장을 학부모에게 게시합니다.
 - 학부모: 게시된 알림장의 목록과 본문을 봅니다. 볼 때마다 열람 기록이 남습니다.
@@ -272,7 +272,7 @@ documents의 상세 작성 엔드포인트는 7개(교사용 5, 학부모용 2)�
 - 에러:
   - `DRAFT_VERSION_CONFLICT` (409) — `expected_version`이 현재 값과 다를 때
   - `DRAFT_NOT_READY` (409) — `status == draft`일 때(생성·검증 중)
-  - `DRAFT_ALREADY_APPROVED` (409) — 이미 승인됐을 때(게시된 것 포함). 상세 작성 범위에는 승인 취소가 없고, 경로만 정한 `reopen`에서 다룹니다.
+  - `DRAFT_ALREADY_APPROVED` (409) — 이미 승인됐을 때(게시된 것 포함). 승인을 되돌리는 것은 `reopen`에서 다룹니다.
   - `INVALID_SENTENCE_INDEX` (400) — 없는 문장 번호일 때
   - `MEDIA_NOT_LINKED_TO_CHILD` (400) — 이 원아에게 귀속되지 않은 사진일 때
   - `DRAFT_NOT_FOUND` (404) — 없는 초안일 때
