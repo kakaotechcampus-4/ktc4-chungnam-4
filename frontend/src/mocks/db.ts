@@ -1,7 +1,6 @@
 import { kstToday, shiftDate } from "@/lib/datetime";
 import type {
   JobErrorCode,
-  JobKind,
   JobOutcome,
   JobStage,
   JobStatus,
@@ -74,7 +73,7 @@ export interface DraftRecord {
 
 export interface JobChildRecord {
   child_id: string;
-  /** 끝낸 단계 수. 작업 종류의 단계 수(각 2)가 되면 결과를 정합니다. */
+  /** 끝낸 단계 수(0~4). 4가 되면 결과를 정합니다. */
   steps: number;
   status: JobStatus;
   outcome: JobOutcome | null;
@@ -86,7 +85,6 @@ export interface JobChildRecord {
 
 export interface JobRecord {
   job_id: string;
-  kind: JobKind;
   request_id: string;
   class_id: string;
   record_date: string;
@@ -119,8 +117,7 @@ export interface MockDb {
 }
 
 const STORAGE_KEY = "aidam:mock-db";
-// 2: JobRecord에 kind를 더함(#80). 예전 탭 상태는 버리고 처음 상태로 시작합니다.
-const DB_VERSION = 2;
+const DB_VERSION = 1;
 
 // 저장소를 못 쓰는 창(사생활 보호 모드 등)에서만 쓰는 메모리 사본입니다.
 let memoryDb: MockDb | null = null;

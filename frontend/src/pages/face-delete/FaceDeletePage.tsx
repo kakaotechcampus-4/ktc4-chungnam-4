@@ -65,7 +65,7 @@ export function FaceDeletePage() {
                 {child.name} · {className}
               </p>
               <p className="text-body text-ink-muted">
-                등록 사진 3장으로 만든 얼굴 특징정보
+                등록 사진(최대 3장)으로 만든 얼굴 특징정보
                 <br />이 기기에 저장된 자동 분류용 정보
               </p>
             </div>

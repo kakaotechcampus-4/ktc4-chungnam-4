@@ -19,7 +19,7 @@ function isFinished(job: Job | undefined) {
   return job?.status === "succeeded" || job?.status === "failed";
 }
 
-// 교사가 하루 정리를 확인한 뒤 초안 작업(kind: "draft")을 한 번만 시작하고, 끝날 때까지 진행 상태를 봅니다(#60, #80).
+// 마지막 귀속 저장이 끝난 뒤 초안 생성을 한 번만 시작하고, 끝날 때까지 진행 상태를 봅니다(#60).
 // 폴링 간격과 멈춤은 jobQueryOptions가 정합니다(2초, succeeded·failed에서 멈춤).
 export function DraftStep({ onDone, onCancel }: DraftStepProps) {
   const { currentClass } = useCurrentClass();
@@ -33,12 +33,7 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
 
   const create = useMutation({
     mutationFn: (classId: string) =>
-      createJob(classId, {
-        kind: "draft",
-        request_id: requestId,
-        record_date: kstToday(),
-        media_ids: mediaIds,
-      }),
+      createJob(classId, { request_id: requestId, record_date: kstToday(), media_ids: mediaIds }),
   });
   const jobId = create.data?.job_id;
   const { data: polled, error: pollError } = useQuery({

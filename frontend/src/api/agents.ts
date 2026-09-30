@@ -2,19 +2,15 @@ import { queryOptions } from "@tanstack/react-query";
 
 import { api } from "@/lib/api-client";
 import type {
-  DailyRoutine,
   Job,
   JobCreateRequest,
-  RoutineScene,
-  RoutineSceneUpdateRequest,
   TeacherEvidence,
   TeacherEvidenceUpsertRequest,
 } from "@/types/api-draft/agents";
 import type { ListResponse } from "@/types/api-draft/common";
 
 // 초안 생성 작업(Job) 요청과 query key는 이 파일에서만 만듭니다(frontend/CLAUDE.md §데이터).
-// 서버 전송이 끝나면 정리 작업(kind: "summary")을, 하루 정리를 확인하면 초안 작업(kind: "draft")을
-// createJob으로 한 번씩 부르고(#60 B안, #80), jobQueryOptions로 끝날 때까지 폴링합니다.
+// 서버 전송이 끝나면 createJob을 한 번 부르고(#60 B안), jobQueryOptions로 끝날 때까지 폴링합니다.
 export const agentsKeys = {
   job: (jobId: string) => ["jobs", jobId] as const,
   classJobs: (classId: string, recordDate: string) =>
@@ -24,7 +20,7 @@ export const agentsKeys = {
 /** (제안) 폴링 간격 2초 */
 export const JOB_POLL_INTERVAL_MS = 2000;
 
-/** 반·날짜의 정리 작업이나 초안 작업을 시작합니다. 같은 request_id로 다시 부르면 기존 작업이 옵니다. */
+/** 반·날짜의 초안 생성을 시작합니다. 같은 request_id로 다시 부르면 기존 작업이 옵니다. */
 export function createJob(classId: string, body: JobCreateRequest) {
   return api.post<Job>(`/classes/${encodeURIComponent(classId)}/jobs`, body);
 }
@@ -60,20 +56,18 @@ export function classJobsQueryOptions(classId: string, recordDate: string) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 아래는 ④ 하루 정리·추가 근거 화면(김동건)이 쓰는 가정 API입니다(types/api-draft/agents.ts 아래쪽 참고).
+// 아래는 ④ 아이별 하루 확인 화면(김동건)이 쓰는 가정 API입니다(types/api-draft/agents.ts 아래쪽 참고).
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const summaryKeys = {
+export const evidenceKeys = {
   classEvidence: (classId: string, recordDate: string) =>
     ["classes", classId, "evidence", recordDate] as const,
-  classRoutines: (classId: string, recordDate: string) =>
-    ["classes", classId, "daily-routines", recordDate] as const,
 };
 
 /** (가정) 그날 반에서 남긴 추가 근거(아이마다 최대 한 건). */
 export function classEvidenceQueryOptions(classId: string, recordDate: string) {
   return queryOptions({
-    queryKey: summaryKeys.classEvidence(classId, recordDate),
+    queryKey: evidenceKeys.classEvidence(classId, recordDate),
     queryFn: async ({ signal }) =>
       (
         await api.get<ListResponse<TeacherEvidence>>(
@@ -92,33 +86,6 @@ export function saveTeacherEvidence(
 ) {
   return api.put<TeacherEvidence>(
     `/children/${encodeURIComponent(childId)}/evidence/${encodeURIComponent(recordDate)}`,
-    body,
-  );
-}
-
-/** (가정) 그날 정리가 끝난 아이들의 하루 일과. 하루 정리 입구와 아이별 화면이 같은 목록을 씁니다. */
-export function classRoutinesQueryOptions(classId: string, recordDate: string) {
-  return queryOptions({
-    queryKey: summaryKeys.classRoutines(classId, recordDate),
-    queryFn: async ({ signal }) =>
-      (
-        await api.get<ListResponse<DailyRoutine>>(
-          `/classes/${encodeURIComponent(classId)}/daily-routines`,
-          { query: { record_date: recordDate }, signal },
-        )
-      ).items,
-  });
-}
-
-/** (가정) 장면 빼기·되돌리기 */
-export function updateRoutineScene(
-  childId: string,
-  recordDate: string,
-  sceneId: string,
-  body: RoutineSceneUpdateRequest,
-) {
-  return api.patch<RoutineScene>(
-    `/children/${encodeURIComponent(childId)}/daily-routines/${encodeURIComponent(recordDate)}/scenes/${encodeURIComponent(sceneId)}`,
     body,
   );
 }

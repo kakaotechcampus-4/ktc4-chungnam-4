@@ -1,20 +1,7 @@
 import { isPhoto } from "@/features/upload-queue/upload-queue-store";
 import { classifiedQueue } from "@/mocks/fixtures/upload-queue";
 
-import { nickname } from "./nickname";
 import { assignResult, confirmReview, needsManualReview } from "./review-policy";
-
-describe("nickname", () => {
-  it.each([
-    ["김도윤", "도윤이"],
-    ["박서아", "서아"],
-    ["이하준", "하준이"],
-    ["최지우", "지우"],
-    ["정예린", "예린이"],
-  ])("%s → %s", (name, expected) => {
-    expect(nickname(name)).toBe(expected);
-  });
-});
 
 describe("검수 규칙", () => {
   const [classified, , , , unidentified] = classifiedQueue().filter(isPhoto);
