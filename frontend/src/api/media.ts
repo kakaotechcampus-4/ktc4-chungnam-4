@@ -9,6 +9,9 @@ import type {
   MediaAsset,
   MediaCompleteRequest,
   MediaUrlDetail,
+  TranscriptSegment,
+  TranscriptSegmentsResponse,
+  TranscriptSegmentUpdateRequest,
   UploadUrlItem,
   UploadUrlsRequest,
   UploadUrlsResponse,
@@ -20,7 +23,11 @@ import type {
 export const mediaKeys = {
   detail: (mediaId: string) => ["media", mediaId] as const,
   faceEmbeddings: (classId: string) => ["classes", classId, "face-embeddings"] as const,
+  transcript: (mediaId: string) => ["media", mediaId, "transcript-segments"] as const,
 };
+
+/** (임시 결정) 서버 STT가 끝날 때까지 발화 구간을 다시 받는 간격 */
+export const TRANSCRIPT_POLL_INTERVAL_MS = 2000;
 
 /** 여러 파일의 업로드 URL을 한 번에 받습니다. 형식이 틀린 파일이 하나라도 있으면 전체가 MEDIA_TYPE_NOT_ALLOWED입니다. */
 export function requestUploadUrls(body: UploadUrlsRequest) {
@@ -73,4 +80,29 @@ export function faceEmbeddingsQueryOptions(classId: string) {
     gcTime: 0,
     staleTime: 0,
   });
+}
+
+/**
+ * 영상·음성의 발화 구간(임시 결정, 김동건). 분류 확인 화면들이 서버 STT가 끝날 때까지(pending) 폴링합니다.
+ * 파일은 분류와 함께 먼저 올라가 있어야 합니다(features/classify/clip-upload.ts).
+ */
+export function transcriptQueryOptions(mediaId: string) {
+  return queryOptions({
+    queryKey: mediaKeys.transcript(mediaId),
+    queryFn: ({ signal }) =>
+      api.get<TranscriptSegmentsResponse>(
+        `/media/${encodeURIComponent(mediaId)}/transcript-segments`,
+        { signal },
+      ),
+    refetchInterval: (query) =>
+      query.state.data?.transcript_status === "pending" ? TRANSCRIPT_POLL_INTERVAL_MS : false,
+  });
+}
+
+/** 발화를 아이에게 연결하거나, 화자·문장을 고치거나, 뺍니다(임시 결정, 김동건). */
+export function updateTranscriptSegment(segmentId: string, body: TranscriptSegmentUpdateRequest) {
+  return api.patch<TranscriptSegment>(
+    `/transcript-segments/${encodeURIComponent(segmentId)}`,
+    body,
+  );
 }

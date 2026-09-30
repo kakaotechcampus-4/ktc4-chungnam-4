@@ -82,11 +82,25 @@ export interface DraftDetail {
   updated_at: string;
 }
 
-/** PATCH /drafts/{draft_id} 요청. sentences와 selected_media_ids 중 하나 이상 */
+/**
+ * POST /children/{child_id}/drafts 요청. 자료 없이 교사가 직접 쓴 초안입니다.
+ * 사진·발화가 없으므로 근거를 함께 보내지 않습니다 — 임시 결정(김진하).
+ */
+export interface DraftCreateRequest {
+  record_date: string;
+  doc_type: DocType;
+  title: string | null;
+  /** 교사가 쓴 글을 줄바꿈으로 나눈 문장. 하나 이상 */
+  sentences: { text: string }[];
+}
+
+/** PATCH /drafts/{draft_id} 요청. sentences·added_sentences·selected_media_ids 중 하나 이상 */
 export interface DraftPatchRequest {
   expected_version: number;
-  /** 바뀐 문장만 */
+  /** 바뀐 문장만. 고친 문장은 응답에서 evidences가 빈 배열이 됩니다 */
   sentences?: { sentence_index: number; text: string }[];
+  /** 새로 쓴 문장. 맨 뒤에 이어 붙고 evidences는 비어 있습니다 — 임시 결정(김진하) */
+  added_sentences?: { text: string }[];
   selected_media_ids?: string[];
 }
 
@@ -94,6 +108,11 @@ export interface DraftPatchRequest {
 export interface DraftApproveRequest {
   expected_version: number;
   reviewed: true;
+}
+
+/** POST /drafts/{draft_id}/reopen 요청. 승인을 되돌려 다시 검토합니다(게시 전까지만) */
+export interface DraftReopenRequest {
+  expected_version: number;
 }
 
 /** POST /publications 요청(일괄 게시, 건별 결과) */

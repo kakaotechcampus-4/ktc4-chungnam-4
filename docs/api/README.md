@@ -38,7 +38,7 @@
 |---|---|
 | [auth.md](auth.md) | 로그인·로그아웃·내 계정, 인증 방식별 차이 |
 | [organization.md](organization.md) | 교사의 반, 반 원아 명단, 학부모의 자녀 |
-| [media-face.md](media-face.md) | 업로드 URL·완료 통지·귀속 저장, 재생 URL, 얼굴 임베딩 캐시 |
+| [media-face.md](media-face.md) | 업로드 URL·완료 통지·귀속 저장, 재생 URL, 발화 구간, 얼굴 임베딩 캐시·등록·삭제 |
 | [agents.md](agents.md) | 초안 생성 작업(Job) 시작과 진행 조회 |
 | [documents.md](documents.md) | 초안 목록·상세·수정·승인, 게시, 학부모 열람. develop 코드와 다른 점 |
 | [screens.md](screens.md) | 화면별로 쓰는 API, 목록에 없는 API, 화면·디자인 쪽 확인 |
@@ -93,8 +93,8 @@
 | 8. 서버 전송 | 처리 중/서버 전송 | `POST /api/v1/media/upload-urls` → S3 `PUT` → `POST /api/v1/media` → `PUT /api/v1/media/{media_id}/child-links` | media · face |
 | 9. 초안 생성 | 처리 중/초안 생성 | `POST /api/v1/classes/{class_id}/jobs` → `GET /api/v1/jobs/{job_id}`(2초 폴링) | agents |
 | 10. 초안 검토 | 초안 검토/왼쪽 원아 목록 | `GET /api/v1/classes/{class_id}/drafts`, `GET /api/v1/drafts/{draft_id}`, `PATCH /api/v1/drafts/{draft_id}`, `GET /api/v1/media/{media_id}`(URL 만료 시) | documents, media · face |
-| 11. 승인 | 승인 확인 모달 | `POST /api/v1/drafts/{draft_id}/approve` | documents |
-| 12. 게시 | 알림장 올리기, 알림장 발행 완료 | `GET /api/v1/classes/{class_id}/drafts`, `POST /api/v1/publications` | documents |
+| 11. 승인 | 초안 검토/왼쪽 원아 목록(체크와 버튼) | `POST /api/v1/drafts/{draft_id}/approve` | documents |
+| 12. 게시 | 전체 게시 확인 모달, 알림장 발행 완료 | `GET /api/v1/classes/{class_id}/drafts`, `POST /api/v1/publications` | documents |
 | 13. 학부모 목록 | 학부모 W3 알림장 목록 | `GET /api/v1/me` → `GET /api/v1/me/children` → `GET /api/v1/children/{child_id}/parent-notes` | auth, organization, documents |
 | 14. 학부모 본문 | 학부모 W4 알림장 본문 | `GET /api/v1/parent-notes/{parent_note_id}` | documents |
 | 예외. 권한 없음 | 접근 권한 없음 | 모든 403에서 이 화면으로 옴. `DELETE /api/v1/sessions/current`, `GET /api/v1/me` | auth |
@@ -123,7 +123,7 @@ sequenceDiagram
 
 업로드 URL은 여러 파일을 한 번에 받습니다. 그다음 파일마다 PUT → 완료 통지 → 귀속 저장을 반복하고, 마지막 귀속 저장이 끝나면 FE가 Job을 한 번 만듭니다. agents가 media·documents를 부르는 부분은 HTTP가 아니라 service 함수 호출입니다.
 
-**처리 순서 미결**: 하루 정리 확인(FR-27)은 서버 5단계에서 나오는 결과인데, Figma는 이 화면을 서버 전송보다 앞에 둡니다. 얼굴 분류·결과 확인 화면의 "발화 N개"도 서버 STT가 끝나기 전이라 표시할 수 없습니다. 상세 작성 범위에서는 하루 정리 없이 5단계에서 6단계로 바로 이어 실행한다고 가정합니다. [확인 필요: 정은·김동건·엄태은·송유진]
+**처리 순서 미결**: 하루 정리 확인(FR-27)은 서버 5단계에서 나오는 결과인데, Figma는 이 화면을 서버 전송보다 앞에 둡니다. 얼굴 분류·결과 확인 화면의 "발화 N개"도 서버 STT가 끝나기 전이라 표시할 수 없습니다. 상세 작성 범위에서는 하루 정리 없이 5단계에서 6단계로 바로 이어 실행한다고 가정합니다. [확인 필요: 정은·김동건·엄태은·송유진] 제안(송유진 #83 리뷰, 팀 결정 전): 하루 정리 확인과 발화 확인을 서버 전송 전 분류 확인 단계에서 끝내고, 영상·음성은 분류와 함께 먼저 올려 STT를 돌립니다. 전송 뒤에는 5→6단계를 이어 실행합니다. [agents.md](agents.md) 하단 §상의 필요 1, [media-face.md](media-face.md) 하단 §상의 필요 6.
 
 ## 상세 작성 엔드포인트 색인
 
@@ -142,12 +142,19 @@ sequenceDiagram
 | [media-face.md](media-face.md) | `PUT /api/v1/media/{media_id}/child-links` | 이 파일이 어느 원아 것인지와 `llm_allowed`를 저장합니다. 빈 배열이면 미분류 |
 | [media-face.md](media-face.md) | `GET /api/v1/media/{media_id}` | 만료된 사진·음성 재생 URL을 다시 받습니다 |
 | [media-face.md](media-face.md) | `GET /api/v1/classes/{class_id}/face-embeddings` | 동의한 원아의 얼굴 임베딩. 분류를 시작할 때 한 번 불러 브라우저 안 분류에 씁니다 |
+| [media-face.md](media-face.md) | `PUT /api/v1/children/{child_id}/face-embedding` | 얼굴 정보 등록·갱신. 브라우저가 뽑은 벡터만 보냅니다(임시 결정(김동건)) |
+| [media-face.md](media-face.md) | `DELETE /api/v1/children/{child_id}/face-embedding` | 얼굴 정보 삭제. 파기는 DeletionLog에 남깁니다(임시 결정(김동건)) |
+| [media-face.md](media-face.md) | `GET /api/v1/media/{media_id}/transcript-segments` | 영상·음성의 서버 STT 발화. 끝날 때까지 폴링합니다(임시 결정(김동건)) |
+| [media-face.md](media-face.md) | `PATCH /api/v1/transcript-segments/{segment_id}` | 발화를 아이에게 연결·제외하고 화자·문장을 고칩니다(임시 결정(김동건)) |
 | [agents.md](agents.md) | `POST /api/v1/classes/{class_id}/jobs` | (제안) 반·날짜의 초안 생성을 시작합니다. 전송이 끝나면 FE가 자동으로 부릅니다 |
 | [agents.md](agents.md) | `GET /api/v1/jobs/{job_id}` | 초안 생성 진행률과 원아별 결과. 2초마다 폴링합니다(제안) |
 | [documents.md](documents.md) | `GET /api/v1/classes/{class_id}/drafts?record_date=` | 반·날짜별 원아 초안 상태 목록. 레일과 게시 대상 고르기에 씁니다 |
 | [documents.md](documents.md) | `GET /api/v1/drafts/{draft_id}` | 초안 상세: 문장, 문장별 근거, 사진·음성 URL |
+| [documents.md](documents.md) | `GET /api/v1/children/{child_id}/drafts` | 한 원아의 문서 목록(최신순). 알림장 상세의 ‹ › 날짜 이동에 씁니다 |
+| [documents.md](documents.md) | `POST /api/v1/children/{child_id}/drafts` | 자료가 없는 원아의 초안을 교사가 직접 씁니다. 근거 없이 `verified`로 만듭니다 |
 | [documents.md](documents.md) | `PATCH /api/v1/drafts/{draft_id}` | 문장과 선택 사진을 직접 고칩니다(자동저장) |
 | [documents.md](documents.md) | `POST /api/v1/drafts/{draft_id}/approve` | 초안을 승인합니다. 승인만 해서는 학부모에게 보이지 않습니다 |
+| [documents.md](documents.md) | `POST /api/v1/drafts/{draft_id}/reopen` | 승인을 되돌려 다시 검토합니다. 게시한 뒤에는 막고 회수(revoke)로 넘깁니다 |
 | [documents.md](documents.md) | `POST /api/v1/publications` | (제안) 승인된 parent_note를 골라 한 번에 게시합니다. 결과는 건별로 옵니다 |
 | [documents.md](documents.md) | `GET /api/v1/children/{child_id}/parent-notes` | 게시된 알림장 목록(최신순, 커서 방식) |
 | [documents.md](documents.md) | `GET /api/v1/parent-notes/{parent_note_id}` | 알림장 본문. 열람 기록을 먼저 남긴 뒤 돌려줍니다 |
