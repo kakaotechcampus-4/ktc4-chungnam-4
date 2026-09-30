@@ -3,7 +3,9 @@ import { http, HttpResponse } from "msw";
 
 import { authKeys } from "@/api/auth";
 import { organizationKeys } from "@/api/organization";
+import { selectClass, useCurrentClassStore } from "@/features/class-context/current-class-store";
 import { TEACHER_ME } from "@/mocks/fixtures/auth";
+import { fixtureId } from "@/mocks/fixtures/ids";
 import { SUNSHINE_CLASS } from "@/mocks/fixtures/organization";
 import { apiPath, errorResponse, listResponse } from "@/mocks/http";
 import { server } from "@/mocks/server";
@@ -19,6 +21,8 @@ function renderAt(path: string) {
 }
 
 describe("TeacherLayout", () => {
+  afterEach(() => useCurrentClassStore.setState({ selectedClassId: null }));
+
   it("메뉴 다섯 개와 본문을 보여 준다", async () => {
     renderAt("/t/today");
 
@@ -64,6 +68,15 @@ describe("TeacherLayout", () => {
     renderAt("/t/today");
 
     expect(await screen.findByText("달님어린이집 / 달님반")).toBeInTheDocument();
+  });
+
+  it("반을 골랐으면 첫 번째 반이 아니라 고른 반을 보여 준다", async () => {
+    const star = { ...SUNSHINE_CLASS, class_id: fixtureId("class", 2), name: "별님반" };
+    server.use(http.get(apiPath("/classes"), () => listResponse([SUNSHINE_CLASS, star])));
+    selectClass(star.class_id);
+    renderAt("/t/today");
+
+    expect(await screen.findByText("햇살어린이집 / 별님반")).toBeInTheDocument();
   });
 
   it("교사 이름을 /me에서 받아 보여 준다", async () => {
