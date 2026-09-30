@@ -63,6 +63,8 @@ function detail(db: MockDb, draft: DraftRecord): DraftDetail {
     sentences: draft.sentences,
     selected_media_ids: draft.selected_media_ids,
     media,
+    // 게시할 때 정해지는 값이라 게시 전에는 null입니다(API 문서 §GET /drafts/{draft_id}).
+    include_photos: draft.published_at === null ? null : draft.include_photos,
     author_teacher_id: draft.author_teacher_id,
     author_name: draft.author_name,
     approved_at: draft.approved_at,

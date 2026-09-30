@@ -74,6 +74,11 @@ export interface DraftDetail {
   author_name: string;
   approved_at: string | null;
   published_at: string | null;
+  /**
+   * 게시할 때 사진을 함께 보냈는지. **게시 전에는 `null`** 입니다 — 임시 결정(김진하).
+   * `false`면 학부모에게 글만 갔으므로 교사 화면도 사진을 보여 주지 않습니다.
+   */
+  include_photos: boolean | null;
   updated_at: string;
 }
 

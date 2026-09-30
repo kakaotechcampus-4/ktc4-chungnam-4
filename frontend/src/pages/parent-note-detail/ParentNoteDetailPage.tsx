@@ -67,11 +67,15 @@ export function ParentNoteDetailPage() {
   const nextDate = [...movableDates].reverse().find((date) => date > selectedDate);
 
   const draft = draftQuery.data;
-  const photos: MediaUrl[] = draft
-    ? draft.selected_media_ids
-        .map((id) => draft.media.find((media) => media.media_id === id))
-        .filter((media): media is MediaUrl => media !== undefined && media.type === "photo")
-    : [];
+  // 사진 없이 게시했으면 학부모에게 글만 갔습니다. 여기는 "학부모가 받은 것"을 보는 자리라
+  // 교사에게도 사진을 보여 주지 않습니다 — 보낸 것과 본 것이 달라지면 안 됩니다.
+  const photosSent = draft?.include_photos !== false;
+  const photos: MediaUrl[] =
+    draft && photosSent
+      ? draft.selected_media_ids
+          .map((id) => draft.media.find((media) => media.media_id === id))
+          .filter((media): media is MediaUrl => media !== undefined && media.type === "photo")
+      : [];
 
   return (
     <>
@@ -129,6 +133,9 @@ export function ParentNoteDetailPage() {
                 ))}
               </div>
             ) : null}
+            {photosSent ? null : (
+              <p className="text-caption text-ink-muted">사진 없이 글만 게시한 알림장이에요.</p>
+            )}
             {draft.sentences.map((sentence) => (
               <p key={sentence.sentence_index} className="text-lead whitespace-pre-line text-ink">
                 {sentence.text}

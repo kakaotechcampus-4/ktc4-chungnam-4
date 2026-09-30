@@ -1,6 +1,7 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import { kstToday, shiftDate } from "@/lib/datetime";
 import { fixtureId } from "@/mocks/fixtures/ids";
 import { renderRoutes } from "@/test/render";
 
@@ -45,5 +46,15 @@ describe("ParentNoteDetailPage", () => {
     await user.click(screen.getByRole("button", { name: "다음 기록" }));
 
     expect(await screen.findByText("이 날짜에는 게시된 알림장이 없어요.")).toBeInTheDocument();
+  });
+
+  // 사진 없이 게시한 알림장은 학부모에게 글만 갔습니다. 교사 화면도 같아야 합니다.
+  it("사진 없이 게시한 날짜에는 사진을 보여 주지 않는다", async () => {
+    renderRoutes([{ path: "/t/notes/children/:childId", element: <ParentNoteDetailPage /> }], {
+      initialEntry: `/t/notes/children/${DOYUN}?date=${shiftDate(kstToday(), -3)}`,
+    });
+
+    expect(await screen.findByText("사진 없이 글만 게시한 알림장이에요.")).toBeInTheDocument();
+    expect(screen.queryAllByRole("img")).toHaveLength(0);
   });
 });
