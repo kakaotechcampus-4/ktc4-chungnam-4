@@ -93,8 +93,8 @@
 | 8. 서버 전송 | 처리 중/서버 전송 | `POST /api/v1/media/upload-urls` → S3 `PUT` → `POST /api/v1/media` → `PUT /api/v1/media/{media_id}/child-links` | media · face |
 | 9. 초안 생성 | 처리 중/초안 생성 | `POST /api/v1/classes/{class_id}/jobs` → `GET /api/v1/jobs/{job_id}`(2초 폴링) | agents |
 | 10. 초안 검토 | 초안 검토/왼쪽 원아 목록 | `GET /api/v1/classes/{class_id}/drafts`, `GET /api/v1/drafts/{draft_id}`, `PATCH /api/v1/drafts/{draft_id}`, `GET /api/v1/media/{media_id}`(URL 만료 시) | documents, media · face |
-| 11. 승인 | 승인 확인 모달 | `POST /api/v1/drafts/{draft_id}/approve` | documents |
-| 12. 게시 | 알림장 올리기, 알림장 발행 완료 | `GET /api/v1/classes/{class_id}/drafts`, `POST /api/v1/publications` | documents |
+| 11. 승인 | 초안 검토/왼쪽 원아 목록(체크와 버튼) | `POST /api/v1/drafts/{draft_id}/approve` | documents |
+| 12. 게시 | 전체 게시 확인 모달, 알림장 발행 완료 | `GET /api/v1/classes/{class_id}/drafts`, `POST /api/v1/publications` | documents |
 | 13. 학부모 목록 | 학부모 W3 알림장 목록 | `GET /api/v1/me` → `GET /api/v1/me/children` → `GET /api/v1/children/{child_id}/parent-notes` | auth, organization, documents |
 | 14. 학부모 본문 | 학부모 W4 알림장 본문 | `GET /api/v1/parent-notes/{parent_note_id}` | documents |
 | 예외. 권한 없음 | 접근 권한 없음 | 모든 403에서 이 화면으로 옴. `DELETE /api/v1/sessions/current`, `GET /api/v1/me` | auth |

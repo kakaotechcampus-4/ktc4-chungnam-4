@@ -52,9 +52,8 @@
 | ④ 김동건 | 하루 정리 확인 | `GET /jobs/{job_id}/daily-routines`, `POST /jobs/{job_id}/resume`(초안 만들기), `GET /classes/{class_id}/children`("2 / 5명 확인") | 둘 다 |
 | ④ 김동건 | 얼굴 정보 등록 | `GET /children/{child_id}`(동의·등록 상태), `PUT /children/{child_id}/face-embedding` | 경로만 |
 | ④ 김동건 | 얼굴 정보 삭제 확인 | 얼굴 정보 등록의 호출 그대로, `DELETE /children/{child_id}/face-embedding`, `POST /children/{child_id}/consents/revoke`(동의 철회) | 경로만 |
-| ⑤ 김진하 | 초안 검토 / 왼쪽 원아 목록 | `GET /classes/{class_id}/children`·`GET /classes/{class_id}/drafts`(레일), `GET /drafts/{draft_id}`, `PATCH /drafts/{draft_id}`, `GET /media/{media_id}`(URL 만료 시), `POST /drafts/{draft_id}/revision-requests`(AI에게 다듬기 요청). "사진과 본문을 확인했어요" 체크는 승인 확인 모달의 `POST /drafts/{draft_id}/approve`에 `reviewed`로 들어감 | 둘 다 |
-| ⑤ 김진하 | 승인 확인 모달 | 초안 검토 / 왼쪽 원아 목록의 호출 그대로, `POST /drafts/{draft_id}/approve`, `POST /drafts/{draft_id}/reopen`(게시 전까지 다시 검토) | 둘 다 |
-| ⑤ 김진하 | 알림장 올리기 | `GET /classes/{class_id}/children`, `GET /classes/{class_id}/drafts`, `GET /drafts/{draft_id}`(미리보기), `POST /publications`, 학부모 알림 발송은 `POST /publications` 확장(경로만) | 둘 다 |
+| ⑤ 김진하 | 초안 검토 / 왼쪽 원아 목록 | `GET /classes/{class_id}/children`·`GET /classes/{class_id}/drafts`(레일), `GET /drafts/{draft_id}`, `PATCH /drafts/{draft_id}`, `POST /children/{child_id}/drafts`(자료 없는 원아에게 직접 작성), `POST /drafts/{draft_id}/approve`, `POST /drafts/{draft_id}/reopen`(게시 전까지 다시 검토), `GET /media/{media_id}`(URL 만료 시), `POST /drafts/{draft_id}/revision-requests`(AI에게 다듬기 요청). "사진과 본문을 확인했어요" 체크가 `approve`의 `reviewed`로 들어감 — **별도 승인 확인 모달 없이 이 화면의 체크와 버튼으로 승인합니다**(임시 결정(김진하)) | 둘 다 |
+| ⑤ 김진하 | 전체 게시 확인 모달 | 초안 검토 / 왼쪽 원아 목록의 호출 그대로, `POST /publications`(승인한 원아 중 교사가 뺀 아이를 제외하고 보냄), 학부모 알림 발송은 `POST /publications` 확장(경로만). **개편 전 "알림장 올리기" 화면을 대신합니다** — 게시는 반 전체·하루 한 번이라 별도 화면 없이 오버레이로 확인합니다(임시 결정(김진하), [documents.md](documents.md) §`POST /api/v1/publications`) | 둘 다 |
 | ⑤ 김진하 | 알림장 발행 완료 | `POST /publications` 결과, `GET /classes/{class_id}/drafts`(미작성 원아 보기) | 상세 작성 |
 | ⑤ 김진하 | 알림장 게시판 | `GET /classes/{class_id}/drafts?doc_type=parent_note&published=true`(확장(경로만)), `GET /classes/{class_id}/children`(미작성 카드) | 둘 다 |
 | ⑤ 김진하 | 알림장 상세 | `GET /drafts/{draft_id}`, `GET /drafts/{draft_id}/read-receipts`(보호자 확인 수), (목록에 없음: 게시한 알림장 수정) | 둘 다 |
