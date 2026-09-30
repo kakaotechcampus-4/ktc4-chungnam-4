@@ -384,8 +384,9 @@ describe("수동 분류 · 발화", () => {
     await screen.findByText("“내가 더 높이 쌓아 볼게!”");
     await user.click(await screen.findByRole("checkbox", { name: "이하준" }));
     await user.click(screen.getByRole("button", { name: "선택한 아이에게 연결" }));
+    // 저장 → 다음 발화로 이동을 세 번 거쳐서, 전체 테스트가 함께 돌 때는 기본 대기(1초)를 넘길 수 있습니다.
     for (let i = 0; i < 3; i += 1) {
-      await screen.findByText(`처리 ${i + 1} / 4개`);
+      await screen.findByText(`처리 ${i + 1} / 4개`, undefined, { timeout: 5000 });
       await user.click(screen.getByRole("button", { name: "이 자료 제외" }));
     }
 
