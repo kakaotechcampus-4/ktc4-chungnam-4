@@ -54,7 +54,7 @@ export function EvidencePanel({ sentence, onClose }: EvidencePanelProps) {
 
       {sentence === null ? (
         <p className="text-caption text-ink-muted">
-          문장을 클릭하면 그 문장의 근거를 볼 수 있어요.
+          문장에 마우스를 올리면 그 문장의 근거를 볼 수 있어요.
         </p>
       ) : (
         <>
