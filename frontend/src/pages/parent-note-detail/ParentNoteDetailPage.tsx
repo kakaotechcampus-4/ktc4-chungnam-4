@@ -8,7 +8,7 @@ import { classChildrenQueryOptions } from "@/api/organization";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
-import { formatDate, formatDateTime, kstToday } from "@/lib/datetime";
+import { formatDate, formatDateTime, isDateOnly, kstToday } from "@/lib/datetime";
 import type { MediaUrl } from "@/types/api-draft/media";
 
 export function ParentNoteDetailPage() {
@@ -17,7 +17,10 @@ export function ParentNoteDetailPage() {
   const navigate = useNavigate();
 
   // 기본은 오늘입니다. ‹ › 로 옮기면 주소의 date가 바뀝니다.
-  const selectedDate = searchParams.get("date") ?? kstToday();
+  // 주소는 누구나 고칠 수 있어서, 날짜가 아니면(빈 값·2026-9-28 등) 오늘로 돌립니다.
+  // 거르지 않고 넘기면 날짜를 그리다 터져 화면 전체가 오류로 바뀝니다.
+  const dateParam = searchParams.get("date");
+  const selectedDate = isDateOnly(dateParam) ? dateParam : kstToday();
 
   const { currentClass, isPending: classPending, isError: classError } = useCurrentClass();
   const classId = currentClass?.class_id ?? "";

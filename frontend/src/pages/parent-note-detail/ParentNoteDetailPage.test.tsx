@@ -57,4 +57,17 @@ describe("ParentNoteDetailPage", () => {
     expect(await screen.findByText("사진 없이 글만 게시한 알림장이에요.")).toBeInTheDocument();
     expect(screen.queryAllByRole("img")).toHaveLength(0);
   });
+
+  // 주소는 누구나 고칠 수 있습니다. 거르지 않으면 날짜를 그리다 터져 화면 전체가 오류가 됩니다.
+  it.each([["2026-9-28"], [""], ["오늘"]])(
+    "?date=%s 처럼 날짜가 아니면 오늘로 돌린다",
+    async (bad) => {
+      renderRoutes([{ path: "/t/notes/children/:childId", element: <ParentNoteDetailPage /> }], {
+        initialEntry: `/t/notes/children/${DOYUN}?date=${bad}`,
+      });
+
+      // 오늘은 시드에 게시본이 없으므로 빈 상태가 나오면 오늘로 돌아온 것입니다.
+      expect(await screen.findByText("이 날짜에는 게시된 알림장이 없어요.")).toBeInTheDocument();
+    },
+  );
 });

@@ -21,7 +21,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
 import { ApiError } from "@/lib/api-client";
-import { formatDate, kstToday } from "@/lib/datetime";
+import { formatDate, isDateOnly, kstToday } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 import type { ClassDraftItem } from "@/types/api-draft/documents";
 import type { MediaUrl } from "@/types/api-draft/media";
@@ -80,7 +80,9 @@ export function DraftReviewPage() {
   const queryClient = useQueryClient();
 
   // 기본은 오늘입니다. 지난 날짜는 ?record_date=YYYY-MM-DD로 봅니다(목 데이터 확인용).
-  const recordDate = searchParams.get("record_date") ?? kstToday();
+  // 주소는 누구나 고칠 수 있어서, 날짜가 아니면 오늘로 돌립니다(알림장 상세와 같은 이유).
+  const recordDateParam = searchParams.get("record_date");
+  const recordDate = isDateOnly(recordDateParam) ? recordDateParam : kstToday();
 
   const {
     currentClass,
