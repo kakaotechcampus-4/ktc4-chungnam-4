@@ -15,6 +15,8 @@ const PREFIX = {
   draft: "d7af0000",
   plan: "91a40000",
   note: "407e0000",
+  evidence: "e71d0000",
+  segment: "5e900000",
 } as const;
 
 export function fixtureId(kind: keyof typeof PREFIX, n: number) {
