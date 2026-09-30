@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from core.config import get_settings
 from core.exceptions import EmbeddingDecryptionFailed, EmbeddingKeyNotConfigured
 from domains.audit import service as audit
+from domains.audit.models import DeletionReason
 from domains.face.models import EmbeddingLifecycleLog, FaceEmbedding
 
 _FORMAT_VERSION = 1
@@ -128,7 +129,7 @@ _AUDIT_TARGET_TYPE = "face_embedding"
 _AUDIT_ACTION_LOAD = "load_for_classification"
 # 임베딩을 지우는 이유. DeletionLog.reason과 EmbeddingLifecycleLog.event_type에 같은 값을 남깁니다.
 # 사유는 부르는 쪽이 정합니다 — face는 동의 상태를 모르므로 "지웠으니 철회"라고 추측하지 않습니다(#74).
-DELETE_REASONS = frozenset({"consent_revoked", "teacher_removed"})
+DELETE_REASONS = frozenset({DeletionReason.CONSENT_REVOKED, DeletionReason.TEACHER_REMOVED})
 
 
 def _record_access(db: Session, teacher_id: UUID, embedding_ids: Sequence[UUID]) -> None:
@@ -218,7 +219,9 @@ def delete_embedding(db: Session, child_id: UUID, reason: str) -> bool:
     """
     if reason not in DELETE_REASONS:
         # 자유 문자열을 받으면 로그에 개인정보가 섞일 수 있습니다 (H-4).
-        raise ValueError(f"Deletion reason must be one of: {sorted(DELETE_REASONS)}")
+        raise ValueError(
+            f"Deletion reason must be one of: {sorted(reason.value for reason in DELETE_REASONS)}"
+        )
 
     embedding = db.scalars(
         select(FaceEmbedding).where(FaceEmbedding.child_id == child_id)
