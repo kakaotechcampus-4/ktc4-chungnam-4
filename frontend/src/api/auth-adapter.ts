@@ -1,4 +1,4 @@
-import type { Me, SessionCreated, SessionRequest } from "@/types/api-draft/auth";
+import type { AccountType, Me, SessionCreated, SessionRequest } from "@/types/api-draft/auth";
 
 // 서버 응답을 화면이 쓰는 모양으로 바꾸는 곳입니다(frontend/CLAUDE.md §데이터, #92 멘토 리뷰).
 // 서버 필드 이름이나 역할 값이 API 문서와 다르게 오면 이 파일만 고칩니다. 화면은 서버 타입을 쓰지 않습니다.
@@ -56,6 +56,19 @@ function warnUnknownRole(value: unknown): "unknown" {
   return "unknown";
 }
 
+// 서버 역할을 화면 역할로 바꿉니다. 서버 타입에 역할이 늘면 여기서 컴파일 에러가 납니다.
+function toRole(value: AccountType): MeRole {
+  switch (value) {
+    case "teacher":
+    case "parent":
+      return value;
+    default: {
+      const unexpected: never = value;
+      return warnUnknownRole(unexpected);
+    }
+  }
+}
+
 export function toMeView(raw: Me): MeView {
   switch (raw.account_type) {
     case "teacher":
@@ -95,11 +108,7 @@ export function toMeView(raw: Me): MeView {
 }
 
 export function toSessionView(raw: SessionCreated): SessionView {
-  const role = raw.account_type as unknown;
-  return {
-    account_id: raw.account_id,
-    account_type: role === "teacher" || role === "parent" ? role : warnUnknownRole(role),
-  };
+  return { account_id: raw.account_id, account_type: toRole(raw.account_type) };
 }
 
 export function toSessionBody(input: LoginInput): SessionRequest {
