@@ -36,7 +36,7 @@ function causeText(networkCount: number, unsupportedCount: number) {
   return networkCount > 0 ? `${network}어요.` : unsupported;
 }
 
-const actionClass =
+const ACTION_CLASS =
   "rounded-xs text-nav outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50";
 
 // FR-15. 완료된 자료는 두고 실패한 파일만 다시 올립니다. 형식이 안 맞는 파일은 다시 시도해도 실패하므로 제외만 둡니다.
@@ -75,7 +75,7 @@ export function TodayUploadFailed({
             ) : null}
             <button
               type="button"
-              className={cn(actionClass, "text-body text-brand-ink")}
+              className={cn(ACTION_CLASS, "text-body text-brand-ink")}
               onClick={onViewCompleted}
             >
               {`완료된 ${done}개 확인하기  →`}
@@ -102,7 +102,7 @@ export function TodayUploadFailed({
                       <button
                         type="button"
                         aria-label={`${failure.fileName} 다시 시도`}
-                        className={cn(actionClass, "font-bold text-ink")}
+                        className={cn(ACTION_CLASS, "font-bold text-ink")}
                         onClick={() => onRetry(failure)}
                       >
                         다시 시도
@@ -111,7 +111,7 @@ export function TodayUploadFailed({
                       <button
                         type="button"
                         aria-label={`${failure.fileName} 목록에서 제외`}
-                        className={cn(actionClass, "text-ink-muted")}
+                        className={cn(ACTION_CLASS, "text-ink-muted")}
                         onClick={() => onRemove(failure)}
                       >
                         목록에서 제외
@@ -124,7 +124,7 @@ export function TodayUploadFailed({
           </table>
           <button
             type="button"
-            className={cn(actionClass, "self-start text-body font-bold whitespace-pre text-ink")}
+            className={cn(ACTION_CLASS, "self-start text-body font-bold whitespace-pre text-ink")}
             onClick={onPickMore}
           >
             {"다른 파일 선택하기  +"}

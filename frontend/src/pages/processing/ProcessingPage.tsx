@@ -13,7 +13,7 @@ import { SendStep } from "./components/SendStep";
 
 type Step = "model" | "classify" | "send" | "draft";
 
-const HEADER_TITLE_MAP: Record<Step, string> = {
+const STEP_TITLE_MAP: Record<Step, string> = {
   model: "이 기기에서 분석을 준비하고 있어요",
   classify: "아이별로 사진을 모으고 있어요",
   send: "선택한 자료를 전송하고 있어요",
@@ -64,7 +64,7 @@ export function ProcessingPage() {
     <>
       <PageHeader
         eyebrow="오늘의 기록 / 자료 처리"
-        title={HEADER_TITLE_MAP[step]}
+        title={STEP_TITLE_MAP[step]}
         subtitle="분석부터 초안 생성까지, 현재 단계를 여기에서 확인할 수 있어요."
       />
       {step === "model" ? <ModelStep onDone={toClassify} onCancel={cancel} /> : null}

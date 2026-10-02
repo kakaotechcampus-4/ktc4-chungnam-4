@@ -41,7 +41,7 @@ function failureText(error: unknown) {
 // 대신 칸의 테두리·그림자를 지워 읽을 때와 같은 한 덩어리 글로 보이게 합니다.
 // dark:bg-input/30은 Textarea 기본 클래스에 있고 변종이 달라 bg-transparent로 덮이지 않습니다.
 // 이 앱에는 다크 토큰이 없어서 OS가 다크면 그 칸만 색이 깔립니다. 그래서 같이 지웁니다.
-const EDIT_FIELD =
+const EDIT_FIELD_CLASS =
   "min-h-0 resize-none rounded-md border-0 bg-transparent p-0 text-lead whitespace-pre-line shadow-none focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent";
 
 // TODO(김진하): 사진 추가는 업로드 흐름(media, 정은·김동건)이 정해지지 않아 자리만 둡니다.
@@ -432,7 +432,7 @@ export function DraftReviewPage() {
                         key={sentence.sentence_index}
                         value={editing[sentence.sentence_index] ?? sentence.text}
                         rows={1}
-                        className={EDIT_FIELD}
+                        className={EDIT_FIELD_CLASS}
                         aria-label="초안 문장 수정"
                         onChange={(event) =>
                           setEditing((prev) => ({
@@ -447,7 +447,7 @@ export function DraftReviewPage() {
                         key={`added-${String(index)}`}
                         value={text}
                         rows={1}
-                        className={EDIT_FIELD}
+                        className={EDIT_FIELD_CLASS}
                         aria-label="새 문장"
                         placeholder="새로 쓸 문장을 적어 주세요."
                         onChange={(event) =>
