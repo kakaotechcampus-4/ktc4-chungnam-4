@@ -88,10 +88,10 @@ router.py  →  service.py  →  models.py
 
 - Celery로 보내는 것은 **LLM 호출을 포함하는 파이프라인 4~7단계만**. 로그인·목록 조회·승인·게시판은 전부 동기입니다. "혹시 느릴까봐" 큐에 넣지 않습니다.
 - task는 **멱등**하게 씁니다. 같은 `job_id`로 두 번 실행돼도 결과가 같아야 합니다.
-- 재시도 상한 2회, 타임아웃 60초. **상한 초과 항목은 예외를 던지지 않고 미분류함으로 보냅니다.**
+- 재시도 상한 2회, 타임아웃 180초(LLM 1회 호출은 30초). 근거는 테크스펙 파이프라인 4단계. **상한 초과 항목은 예외를 던지지 않고 미분류함으로 보냅니다.**
 
 ```python
-@celery_app.task(bind=True, max_retries=2, soft_time_limit=60)
+@celery_app.task(bind=True, max_retries=2, soft_time_limit=180)
 def generate_drafts(self, job_id: str, child_id: str) -> None:
     orchestrate_drafts(job_id=job_id, child_id=child_id)  # 로직은 서비스에
 ```

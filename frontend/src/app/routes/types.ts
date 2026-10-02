@@ -3,7 +3,7 @@ import type { RouteObject } from "react-router";
 // 영역 모듈 하나가 내보내는 라우트입니다. 키는 화면이 들어갈 레이아웃 자리입니다.
 // 경로는 앞에 "/"를 붙이지 않고 그 자리 기준 상대 경로로 씁니다. 등록 순서는 매칭에 영향이 없습니다.
 export interface AreaRoutes {
-  /** 레이아웃 없음. 예: 홈(index), "403" */
+  /** 레이아웃 없음. 예: 홈(index) */
   standalone?: RouteObject[];
   /** 공개 레이아웃. 예: "login", "forgot-password" */
   public?: RouteObject[];

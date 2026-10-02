@@ -1,12 +1,16 @@
 import json
 import os
+import uuid
 from datetime import UTC, datetime
 from typing import Self
+
+import pytest
 
 # Test collection must not depend on a developer's .env or running PostgreSQL.
 os.environ.setdefault("POSTGRES_PASSWORD", "test-only-password")
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-only-key")
 
+from core.exceptions import DraftVersionConflict
 from domains.agents import service
 from tests.agents.fixtures.evidence import EVIDENCE_BY_ID, EVIDENCE_CHILD_A, RECORD_DATE
 from tools import contracts
@@ -16,12 +20,16 @@ class FakeSession:
     def __init__(self) -> None:
         self.added: list[object] = []
         self.committed = False
+        self.rolled_back = False
 
     def add(self, obj: object) -> None:
         self.added.append(obj)
 
     def commit(self) -> None:
         self.committed = True
+
+    def rollback(self) -> None:
+        self.rolled_back = True
 
     def __enter__(self) -> Self:
         return self
@@ -72,7 +80,7 @@ def _critic_response(*, verdict: str = "pass") -> str:
     )
 
 
-def test_verify_and_record_모든_검증을_통과하면_PASS를_반환하고_근거를_남긴다(
+def test_verify_and_record_모든_검증을_통과하면_PASS를_반환하고_검증_기록만_커밋한다(
     monkeypatch,
 ) -> None:
     session = FakeSession()
@@ -83,12 +91,9 @@ def test_verify_and_record_모든_검증을_통과하면_PASS를_반환하고_�
     assert result.decision == contracts.Decision.PASS
     assert session.committed
 
+    # 근거는 본문 저장과 같은 트랜잭션에서 남긴다 — _save_passed_draft 테스트 참고 (#75 3번).
     sentence_rows = [obj for obj in session.added if isinstance(obj, service.SentenceEvidenceRow)]
-    assert len(sentence_rows) == 1
-    assert sentence_rows[0].evidence_id == "ev_001"
-    assert sentence_rows[0].source_media_id == EVIDENCE_CHILD_A.media_id
-    assert sentence_rows[0].source_timestamp == EVIDENCE_CHILD_A.start_ms / 1000
-    assert sentence_rows[0].source_text == EVIDENCE_CHILD_A.text
+    assert sentence_rows == []
 
     issue_rows = [obj for obj in session.added if isinstance(obj, service.VerificationResultRow)]
     assert issue_rows == []  # 통과했으니 남길 실패 사유가 없다
@@ -214,10 +219,19 @@ def _fake_job(**overrides: object) -> service.Job:
     return job
 
 
-def test_orchestrate_drafts_성공하면_미분류함으로_보내지_않는다(monkeypatch) -> None:
+def test_orchestrate_drafts_성공하면_초안을_저장하고_미분류함으로_보내지_않는다(
+    monkeypatch,
+) -> None:
+    saved: list[contracts.DraftDocument] = []
+
     def _fail_if_called(*args: object, **kwargs: object) -> None:
         raise AssertionError("성공했는데 미분류함으로 보내면 안 된다")
 
+    monkeypatch.setattr(
+        service,
+        "_save_passed_draft",
+        lambda session, job, bundle, document, evidence_by_id: saved.append(document),
+    )
     monkeypatch.setattr(service, "SessionLocal", FakeSession)
     monkeypatch.setattr(service, "_get_job", lambda session, job_id: _fake_job())
     monkeypatch.setattr(
@@ -238,6 +252,8 @@ def test_orchestrate_drafts_성공하면_미분류함으로_보내지_않는다(
     monkeypatch.setattr(service, "_send_to_unclassified", _fail_if_called)
 
     service.orchestrate_drafts(job_id="job-1", child_id="child-1")
+
+    assert len(saved) == 1
 
 
 def test_orchestrate_drafts_교사_확인이_필요하면_미분류함으로_보낸다(
@@ -299,6 +315,7 @@ def test_orchestrate_drafts_재생성하면_이전_draft_id를_다시_넘기고_
         service, "_collect_evidence", lambda session, child_id, target_date: object()
     )
     monkeypatch.setattr(service, "_generate_draft", _fake_generate)
+    monkeypatch.setattr(service, "_save_passed_draft", lambda *args: None)
     monkeypatch.setattr(service, "_verify_with_critic_retry", _fake_verify)
     monkeypatch.setattr(
         service,
@@ -312,6 +329,107 @@ def test_orchestrate_drafts_재생성하면_이전_draft_id를_다시_넘기고_
 
     assert generate_calls == [None, documents[0].draft_id]
     assert verify_calls == [0, 1]
+
+
+CHILD_UUID = "c41d0000-0000-4000-8000-000000000001"
+TEACHER_UUID = uuid.UUID("7ea00000-0000-4000-8000-000000000001")
+BUNDLE_UUID = uuid.UUID("b0d10000-0000-4000-8000-000000000001")
+
+
+def _saveable_document() -> contracts.DraftDocument:
+    """DraftSaveInput은 child_id가 UUID여야 해서 따로 만든다."""
+    return contracts.DraftDocument(
+        doc_type=contracts.DocType.OBSERVATION_LOG,
+        child_id=CHILD_UUID,
+        record_date=RECORD_DATE,
+        sentences=[
+            contracts.DraftSentence(
+                sentence_id="s1", text="블록 놀이를 했다", evidence_ids=["ev_001"]
+            ),
+            contracts.DraftSentence(sentence_id="s2", text="탑을 높이 쌓았다", evidence_ids=[]),
+        ],
+    )
+
+
+def _stub_save_dependencies(monkeypatch, save_draft) -> None:
+    monkeypatch.setattr(service, "_author_teacher_id", lambda session, job: TEACHER_UUID)
+    monkeypatch.setattr(service.documents, "save_draft", save_draft)
+
+
+def test_save_passed_draft_agents의_draft_id로_저장하고_근거와_함께_커밋한다(
+    monkeypatch,
+) -> None:
+    session = FakeSession()
+    calls: list[tuple[object, int | None]] = []
+    _stub_save_dependencies(
+        monkeypatch,
+        lambda db, data, *, expected_version: calls.append((data, expected_version)),
+    )
+    document = _saveable_document()
+
+    service._save_passed_draft(
+        session, _fake_job(), service.EvidenceBundle(id=BUNDLE_UUID), document, EVIDENCE_BY_ID
+    )
+
+    [(data, expected_version)] = calls
+    assert expected_version is None
+    # 검증 기록이 문서를 찾으려면 agents가 만든 ID 그대로여야 한다 (#75 2번).
+    assert str(data.draft_id) == document.draft_id
+    assert data.author_teacher_id == TEACHER_UUID
+    assert data.ai_version == document.version
+    assert data.evidence_bundle_id == BUNDLE_UUID
+    assert data.content == "블록 놀이를 했다\n탑을 높이 쌓았다"
+
+    sentence_rows = [obj for obj in session.added if isinstance(obj, service.SentenceEvidenceRow)]
+    assert len(sentence_rows) == 1
+    assert sentence_rows[0].draft_id == document.draft_id
+    assert sentence_rows[0].evidence_id == "ev_001"
+    assert sentence_rows[0].source_media_id == EVIDENCE_CHILD_A.media_id
+    assert sentence_rows[0].source_timestamp == EVIDENCE_CHILD_A.start_ms / 1000
+    assert sentence_rows[0].source_text == EVIDENCE_CHILD_A.text
+    assert session.committed
+    assert not session.rolled_back
+
+
+def test_save_passed_draft_저장이_충돌하면_근거를_남기지_않고_되돌린다(monkeypatch) -> None:
+    """교사 문서를 그대로 두고, 반영되지 못한 AI 초안의 근거도 남기지 않는다 (#75 3번·6번)."""
+    session = FakeSession()
+
+    def _conflict(db, data, *, expected_version):
+        raise DraftVersionConflict("이미 있습니다")
+
+    _stub_save_dependencies(monkeypatch, _conflict)
+
+    service._save_passed_draft(
+        session,
+        _fake_job(),
+        service.EvidenceBundle(id=BUNDLE_UUID),
+        _saveable_document(),
+        EVIDENCE_BY_ID,
+    )
+
+    sentence_rows = [obj for obj in session.added if isinstance(obj, service.SentenceEvidenceRow)]
+    assert sentence_rows == []
+    assert session.rolled_back
+    assert not session.committed
+
+
+def test_save_passed_draft_작성_교사를_모르면_저장하지_않고_멈춘다(monkeypatch) -> None:
+    """GenerationJob 모델 전에는 작성 교사를 알 수 없다 — 임의 값으로 저장하지 않는다."""
+
+    def _fail_if_called(db, data, *, expected_version):
+        raise AssertionError("작성 교사 없이 저장하면 안 된다")
+
+    monkeypatch.setattr(service.documents, "save_draft", _fail_if_called)
+
+    with pytest.raises(NotImplementedError):
+        service._save_passed_draft(
+            FakeSession(),
+            _fake_job(),
+            service.EvidenceBundle(id=BUNDLE_UUID),
+            _saveable_document(),
+            EVIDENCE_BY_ID,
+        )
 
 
 def test_get_job_raises_when_missing(monkeypatch) -> None:

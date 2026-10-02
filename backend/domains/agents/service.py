@@ -4,14 +4,18 @@ tasks.py는 이 모듈의 orchestrate_drafts만 호출합니다 (CLAUDE.md: task
 """
 
 from datetime import UTC, datetime
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 
 from core.database import SessionLocal
+from core.exceptions import DraftVersionConflict
 from domains.agents.llm import call_claude
 from domains.agents.models import DraftDecisionLog, EvidenceBundle, Job
 from domains.agents.models import SentenceEvidence as SentenceEvidenceRow
 from domains.agents.models import VerificationResult as VerificationResultRow
+from domains.documents import service as documents
+from domains.documents.schemas import DraftSaveInput
 from prompts.verification.critic import build_critic_prompt
 from tools import contracts
 from tools.verification.critic_result import parse_critic_response
@@ -52,6 +56,7 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
             )
 
             if decision_result.decision == contracts.Decision.PASS:
+                _save_passed_draft(session, job, bundle, document, evidence_by_id)
                 return
             if decision_result.decision == contracts.Decision.NEEDS_TEACHER_REVIEW:
                 break
@@ -138,6 +143,10 @@ def _verify_and_record(
     코드 검증에서 실패하면 Critic을 호출하지 않는다 (CLAUDE.md: "거기서 실패하면
     Critic을 호출하지 않고 바로 재생성"). 연결 방식은
     tests/agents/fixtures/verification_flow.py의 verify_example과 같다.
+
+    검증 기록(VerificationResult·DraftDecisionLog)만 남기고 커밋한다. PASS여도 문장별
+    근거는 여기서 남기지 않는다 — 본문 저장과 같은 트랜잭션으로 묶어야 해서
+    _save_passed_draft가 맡는다 (#75 3번).
     """
     code_checks = (
         (
@@ -180,11 +189,66 @@ def _verify_and_record(
             checked_at=datetime.now(UTC),
         )
     )
-    if decision_result.decision == contracts.Decision.PASS:
-        _record_sentence_evidence(session, document, evidence_by_id)
     session.commit()
 
     return decision_result
+
+
+def _save_passed_draft(
+    session: Session,
+    job: Job,
+    bundle: EvidenceBundle,
+    document: contracts.DraftDocument,
+    evidence_by_id: dict[str, contracts.EvidenceItem],
+) -> None:
+    """PASS한 초안을 documents에 저장하고, 문장별 근거를 같은 트랜잭션에 남긴다 (FR-05, FR-07).
+
+    본문 저장과 근거 저장을 한 번에 커밋한다. 저장이 충돌하면 근거까지 되돌려서,
+    저장되지 않은 draft_id나 반영되지 않은 AI 초안을 가리키는 근거가 남지 않게 한다
+    (#75 3번). 검증 기록은 _verify_and_record가 이미 커밋해서 되돌려지지 않는다.
+
+    충돌하면 교사 문서를 그대로 두고 돌아온다. 원아 Job은 성공으로 끝내고 미분류함에는
+    보내지 않는다 (#75 6번).
+    """
+    data = DraftSaveInput(
+        # agents가 만든 draft_id로 저장해야 검증 기록과 문서가 서로를 찾는다 (#75 2번).
+        draft_id=document.draft_id,
+        child_id=document.child_id,
+        author_teacher_id=_author_teacher_id(session, job),
+        doc_type=document.doc_type.value,
+        record_date=document.record_date,
+        content=_join_sentences(document),
+        ai_version=document.version,
+        evidence_bundle_id=bundle.id,
+    )
+    try:
+        # TODO(eun): 같은 원아·종류·날짜 문서가 이미 있으면 documents의 get_draft_version
+        #   (#75 5번, 한상균)으로 버전을 읽어 재생성으로 저장한다. 교사가 수정·승인한 문서면
+        #   건너뛴다(#75 6-1). 그 함수가 생기기 전에는 항상 최초 저장으로 보내므로, 이미 있는
+        #   문서는 충돌로 거부되고 그대로 남는다.
+        documents.save_draft(session, data, expected_version=None)
+        _record_sentence_evidence(session, document, evidence_by_id)
+        session.commit()
+    except DraftVersionConflict:
+        session.rollback()
+
+
+def _author_teacher_id(session: Session, job: Job) -> UUID:
+    """초안의 작성 교사. 요청한 교사를 GenerationJob에서 읽는다 (FR-26, 테크스펙 데이터 모델 ④).
+
+    TODO(eun): Job.generation_job_id → GenerationJob.requested_by_teacher_id로 읽는다.
+    두 모델이 아직 없어 값을 꺼낼 수 없다 — 임의 값으로 채우지 않는다 (#75 4번).
+    """
+    raise NotImplementedError("GenerationJob 모델 추가 후 연결 예정")
+
+
+def _join_sentences(document: contracts.DraftDocument) -> str:
+    """문장을 줄바꿈으로 합친 본문.
+
+    TODO(eun): 문장 단위 저장(#75 ①)이 documents 스키마에 들어오면 합치지 않고
+    sentence_id·순서째로 넘긴다. 그전까지 DraftSaveInput.content가 문자열 하나라 임시로 합친다.
+    """
+    return "\n".join(sentence.text for sentence in document.sentences)
 
 
 def _record_verification_issues(
