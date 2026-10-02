@@ -103,7 +103,7 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
       title="선택한 자료를 전송하고 있어요"
       detail={`선생님이 확인한 자료만 전송 중 · ${acked} / ${targets.length}개`}
       percent={percent}
-      stepIndex={3}
+      step="send"
       note={"선택한 사진과 기록으로 알림장 초안을 준비해요.\n전송이 끝날 때까지 창을 열어 두세요."}
       onCancel={onCancel}
     >
