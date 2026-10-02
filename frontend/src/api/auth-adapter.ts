@@ -116,7 +116,9 @@ export function toSessionBody(input: LoginInput): SessionRequest {
   return { email: input.email, password: input.password };
 }
 
-/** 교사 계정인지. 내 정보를 받기 전(undefined)이면 false입니다. */
-export function isTeacher(me: MeView | null | undefined): me is TeacherMeView {
-  return me?.account_type === "teacher";
+/** 교사 계정인지. 내 정보(MeView)와 로그인 응답(SessionView)에 함께 씁니다. 받기 전(undefined)이면 false입니다. */
+export function isTeacher<T extends { account_type: MeRole }>(
+  value: T | null | undefined,
+): value is T & { account_type: "teacher" } {
+  return value?.account_type === "teacher";
 }

@@ -64,6 +64,11 @@ describe("auth adapter", () => {
     expect(toSessionBody(input)).toEqual({ email: "a@example.com", password: "pw" });
   });
 
+  it("로그인 응답에도 교사 판정을 쓸 수 있다", () => {
+    expect(isTeacher({ account_id: "a1", account_type: "teacher" })).toBe(true);
+    expect(isTeacher({ account_id: "a1", account_type: "parent" })).toBe(false);
+  });
+
   it("내 정보를 받기 전이면 교사가 아니다", () => {
     expect(isTeacher(undefined)).toBe(false);
     expect(isTeacher(null)).toBe(false);
