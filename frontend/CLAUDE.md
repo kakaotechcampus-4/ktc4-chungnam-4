@@ -96,6 +96,10 @@
 
 - 포매팅(들여쓰기·따옴표·줄 길이 등)은 `.prettierrc`가 원본이고 `pnpm format`이 맞춥니다. 값을 여기에 옮겨 적지 않습니다.
 - 변수·함수 `camelCase`, 컴포넌트·타입 `PascalCase`, 상수 `UPPER_SNAKE_CASE`, 훅은 `use` 접두.
+- 상수 이름에는 담긴 것을 드러냅니다. 사용처의 `X[key]`만 보고 배열·태그 이름으로 착각하지 않게 하려는 것입니다.
+  - `X[key]`로 꺼내 쓰는 조회표는 `<키>_<값>_MAP`(`REASON_LABEL_MAP`, `STEP_TITLE_MAP`). 값이 클래스 문자열이면 `<키>_CLASS_MAP`(`CHANGED_BY_CLASS_MAP`).
+  - CSS 클래스 문자열은 `_CLASS`(`TAG_CLASS`).
+  - 예외: `<값>_BY_<키>` 형식(`KIND_BY_EXTENSION`)은 그대로 씁니다. `mocks/`는 백엔드 연동 후 걷어낼 코드라 적용하지 않습니다. `X.key`로만 쓰는 묶음(`DATE_FORMATS`)과 기본값(`EMPTY_DAILY`)은 조회표가 아닙니다.
 - 컴포넌트 파일은 `PascalCase.tsx`, 그 외는 `kebab-case.ts`. `components/ui/`의 shadcn 생성물은 예외로 소문자 파일명을 씁니다.
 - 주석은 한국어. TODO는 `// TODO(이름): 사유`.
 

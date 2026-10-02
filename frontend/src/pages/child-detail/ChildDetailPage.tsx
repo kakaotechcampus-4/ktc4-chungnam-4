@@ -7,7 +7,7 @@ import { childOverviewQueryOptions, childQueryOptions } from "@/api/organization
 import { FocusCard } from "@/components/common/FocusCard";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
-import { faceStatus, NURI_DOMAIN_LABELS, NURI_DOMAINS } from "@/features/organization/labels";
+import { faceStatus, NURI_DOMAIN_LABEL_MAP, NURI_DOMAINS } from "@/features/organization/labels";
 import { ApiError } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { formatDate, formatWeekday, kstToday } from "@/lib/datetime";
@@ -21,13 +21,13 @@ interface NoteItemProps {
 }
 
 // 하단 요약 줄의 짧은 얼굴 상태 문구입니다. Figma: "동의 3 / 3  ·  얼굴 등록됨"
-const FACE_SHORT_LABELS: Record<FaceStatus, string> = {
+const FACE_SHORT_LABEL_MAP: Record<FaceStatus, string> = {
   registered: "얼굴 등록됨",
   unregistered: "얼굴 미등록",
   locked: "등록 잠김",
 };
 
-const TAG = "rounded-md px-2 py-0.5 text-caption font-bold";
+const TAG_CLASS = "rounded-md px-2 py-0.5 text-caption font-bold";
 
 function NoteItem({ note, today }: NoteItemProps) {
   const date = `${formatDate(note.record_date, { year: false, weekday: false })} (${formatWeekday(note.record_date)})`;
@@ -38,9 +38,9 @@ function NoteItem({ note, today }: NoteItemProps) {
         <div className="flex items-center gap-2">
           <p className="text-label font-bold text-ink">{date}</p>
           {note.record_date === today ? (
-            <span className={cn(TAG, "bg-brand text-brand-ink")}>오늘</span>
+            <span className={cn(TAG_CLASS, "bg-brand text-brand-ink")}>오늘</span>
           ) : null}
-          <span className={cn(TAG, "bg-canvas text-ink")}>
+          <span className={cn(TAG_CLASS, "bg-canvas text-ink")}>
             {note.published ? "발송 완료" : "발송 전"}
           </span>
         </div>
@@ -184,7 +184,9 @@ export function ChildDetailPage() {
                       key={domain}
                       className="flex flex-col gap-0.5 rounded-md bg-paper px-3 py-2.5"
                     >
-                      <dt className="text-caption text-ink-muted">{NURI_DOMAIN_LABELS[domain]}</dt>
+                      <dt className="text-caption text-ink-muted">
+                        {NURI_DOMAIN_LABEL_MAP[domain]}
+                      </dt>
                       <dd className="text-nav font-bold text-ink">
                         {overview.domain_counts[domain]}
                       </dd>
@@ -211,7 +213,7 @@ export function ChildDetailPage() {
               동의 {child.consent_agreed_count} / {child.consent_total}
             </span>
             <span aria-hidden="true">·</span>
-            <span>{FACE_SHORT_LABELS[faceStatus(child)]}</span>
+            <span>{FACE_SHORT_LABEL_MAP[faceStatus(child)]}</span>
           </p>
         </div>
       </div>
