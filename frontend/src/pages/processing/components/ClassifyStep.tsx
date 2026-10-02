@@ -74,7 +74,7 @@ export function ClassifyStep({ onDone, onCancel }: ClassifyStepProps) {
       title="아이별로 자료를 모으고 있어요"
       detail={`이 기기에서 안전하게 분석 중 · ${classified} / ${photos.length}장`}
       percent={percent}
-      stepIndex={1}
+      step="classify"
       note={
         "원본 사진은 아직 서버로 보내지 않아요.\n분류가 끝나면 선생님이 결과를 확인할 수 있어요."
       }

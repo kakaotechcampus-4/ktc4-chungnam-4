@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createJob, jobQueryOptions } from "@/api/agents";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
 import { useUploadQueue } from "@/features/upload-queue/upload-queue-store";
+import { ApiError } from "@/lib/api-client";
 import { kstToday } from "@/lib/datetime";
 import type { Job } from "@/types/api-draft/agents";
 
@@ -17,6 +18,14 @@ interface DraftStepProps {
 
 function isFinished(job: Job | undefined) {
   return job?.status === "succeeded" || job?.status === "failed";
+}
+
+/** 같은 반·날짜에 이미 돌고 있는 작업이 있으면 그 job_id. docs/api/agents.md `JOB_ALREADY_RUNNING` */
+function runningJobId(error: Error | null) {
+  if (!(error instanceof ApiError) || error.code !== "JOB_ALREADY_RUNNING") return undefined;
+  const { detail } = error;
+  if (typeof detail !== "object" || detail === null || !("job_id" in detail)) return undefined;
+  return typeof detail.job_id === "string" ? detail.job_id : undefined;
 }
 
 // 마지막 귀속 저장이 끝난 뒤 초안 생성을 한 번만 시작하고, 끝날 때까지 진행 상태를 봅니다(#60).
@@ -35,7 +44,9 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
     mutationFn: (classId: string) =>
       createJob(classId, { request_id: requestId, record_date: kstToday(), media_ids: mediaIds }),
   });
-  const jobId = create.data?.job_id;
+  // 새로고침·화면 이탈 뒤 다시 들어오면 새 request_id로 요청해 409가 옵니다. 그때는 돌고 있는 작업을 이어서 봅니다.
+  const resumedJobId = runningJobId(create.error);
+  const jobId = create.data?.job_id ?? resumedJobId;
   const { data: polled, error: pollError } = useQuery({
     ...jobQueryOptions(jobId ?? ""),
     enabled: jobId !== undefined,
@@ -53,18 +64,17 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
   }, [job, onDone]);
 
   // 폴링 요청이 실패한 것과 작업이 failed인 것은 다른 문구입니다. 작업 실패는 처리 실패 화면이 맡습니다.
-  const error = create.error ?? pollError;
+  const error = (resumedJobId === undefined ? create.error : null) ?? pollError;
 
   return (
     <ProcessingCard
       title="오늘의 기록을 문장으로 정리해요"
       detail="아이별 초안과 문장 근거를 연결하고 있어요"
       percent={job?.progress.percent ?? 0}
-      stepIndex={4}
+      step="draft"
       note={"완성된 초안은 선생님의 검토를 기다려요.\n승인 전에는 보호자에게 공개되지 않아요."}
       onCancel={onCancel}
     >
-      {/* TODO(정은): JOB_ALREADY_RUNNING이면 detail.job_id로 이어서 폴링합니다. 단계 재시도와 함께 붙입니다. */}
       {error ? (
         <p role="alert" className="text-body text-coral-ink">
           {error.message}
