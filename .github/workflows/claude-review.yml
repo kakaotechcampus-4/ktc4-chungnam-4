@@ -70,8 +70,10 @@ jobs:
         env:
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_API_KEY }}
           # 게이트웨이에 없는 모델 이름으로 보조 호출이 나가지 않게 전부 같은 모델로 둔다.
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: anthropic/claude-sonnet-5
-          ANTHROPIC_DEFAULT_SONNET_MODEL: anthropic/claude-sonnet-5
+          # sonnet-5-5 는 단가가 sonnet-5 와 같고 성능이 좋아 턴 상한에 덜 걸릴 것으로 보고 바꿨다(PR 리뷰 제안, 2026-10-02).
+          # 게이트웨이 지원 여부는 아직 확인 전이다 — 첫 실행이 모델 오류로 실패하면 sonnet-5 로 되돌린다.
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: anthropic/claude-sonnet-5-5
+          ANTHROPIC_DEFAULT_SONNET_MODEL: anthropic/claude-sonnet-5-5
           # 게이트웨이가 모르는 anthropic-beta 헤더를 보내지 않는다.
           CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1"
         with:
@@ -80,7 +82,7 @@ jobs:
           # pull_request 이벤트는 기본이 agent 모드라 본문의 @claude 를 보지 않는다. tag 모드를 강제한다.
           track_progress: true
           claude_args: |
-            --model anthropic/claude-sonnet-5
+            --model anthropic/claude-sonnet-5-5
             --max-turns 15
             --disallowedTools Edit,Write,NotebookEdit,mcp__github_ci
             --append-system-prompt "PR 리뷰는 .github/claude-review.md 의 기준과 출력 형식을 따른다. 진행 체크리스트를 만들거나 갱신하지 말고, 리뷰를 다 쓴 뒤 코멘트를 한 번만 갱신한다."
