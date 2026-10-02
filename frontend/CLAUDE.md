@@ -35,8 +35,9 @@
 - 요청·응답·에러 형식 규약은 `docs/테크스펙.md`의 공통 API 규약 부분이 원본입니다. 프론트는 `error.code`로 분기하고 `message`는 그대로 보여 줍니다.
 - BE 라우터가 생기기 전까지 타입은 `types/api-draft/<도메인>.ts`에 손으로 씁니다. 명세를 먼저 고치고 타입을 맞춥니다. 라우터가 생기면 `types/api.ts`(openapi-typescript 생성)로 바꿉니다 — 생성 파일은 직접 수정하지 않고, 타입이 안 맞으면 BE의 스키마를 고칩니다.
 - 모든 호출은 `api/<도메인>.ts`의 요청 함수를 거치고, 요청 함수는 `lib/api-client.ts`의 `api.get`·`api.post` 등으로 씁니다. `fetch`를 직접 부르면 ESLint 에러입니다. 실패는 `ApiError`(`status`, `code`, `message`, `detail`)로 오고, 연결 실패는 `status` 0 · `NETWORK_ERROR`입니다.
-- **화면은 서버 응답 모양을 직접 쓰지 않습니다**(#92 멘토 리뷰). `api/<도메인>.ts`가 서버 응답을 화면용 타입으로 바꿔 넘깁니다. 서버 필드 이름·값이 문서와 다르게 오면 `api/<도메인>-adapter.ts` 한 파일만 고칩니다. auth부터 옮기고 있고, 옮긴 도메인은 화면에서 서버 타입을 import하면 ESLint 에러입니다.
-  - 서버 타입(`types/api-draft/*`)은 `api/`·`mocks/`·테스트에서만 씁니다. 화면은 `@/api/<도메인>`이 내보내는 화면용 타입(`XxxView`)과 판정 함수(`isTeacher` 등)를 씁니다.
+- **화면은 서버 응답 모양을 직접 쓰지 않습니다**(#92 멘토 리뷰). `api/<도메인>.ts`가 `api/<도메인>-adapter.ts`로 서버 응답을 화면용 타입으로 바꿔 넘깁니다. 서버 필드 이름·값이 문서와 다르게 오면 명세 → 서버 타입 → adapter 순서로 고치고, 화면은 고치지 않습니다.
+  - 이 규칙은 adapter로 옮긴 도메인에 적용합니다. 옮긴 도메인은 `eslint.config.js`의 `API_DRAFT_IMPORT`에 적고, 그 도메인의 서버 타입을 화면에서 import하면 ESLint 에러입니다. 아직 옮기지 않은 도메인은 지금처럼 써도 되고, 그 도메인을 옮기는 PR에서 함께 바꿉니다.
+  - 옮긴 도메인의 서버 타입(`types/api-draft/<도메인>.ts`)은 `api/`·`mocks/`·테스트에서만 씁니다. 화면은 `@/api/<도메인>`이 내보내는 화면용 타입(`XxxView`)과 판정 함수(`isTeacher` 등)를 쓰고, adapter 파일을 직접 import하지 않습니다.
   - `<도메인>-adapter.ts`에는 화면용 타입과 순수 함수만 둡니다. 서버 → 화면은 `toXxxView`, 화면 → 서버 요청 본문은 `toXxxBody`입니다. React 훅과 요청 호출은 넣지 않습니다.
   - 화면용 타입의 필드 이름은 `docs/api/`를 따릅니다. 서버 타입을 `Pick`·`extends`·`...raw`로 이어 쓰지 않고 필드를 하나씩 옮깁니다. 서버가 바뀌면 adapter에서 타입 에러가 나게 하려는 것입니다.
   - 서버가 모르는 값(역할·상태값)을 보내면 adapter가 `"unknown"`으로 바꾸고, 화면은 그 경우 영역·버튼을 모두 잠급니다(H-1). 경고 로그에는 그 값만 남깁니다(H-4). 서버에 없는 값을 adapter가 지어내지 않습니다.
