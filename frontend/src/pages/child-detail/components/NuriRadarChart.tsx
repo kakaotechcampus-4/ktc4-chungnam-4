@@ -1,4 +1,4 @@
-import { NURI_DOMAIN_LABEL_MAP, NURI_DOMAINS } from "@/features/organization/labels";
+import { NURI_DOMAIN_LABELS, NURI_DOMAINS } from "@/features/organization/labels";
 import type { NuriDomain } from "@/types/api-draft/organization";
 
 interface NuriRadarChartProps {
@@ -35,7 +35,7 @@ export function NuriRadarChart({ counts }: NuriRadarChartProps) {
   const max = Math.max(1, ...NURI_DOMAINS.map((domain) => counts[domain]));
   const ratios = NURI_DOMAINS.map((domain) => counts[domain] / max);
   const label = NURI_DOMAINS.map(
-    (domain) => `${NURI_DOMAIN_LABEL_MAP[domain]} ${counts[domain]}건`,
+    (domain) => `${NURI_DOMAIN_LABELS[domain]} ${counts[domain]}건`,
   ).join(", ");
 
   return (

@@ -29,7 +29,7 @@ const ACTIVITIES = [
   },
 ] as const;
 
-const SOURCE_TYPE_MAP: Record<MediaType, EvidenceSourceType> = {
+const SOURCE_TYPE: Record<MediaType, EvidenceSourceType> = {
   photo: "photo_observation",
   video: "video_scene",
   voice_memo: "teacher_voice_memo",
@@ -82,7 +82,7 @@ export function buildDrafts({
       const activity = activityOf(media);
       const evidence: Evidence = {
         evidence_id: `ev_${String(index + 1).padStart(3, "0")}`,
-        source_type: SOURCE_TYPE_MAP[media.type],
+        source_type: SOURCE_TYPE[media.type],
         text: activity.evidence,
         media_id: media.media_id,
         start_ms: media.type === "photo" ? null : 0,

@@ -3,7 +3,7 @@ import { X } from "lucide-react";
 import { formatMediaTime, formatTime } from "@/lib/datetime";
 import type { Evidence, EvidenceSourceType, Sentence } from "@/types/api-draft/documents";
 
-const SOURCE_LABEL_MAP: Record<EvidenceSourceType, string> = {
+const SOURCE_LABEL: Record<EvidenceSourceType, string> = {
   photo_observation: "사진 관찰",
   video_speech: "영상 발화",
   video_scene: "영상 장면",
@@ -22,7 +22,7 @@ function EvidenceCard({ evidence }: { evidence: Evidence }) {
         {evidence.text}
       </p>
       <p className="text-caption text-ink-muted">
-        {SOURCE_LABEL_MAP[evidence.source_type]}
+        {SOURCE_LABEL[evidence.source_type]}
         {evidence.captured_at ? ` · ${formatTime(evidence.captured_at)}` : ""}
       </p>
     </div>

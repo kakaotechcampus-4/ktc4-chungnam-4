@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
-import { PLAN_TYPE_LABEL_MAP } from "@/features/organization/labels";
+import { PLAN_TYPE_LABELS } from "@/features/organization/labels";
 import { formatYearMonth, kstToday } from "@/lib/datetime";
 import type { PlanType } from "@/types/api-draft/organization";
 
@@ -46,7 +46,7 @@ export function EducationPlansPage() {
   const weekly = useQuery({ ...plansQueryOptions(classId, "weekly"), enabled: classId !== "" });
   const monthly = useQuery({ ...plansQueryOptions(classId, "monthly"), enabled: classId !== "" });
   const selected = planType === "weekly" ? weekly : monthly;
-  const typeLabel = PLAN_TYPE_LABEL_MAP[planType];
+  const typeLabel = PLAN_TYPE_LABELS[planType];
   const newPlanPath = `/t/plans/new?type=${planType}`;
 
   if (isPending) {
@@ -112,7 +112,7 @@ export function EducationPlansPage() {
                 value={type}
                 className="h-8 text-body font-normal text-ink data-active:bg-paper data-active:font-bold data-active:text-ink data-active:shadow-none"
               >
-                {PLAN_TYPE_LABEL_MAP[type]}
+                {PLAN_TYPE_LABELS[type]}
               </TabsTrigger>
             ))}
           </TabsList>

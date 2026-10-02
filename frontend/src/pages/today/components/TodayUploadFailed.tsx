@@ -24,7 +24,7 @@ interface TodayUploadFailedProps {
   onPickMore: () => void;
 }
 
-const REASON_LABEL_MAP: Record<UploadFailureReason, string> = {
+const REASON_LABEL: Record<UploadFailureReason, string> = {
   network: "연결 끊김",
   unsupported: "지원하지 않는 형식",
 };
@@ -96,7 +96,7 @@ export function TodayUploadFailed({
               {failures.map((failure) => (
                 <tr key={failure.fileName}>
                   <td className="py-3">{failure.fileName}</td>
-                  <td className="py-3">{REASON_LABEL_MAP[failure.reason]}</td>
+                  <td className="py-3">{REASON_LABEL[failure.reason]}</td>
                   <td className="py-3">
                     {failure.reason === "network" ? (
                       <button

@@ -6,10 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  NURI_DOMAIN_LABEL_MAP,
+  NURI_DOMAIN_LABELS,
   NURI_DOMAINS,
-  PLAN_TYPE_LABEL_MAP,
-  WEEKDAY_LABEL_MAP,
+  PLAN_TYPE_LABELS,
+  WEEKDAY_LABELS,
   WEEKDAYS,
 } from "@/features/organization/labels";
 import { kstToday } from "@/lib/datetime";
@@ -103,7 +103,7 @@ export function PlanForm({
                   },
                 })}
               />
-              {PLAN_TYPE_LABEL_MAP[type]}
+              {PLAN_TYPE_LABELS[type]}
             </label>
           ))}
         </fieldset>
@@ -166,10 +166,10 @@ export function PlanForm({
             <legend className="sr-only">요일별 놀이</legend>
             {WEEKDAYS.map((day) => (
               <label key={day} className="flex items-center gap-2 text-lead">
-                <span className="shrink-0">{WEEKDAY_LABEL_MAP[day]} ·</span>
+                <span className="shrink-0">{WEEKDAY_LABELS[day]} ·</span>
                 <Input
                   inputSize="compact"
-                  aria-label={`${WEEKDAY_LABEL_MAP[day]}요일 놀이`}
+                  aria-label={`${WEEKDAY_LABELS[day]}요일 놀이`}
                   className="text-lead"
                   {...register(`daily_activities.${day}`)}
                 />
@@ -207,7 +207,7 @@ export function PlanForm({
                         : "border-line bg-paper text-ink-muted hover:bg-tint-2",
                     )}
                   >
-                    {NURI_DOMAIN_LABEL_MAP[domain]}
+                    {NURI_DOMAIN_LABELS[domain]}
                   </button>
                 );
               })}

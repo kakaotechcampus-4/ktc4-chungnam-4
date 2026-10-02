@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { selectClass } from "@/features/class-context/current-class-store";
-import { AGE_BAND_LABEL_MAP } from "@/features/organization/labels";
+import { AGE_BAND_LABELS } from "@/features/organization/labels";
 import { useTeacherCenter } from "@/features/organization/use-teacher-center";
 import { cn } from "@/lib/utils";
 import type { AgeBand } from "@/types/api-draft/organization";
@@ -27,7 +27,7 @@ const classSchema = z.object({
 
 type ClassValues = z.infer<typeof classSchema>;
 
-const FIELD_LABEL_CLASS = "text-caption font-bold text-ink-muted";
+const FIELD_LABEL = "text-caption font-bold text-ink-muted";
 
 // 온보딩의 반 만들기입니다. 값은 Figma 실측입니다(바깥 카드 760 · 안쪽 40, 안쪽 틀 680 · 위 36 아래 32 좌우 40, 칸 사이 22).
 // 헤더 모양은 PublicLayout이 그리므로 본문만 둡니다.
@@ -87,7 +87,7 @@ export function OnboardingClassNewPage() {
           className="flex flex-col gap-5.5 rounded-xl border border-line px-10 pt-9 pb-8"
         >
           <div className="flex flex-col gap-2">
-            <Label htmlFor={centerId} className={FIELD_LABEL_CLASS}>
+            <Label htmlFor={centerId} className={FIELD_LABEL}>
               어린이집
             </Label>
             <Input
@@ -109,7 +109,7 @@ export function OnboardingClassNewPage() {
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor={nameId} className={FIELD_LABEL_CLASS}>
+            <Label htmlFor={nameId} className={FIELD_LABEL}>
               반 이름
             </Label>
             <Input
@@ -127,7 +127,7 @@ export function OnboardingClassNewPage() {
           </div>
 
           <fieldset className="flex flex-col gap-2">
-            <legend className={cn(FIELD_LABEL_CLASS, "mb-2")}>연령</legend>
+            <legend className={cn(FIELD_LABEL, "mb-2")}>연령</legend>
             <div className="flex gap-2.5">
               {AGE_BANDS.map((band) => {
                 const selected = selectedAgeBand === band;
@@ -141,10 +141,10 @@ export function OnboardingClassNewPage() {
                   >
                     <input type="radio" value={band} className="sr-only" {...register("ageBand")} />
                     <span className={cn("text-lead", selected ? "text-brand-ink" : "text-ink")}>
-                      {AGE_BAND_LABEL_MAP[band].title}
+                      {AGE_BAND_LABELS[band].title}
                     </span>
                     <span className="text-caption text-ink-muted">
-                      {AGE_BAND_LABEL_MAP[band].curriculum}
+                      {AGE_BAND_LABELS[band].curriculum}
                     </span>
                   </label>
                 );
