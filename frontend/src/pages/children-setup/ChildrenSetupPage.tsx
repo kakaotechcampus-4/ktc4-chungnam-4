@@ -7,7 +7,7 @@ import { FocusCard } from "@/components/common/FocusCard";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
-import { consentSummary, FACE_STATUS_LABELS, faceStatus } from "@/features/organization/labels";
+import { consentSummary, FACE_STATUS_LABEL_MAP, faceStatus } from "@/features/organization/labels";
 import type { ClassChild } from "@/types/api-draft/organization";
 
 interface ChildSetupCardProps {
@@ -40,7 +40,7 @@ function ChildSetupCard({ child }: ChildSetupCardProps) {
       <p className="flex gap-3 text-label text-ink-muted">
         <span>{consentSummary(child.consent_agreed_count, child.consent_total)}</span>
         <span aria-hidden="true">·</span>
-        <span>{FACE_STATUS_LABELS[faceStatus(child)]}</span>
+        <span>{FACE_STATUS_LABEL_MAP[faceStatus(child)]}</span>
       </p>
       <div className="flex gap-3">
         <Button asChild className="flex-1">

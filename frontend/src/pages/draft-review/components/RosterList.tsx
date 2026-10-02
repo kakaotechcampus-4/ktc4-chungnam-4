@@ -19,7 +19,7 @@ export interface RosterRow {
 
 // 게시는 반 전체를 하루 한 번 하므로, 검토 중인 날짜에는 게시된 원아가 있을 수 없습니다.
 // 게시를 마친 날짜는 화면 전체가 잠기고 레일을 쓰지 않습니다 — 그래서 "게시됨" 상태가 없습니다.
-const STATE_LABEL: Record<RosterState, string> = {
+const STATE_LABEL_MAP: Record<RosterState, string> = {
   approved: "검토 완료",
   pending: "검토 필요",
 };
@@ -80,7 +80,7 @@ export function RosterList({ klassName, rows, selectedChildId, onSelect }: Roste
                   </span>
                 </span>
                 <span className={cn("text-label", done ? "text-brand-ink" : "text-ink-muted")}>
-                  {STATE_LABEL[state]}
+                  {STATE_LABEL_MAP[state]}
                 </span>
               </button>
             </li>

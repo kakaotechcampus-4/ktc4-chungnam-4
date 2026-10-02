@@ -9,7 +9,11 @@ interface ImportListProps {
   items: readonly LocalMedia[];
 }
 
-const KIND_LABEL: Record<MediaKind, string> = { photo: "사진", video: "영상", voice_memo: "녹음" };
+const KIND_LABEL_MAP: Record<MediaKind, string> = {
+  photo: "사진",
+  video: "영상",
+  voice_memo: "녹음",
+};
 
 function formatSize(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
@@ -48,7 +52,7 @@ export function ImportList({ items }: ImportListProps) {
               )}
             >
               <span className="rounded-full bg-neutral-soft px-2.5 py-1 text-caption font-bold text-ink">
-                {KIND_LABEL[item.kind]}
+                {KIND_LABEL_MAP[item.kind]}
               </span>
               <div className="flex min-w-0 flex-1 flex-col gap-2.25">
                 <p className="flex items-baseline gap-2.25 font-bold">

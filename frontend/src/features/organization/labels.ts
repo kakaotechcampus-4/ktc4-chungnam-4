@@ -10,7 +10,7 @@ import type {
 
 // ② 교사 · 반 · 원아 · 교육 계획 화면이 같이 쓰는 표시 문구입니다. 문구는 Figma 그대로입니다.
 
-export const AGE_BAND_LABELS: Record<AgeBand, { title: string; curriculum: string }> = {
+export const AGE_BAND_LABEL_MAP: Record<AgeBand, { title: string; curriculum: string }> = {
   infant: { title: "만 0~2세", curriculum: "표준보육과정 6영역" },
   preschool: { title: "만 3~5세", curriculum: "누리과정 5영역" },
 };
@@ -22,13 +22,13 @@ export const CONSENT_TYPES: readonly ConsentType[] = [
   "face_feature",
 ];
 
-export const CONSENT_LABELS: Record<ConsentType, string> = {
+export const CONSENT_LABEL_MAP: Record<ConsentType, string> = {
   personal_info: "개인정보 수집·이용 동의",
   activity_media: "활동 사진·영상 촬영 동의",
   face_feature: "얼굴 특징정보 처리 동의",
 };
 
-export const FACE_STATUS_LABELS: Record<FaceStatus, string> = {
+export const FACE_STATUS_LABEL_MAP: Record<FaceStatus, string> = {
   registered: "얼굴 정보 등록됨",
   unregistered: "얼굴 정보 미등록",
   locked: "등록 잠김",
@@ -42,7 +42,7 @@ export const NURI_DOMAINS: readonly NuriDomain[] = [
   "nature",
 ];
 
-export const NURI_DOMAIN_LABELS: Record<NuriDomain, string> = {
+export const NURI_DOMAIN_LABEL_MAP: Record<NuriDomain, string> = {
   physical: "신체운동",
   communication: "의사소통",
   social: "사회관계",
@@ -50,14 +50,14 @@ export const NURI_DOMAIN_LABELS: Record<NuriDomain, string> = {
   nature: "자연탐구",
 };
 
-export const PLAN_TYPE_LABELS: Record<PlanType, string> = {
+export const PLAN_TYPE_LABEL_MAP: Record<PlanType, string> = {
   weekly: "주간 계획",
   monthly: "월간 계획",
 };
 
 export const WEEKDAYS: readonly Weekday[] = ["mon", "tue", "wed", "thu", "fri"];
 
-export const WEEKDAY_LABELS: Record<Weekday, string> = {
+export const WEEKDAY_LABEL_MAP: Record<Weekday, string> = {
   mon: "월",
   tue: "화",
   wed: "수",

@@ -8,7 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { consentSummary, FACE_STATUS_LABELS, faceStatus } from "@/features/organization/labels";
+import { consentSummary, FACE_STATUS_LABEL_MAP, faceStatus } from "@/features/organization/labels";
 import type { ClassChild } from "@/types/api-draft/organization";
 
 interface ChildRowProps {
@@ -39,7 +39,7 @@ export function ChildRow({ child, klassName }: ChildRowProps) {
         {consentSummary(child.consent_agreed_count, child.consent_total)}
       </p>
       <p className="w-50 shrink-0 text-body text-ink-muted">
-        {FACE_STATUS_LABELS[faceStatus(child)]}
+        {FACE_STATUS_LABEL_MAP[faceStatus(child)]}
       </p>
       <div className="w-47.5 shrink-0 text-body text-ink-muted">
         {child.parent_linked ? (

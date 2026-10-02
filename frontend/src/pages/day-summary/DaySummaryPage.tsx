@@ -39,7 +39,7 @@ import { nickname } from "./nickname";
 
 const CLASSIFICATION = "/t/today/classification";
 
-const SPEAKER_TAG: Record<TranscriptSpeaker, string> = {
+const SPEAKER_LABEL_MAP: Record<TranscriptSpeaker, string> = {
   child: "아이의 말",
   teacher_observation: "교사의 관찰",
   together: "함께 한 말",
@@ -111,7 +111,7 @@ export function DaySummaryPage() {
       kind: "speech",
       at: spokenAt,
       media: null,
-      tag: segment.speaker ? SPEAKER_TAG[segment.speaker] : "발화",
+      tag: segment.speaker ? SPEAKER_LABEL_MAP[segment.speaker] : "발화",
       text: `“${segment.text}”`,
       meta: `${speechLabel(number)} · ${clip.file.name}`,
       removed: false,
