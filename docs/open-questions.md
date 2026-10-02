@@ -9,7 +9,6 @@
 - [ ] `.editorconfig` + pre-commit 훅 도입 여부
 - [x] ~~Ruff가 아직 설치·설정되지 않음~~ — 09/21 `requirements-dev.in`에 추가하고 `backend/ruff.toml` 생성. 줄 길이는 `backend/CLAUDE.md` §코드 스타일의 100자를 따릅니다. 절차는 `backend/README.md` §린트와 포맷
 - [ ] 에러 응답의 세부 필드명 — `detail` vs `details` vs 생략
-- [ ] **(제안, 김동건 10/02) FE 상수 이름 접미사** — PR #92 멘토 리뷰(`TAG` → `TAG_CLASS`, `Record`에 `_MAP`) 반영. 지금은 `_LABEL`·`_LABELS`·접미사 없음이 섞여 있습니다. 제안: 키로 꺼내 쓰는 `Record` 조회표는 `<키>_<값>_MAP`, CSS 클래스 문자열은 `_CLASS`. 조회표로 쓰지 않는 `Record`(기본값 `EMPTY_DAILY`, 목 데이터 `ACCOUNTS` 등)와 `_BY_` 관례(`KIND_BY_EXTENSION`)는 그대로 둡니다. `frontend/CLAUDE.md` §코드 스타일 한 줄과 기존 이름 변경을 `refactor/fe/constant-naming` PR로 올림 — FE 승인 전
 
 ## B. 구조 · 인프라
 
