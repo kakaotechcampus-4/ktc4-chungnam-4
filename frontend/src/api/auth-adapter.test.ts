@@ -39,6 +39,22 @@ describe("auth adapter", () => {
       toSessionView({ account_id: "a1", account_type: "role:teacher" } as unknown as SessionCreated)
         .account_type,
     ).toBe("unknown");
+    expect(warn).toHaveBeenCalledWith("모르는 계정 역할", "role:teacher");
+    warn.mockRestore();
+  });
+
+  it("모르는 역할이 긴 문자열이나 객체면 앞부분이나 종류만 경고로 남긴다", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const long = "x".repeat(100);
+
+    toSessionView({ account_id: "a1", account_type: long } as unknown as SessionCreated);
+    toSessionView({
+      account_id: "a1",
+      account_type: { email: "a@example.com" },
+    } as unknown as SessionCreated);
+
+    expect(warn).toHaveBeenNthCalledWith(1, "모르는 계정 역할", "x".repeat(32));
+    expect(warn).toHaveBeenNthCalledWith(2, "모르는 계정 역할", "object");
     warn.mockRestore();
   });
 

@@ -51,8 +51,9 @@ export interface LoginInput {
 }
 
 // 서버 타입에 없는 역할이 오면 값만 남기고(H-4: 이메일·이름은 찍지 않음) "unknown"으로 둡니다.
+// 역할 자리에 객체나 긴 문자열이 와도 콘솔에 통째로 남지 않게, 문자열은 앞 32자만, 나머지는 종류만 찍습니다.
 function warnUnknownRole(value: unknown): "unknown" {
-  console.warn("모르는 계정 역할", value);
+  console.warn("모르는 계정 역할", typeof value === "string" ? value.slice(0, 32) : typeof value);
   return "unknown";
 }
 
