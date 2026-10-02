@@ -7,7 +7,7 @@ import { childOverviewQueryOptions, childQueryOptions } from "@/api/organization
 import { FocusCard } from "@/components/common/FocusCard";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
-import { faceStatus, NURI_DOMAIN_LABELS, NURI_DOMAINS } from "@/features/organization/labels";
+import { faceStatus, NURI_DOMAIN_LABEL_MAP, NURI_DOMAINS } from "@/features/organization/labels";
 import { ApiError } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { formatDate, formatWeekday, kstToday } from "@/lib/datetime";
@@ -184,7 +184,9 @@ export function ChildDetailPage() {
                       key={domain}
                       className="flex flex-col gap-0.5 rounded-md bg-paper px-3 py-2.5"
                     >
-                      <dt className="text-caption text-ink-muted">{NURI_DOMAIN_LABELS[domain]}</dt>
+                      <dt className="text-caption text-ink-muted">
+                        {NURI_DOMAIN_LABEL_MAP[domain]}
+                      </dt>
                       <dd className="text-nav font-bold text-ink">
                         {overview.domain_counts[domain]}
                       </dd>
