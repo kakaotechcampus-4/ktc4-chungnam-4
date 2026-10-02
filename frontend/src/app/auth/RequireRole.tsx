@@ -1,18 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { Navigate, Outlet } from "react-router";
 
-import { meQueryOptions } from "@/api/auth";
+import { type AccountRole, meQueryOptions } from "@/api/auth";
 import { loginNoticeState } from "@/features/auth/login-notice";
-import type { AccountType } from "@/types/api-draft/auth";
 
 import { isUnauthenticated } from "./auth-errors";
 import { StandaloneForbidden } from "./StandaloneForbidden";
 
 interface RequireRoleProps {
-  role: AccountType;
+  role: AccountRole;
 }
 
 // 영역(교사 /t, 학부모 /p) 입구의 가드입니다. /me의 account_type으로 판단합니다.
+// - 역할을 알 수 없는 계정(unknown)은 어느 영역에도 들어가지 못합니다(H-1).
 // - 로그인이 안 됐으면 로그인 화면으로 보냅니다. 서버 문구를 함께 넘겨 로그인 화면이 이유를 보여 줍니다.
 // - 역할이 다르면 주소는 그대로 두고 내비 없이 접근 권한 없음을 보여 줍니다.
 // - /me를 받는 동안은 아무것도 그리지 않습니다. 받은 적이 없는데 실패하면 위의 에러 경계로 넘깁니다.
