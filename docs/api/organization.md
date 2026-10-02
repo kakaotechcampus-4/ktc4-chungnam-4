@@ -16,7 +16,7 @@
 - [ ] 학부모 게이트용 `is_parent_of`(가칭)와 `graduated_at` 조회 함수 제공
 - [ ] 이름만 표시하려고 `given_name`을 둘지(이 문서에서는 FE가 성을 뗌)
 - [ ] 경로만 정한 동의 API 대비: ConsentRecord.status 값, `consent_type` 코드(`personal_info`·`activity_media`·`face_feature` 제안)
-  - `consent_type` 코드 → 임시 결정(이한나): 제안값 그대로 씀. 반영: §② 화면용으로 채운 엔드포인트의 `ChildDetail`. ConsentRecord.status는 아직 미정
+  - `consent_type` 코드 → 확정(이한나, #38): `personal_info`·`activity_media`·`face_feature`. 반영: 테크스펙 데이터 모델 ②, `organization/models.py`, §② 화면용으로 채운 엔드포인트의 `ChildDetail`. ConsentRecord.status 값(`agreed`/`revoked`)은 모델에 있으나 API 노출 여부는 아직 미정
 - [ ] 09-22 결정(PR #39) 반영: 학부모가 원아별 초대 링크로 가입하며 직접 동의함(FR-28, 교사의 동의 등록 FR-01은 폐기). 동의 확인 모달의 `POST /api/v1/children/{child_id}/consents`를 초대 수락으로 옮길지, 철회(FR-22)를 학부모도 할지(엄태은과 함께)
 - [ ] develop(PR #14)의 학부모 알림장 API는 `child_id` 없이 로그인한 학부모 기준이라, W3 자녀 칩 전환과 `access_expired` 자녀의 `CHILD_ACCESS_EXPIRED` 차단을 어떻게 할지(한상균과 함께)
 - [ ] `organization/CLAUDE.md`의 `/organization` 표기 수정

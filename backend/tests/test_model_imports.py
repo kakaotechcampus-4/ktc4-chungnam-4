@@ -15,6 +15,7 @@ import pytest
         "domains.audit.models",
         "domains.face.models",
         "domains.media.models",
+        "domains.organization.models",
     ],
 )
 def test_model_import_does_not_initialize_database(module_name: str) -> None:

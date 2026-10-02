@@ -65,7 +65,7 @@
 - [ ] 동의서 법적 문구 확정 (테크스펙 데이터모델 ② "수정 필요")
 - [ ] 어린이집 가입 코드(`center_code`) 형식·발급 방식 — 길이, 문자셋, 재발급 가능 여부 (FR-23, FR-24)
 - [ ] 교사가 직접 만든 어린이집의 중복 검증 — 같은 이름·주소가 이미 있을 때 막을지, 합칠지, 그냥 둘지 (FR-24)
-- [ ] 이미 담당 교사가 있는 반을 다른 교사가 선택했을 때 — 거부 / 교체 / 계정 공유 안내 중 무엇인지 (FR-25, 테크스펙 A-6)
+- [ ] `Klass.teacher_id` 컬럼을 유지할지(반 생성 기록용) 삭제할지 — 담당교사 개념 폐지로 접근 권한 판단에는 쓰지 않음 (`backend/domains/organization/models.py`)
 - [ ] 초안에 교사 이름을 **어디에 어떤 형식으로** 넣을지 — 본문 안 문구(예: "담임 OO 드림") vs 문서 메타 필드. 현재 스펙은 메타 필드 + 서버 렌더링 기준 (FR-26)
 - [ ] `DraftDocument.author_teacher_id` 컬럼 추가 — 마이그레이션 시점·BE 리드 확인 필요 (FR-26)
 - [ ] `Center.center_code`/`created_by_teacher_id` 컬럼 추가 — 마이그레이션 시점·BE 리드 확인 필요 (FR-23, FR-24)
@@ -107,6 +107,8 @@
 - 동의 철회 시 임베딩 **즉시 물리 삭제** + 이력 + `DeletionLog` (FR-22, 09/11) → `backend/CLAUDE.md` §DB
 - `consent_type` 등급: 개인정보수집이용·촬영은 **필수**, 얼굴특징정보처리는 **선택** (09/13) → 테크스펙 전제조건
 - 동의 **번호 ①②③ = `consent_type` 1:1** (09/20) — ①개인정보수집이용 ②활동사진영상촬영 ③얼굴특징정보처리. 거부 가능한 것은 ③뿐 → 테크스펙 전제조건·데이터 모델 ②
+- `consent_type` 저장 값: `personal_info` / `activity_media` / `face_feature` (#38) → 테크스펙 데이터 모델 ②, `domains/organization/models.py`, `docs/api/organization.md`
+- **담당교사 개념 폐지 — center 소속 교사는 모든 반에 접근** (FR-25, 팀 회의 결정). "이미 담당 교사가 있는 반을 다른 교사가 선택했을 때" 항목은 이 결정으로 닫음 → 테크스펙 데이터 모델 ①·온보딩 1, `domains/organization/CLAUDE.md`. `teacher_id` 존치는 §C에 남김
 - 보관 기한 **졸업 후 1년** (09/12) → 테크스펙 NFR-03
 - **접근 차단과 파기를 분리** (09/19) — 접근은 `Child.graduated_at`+1년으로 조회 시점 판정, 파기는 귀속 원아 전원 만료 시. `MediaAsset.retention_expires_at` **컬럼 삭제** → 테크스펙 NFR-03·NFR-03-b, `backend/CLAUDE.md` §DB
 - **단체사진: 얼굴 블러 폐기.** 미동의 원아가 귀속된 사진은 S3에 올리고 **LLM 경로에서만 제외** (09/13) → 루트 H-2·H-3, `frontend/CLAUDE.md` §온디바이스, `domains/media`
