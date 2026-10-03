@@ -41,7 +41,7 @@ def test_메타_주석과_자리표시자가_남지_않고_버전이_들어간�
     assert "PROMPT_VERSION" not in prompt.instructions
     assert "{{" not in prompt.instructions
     assert "}}" not in prompt.instructions
-    assert prompt.version == PROMPT_VERSION == "photo_analysis.v1"
+    assert prompt.version == PROMPT_VERSION == "photo_analysis.v2"
 
 
 def test_사진_목록이_참조_순서대로_렌더링된다():
@@ -67,7 +67,10 @@ def test_사진_목록이_참조_순서대로_렌더링된다():
         ("어른은 세지 않는다", "센 수가 아니라 이 수로 정한다"),  # scope 기준은 목록의 아이 수
         ("1명", '"individual"'),  # 다인원 귀속
         ("아이가 여럿 보여", "정할 수 없으면 관찰을 쓰지 않는다"),
-        ("2명 이상", "함께 하는 장면만", '"group"'),
+        ("2명 이상", "같은 활동을 함께 하고 있을 때만", '"group"'),
+        ("한 아이라도 다른 행동을", "group을 쓰지 않는다"),  # v2: 각자 노는 장면에 group 금지
+        ("카메라를 바라보거나", "포즈", "관찰로 쓰지 않는다"),  # v2: 활동 없는 장면 제외
+        ("위치·역할", "구분하지"),  # v2: "한 아이가"처럼 특정 아이 지목 금지
         ("일부 아이만", "쓰지 않는다"),
         ("최대 3개", "한 문장"),
         ("빈 배열", "no_observation_reason에 짧은 이유"),  # 관찰 없음

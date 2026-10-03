@@ -25,7 +25,7 @@ from pydantic import ConfigDict, Field, model_validator
 
 from tools.contracts import ContractModel, NonEmpty
 
-PROMPT_VERSION = "photo_analysis.v1"
+PROMPT_VERSION = "photo_analysis.v2"
 
 _TEMPLATE_PATH = Path(__file__).with_name("photo_analysis.md")
 _PHOTO_LIST_SLOT = "{{PHOTO_LIST}}"
