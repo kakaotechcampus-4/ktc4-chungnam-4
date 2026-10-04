@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { faceEmbeddingsQueryOptions } from "@/api/media";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
+import { useClipUploads } from "@/features/classify/clip-upload";
 import { isPhoto, useUploadQueue } from "@/features/upload-queue/upload-queue-store";
 import { useInterval } from "@/lib/use-interval";
 
@@ -20,7 +21,9 @@ const TOTAL_TICKS = 20;
 
 // 사진만 분류합니다. 영상·음성 메모는 로컬 처리 대상이 아닙니다(frontend/CLAUDE.md §온디바이스).
 // 반 임베딩은 분류를 시작할 때 한 번 받습니다(API 문서 §face).
+// 영상·음성은 분류와 동시에 먼저 올려 서버 STT를 돌립니다(④ 김동건, #83 리뷰). 화면을 떠나도 업로드는 이어집니다.
 export function ClassifyStep({ onDone, onCancel }: ClassifyStepProps) {
+  useClipUploads();
   const items = useUploadQueue((state) => state.items);
   const setClassification = useUploadQueue((state) => state.setClassification);
   const photos = useMemo(() => items.filter(isPhoto), [items]);
@@ -71,7 +74,7 @@ export function ClassifyStep({ onDone, onCancel }: ClassifyStepProps) {
       title="아이별로 자료를 모으고 있어요"
       detail={`이 기기에서 안전하게 분석 중 · ${classified} / ${photos.length}장`}
       percent={percent}
-      stepIndex={1}
+      step="classify"
       note={
         "원본 사진은 아직 서버로 보내지 않아요.\n분류가 끝나면 선생님이 결과를 확인할 수 있어요."
       }

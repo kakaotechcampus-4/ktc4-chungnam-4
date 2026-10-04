@@ -16,12 +16,17 @@ RETRYABLE_LLM_ERRORS: tuple[type[Exception], ...] = (
 # 게이트웨이의 모델 ID 형식(제공자/모델명)을 그대로 사용
 _MODEL = get_settings().anthropic_model
 
+# SDK 기본값(10분)이면 Celery soft_time_limit(180초)이 먼저 끊어 SDK 재시도가 돌지 못함
+# 1회 호출 상한을 둬서 느린 호출은 SDK가 끊고 다시 시도하게 함 (테크스펙 파이프라인 4단계)
+_TIMEOUT_SECONDS = 30
+
 
 def call_claude(prompt: str) -> str:
     settings = get_settings()
     client = OpenAI(
         api_key=settings.anthropic_api_key.get_secret_value(),
         base_url=settings.llm_gateway_base_url,
+        timeout=_TIMEOUT_SECONDS,
     )
     response = client.chat.completions.create(
         model=_MODEL,

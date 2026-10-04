@@ -24,7 +24,7 @@ class _DraftTask(Task):
         service.mark_job_failed(_job_id(args, kwargs))
 
 
-# 재시도 상한 2회·타임아웃 60초 (테크스펙 파이프라인 4. 오케스트레이터).
+# 재시도 상한 2회·타임아웃 180초 — LLM을 최대 약 10회 부르는 경로 기준 (테크스펙 파이프라인 4단계).
 # retry_backoff: 재시도 간격은 스펙에 없다. Celery 기본값(180초 고정)은 교사가 진행 화면을
 # 보는 동안 너무 길어서 1초부터 늘리는 방식을 임시로 골랐다 — 팀 확인 필요.
 @celery_app.task(
@@ -33,7 +33,7 @@ class _DraftTask(Task):
     autoretry_for=RETRYABLE_ERRORS,
     max_retries=2,
     retry_backoff=True,
-    soft_time_limit=60,
+    soft_time_limit=180,
 )
 def generate_drafts(self, job_id: str, child_id: str) -> None:
     service.orchestrate_drafts(job_id, child_id)

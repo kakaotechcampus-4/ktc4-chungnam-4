@@ -30,7 +30,7 @@ export function ModelStep({ onDone, onCancel }: ModelStepProps) {
       title="분석 모델을 준비하고 있어요"
       detail={`처음 한 번만 다운로드해요 · ${loadedMb} / ${MODEL_MB} MB`}
       percent={Math.round((loadedMb / MODEL_MB) * 100)}
-      stepIndex={0}
+      step="model"
       note={"분석 모델은 이 기기에 저장돼요.\n준비가 끝나면 사진과 발화를 분류합니다."}
       onCancel={onCancel}
     />

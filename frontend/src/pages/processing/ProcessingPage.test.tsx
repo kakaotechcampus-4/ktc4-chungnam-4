@@ -5,7 +5,7 @@ import { http, HttpResponse } from "msw";
 
 import { isPhoto, useUploadQueue } from "@/features/upload-queue/upload-queue-store";
 import { fixtureId } from "@/mocks/fixtures/ids";
-import { apiPath } from "@/mocks/http";
+import { apiPath, errorResponse } from "@/mocks/http";
 import { server } from "@/mocks/server";
 import { renderRoutes } from "@/test/render";
 import type { Job } from "@/types/api-draft/agents";
@@ -143,6 +143,46 @@ describe("ProcessingPage", () => {
     });
     expect(writes[4]?.body).toMatchObject({ media_ids: [mediaId] });
     expect(useUploadQueue.getState().items).toEqual([]);
+  });
+
+  it("이미 돌고 있는 초안 작업이 있으면 409 문구 없이 그 작업의 진행률을 이어서 본다", async () => {
+    // 전송을 마친 뒤 새로고침한 경우입니다. 큐는 비어 있어 전송할 것이 없고, 초안 생성은 새 request_id로 다시 요청합니다.
+    const runningJobId = fixtureId("job", 9);
+    const polledJobIds: string[] = [];
+    server.use(
+      http.post(apiPath("/classes/:classId/jobs"), () =>
+        errorResponse(409, "JOB_ALREADY_RUNNING", "이미 초안을 만들고 있어요.", {
+          job_id: runningJobId,
+        }),
+      ),
+      // 첫 조회는 진행 중으로 두어, 초안 검토로 넘어가기 전 화면을 확인합니다.
+      http.get(apiPath("/jobs/:jobId"), ({ params }) => {
+        polledJobIds.push(String(params.jobId));
+        return HttpResponse.json<Job>({
+          job_id: String(params.jobId),
+          class_id: fixtureId("class", 1),
+          record_date: "2026-09-15",
+          status: "running",
+          stage: "generating",
+          progress: { percent: 50, total_children: 2, finished_children: 1 },
+          failed_stage: null,
+          error_code: null,
+          children: [],
+          created_at: "2026-09-15T06:30:00Z",
+          updated_at: "2026-09-15T06:31:00Z",
+        });
+      }),
+    );
+    const { router } = renderProcessing("/t/today/processing?step=send");
+
+    const progress = await screen.findByRole("progressbar", {
+      name: "오늘의 기록을 문장으로 정리해요",
+    });
+    await waitFor(() => expect(progress).toHaveAttribute("aria-valuenow", "50"));
+    expect(screen.getByText("50%")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(polledJobIds).toContain(runningJobId);
+    expect(router.state.location.pathname).toBe("/t/today/processing");
   });
 
   it("불러온 자료 없이 들어오면 자료 올리기로 보낸다", async () => {

@@ -9,6 +9,9 @@ import type {
   MediaCompleteRequest,
   MediaType,
   MediaUrlDetail,
+  TranscriptSegmentsResponse,
+  TranscriptSegmentUpdateRequest,
+  TranscriptSpeaker,
   UploadUrlItem,
   UploadUrlsRequest,
   UploadUrlsResponse,
@@ -28,16 +31,25 @@ import {
   SUNSHINE_CHILDREN,
   SUNSHINE_CLASS,
 } from "../fixtures/organization";
+import { findSegment, transcriptFor, transcriptStatus } from "../fixtures/transcripts";
 import { requireTeacher, requireTeacherOfClass } from "../guards";
 import { apiPath, errorResponse, listResponse, validationError } from "../http";
 import { isMockScenario } from "../scenario";
 
 // API 문서 §media·face 목입니다. 업로드는 URL 발급 → S3 PUT → 완료 통지 → 귀속 저장 순서로 이어지고,
 // 실패한 파일은 같은 순서를 다시 밟습니다(URL을 새로 받음). 상태는 mocks/db.ts에 남습니다.
-// 시나리오: media.s3-put-fails(S3 PUT이 연결 오류), media.embeddings-empty(얼굴 임베딩 없음 → 모두 수동 분류)
+// 시나리오: media.s3-put-fails(S3 PUT이 연결 오류), media.embeddings-empty(얼굴 임베딩 없음 → 모두 수동 분류),
+//         media.stt-fails(서버 STT 실패 → 발화 없음)
 
 const MEDIA_TYPES: readonly MediaType[] = ["photo", "video", "voice_memo"];
 const ATTRIBUTION_METHODS = ["face_recognition", "manual"];
+const SPEAKERS: readonly (TranscriptSpeaker | null)[] = [
+  "child",
+  "teacher_observation",
+  "together",
+  null,
+];
+const CLASS_CHILD_IDS = new Set(SUNSHINE_CHILDREN.map((child) => child.child_id));
 
 function uploadUrl(clientPhotoId: string) {
   return `${MOCK_S3_ORIGIN}/uploads/${clientPhotoId}?X-Amz-Expires=900&X-Amz-Signature=mock`;
@@ -216,8 +228,7 @@ export const handlers = [
       const media = db.media[String(params.mediaId)];
       if (!media) return { error: "not-found" } as const;
       if (media.class_id !== SUNSHINE_CLASS.class_id) return { error: "class" } as const;
-      const classChildIds = new Set(SUNSHINE_CHILDREN.map((child) => child.child_id));
-      if (!links.every((link) => classChildIds.has(link.child_id))) {
+      if (!links.every((link) => CLASS_CHILD_IDS.has(link.child_id))) {
         return { error: "not-in-class" } as const;
       }
       // (제안) 전체 교체: 보낸 목록이 최종 상태입니다.
@@ -271,5 +282,59 @@ export const handlers = [
       model_version: MODEL_VERSION,
     }));
     return listResponse(items);
+  }),
+
+  // ── 발화 구간(임시 결정, 김동건). 영상·음성은 분류와 함께 먼저 올라가고, 교사가 분류 확인 단계에서 연결합니다. ──
+  http.get(apiPath("/media/:mediaId/transcript-segments"), ({ params }) => {
+    const denied = requireTeacher();
+    if (denied) return denied;
+    const media = readDb().media[String(params.mediaId)];
+    if (!media) return errorResponse(404, "MEDIA_ASSET_NOT_FOUND", "파일을 찾을 수 없어요.");
+    const classDenied = requireTeacherOfClass(media.class_id);
+    if (classDenied) return classDenied;
+    if (media.type === "photo") {
+      return errorResponse(400, "MEDIA_HAS_NO_AUDIO", "사진에는 발화가 없어요.");
+    }
+    const record = transcriptFor(media.media_id, media.type, isMockScenario("media.stt-fails"));
+    const status = transcriptStatus(record);
+    return HttpResponse.json<TranscriptSegmentsResponse>({
+      media_id: media.media_id,
+      transcript_status: status,
+      items: status === "done" ? record.segments : [],
+    });
+  }),
+
+  http.patch(apiPath("/transcript-segments/:segmentId"), async ({ params, request }) => {
+    const denied = requireTeacher();
+    if (denied) return denied;
+    const found = findSegment(String(params.segmentId));
+    if (!found) {
+      return errorResponse(404, "TRANSCRIPT_SEGMENT_NOT_FOUND", "발화를 찾을 수 없어요.");
+    }
+    const media = readDb().media[found.record.media_id];
+    const classDenied = requireTeacherOfClass(media?.class_id);
+    if (classDenied) return classDenied;
+    const body = (await request.json()) as TranscriptSegmentUpdateRequest;
+    if (body.text !== undefined && !body.text.trim()) {
+      return validationError("body.text", "문장을 비울 수 없습니다");
+    }
+    if (body.speaker !== undefined && !SPEAKERS.includes(body.speaker)) {
+      return validationError("body.speaker", "child, teacher_observation, together 중 하나입니다");
+    }
+    if (body.child_ids !== undefined) {
+      if (new Set(body.child_ids).size !== body.child_ids.length) {
+        return errorResponse(400, "DUPLICATE_CHILD_LINK", "같은 원아가 두 번 들어 있어요.");
+      }
+      if (!body.child_ids.every((childId) => CLASS_CHILD_IDS.has(childId))) {
+        return errorResponse(400, "CHILD_NOT_IN_CLASS", "이 반의 원아가 아니에요.");
+      }
+    }
+    const { segment } = found;
+    if (body.text !== undefined) segment.text = body.text.trim();
+    if (body.speaker !== undefined) segment.speaker = body.speaker;
+    if (body.child_ids !== undefined) segment.child_ids = body.child_ids;
+    if (body.excluded !== undefined) segment.excluded = body.excluded;
+    segment.reviewed_at = nowIso();
+    return HttpResponse.json(segment);
   }),
 ];

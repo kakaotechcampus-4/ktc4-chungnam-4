@@ -1,7 +1,12 @@
 import { queryOptions } from "@tanstack/react-query";
 
 import { api } from "@/lib/api-client";
-import type { Job, JobCreateRequest } from "@/types/api-draft/agents";
+import type {
+  Job,
+  JobCreateRequest,
+  TeacherEvidence,
+  TeacherEvidenceUpsertRequest,
+} from "@/types/api-draft/agents";
 import type { ListResponse } from "@/types/api-draft/common";
 
 // 초안 생성 작업(Job) 요청과 query key는 이 파일에서만 만듭니다(frontend/CLAUDE.md §데이터).
@@ -48,4 +53,39 @@ export function classJobsQueryOptions(classId: string, recordDate: string) {
         })
       ).items,
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 아래는 ④ 아이별 하루 확인 화면(김동건)이 쓰는 가정 API입니다(types/api-draft/agents.ts 아래쪽 참고).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const evidenceKeys = {
+  classEvidence: (classId: string, recordDate: string) =>
+    ["classes", classId, "evidence", recordDate] as const,
+};
+
+/** (가정) 그날 반에서 남긴 추가 근거(아이마다 최대 한 건). */
+export function classEvidenceQueryOptions(classId: string, recordDate: string) {
+  return queryOptions({
+    queryKey: evidenceKeys.classEvidence(classId, recordDate),
+    queryFn: async ({ signal }) =>
+      (
+        await api.get<ListResponse<TeacherEvidence>>(
+          `/classes/${encodeURIComponent(classId)}/evidence`,
+          { query: { record_date: recordDate }, signal },
+        )
+      ).items,
+  });
+}
+
+/** (가정) 그날의 추가 근거를 저장합니다. 이미 있으면 덮어씁니다. */
+export function saveTeacherEvidence(
+  childId: string,
+  recordDate: string,
+  body: TeacherEvidenceUpsertRequest,
+) {
+  return api.put<TeacherEvidence>(
+    `/children/${encodeURIComponent(childId)}/evidence/${encodeURIComponent(recordDate)}`,
+    body,
+  );
 }
