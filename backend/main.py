@@ -18,7 +18,18 @@ async def lifespan(app: FastAPI):
     engine.dispose()
 
 
-app = FastAPI(title=get_settings().app_name, lifespan=lifespan)
+# 운영에서는 API 목록·스키마를 공개하지 않습니다. Caddy가 경로 제한 없이
+# 프록시하므로 끄지 않으면 /docs·/redoc·/openapi.json이 그대로 외부에
+# 열립니다. 로컬·테스트에서는 프론트가 스키마를 봐야 하므로 켜둡니다.
+_docs_public = get_settings().app_env != "production"
+
+app = FastAPI(
+    title=get_settings().app_name,
+    lifespan=lifespan,
+    docs_url="/docs" if _docs_public else None,
+    redoc_url="/redoc" if _docs_public else None,
+    openapi_url="/openapi.json" if _docs_public else None,
+)
 app.include_router(documents_router)
 
 

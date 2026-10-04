@@ -1,17 +1,28 @@
-import { render, screen, within } from "@testing-library/react";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import { screen, waitFor, within } from "@testing-library/react";
+import { http, HttpResponse } from "msw";
+
+import { authKeys } from "@/api/auth";
+import { organizationKeys } from "@/api/organization";
+import { selectClass, useCurrentClassStore } from "@/features/class-context/current-class-store";
+import { TEACHER_ME } from "@/mocks/fixtures/auth";
+import { fixtureId } from "@/mocks/fixtures/ids";
+import { SUNSHINE_CLASS } from "@/mocks/fixtures/organization";
+import { apiPath, errorResponse, listResponse } from "@/mocks/http";
+import { server } from "@/mocks/server";
+import { renderRoutes } from "@/test/render";
 
 import { TeacherLayout } from "./TeacherLayout";
 
 function renderAt(path: string) {
-  const router = createMemoryRouter(
+  return renderRoutes(
     [{ path: "/t", Component: TeacherLayout, children: [{ path: "*", element: <p>본문</p> }] }],
-    { initialEntries: [path] },
+    { initialEntry: path },
   );
-  render(<RouterProvider router={router} />);
 }
 
 describe("TeacherLayout", () => {
+  afterEach(() => useCurrentClassStore.setState({ selectedClassId: null }));
+
   it("메뉴 다섯 개와 본문을 보여 준다", async () => {
     renderAt("/t/today");
 
@@ -45,5 +56,67 @@ describe("TeacherLayout", () => {
     renderAt("/t/notes");
 
     expect(await screen.findByRole("link", { name: "아이담" })).toHaveAttribute("href", "/t");
+  });
+  // 목 API를 쓰는 컴포넌트 테스트 예시입니다. 성공은 기본 핸들러, 빈 상태는 server.use로 덮어씁니다.
+  it("어린이집과 반 이름을 /classes에서 받아 보여 준다", async () => {
+    // 기본 픽스처는 예전 고정값과 같은 이름이라, 다른 이름으로 응답해서 응답으로 그리는지 확인합니다.
+    server.use(
+      http.get(apiPath("/classes"), () =>
+        listResponse([{ ...SUNSHINE_CLASS, center_name: "달님어린이집", name: "달님반" }]),
+      ),
+    );
+    renderAt("/t/today");
+
+    expect(await screen.findByText("달님어린이집 / 달님반")).toBeInTheDocument();
+  });
+
+  it("반을 골랐으면 첫 번째 반이 아니라 고른 반을 보여 준다", async () => {
+    const star = { ...SUNSHINE_CLASS, class_id: fixtureId("class", 2), name: "별님반" };
+    server.use(http.get(apiPath("/classes"), () => listResponse([SUNSHINE_CLASS, star])));
+    selectClass(star.class_id);
+    renderAt("/t/today");
+
+    expect(await screen.findByText("햇살어린이집 / 별님반")).toBeInTheDocument();
+  });
+
+  it("교사 이름을 /me에서 받아 보여 준다", async () => {
+    server.use(http.get(apiPath("/me"), () => HttpResponse.json({ ...TEACHER_ME, name: "박별" })));
+    renderAt("/t/today");
+
+    expect(await screen.findByRole("link", { name: "박별 선생님" })).toHaveAttribute(
+      "href",
+      "/t/settings",
+    );
+  });
+
+  it("계정 설정에 있으면 교사 이름 링크를 현재 페이지로 표시한다", async () => {
+    renderAt("/t/settings");
+
+    expect(await screen.findByRole("link", { name: "김하늘 선생님" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
+  it("로그인이 끊겼으면 교사 이름 자리를 비운다", async () => {
+    server.use(
+      http.get(apiPath("/me"), () => errorResponse(401, "UNAUTHENTICATED", "로그인이 필요해요.")),
+    );
+    const { queryClient } = renderAt("/t/today");
+
+    // 응답이 온 뒤에 확인합니다. 먼저 보면 요청 전이라 항상 통과합니다.
+    await waitFor(() => expect(queryClient.getQueryState(authKeys.me())?.status).toBe("error"));
+    expect(screen.queryByText(/선생님$/)).not.toBeInTheDocument();
+  });
+
+  it("담당 반이 없으면 반 이름 자리를 비운다", async () => {
+    server.use(http.get(apiPath("/classes"), () => listResponse([])));
+    const { queryClient } = renderAt("/t/today");
+
+    // 응답이 온 뒤에 확인합니다. 먼저 보면 요청 전이라 항상 통과합니다.
+    await waitFor(() =>
+      expect(queryClient.getQueryState(organizationKeys.classes())?.status).toBe("success"),
+    );
+    expect(screen.queryByText(/햇살반/)).not.toBeInTheDocument();
   });
 });

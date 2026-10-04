@@ -31,15 +31,17 @@
 
 ## 데이터
 
-- **API 목록은 FE가 먼저 뽑습니다**(09/13 결정, 규칙 전문은 `backend/CLAUDE.md`의 API 규약 부분). 화면 흐름과 Figma에서 필요한 API를 뽑아 인터페이스 명세(노션, **저장소 미반영**)에 올립니다. 명세에 없는 화면을 만들기 전에 명세를 먼저 고칩니다.
+- **API 목록은 FE가 먼저 뽑습니다**(09/13 결정, 규칙 전문은 `backend/CLAUDE.md`의 API 규약 부분). 화면 흐름과 Figma에서 필요한 API를 뽑아 인터페이스 명세(`docs/api/`, 도메인별 파일)에 올립니다. 명세에 없는 화면을 만들기 전에 명세를 먼저 고칩니다(PR).
 - 요청·응답·에러 형식 규약은 `docs/테크스펙.md`의 공통 API 규약 부분이 원본입니다. 프론트는 `error.code`로 분기하고 `message`는 그대로 보여 줍니다.
 - BE 라우터가 생기기 전까지 타입은 `types/api-draft/<도메인>.ts`에 손으로 씁니다. 명세를 먼저 고치고 타입을 맞춥니다. 라우터가 생기면 `types/api.ts`(openapi-typescript 생성)로 바꿉니다 — 생성 파일은 직접 수정하지 않고, 타입이 안 맞으면 BE의 스키마를 고칩니다.
-- 모든 호출은 `api/<도메인>.ts`의 요청 함수를 거칩니다. 컴포넌트에서 `fetch`를 직접 부르지 않습니다. 공통 진입점 `lib/api-client.ts`는 FE 리드가 만드는 PR에서 들어오고, 그때 요청 함수 안만 바뀝니다.
-- 401은 로그인 화면으로, 403은 "접근 권한 없음" 화면으로 보냅니다. 예외는 두 개입니다 — 로그인 요청의 401은 폼 오류로, `CHILD_ACCESS_EXPIRED`는 화면에 남아 안내 문구를 보여 줍니다. 공통 에러 코드 표는 테크스펙의 공통 API 규약 부분에 제안해 두었습니다.
+- 모든 호출은 `api/<도메인>.ts`의 요청 함수를 거치고, 요청 함수는 `lib/api-client.ts`의 `api.get`·`api.post` 등으로 씁니다. `fetch`를 직접 부르면 ESLint 에러입니다. 실패는 `ApiError`(`status`, `code`, `message`, `detail`)로 오고, 연결 실패는 `status` 0 · `NETWORK_ERROR`입니다.
+- 401은 로그인 화면으로, 403은 "접근 권한 없음" 화면으로 보냅니다. 예외는 두 개입니다 — 로그인 요청의 401은 폼 오류로, `CHILD_ACCESS_EXPIRED`는 화면에 남아 안내 문구를 보여 줍니다. 공통 에러 코드 표는 테크스펙의 공통 API 규약 부분에 있습니다. **이 처리는 한 곳에서 하므로 페이지에서 401·403을 직접 처리하거나 navigate하지 않습니다.** 쿼리가 401·403을 받으면 오류를 던지고(`app/query-client.ts`), 라우터의 에러 경계(`app/auth/AuthErrorBoundary.tsx`)가 401은 로그인으로 보내고 403은 주소를 그대로 둔 채 그 자리에 접근 권한 없음을 보여 줍니다. 교사 영역 입구에서는 가드(`app/auth/RequireRole.tsx`)가 로그인·역할을 먼저 확인합니다. 저장·삭제 같은 요청(mutation)의 401·403도 같은 경계로 가고, 로그인 요청만 폼 오류로 남깁니다. 401·403이 아닌 오류(서버 오류, 연결 끊김)는 화면이 직접 보여 주고, 화면이 받지 못한 오류는 맨 바깥 경계가 오류 화면으로 받습니다.
 - 서버 데이터는 TanStack Query로만 다룹니다. query key는 `api/<도메인>.ts`에서 만들고 **문자열로 조립하지 않습니다**: `["classes", classId, "children"]`
-- 시간은 서버가 UTC ISO 8601로 주고, 날짜만 있는 값(`record_date` 등)은 한국 시간 기준 `YYYY-MM-DD`입니다(테크스펙에 제안 중). 변환은 한 곳(`lib/datetime.ts`)에서만 합니다.
-- BE가 없는 동안은 MSW로 개발합니다. 핸들러는 `mocks/handlers/<도메인>.ts`, 픽스처는 `mocks/fixtures/<도메인>.ts`입니다. MSW는 개발 서버에서 기본으로 켜지고, 끄려면 `.env.development.local`에 `VITE_USE_MSW=false`를 둡니다.
-- `@/mocks`는 진입점(`main.tsx`)과 테스트에서만 import합니다. 화면 코드는 목을 알지 못합니다.
+- 시간은 서버가 UTC ISO 8601로 주고, 날짜만 있는 값(`record_date` 등)은 한국 시간 기준 `YYYY-MM-DD`입니다(테크스펙 공통 API 규약). 변환과 표기는 `lib/datetime.ts`의 함수(`kstToday`, `formatDate`, `formatTime` 등)만 씁니다. `toISOString().slice(0, 10)`은 한국 0~9시에 전날이 되므로 쓰지 않습니다.
+- BE가 없는 동안은 MSW로 개발합니다. 핸들러는 `mocks/handlers/<도메인>.ts`에 `export const handlers = [...]`로 두면 자동으로 모입니다(`handlers/index.ts`는 고치지 않고, `handlers/` 안에는 핸들러 파일만 둡니다). 픽스처는 `mocks/fixtures/<도메인>.ts`이고, 응답은 `mocks/http.ts`의 `apiPath`·`errorResponse`·`listResponse`로 만듭니다. MSW는 개발 서버에서 기본으로 켜지고, 끄려면 `.env.development.local`에 `VITE_USE_MSW=false`를 둡니다.
+- `@/mocks`는 진입점(`main.tsx`)과 테스트에서만 import합니다. 화면 코드는 목을 알지 못합니다(ESLint가 막습니다).
+- 목 id는 `mocks/fixtures/ids.ts`의 `fixtureId(종류, 번호)`로 만듭니다. 반·원아는 `fixtures/organization.ts`의 햇살반과 원아 5명을 그대로 씁니다. 화면 사이 링크가 목에서도 이어지게 하려는 것입니다.
+- 교사 화면의 현재 반은 `features/class-context`의 `useCurrentClass()`로 받습니다. 반을 바꾸는 화면(반 선택·반 만들기)은 `selectClass(classId)`를 부릅니다. `class_id`를 하드코딩하지 않습니다.
 - **픽스처는 합성 데이터만 씁니다.** 루트 규칙은 팀원 본인 사진도 허용하지만, 프론트는 커밋한 픽스처가 그대로 목 응답이 되므로 합성만 씁니다. 이메일은 `example.com`을 씁니다.
 - 브라우저에 노출되는 값은 `VITE_` 접두사만 쓰고, 여기에 비밀을 넣지 않습니다.
 
@@ -94,6 +96,10 @@
 
 - 포매팅(들여쓰기·따옴표·줄 길이 등)은 `.prettierrc`가 원본이고 `pnpm format`이 맞춥니다. 값을 여기에 옮겨 적지 않습니다.
 - 변수·함수 `camelCase`, 컴포넌트·타입 `PascalCase`, 상수 `UPPER_SNAKE_CASE`, 훅은 `use` 접두.
+- 상수 이름에는 담긴 것을 드러냅니다. 사용처의 `X[key]`만 보고 배열·태그 이름으로 착각하지 않게 하려는 것입니다.
+  - `X[key]`로 꺼내 쓰는 조회표는 `<키>_<값>_MAP`(`REASON_LABEL_MAP`, `STEP_TITLE_MAP`). 값이 클래스 문자열이면 `<키>_CLASS_MAP`(`CHANGED_BY_CLASS_MAP`).
+  - CSS 클래스 문자열은 `_CLASS`(`TAG_CLASS`).
+  - 예외: `<값>_BY_<키>` 형식(`KIND_BY_EXTENSION`)은 그대로 씁니다. `mocks/`는 백엔드 연동 후 걷어낼 코드라 적용하지 않습니다. `X.key`로만 쓰는 묶음(`DATE_FORMATS`)과 기본값(`EMPTY_DAILY`)은 조회표가 아닙니다.
 - 컴포넌트 파일은 `PascalCase.tsx`, 그 외는 `kebab-case.ts`. `components/ui/`의 shadcn 생성물은 예외로 소문자 파일명을 씁니다.
 - 주석은 한국어. TODO는 `// TODO(이름): 사유`.
 
