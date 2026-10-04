@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Outlet } from "react-router";
 
-import { meQueryOptions } from "@/api/auth";
+import { isTeacher, meQueryOptions } from "@/api/auth";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
 
 import { TeacherNav } from "./TeacherNav";
@@ -17,7 +17,7 @@ export function TeacherLayout() {
   // 교사 이름은 /me에서 받습니다. 받기 전이거나 교사 계정이 아니면 비웁니다.
   // 로그인이 끊긴 경우는 가드가 처리하므로 여기서는 던지지 않고 이름만 비웁니다.
   const { data: me } = useQuery({ ...meQueryOptions(), throwOnError: false });
-  const teacherName = me?.account_type === "teacher" ? me.name : null;
+  const teacherName = isTeacher(me) ? me.name : null;
 
   return (
     <div className="px-6">

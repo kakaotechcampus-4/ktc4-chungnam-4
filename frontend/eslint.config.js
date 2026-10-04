@@ -15,6 +15,12 @@ const MOCKS_DYNAMIC_IMPORT = {
   message: MOCKS_MESSAGE,
 };
 const FETCH_MESSAGE = "api/<도메인>.ts에서 lib/api-client.ts의 api를 쓰세요.";
+// 화면은 서버 타입 대신 @/api/<도메인>이 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
+// 도메인을 adapter로 옮길 때마다 괄호 안에 더하고, 다 옮기면 types/api-draft 전체로 넓힙니다.
+const API_DRAFT_IMPORT = {
+  regex: "(^|/)types/api-draft/(auth)$",
+  message: "화면은 서버 타입을 쓰지 않습니다. @/api/<도메인>의 화면용 타입을 쓰세요.",
+};
 
 export default defineConfig([
   globalIgnores(["dist", "coverage", "public/mockServiceWorker.js"]),
@@ -37,7 +43,11 @@ export default defineConfig([
       "no-console": ["error", { allow: ["warn", "error"] }],
       // 토큰 이름을 등록한 cn을 써야 text-body 같은 클래스가 지워지지 않습니다.
       // 화면 코드는 목을 알지 못합니다. 목은 main.tsx와 테스트에서만 씁니다.
-      "no-restricted-imports": ["error", { paths: [CN_IMPORT], patterns: [MOCKS_IMPORT] }],
+      // 서버 타입은 api/·mocks/·테스트에서만 씁니다.
+      "no-restricted-imports": [
+        "error",
+        { paths: [CN_IMPORT], patterns: [MOCKS_IMPORT, API_DRAFT_IMPORT] },
+      ],
       "no-restricted-syntax": ["error", MOCKS_DYNAMIC_IMPORT],
       // API 호출은 lib/api-client.ts 한 곳에서만 합니다.
       "no-restricted-globals": ["error", { name: "fetch", message: FETCH_MESSAGE }],
@@ -51,6 +61,13 @@ export default defineConfig([
   {
     files: ["src/lib/api-client.ts"],
     rules: { "no-restricted-globals": "off", "no-restricted-properties": "off" },
+  },
+  {
+    // 서버 타입을 화면용 타입으로 바꾸는 곳이라 서버 타입을 씁니다.
+    files: ["src/api/**"],
+    rules: {
+      "no-restricted-imports": ["error", { paths: [CN_IMPORT], patterns: [MOCKS_IMPORT] }],
+    },
   },
   {
     files: ["src/main.tsx", "src/mocks/**", "src/test/**", "src/**/*.test.{ts,tsx}"],
