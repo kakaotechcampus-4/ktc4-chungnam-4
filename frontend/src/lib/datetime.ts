@@ -88,14 +88,40 @@ export function toKstDate(isoDateTime: string): DateOnly {
   return toKstDateOnly(parseDateTime(isoDateTime));
 }
 
+// UTC 자정 Date를 DateOnly로 되돌립니다. parseDateOnly의 반대입니다.
+function fromUtcMidnight(value: Date): DateOnly {
+  const month = String(value.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(value.getUTCDate()).padStart(2, "0");
+  return `${value.getUTCFullYear()}-${month}-${day}`;
+}
+
 /** 날짜를 며칠 앞뒤로 옮깁니다. shiftDate("2026-10-01", -1) → "2026-09-30" */
 export function shiftDate(date: DateOnly, days: number): DateOnly {
   // UTC 자정끼리 셈하므로 기기 시간대와 상관없이 날짜만 움직입니다.
   const value = parseDateOnly(date);
   value.setUTCDate(value.getUTCDate() + days);
-  const month = String(value.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(value.getUTCDate()).padStart(2, "0");
-  return `${value.getUTCFullYear()}-${month}-${day}`;
+  return fromUtcMidnight(value);
+}
+
+/** 요일 번호. 월 1 ~ 일 7(ISO 8601). isoWeekday("2026-09-27") → 7. 표기는 formatWeekday를 씁니다. */
+export function isoWeekday(date: DateOnly): number {
+  // getUTCDay는 일요일이 0이라 7로 바꿉니다.
+  return parseDateOnly(date).getUTCDay() || 7;
+}
+
+/** 그달 1일. firstDayOfMonth("2026-02-10") → "2026-02-01" */
+export function firstDayOfMonth(date: DateOnly): DateOnly {
+  const value = parseDateOnly(date);
+  value.setUTCDate(1);
+  return fromUtcMidnight(value);
+}
+
+/** 그달 말일. 윤년을 따릅니다. lastDayOfMonth("2028-02-10") → "2028-02-29" */
+export function lastDayOfMonth(date: DateOnly): DateOnly {
+  const value = parseDateOnly(date);
+  // 다음 달 0일이 이번 달 말일입니다. 달과 일을 한 번에 바꾸므로 1월 31일에서도 3월로 넘어가지 않습니다.
+  value.setUTCMonth(value.getUTCMonth() + 1, 0);
+  return fromUtcMidnight(value);
 }
 
 interface FormatDateOptions {

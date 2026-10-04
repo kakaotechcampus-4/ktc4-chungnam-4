@@ -41,7 +41,7 @@
 - BE가 없는 동안은 MSW로 개발합니다. 핸들러는 `mocks/handlers/<도메인>.ts`에 `export const handlers = [...]`로 두면 자동으로 모입니다(`handlers/index.ts`는 고치지 않고, `handlers/` 안에는 핸들러 파일만 둡니다). 픽스처는 `mocks/fixtures/<도메인>.ts`이고, 응답은 `mocks/http.ts`의 `apiPath`·`errorResponse`·`listResponse`로 만듭니다. MSW는 개발 서버에서 기본으로 켜지고, 끄려면 `.env.development.local`에 `VITE_USE_MSW=false`를 둡니다.
 - `@/mocks`는 진입점(`main.tsx`)과 테스트에서만 import합니다. 화면 코드는 목을 알지 못합니다(ESLint가 막습니다).
 - 목 id는 `mocks/fixtures/ids.ts`의 `fixtureId(종류, 번호)`로 만듭니다. 반·원아는 `fixtures/organization.ts`의 햇살반과 원아 5명을 그대로 씁니다. 화면 사이 링크가 목에서도 이어지게 하려는 것입니다.
-- 교사 화면의 현재 반은 `features/class-context`의 `useCurrentClass()`로 받습니다. `class_id`를 하드코딩하지 않습니다.
+- 교사 화면의 현재 반은 `features/class-context`의 `useCurrentClass()`로 받습니다. 반을 바꾸는 화면(반 선택·반 만들기)은 `selectClass(classId)`를 부릅니다. `class_id`를 하드코딩하지 않습니다.
 - **픽스처는 합성 데이터만 씁니다.** 루트 규칙은 팀원 본인 사진도 허용하지만, 프론트는 커밋한 픽스처가 그대로 목 응답이 되므로 합성만 씁니다. 이메일은 `example.com`을 씁니다.
 - 브라우저에 노출되는 값은 `VITE_` 접두사만 쓰고, 여기에 비밀을 넣지 않습니다.
 
@@ -96,6 +96,10 @@
 
 - 포매팅(들여쓰기·따옴표·줄 길이 등)은 `.prettierrc`가 원본이고 `pnpm format`이 맞춥니다. 값을 여기에 옮겨 적지 않습니다.
 - 변수·함수 `camelCase`, 컴포넌트·타입 `PascalCase`, 상수 `UPPER_SNAKE_CASE`, 훅은 `use` 접두.
+- 상수 이름에는 담긴 것을 드러냅니다. 사용처의 `X[key]`만 보고 배열·태그 이름으로 착각하지 않게 하려는 것입니다.
+  - `X[key]`로 꺼내 쓰는 조회표는 `<키>_<값>_MAP`(`REASON_LABEL_MAP`, `STEP_TITLE_MAP`). 값이 클래스 문자열이면 `<키>_CLASS_MAP`(`CHANGED_BY_CLASS_MAP`).
+  - CSS 클래스 문자열은 `_CLASS`(`TAG_CLASS`).
+  - 예외: `<값>_BY_<키>` 형식(`KIND_BY_EXTENSION`)은 그대로 씁니다. `mocks/`는 백엔드 연동 후 걷어낼 코드라 적용하지 않습니다. `X.key`로만 쓰는 묶음(`DATE_FORMATS`)과 기본값(`EMPTY_DAILY`)은 조회표가 아닙니다.
 - 컴포넌트 파일은 `PascalCase.tsx`, 그 외는 `kebab-case.ts`. `components/ui/`의 shadcn 생성물은 예외로 소문자 파일명을 씁니다.
 - 주석은 한국어. TODO는 `// TODO(이름): 사유`.
 
