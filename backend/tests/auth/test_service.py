@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 import jwt
 import pytest
@@ -61,6 +62,13 @@ def test_깨진_해시는_예외가_아니라_실패로_취급한다():
     assert service.verify_password("anything", "not-a-bcrypt-hash") is False
 
 
+@pytest.mark.parametrize("password", ["a" * 73, "가" * 25])
+def test_긴_비밀번호는_더미_검증_결과와_무관하게_거부한다(password: str) -> None:
+    with patch.object(service.bcrypt, "checkpw", return_value=True) as checkpw:
+        assert service.verify_password(password, "unused-hash") is False
+    checkpw.assert_called_once_with(password.encode("utf-8")[:72], service._DUMMY_HASH)
+
+
 # ---- 이메일 정규화 ----
 
 
@@ -71,19 +79,26 @@ def test_이메일은_대소문자와_공백을_무시하고_맞춘다():
 # ---- 토큰 ----
 
 
-def test_토큰에서_계정과_역할을_되찾는다():
+@pytest.mark.parametrize("account_type", list(AccountType))
+def test_토큰에서_계정과_역할을_되찾는다(account_type: AccountType) -> None:
     db = _session()
     account = _account(db)
+    account.account_type = account_type.value
     payload = service.decode_access_token(service.create_access_token(account))
     assert payload["account_id"] == account.id
-    assert payload["account_type"] == AccountType.TEACHER.value
+    assert payload["account_type"] is account_type
 
 
 def test_다른_키로_서명한_토큰은_거부한다():
     db = _session()
     account = _account(db)
     forged = jwt.encode(
-        {"sub": str(account.id), "account_type": "teacher"},
+        {
+            "sub": str(account.id),
+            "account_type": "teacher",
+            "iat": datetime.now(UTC),
+            "exp": datetime.now(UTC) + timedelta(hours=1),
+        },
         "another-secret-that-is-also-long-enough",
     )
     with pytest.raises(InvalidToken):
@@ -93,11 +108,42 @@ def test_다른_키로_서명한_토큰은_거부한다():
 def test_만료된_토큰은_거부한다():
     past = datetime.now(UTC) - timedelta(hours=1)
     expired = jwt.encode(
-        {"sub": str(uuid.uuid4()), "account_type": "teacher", "exp": past},
+        {"sub": str(uuid.uuid4()), "account_type": "teacher", "iat": past, "exp": past},
         get_settings().jwt_secret.get_secret_value(),
     )
     with pytest.raises(InvalidToken):
         service.decode_access_token(expired)
+
+
+@pytest.mark.parametrize("missing_claim", ["exp", "iat", "sub", "account_type"])
+def test_필수_필드가_빠진_서명된_토큰은_거부한다(missing_claim: str) -> None:
+    now = datetime.now(UTC)
+    claims = {
+        "sub": str(uuid.uuid4()),
+        "account_type": "teacher",
+        "iat": now,
+        "exp": now + timedelta(hours=1),
+    }
+    del claims[missing_claim]
+    token = jwt.encode(claims, get_settings().jwt_secret.get_secret_value())
+    with pytest.raises(InvalidToken):
+        service.decode_access_token(token)
+
+
+@pytest.mark.parametrize("account_type", ["admin", "", None, 1, [], {}])
+def test_허용하지_않는_역할의_서명된_토큰은_거부한다(account_type: object) -> None:
+    now = datetime.now(UTC)
+    token = jwt.encode(
+        {
+            "sub": str(uuid.uuid4()),
+            "account_type": account_type,
+            "iat": now,
+            "exp": now + timedelta(hours=1),
+        },
+        get_settings().jwt_secret.get_secret_value(),
+    )
+    with pytest.raises(InvalidToken):
+        service.decode_access_token(token)
 
 
 def test_토큰에_비밀번호_해시가_들어가지_않는다():
@@ -135,6 +181,25 @@ def test_없는_이메일과_틀린_비밀번호가_같은_예외를_낸다():
 
     assert no_such_email.value.code == wrong_password.value.code
     assert no_such_email.value.message == wrong_password.value.message
+
+
+@pytest.mark.parametrize("prefix", ["a" * 72, "가" * 24])
+def test_긴_비밀번호는_계정_유무와_무관하게_같은_더미_검증을_수행한다(prefix: str) -> None:
+    # 앞 72바이트가 실제 비밀번호와 같아도 로그인되지 않아야 합니다 (FR-13, H-4).
+    with _session() as db:
+        _account(db, password=prefix)
+        password = prefix + "x"
+        failures = []
+        for email in ("teacher@example.com", "nobody@example.com"):
+            with (
+                patch.object(service.bcrypt, "checkpw", wraps=service.bcrypt.checkpw) as checkpw,
+                pytest.raises(InvalidCredentials) as failure,
+            ):
+                service.authenticate(db, email, password)
+            checkpw.assert_called_once_with(prefix.encode("utf-8"), service._DUMMY_HASH)
+            failures.append(failure.value)
+    assert failures[0].code == failures[1].code
+    assert failures[0].message == failures[1].message
 
 
 def test_예외_메시지에_이메일이_담기지_않는다():

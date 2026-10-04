@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from core.config import get_settings
 from core.exceptions import InvalidCredentials, InvalidToken, JwtSecretNotConfigured
-from domains.auth.models import Account
+from domains.auth.models import Account, AccountType
 
 _ALGORITHM = "HS256"
 
@@ -35,7 +35,7 @@ class TokenPayload(TypedDict):
     """검증을 마친 토큰에서 꺼낸 값."""
 
     account_id: uuid.UUID
-    account_type: str
+    account_type: AccountType
 
 
 def normalize_email(email: str) -> str:
@@ -56,6 +56,8 @@ def verify_password(plain_password: str, password_hash: str) -> bool:
     """비밀번호가 해시와 맞는지 확인합니다. 형식이 깨진 해시는 False로 봅니다."""
     encoded = plain_password.encode("utf-8")
     if len(encoded) > _MAX_PASSWORD_BYTES:
+        # 없는 계정과 동일하게 bcrypt를 한 번 수행하되, 긴 비밀번호는 항상 거부합니다.
+        bcrypt.checkpw(encoded[:_MAX_PASSWORD_BYTES], _DUMMY_HASH)
         return False
     try:
         return bcrypt.checkpw(encoded, password_hash.encode("utf-8"))
@@ -95,10 +97,15 @@ def decode_access_token(token: str) -> TokenPayload:
     공격자에게 어디까지 맞았는지 알려주게 됩니다.
     """
     try:
-        claims = jwt.decode(token, _secret(), algorithms=[_ALGORITHM])
+        claims = jwt.decode(
+            token,
+            _secret(),
+            algorithms=[_ALGORITHM],
+            options={"require": ["exp", "iat", "sub", "account_type"]},
+        )
         return TokenPayload(
             account_id=uuid.UUID(claims["sub"]),
-            account_type=claims["account_type"],
+            account_type=AccountType(claims["account_type"]),
         )
     except (jwt.PyJWTError, KeyError, ValueError) as error:
         # 토큰 값은 메시지에 넣지 않습니다 (H-4).
