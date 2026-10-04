@@ -3,6 +3,7 @@
 tasks.py는 이 모듈의 orchestrate_drafts만 호출합니다 (CLAUDE.md: tasks.py는 로직을 갖지 않음).
 """
 
+import logging
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -11,7 +12,7 @@ from sqlalchemy.orm import Session
 from core.database import SessionLocal
 from core.exceptions import DraftVersionConflict
 from domains.agents.llm import call_claude
-from domains.agents.models import DraftDecisionLog, EvidenceBundle, Job
+from domains.agents.models import DraftDecisionLog, EvidenceBundle, GenerationJob, Job
 from domains.agents.models import SentenceEvidence as SentenceEvidenceRow
 from domains.agents.models import VerificationResult as VerificationResultRow
 from domains.documents import service as documents
@@ -27,6 +28,12 @@ from tools.verification.target import validate_target
 # 재생성 횟수에 포함되지 않는다. 상한 값 자체는 스펙에 없어 무한 루프 방지용으로 1을
 # 임의로 골랐다 — 팀 확인 필요.
 MAX_CRITIC_RETRIES = 1
+
+# 백엔드 로그 형식: 모듈마다 getLogger(__name__), 정상 흐름 안의 예외 상황은 WARNING (#90).
+logger = logging.getLogger(__name__)
+
+# PASS 초안 저장이 교사 문서와 충돌해 건너뛴 경우의 로그 코드. 원인은 세분화하지 않는다 (#75).
+DRAFT_SAVE_CONFLICT = "draft_save_conflict"
 
 GeneratedDraft = tuple[
     contracts.DraftDocument,
@@ -231,15 +238,26 @@ def _save_passed_draft(
         session.commit()
     except DraftVersionConflict:
         session.rollback()
+        # 검증 PASS 기록은 남았는데 문서가 없는 이유를 나중에 추적하려고 남긴다 (#90).
+        # 서버 id와 코드만 남기고 본문·실명은 넣지 않는다 (H-4).
+        logger.warning(
+            "draft save skipped: code=%s job_id=%s draft_id=%s",
+            DRAFT_SAVE_CONFLICT,
+            job.id,
+            document.draft_id,
+        )
 
 
 def _author_teacher_id(session: Session, job: Job) -> UUID:
     """초안의 작성 교사. 요청한 교사를 GenerationJob에서 읽는다 (FR-26, 테크스펙 데이터 모델 ④).
 
-    TODO(eun): Job.generation_job_id → GenerationJob.requested_by_teacher_id로 읽는다.
-    두 모델이 아직 없어 값을 꺼낼 수 없다 — 임의 값으로 채우지 않는다 (#75 4번).
+    Child → Class로 유추하지 않는다 — 비동기 task에는 세션 교사가 없어서, 요청 시점에
+    저장해 둔 교사를 쓴다 (#75 4번).
     """
-    raise NotImplementedError("GenerationJob 모델 추가 후 연결 예정")
+    generation_job = session.get(GenerationJob, job.generation_job_id)
+    if generation_job is None:
+        raise ValueError(f"GenerationJob {job.generation_job_id} not found")
+    return generation_job.requested_by_teacher_id
 
 
 def _join_sentences(document: contracts.DraftDocument) -> str:
