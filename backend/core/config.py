@@ -34,10 +34,11 @@ class Settings(BaseSettings):
     # TODO(태은): AI 기능 배포 전에는 키 누락을 차단하도록 필수값 검증을 추가합니다.
     # Redis·worker 연습은 AI 호출 없이 실행하므로 현재는 빈 값을 허용합니다.
     anthropic_api_key: SecretStr = SecretStr("")
-    # 기수·팀별로 게이트웨이 주소가 달라 default를 비워둠 — 반드시 .env에서 설정
+    # 기수·팀별로 게이트웨이 주소가 달라 default를 비워둠 — 반드시 .env에서 설정.
+    # 게이트웨이는 요청의 model 값이 아니라 **이 URL로 모델을 고릅니다.**
     llm_gateway_base_url: str = ""
-    # 게이트웨이의 모델 ID 형식(제공자/모델명)을 그대로 사용
-    anthropic_model: str = "anthropic/claude-sonnet-5"
+    # 게이트웨이가 무시하는 값. 로그에서 어느 모델인지 알아보려고 둡니다.
+    anthropic_model: str = "glm-5.3-flash"
 
     @field_validator("postgres_password")
     @classmethod
