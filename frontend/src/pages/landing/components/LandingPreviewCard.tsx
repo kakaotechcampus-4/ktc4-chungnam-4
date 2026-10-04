@@ -28,10 +28,10 @@ const SAMPLES: readonly Sample[] = [
 ];
 
 // ←/→로 점을 옮길 때 움직이는 칸 수입니다.
-const ARROW_STEP: Partial<Record<string, number>> = { ArrowLeft: -1, ArrowRight: 1 };
+const ARROW_STEP_MAP: Partial<Record<string, number>> = { ArrowLeft: -1, ArrowRight: 1 };
 
 // 자동으로 넘길 때는 눈에 덜 띄게 천천히, 점을 눌러 고를 때는 바로 반응하게 빠르게 바꿉니다.
-const TRANSITION = {
+const CHANGED_BY_CLASS_MAP = {
   auto: "duration-1200 ease-in-out",
   manual: "duration-700 ease-out",
 } as const;
@@ -61,7 +61,7 @@ function usePrefersReducedMotion() {
 // Figma의 사진은 실제 아이 사진이라 쓰지 않습니다(원아 사진 커밋 금지). 합성 이미지가 정해지기 전까지 빈 면으로 둡니다.
 export function LandingPreviewCard() {
   const [active, setActive] = useState(0);
-  const [changedBy, setChangedBy] = useState<keyof typeof TRANSITION>("auto");
+  const [changedBy, setChangedBy] = useState<keyof typeof CHANGED_BY_CLASS_MAP>("auto");
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [stopped, setStopped] = useState(false);
@@ -84,7 +84,7 @@ export function LandingPreviewCard() {
   function onDotKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
     // Alt·⌘+←/→는 브라우저 뒤로·앞으로 가기라 가로채지 않습니다.
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    const step = ARROW_STEP[event.key];
+    const step = ARROW_STEP_MAP[event.key];
     if (step === undefined) return;
     event.preventDefault();
     const next = (index + step + SAMPLES.length) % SAMPLES.length;
@@ -113,7 +113,7 @@ export function LandingPreviewCard() {
             inert={index !== active}
             className={cn(
               "col-start-1 row-start-1 flex flex-col gap-4 transition-all motion-reduce:transition-none",
-              TRANSITION[changedBy],
+              CHANGED_BY_CLASS_MAP[changedBy],
               index === active ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0",
             )}
           >

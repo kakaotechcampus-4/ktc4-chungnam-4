@@ -1,10 +1,18 @@
 import { http, HttpResponse } from "msw";
 
 import { kstToday } from "@/lib/datetime";
-import type { Job, JobChild, JobCreateRequest, JobStage } from "@/types/api-draft/agents";
+import type {
+  Job,
+  JobChild,
+  JobCreateRequest,
+  JobStage,
+  TeacherEvidence,
+  TeacherEvidenceUpsertRequest,
+} from "@/types/api-draft/agents";
 
 import { nextId, nowIso, readDb, updateDb } from "../db";
 import type { JobChildRecord, JobRecord, MediaRecord, MockDb } from "../db";
+import { nextEvidenceId, teacherEvidence } from "../fixtures/agents";
 import { buildDrafts } from "../fixtures/documents";
 import { SUNSHINE_CHILDREN } from "../fixtures/organization";
 import { requireTeacher, requireTeacherOfClass } from "../guards";
@@ -154,6 +162,16 @@ function advance(db: MockDb, job: JobRecord) {
   job.updated_at = now;
 }
 
+/** 원아 단위 요청: 교사이고 담당 반의 원아인지 */
+function requireClassChild(childId: unknown): Response | null {
+  const denied = requireTeacher();
+  if (denied) return denied;
+  if (!SUNSHINE_CHILDREN.some((child) => child.child_id === childId)) {
+    return errorResponse(403, "CHILD_ACCESS_DENIED", "이 원아의 기록을 볼 수 없어요.");
+  }
+  return null;
+}
+
 export const handlers = [
   http.post(apiPath("/classes/:classId/jobs"), async ({ request, params }) => {
     const classId = String(params.classId);
@@ -269,5 +287,43 @@ export const handlers = [
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
       .map(jobView);
     return listResponse(jobs);
+  }),
+
+  // ── (가정) 추가 근거(docs/api/agents.md 하단 제안, 김동건) ──
+  http.get(apiPath("/classes/:classId/evidence"), ({ params, request }) => {
+    const denied = requireTeacherOfClass(params.classId);
+    if (denied) return denied;
+    const recordDate = new URL(request.url).searchParams.get("record_date");
+    return listResponse(teacherEvidence.filter((note) => note.record_date === recordDate));
+  }),
+
+  // 아이·날짜마다 한 건. 없으면 만들고(201) 있으면 덮어씁니다(200).
+  http.put(apiPath("/children/:childId/evidence/:recordDate"), async ({ params, request }) => {
+    const denied = requireClassChild(params.childId);
+    if (denied) return denied;
+    const body = (await request.json()) as TeacherEvidenceUpsertRequest;
+    if (!body.text?.trim()) {
+      return errorResponse(422, "VALIDATION_ERROR", "관찰 내용을 적어 주세요.");
+    }
+    const childId = String(params.childId);
+    const recordDate = String(params.recordDate);
+    const existing = teacherEvidence.find(
+      (note) => note.child_id === childId && note.record_date === recordDate,
+    );
+    if (existing) {
+      Object.assign(existing, { activity_time: body.activity_time, text: body.text.trim() });
+      return HttpResponse.json(existing, { status: 200 });
+    }
+    const saved: TeacherEvidence = {
+      evidence_id: nextEvidenceId(),
+      child_id: childId,
+      record_date: recordDate,
+      activity_time: body.activity_time,
+      text: body.text.trim(),
+      source: "teacher_note",
+      created_at: nowIso(),
+    };
+    teacherEvidence.push(saved);
+    return HttpResponse.json(saved, { status: 201 });
   }),
 ];

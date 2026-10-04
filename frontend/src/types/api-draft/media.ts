@@ -105,3 +105,50 @@ export interface FaceEmbedding {
   embedding: number[];
   model_version: string;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 발화 구간(TranscriptSegment). 임시 결정(김동건): 분류 확인 단계에서 교사가 발화를 아이에게 연결합니다(#83 리뷰).
+// child_ids·speaker·text·excluded는 테크스펙 TranscriptSegment에 없는 필드라 docs/api/media-face.md 하단 제안입니다.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 서버 STT 진행. failed여도 교사는 다음으로 넘어갈 수 있습니다(발화 없이 전송). */
+export type TranscriptStatus = "pending" | "done" | "failed";
+
+/** 발화의 화자(Figma 1:3064): 아이의 말 / 교사의 관찰 / 함께 한 말. 고르기 전에는 null */
+export type TranscriptSpeaker = "child" | "teacher_observation" | "together";
+
+export interface TranscriptSegment {
+  segment_id: string;
+  media_id: string;
+  source: "video_audio" | "voice_memo";
+  /** 파일 처음부터 초 */
+  start_time: number;
+  end_time: number;
+  /** STT 원문. 실명 호명이 그대로 들어 있어 LLM으로 보내기 전 비식별화가 필요합니다(H-2). 교사에게만 보입니다. */
+  raw_text: string;
+  /** 교사가 고친 문장. 고치지 않았으면 raw_text와 같습니다. */
+  text: string;
+  speaker: TranscriptSpeaker | null;
+  /** 교사가 연결한 아이. 비어 있으면 미분류입니다. */
+  child_ids: string[];
+  /** 교사가 뺀 발화. 초안 근거에서 빠집니다. */
+  excluded: boolean;
+  /** 교사가 마지막으로 연결·제외·수정한 시각. 손대기 전이면 null */
+  reviewed_at: string | null;
+}
+
+/** GET /media/{media_id}/transcript-segments 응답 */
+export interface TranscriptSegmentsResponse {
+  media_id: string;
+  transcript_status: TranscriptStatus;
+  /** 시작 시각 순. pending·failed면 빈 배열입니다. */
+  items: TranscriptSegment[];
+}
+
+/** PATCH /transcript-segments/{segment_id} 요청. 보낸 필드만 바꿉니다. child_ids는 전체 교체입니다. */
+export interface TranscriptSegmentUpdateRequest {
+  text?: string;
+  speaker?: TranscriptSpeaker | null;
+  child_ids?: string[];
+  excluded?: boolean;
+}

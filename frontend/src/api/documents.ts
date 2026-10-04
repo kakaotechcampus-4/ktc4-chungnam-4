@@ -5,8 +5,10 @@ import type { ListResponse } from "@/types/api-draft/common";
 import type {
   ClassDraftItem,
   DraftApproveRequest,
+  DraftCreateRequest,
   DraftDetail,
   DraftPatchRequest,
+  DraftReopenRequest,
   ParentNoteDetail,
   ParentNoteList,
   PublicationRequest,
@@ -46,6 +48,11 @@ export function draftQueryOptions(draftId: string) {
   });
 }
 
+/** 교사용: 자료 없이 직접 쓴 초안 만들기. `status`가 `verified`라 바로 승인할 수 있습니다. */
+export function createDraft(childId: string, body: DraftCreateRequest) {
+  return api.post<DraftDetail>(`/children/${encodeURIComponent(childId)}/drafts`, body);
+}
+
 /** 교사용: 초안 직접 수정(바뀐 문장만, 선택 사진). 응답은 상세와 같고 version이 1 오릅니다. */
 export function patchDraft(draftId: string, body: DraftPatchRequest) {
   return api.patch<DraftDetail>(`/drafts/${encodeURIComponent(draftId)}`, body);
@@ -54,6 +61,11 @@ export function patchDraft(draftId: string, body: DraftPatchRequest) {
 /** 교사용: 승인(H-1 승인 게이트). 승인만으로는 학부모에게 보이지 않습니다. */
 export function approveDraft(draftId: string, body: DraftApproveRequest) {
   return api.post<DraftDetail>(`/drafts/${encodeURIComponent(draftId)}/approve`, body);
+}
+
+/** 교사용: 승인 되돌리기. `verified`로 돌아가 다시 수정·승인할 수 있습니다. 게시한 뒤에는 막힙니다(H-1). */
+export function reopenDraft(draftId: string, body: DraftReopenRequest) {
+  return api.post<DraftDetail>(`/drafts/${encodeURIComponent(draftId)}/reopen`, body);
 }
 
 /** 교사용: 승인된 알림장을 골라 게시합니다. 결과는 건별로 오고, 하나가 실패해도 나머지는 게시됩니다. */
