@@ -1,8 +1,8 @@
 """create initial tables
 
-Revision ID: 2be1629dc47e
+Revision ID: 50e5f32ff61c
 Revises:
-Create Date: 2026-09-29 12:23:53.986502
+Create Date: 2026-10-04 21:22:40.666661
 """
 
 from collections.abc import Sequence
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "2be1629dc47e"
+revision: str = "50e5f32ff61c"
 down_revision: str | Sequence[str] | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -31,11 +31,22 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_table(
+        "centers",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("center_code", sa.String(), nullable=False),
+        sa.Column("name", sa.String(), nullable=False),
+        sa.Column("address", sa.String(), nullable=True),
+        sa.Column("contract_status", sa.String(), nullable=False),
+        sa.Column("created_by_teacher_id", sa.UUID(), nullable=True),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("center_code"),
+    )
+    op.create_table(
         "deletion_logs",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("target_type", sa.String(), nullable=False),
         sa.Column("target_id", sa.UUID(), nullable=False),
-        sa.Column("reason", sa.Text(), nullable=True),
+        sa.Column("reason", sa.Text(), nullable=False),
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id"),
     )
@@ -156,6 +167,17 @@ def upgrade() -> None:
         ),
     )
     op.create_table(
+        "teacher_personas",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("teacher_id", sa.UUID(), nullable=False),
+        sa.Column("tone_summary", sa.Text(), nullable=False),
+        sa.Column("style_rules", sa.JSON(), nullable=False),
+        sa.Column("sample_phrases", sa.JSON(), nullable=False),
+        sa.Column("version", sa.Integer(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_table(
         "unclassified_items",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("ref_type", sa.String(), nullable=False),
@@ -176,6 +198,19 @@ def upgrade() -> None:
         sa.Column("result", sa.Boolean(), nullable=False),
         sa.Column("detail", sa.String(), nullable=True),
         sa.Column("checked_at", sa.DateTime(timezone=True), nullable=False),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_table(
+        "classes",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("center_id", sa.UUID(), nullable=False),
+        sa.Column("teacher_id", sa.UUID(), nullable=False),
+        sa.Column("name", sa.String(), nullable=False),
+        sa.Column("age_group", sa.String(), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["center_id"],
+            ["centers.id"],
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_table(
@@ -215,6 +250,20 @@ def upgrade() -> None:
         op.f("ix_media_child_links_child_id"), "media_child_links", ["child_id"], unique=False
     )
     op.create_table(
+        "persona_feedbacks",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("persona_id", sa.UUID(), nullable=False),
+        sa.Column("revision_log_id", sa.UUID(), nullable=False),
+        sa.Column("extracted_rule", sa.Text(), nullable=False),
+        sa.Column("applied", sa.Boolean(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["persona_id"],
+            ["teacher_personas.id"],
+        ),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_table(
         "revision_logs",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("draft_id", sa.UUID(), nullable=False),
@@ -250,19 +299,85 @@ def upgrade() -> None:
     op.create_index(
         op.f("ix_transcript_segments_media_id"), "transcript_segments", ["media_id"], unique=False
     )
+    op.create_table(
+        "children",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("class_id", sa.UUID(), nullable=False),
+        sa.Column("name", sa.String(), nullable=False),
+        sa.Column("birth_date", sa.Date(), nullable=False),
+        sa.Column("status", sa.String(), nullable=False),
+        sa.Column("enrolled_at", sa.Date(), nullable=False),
+        sa.Column("graduated_at", sa.Date(), nullable=True),
+        sa.ForeignKeyConstraint(
+            ["class_id"],
+            ["classes.id"],
+        ),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_table(
+        "education_plans",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("class_id", sa.UUID(), nullable=False),
+        sa.Column("teacher_id", sa.UUID(), nullable=False),
+        sa.Column("plan_type", sa.String(), nullable=False),
+        sa.Column("start_date", sa.Date(), nullable=False),
+        sa.Column("end_date", sa.Date(), nullable=False),
+        sa.Column("title", sa.String(), nullable=False),
+        sa.Column("content", sa.Text(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["class_id"],
+            ["classes.id"],
+        ),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_table(
+        "consent_records",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("child_id", sa.UUID(), nullable=False),
+        sa.Column("parent_id", sa.UUID(), nullable=False),
+        sa.Column("consent_type", sa.String(), nullable=False),
+        sa.Column("status", sa.String(), nullable=False),
+        sa.Column("agreed_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),
+        sa.ForeignKeyConstraint(
+            ["child_id"],
+            ["children.id"],
+        ),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_table(
+        "parent_child_relations",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("parent_id", sa.UUID(), nullable=False),
+        sa.Column("child_id", sa.UUID(), nullable=False),
+        sa.Column("is_legal_guardian", sa.Boolean(), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["child_id"],
+            ["children.id"],
+        ),
+        sa.PrimaryKeyConstraint("id"),
+    )
     # ### end Alembic commands ###
 
 
 def downgrade() -> None:
     # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_table("parent_child_relations")
+    op.drop_table("consent_records")
+    op.drop_table("education_plans")
+    op.drop_table("children")
     op.drop_index(op.f("ix_transcript_segments_media_id"), table_name="transcript_segments")
     op.drop_table("transcript_segments")
     op.drop_table("revision_logs")
+    op.drop_table("persona_feedbacks")
     op.drop_index(op.f("ix_media_child_links_child_id"), table_name="media_child_links")
     op.drop_table("media_child_links")
     op.drop_table("document_publications")
+    op.drop_table("classes")
     op.drop_table("verification_results")
     op.drop_table("unclassified_items")
+    op.drop_table("teacher_personas")
     op.drop_table("sentence_evidences")
     op.drop_table("notices")
     op.drop_table("media_assets")
@@ -273,5 +388,6 @@ def downgrade() -> None:
     op.drop_table("draft_documents")
     op.drop_table("draft_decision_logs")
     op.drop_table("deletion_logs")
+    op.drop_table("centers")
     op.drop_table("access_logs")
     # ### end Alembic commands ###
