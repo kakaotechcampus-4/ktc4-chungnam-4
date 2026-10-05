@@ -40,7 +40,12 @@ export function ParentNoteListPage() {
   const navigate = useNavigate();
   const [shownMonths, setShownMonths] = useState(FIRST_MONTHS);
 
-  const { currentClass, isPending: classPending, isError: classError } = useCurrentClass();
+  const {
+    currentClass,
+    isPending: classPending,
+    isError: classError,
+    error: classErrorValue,
+  } = useCurrentClass();
   const classId = currentClass?.class_id ?? "";
   const childrenQuery = useQuery({
     ...classChildrenQueryOptions(classId),
@@ -64,10 +69,13 @@ export function ParentNoteListPage() {
     );
   }
   if (classError || notesQuery.isError) {
+    // 반 조회만 실패했으면 그쪽 오류를 읽어야 교사가 이유를 압니다.
     return (
       <>
         {header}
-        <p className="text-body text-ink-muted">{failureText(notesQuery.error)}</p>
+        <p className="text-body text-ink-muted">
+          {failureText(classError ? classErrorValue : notesQuery.error)}
+        </p>
       </>
     );
   }

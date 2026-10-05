@@ -8,14 +8,25 @@ import { classChildrenQueryOptions } from "@/api/organization";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
+import { ApiError } from "@/lib/api-client";
 import { formatDate, formatDateTime } from "@/lib/datetime";
+
+// 서버가 왜 막았는지 교사가 알아야 다음 행동을 고릅니다(게시판·목록과 같은 방식).
+function failureText(error: unknown) {
+  return error instanceof ApiError ? error.message : "잠시 후 다시 시도해 주세요.";
+}
 import type { MediaUrl } from "@/types/api-draft/media";
 
 export function ParentNoteDetailPage() {
   const { childId = "", draftId = "" } = useParams<{ childId: string; draftId: string }>();
   const navigate = useNavigate();
 
-  const { currentClass, isPending: classPending, isError: classError } = useCurrentClass();
+  const {
+    currentClass,
+    isPending: classPending,
+    isError: classError,
+    error: classErrorValue,
+  } = useCurrentClass();
   const classId = currentClass?.class_id ?? "";
   const childrenQuery = useQuery({
     ...classChildrenQueryOptions(classId),
@@ -46,10 +57,13 @@ export function ParentNoteDetailPage() {
     );
   }
   if (classError || notesQuery.isError) {
+    // 반 조회만 실패했으면 그쪽 오류를 읽어야 교사가 이유를 압니다.
     return (
       <>
         {header}
-        <p className="text-body text-ink-muted">알림장을 불러오지 못했어요.</p>
+        <p className="text-body text-ink-muted">
+          {failureText(classError ? classErrorValue : notesQuery.error)}
+        </p>
       </>
     );
   }
@@ -63,7 +77,8 @@ export function ParentNoteDetailPage() {
   const draft = draftQuery.data;
   // 사진 없이 게시했으면 학부모에게 글만 갔습니다. 여기는 "학부모가 받은 것"을 보는 자리라
   // 교사에게도 사진을 보여 주지 않습니다 — 보낸 것과 본 것이 달라지면 안 됩니다.
-  const photosSent = draft?.include_photos !== false;
+  // true일 때만 보여 줍니다. 게시 전 캐시(null)가 남아 있으면 !== false로는 사진이 잠깐 보입니다.
+  const photosSent = draft?.include_photos === true;
   const photos: MediaUrl[] =
     draft && photosSent
       ? draft.selected_media_ids
@@ -112,7 +127,7 @@ export function ParentNoteDetailPage() {
         ) : draftQuery.isPending ? (
           <p className="text-body text-ink-muted">본문을 불러오는 중이에요.</p>
         ) : draft === undefined ? (
-          <p className="text-body text-ink-muted">본문을 불러오지 못했어요.</p>
+          <p className="text-body text-ink-muted">{failureText(draftQuery.error)}</p>
         ) : (
           <div className="flex flex-col gap-6">
             {photos.length > 0 ? (

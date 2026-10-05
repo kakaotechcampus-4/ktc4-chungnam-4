@@ -2,7 +2,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http } from "msw";
 
-import { documentsKeys } from "@/api/documents";
+import { childDraftsQueryOptions, documentsKeys } from "@/api/documents";
 import { kstToday, shiftDate } from "@/lib/datetime";
 import { fixtureId } from "@/mocks/fixtures/ids";
 import { apiPath, errorResponse } from "@/mocks/http";
@@ -220,6 +220,37 @@ describe("DraftReviewPage", () => {
     await waitFor(() => {
       const cached = queryClient.getQueryData(documentsKeys.draft(doyunNote));
       expect(cached).toMatchObject({ include_photos: false });
+    });
+  });
+
+  // 원아별 목록(알림장 목록·상세의 ‹ ›)도 비워야 합니다. 안 비우면 게시판에는 있는데
+  // 그 아이 목록에는 방금 게시한 알림장이 없습니다.
+  it("게시하면 그 아이의 알림장 목록 캐시도 비운다", async () => {
+    const user = userEvent.setup();
+    const { queryClient } = renderPage();
+    await screen.findByRole("button", { name: /김도윤/ });
+    await screen.findByRole("heading", { name: /작은 블록/ });
+
+    // 게시 전에 그 아이 목록을 본 상태를 만듭니다.
+    const listKey = documentsKeys.childDrafts(DOYUN, "parent_note", true);
+    const before = await queryClient.fetchQuery(
+      childDraftsQueryOptions(DOYUN, "parent_note", true),
+    );
+    expect(queryClient.getQueryState(listKey)?.isInvalidated).toBe(false);
+
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+    await user.click(await screen.findByRole("button", { name: "게시하기" }));
+
+    // 비워졌으면 다시 받아 왔을 때 어제 게시본이 늘어 있습니다.
+    await waitFor(async () => {
+      const after = await queryClient.fetchQuery(
+        childDraftsQueryOptions(DOYUN, "parent_note", true),
+      );
+      expect(after.length).toBe(before.length + 1);
     });
   });
 

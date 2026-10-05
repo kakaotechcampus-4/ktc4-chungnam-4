@@ -228,9 +228,19 @@ export function DraftReviewPage() {
     onSuccess: async (response) => {
       // 게시하면 published_at과 include_photos가 정해집니다. 비워 두지 않으면 알림장 상세가
       // 게시 전 캐시(include_photos가 null)를 읽어 사진을 뺀 게시본에도 사진을 보여 줍니다.
+      // 원아별 목록(알림장 목록·상세의 ‹ ›)도 함께 비웁니다. 안 비우면 게시판에는 있는데
+      // 그 아이 목록에는 방금 게시한 알림장이 없습니다.
+      const publishedChildIds = new Set(
+        response.results.flatMap((result) => (result.child_id === null ? [] : [result.child_id])),
+      );
       await Promise.all([
         ...response.results.map((result) =>
           queryClient.invalidateQueries({ queryKey: documentsKeys.draft(result.draft_id) }),
+        ),
+        ...[...publishedChildIds].map((id) =>
+          queryClient.invalidateQueries({
+            queryKey: documentsKeys.childDrafts(id, "parent_note", true),
+          }),
         ),
         queryClient.invalidateQueries({
           queryKey: documentsKeys.classDrafts(classId, recordDate),
