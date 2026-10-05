@@ -310,8 +310,10 @@ export function DraftReviewPage() {
     (row) => row.state === "approved" && row.note?.published_at == null,
   );
   const isDayClosed = rows.some((row) => row.note?.published_at != null) && !hasUnpublishedApproved;
+  // 이미 나간 알림장은 다시 보내지 않습니다. 게시해도 status는 approved로 남아 있어서
+  // published_at까지 봐야 합니다 — 안 보면 두 번째 게시에서 전부 실패합니다.
   const publishTargets = rows.flatMap((row) =>
-    row.note && row.state === "approved"
+    row.note && row.state === "approved" && row.note.published_at === null
       ? [{ childId: row.child.child_id, name: row.child.name, note: row.note }]
       : [],
   );

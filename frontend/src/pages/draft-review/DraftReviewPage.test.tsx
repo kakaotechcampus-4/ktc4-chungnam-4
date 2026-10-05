@@ -327,6 +327,42 @@ describe("DraftReviewPage", () => {
     expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled();
   });
 
+  // 게시해도 status는 approved로 남습니다. published_at까지 보지 않으면 다시 게시할 때
+  // 이미 나간 알림장을 또 보내 전부 DRAFT_ALREADY_PUBLISHED로 실패합니다.
+  // 목의 판정을 그대로 쓰려고 핸들러를 덮지 않습니다 — 정예린은 보호자가 없어 실제로 실패합니다.
+  it("다시 게시해도 이미 나간 알림장은 또 보내지 않는다", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("button", { name: /김도윤/ });
+
+    // 보호자가 없는 정예린에게 초안을 만들어 승인합니다. 게시하면 이 한 건만 실패합니다.
+    await user.click(screen.getByRole("button", { name: /정예린/ }));
+    await user.type(
+      await screen.findByRole("textbox", { name: "직접 작성" }),
+      "오늘은 그림책을 보았어요.",
+    );
+    await user.click(screen.getByRole("button", { name: "저장하기" }));
+    await waitFor(() => expect(screen.getByRole("checkbox")).toBeEnabled());
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+
+    await user.click(screen.getByRole("button", { name: /김도윤/ }));
+    await screen.findByRole("heading", { name: /작은 블록/ });
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+    await user.click(await screen.findByRole("button", { name: "게시하기" }));
+    expect(await screen.findByText(/1명은 게시하지 못했어요 \(정예린\)/)).toBeInTheDocument();
+
+    // 다시 눌러도 이미 나간 건은 빠지므로 실패는 여전히 정예린 한 명입니다.
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+    await user.click(await screen.findByRole("button", { name: "게시하기" }));
+
+    expect(await screen.findByText(/1명은 게시하지 못했어요 \(정예린\)/)).toBeInTheDocument();
+  });
+
   // 게시를 마친 날짜를 다시 열면 고칠 수 있다고 착각하지 않도록 화면 전체가 끝난 상태가 된다.
   it("게시를 마친 날짜를 열면 검토 화면 대신 끝난 안내가 나온다", async () => {
     renderRoutes([{ path: "/t/today/review/:childId", element: <DraftReviewPage /> }], {
