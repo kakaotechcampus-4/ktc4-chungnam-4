@@ -1,3 +1,4 @@
+import { ManualWritePage } from "@/pages/manual-write/ManualWritePage";
 import { ProcessingPage } from "@/pages/processing/ProcessingPage";
 import { TodayPage } from "@/pages/today/TodayPage";
 import { UploadPage } from "@/pages/upload/UploadPage";
@@ -8,11 +9,11 @@ import type { AreaRoutes } from "./types";
 // 추가 예정: teacher "dashboard" → DashboardPage (1:2886). /t로 들어오면 여기로 갑니다.
 //            teacher "today" 업로드 중 1:2406, 업로드 실패 1:2520 (빈 상태 1:1895는 등록됨)
 //            teacher "today/processing" 처리 실패 · 단계 재시도 (1:2811 쪽)
-//            teacher "today/write" → ManualWritePage (1:2848)
 export const recordRoutes: AreaRoutes = {
   teacher: [
     { path: "today", Component: TodayPage },
     { path: "today/upload", Component: UploadPage },
     { path: "today/processing", Component: ProcessingPage },
+    { path: "today/write", Component: ManualWritePage },
   ],
 };
