@@ -1,5 +1,5 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
-import { http } from "msw";
+import { HttpResponse, http } from "msw";
 
 import { authKeys } from "@/api/auth";
 import { TEACHER_ME } from "@/mocks/fixtures/auth";
@@ -92,6 +92,21 @@ describe("교사 영역 가드", () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "주 메뉴" })).not.toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/t/403");
+  });
+
+  it("서버가 모르는 역할을 보내면 교사 영역에 들이지 않는다", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    server.use(
+      http.get(apiPath("/me"), () => HttpResponse.json({ ...TEACHER_ME, account_type: "admin" })),
+    );
+    const router = renderAt("/t/403");
+
+    expect(
+      await screen.findByRole("heading", { name: "이 화면을 볼 수 있는 권한이 없어요" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "주 메뉴" })).not.toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/t/403");
+    warn.mockRestore();
   });
 });
 

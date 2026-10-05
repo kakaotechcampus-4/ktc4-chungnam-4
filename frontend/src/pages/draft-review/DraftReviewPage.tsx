@@ -21,7 +21,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
 import { ApiError } from "@/lib/api-client";
-import { formatDate, kstToday } from "@/lib/datetime";
+import { formatDate, isDateOnly, kstToday } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 import type { ClassDraftItem } from "@/types/api-draft/documents";
 import type { MediaUrl } from "@/types/api-draft/media";
@@ -80,7 +80,9 @@ export function DraftReviewPage() {
   const queryClient = useQueryClient();
 
   // 기본은 오늘입니다. 지난 날짜는 ?record_date=YYYY-MM-DD로 봅니다(목 데이터 확인용).
-  const recordDate = searchParams.get("record_date") ?? kstToday();
+  // 주소는 누구나 고칠 수 있어서, 날짜가 아니면 오늘로 돌립니다(알림장 상세와 같은 이유).
+  const recordDateParam = searchParams.get("record_date");
+  const recordDate = isDateOnly(recordDateParam) ? recordDateParam : kstToday();
 
   const {
     currentClass,
@@ -223,7 +225,28 @@ export function DraftReviewPage() {
         include_photos: input.includePhotos,
         items: input.items,
       }),
-    onSuccess: (response) => {
+    onSuccess: async (response) => {
+      // 게시하면 published_at과 include_photos가 정해집니다. 비워 두지 않으면 알림장 상세가
+      // 게시 전 캐시(include_photos가 null)를 읽어 사진을 뺀 게시본에도 사진을 보여 줍니다.
+      // 원아별 목록(알림장 목록·상세의 ‹ ›)도 함께 비웁니다. 안 비우면 게시판에는 있는데
+      // 그 아이 목록에는 방금 게시한 알림장이 없습니다.
+      const publishedChildIds = new Set(
+        response.results.flatMap((result) => (result.child_id === null ? [] : [result.child_id])),
+      );
+      await Promise.all([
+        ...response.results.map((result) =>
+          queryClient.invalidateQueries({ queryKey: documentsKeys.draft(result.draft_id) }),
+        ),
+        ...[...publishedChildIds].map((id) =>
+          queryClient.invalidateQueries({
+            queryKey: documentsKeys.childDrafts(id, "parent_note", true),
+          }),
+        ),
+        queryClient.invalidateQueries({
+          queryKey: documentsKeys.classDrafts(classId, recordDate),
+        }),
+        queryClient.invalidateQueries({ queryKey: documentsKeys.publishedNotes(classId) }),
+      ]);
       const published = response.results.filter((result) => result.status === "published").length;
       navigate("/t/notes/publish/done", { state: { publishedCount: published } });
     },
