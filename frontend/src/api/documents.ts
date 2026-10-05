@@ -17,6 +17,30 @@ import type {
   PublicationResponse,
 } from "@/types/api-draft/documents";
 
+import {
+  toChildDraftView,
+  toClassDraftView,
+  toDraftView,
+  toPublicationResultView,
+} from "./documents-adapter";
+
+// 화면은 서버 타입 대신 여기서 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
+export {
+  canApprove,
+  canReopen,
+  type ChildDraftView,
+  type ClassDraftView,
+  type DraftState,
+  type DraftSummaryView,
+  type DraftView,
+  type Evidence,
+  type EvidenceSourceType,
+  type PublicationResultView,
+  type RosterState,
+  type Sentence,
+  sentPhotos,
+} from "./documents-adapter";
+
 // 초안·게시·학부모 알림장 요청과 query key는 이 파일에서만 만듭니다(frontend/CLAUDE.md §데이터).
 // 교사용(/drafts)과 학부모용(/parent-notes)은 경로와 스키마가 다릅니다. 학부모 응답에는 상태·버전·근거가 없습니다.
 export const documentsKeys = {
@@ -46,7 +70,7 @@ export function classDraftsQueryOptions(classId: string, recordDate: string) {
           `/classes/${encodeURIComponent(classId)}/drafts`,
           { query: { record_date: recordDate }, signal },
         )
-      ).items,
+      ).items.map(toClassDraftView),
   });
 }
 
@@ -60,7 +84,7 @@ export function publishedParentNotesQueryOptions(classId: string) {
           `/classes/${encodeURIComponent(classId)}/drafts`,
           { query: { doc_type: "parent_note", published: true }, signal },
         )
-      ).items,
+      ).items.map(toClassDraftView),
   });
 }
 
@@ -74,7 +98,7 @@ export function childDraftsQueryOptions(childId: string, docType: DocType, publi
           `/children/${encodeURIComponent(childId)}/drafts`,
           { query: { doc_type: docType, published }, signal },
         )
-      ).items,
+      ).items.map(toChildDraftView),
   });
 }
 
@@ -82,34 +106,41 @@ export function childDraftsQueryOptions(childId: string, docType: DocType, publi
 export function draftQueryOptions(draftId: string) {
   return queryOptions({
     queryKey: documentsKeys.draft(draftId),
-    queryFn: ({ signal }) =>
-      api.get<DraftDetail>(`/drafts/${encodeURIComponent(draftId)}`, { signal }),
+    queryFn: async ({ signal }) =>
+      toDraftView(await api.get<DraftDetail>(`/drafts/${encodeURIComponent(draftId)}`, { signal })),
   });
 }
 
 /** 교사용: 자료 없이 직접 쓴 초안 만들기. `status`가 `verified`라 바로 승인할 수 있습니다. */
-export function createDraft(childId: string, body: DraftCreateRequest) {
-  return api.post<DraftDetail>(`/children/${encodeURIComponent(childId)}/drafts`, body);
+export async function createDraft(childId: string, body: DraftCreateRequest) {
+  return toDraftView(
+    await api.post<DraftDetail>(`/children/${encodeURIComponent(childId)}/drafts`, body),
+  );
 }
 
 /** 교사용: 초안 직접 수정(바뀐 문장만, 선택 사진). 응답은 상세와 같고 version이 1 오릅니다. */
-export function patchDraft(draftId: string, body: DraftPatchRequest) {
-  return api.patch<DraftDetail>(`/drafts/${encodeURIComponent(draftId)}`, body);
+export async function patchDraft(draftId: string, body: DraftPatchRequest) {
+  return toDraftView(await api.patch<DraftDetail>(`/drafts/${encodeURIComponent(draftId)}`, body));
 }
 
 /** 교사용: 승인(H-1 승인 게이트). 승인만으로는 학부모에게 보이지 않습니다. */
-export function approveDraft(draftId: string, body: DraftApproveRequest) {
-  return api.post<DraftDetail>(`/drafts/${encodeURIComponent(draftId)}/approve`, body);
+export async function approveDraft(draftId: string, body: DraftApproveRequest) {
+  return toDraftView(
+    await api.post<DraftDetail>(`/drafts/${encodeURIComponent(draftId)}/approve`, body),
+  );
 }
 
 /** 교사용: 승인 되돌리기. `verified`로 돌아가 다시 수정·승인할 수 있습니다. 게시한 뒤에는 막힙니다(H-1). */
-export function reopenDraft(draftId: string, body: DraftReopenRequest) {
-  return api.post<DraftDetail>(`/drafts/${encodeURIComponent(draftId)}/reopen`, body);
+export async function reopenDraft(draftId: string, body: DraftReopenRequest) {
+  return toDraftView(
+    await api.post<DraftDetail>(`/drafts/${encodeURIComponent(draftId)}/reopen`, body),
+  );
 }
 
 /** 교사용: 승인된 알림장을 골라 게시합니다. 결과는 건별로 오고, 하나가 실패해도 나머지는 게시됩니다. */
-export function publishParentNotes(body: PublicationRequest) {
-  return api.post<PublicationResponse>("/publications", body);
+export async function publishParentNotes(body: PublicationRequest) {
+  const { results } = await api.post<PublicationResponse>("/publications", body);
+  return results.map(toPublicationResultView);
 }
 
 /** 학부모용: 자녀의 게시된 알림장 목록(최신순, 첫 페이지) */

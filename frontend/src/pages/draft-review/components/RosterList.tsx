@@ -1,19 +1,17 @@
 import { CheckIcon } from "lucide-react";
 
+import type { DraftSummaryView, RosterState } from "@/api/documents";
 import { cn } from "@/lib/utils";
-import type { DraftSummary } from "@/types/api-draft/documents";
 import type { ClassChild } from "@/types/api-draft/organization";
 
 /**
- * 레일 한 줄의 상태. 미분류("확인 필요")와 초안 없음("자료 없음")은 교사가 할 일이
- * 사진 추가·직접 작성으로 같아서 `pending`으로 묶습니다 — 임시 결정(김진하), docs/api/documents.md §레일·목록 표기.
+ * 레일 한 줄. 상태는 adapter가 정합니다(api/documents-adapter.ts) — 초안이 없는 원아와
+ * 미분류는 교사가 할 일이 사진 추가·직접 작성으로 같아서 함께 "검토 필요"로 보여 줍니다.
  */
-export type RosterState = "approved" | "pending";
-
 export interface RosterRow {
   child: ClassChild;
   /** 그날의 알림장 초안. 없으면 자료 없음이거나 미분류입니다. */
-  note: DraftSummary | null;
+  note: DraftSummaryView | null;
   state: RosterState;
 }
 
@@ -21,7 +19,8 @@ export interface RosterRow {
 // 게시를 마친 날짜는 화면 전체가 잠기고 레일을 쓰지 않습니다 — 그래서 "게시됨" 상태가 없습니다.
 const STATE_LABEL_MAP: Record<RosterState, string> = {
   approved: "검토 완료",
-  pending: "검토 필요",
+  review: "검토 필요",
+  none: "검토 필요",
 };
 
 /** 승인을 마친 줄만 체크로 표시합니다(H-1: 승인 전은 검토 대기). */

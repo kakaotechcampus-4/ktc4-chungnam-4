@@ -125,11 +125,12 @@ describe("핵심 흐름 목", () => {
     // 3. 초안 검토. 근거는 이번에 보낸 자료 가운데 llm_allowed인 것만입니다.
     const rail = await client.fetchQuery(classDraftsQueryOptions(CLASS_ID, today));
     expect(rail.map((item) => item.child_id)).toEqual([DOYUN, YERIN]);
-    expect(rail.find((item) => item.child_id === YERIN)?.unclassified).toEqual({
-      reason: "insufficient_evidence",
-    });
+    expect(rail.find((item) => item.child_id === YERIN)?.unclassified_reason).toBe(
+      "insufficient_evidence",
+    );
     const note = await client.fetchQuery(draftQueryOptions(noteId));
-    expect(note.status).toBe("verified");
+    // api/documents.ts가 화면용 모양으로 바꿔 줍니다. 승인 전은 모두 "review"입니다.
+    expect(note.state).toBe("review");
     expect(note.sentences[0]?.text).toMatch(/^도윤이는 /);
     expect(note.sentences.flatMap((s) => s.evidences.map((e) => e.media_id))).toEqual([
       doyunPhoto.media_id,
@@ -145,19 +146,19 @@ describe("핵심 흐름 목", () => {
       expected_version: edited.version,
       reviewed: true,
     });
-    expect(approved.status).toBe("approved");
+    expect(approved.state).toBe("approved");
     setMockSession("parent");
     await expect(client.fetchQuery(parentNoteQueryOptions(noteId))).rejects.toMatchObject({
       status: 404,
       code: "PARENT_NOTE_NOT_FOUND",
     });
     setMockSession("teacher");
-    const { results } = await publishParentNotes({
+    const results = await publishParentNotes({
       request_id: fixtureId("request", 901),
       include_photos: true,
       items: [{ draft_id: noteId, expected_version: approved.version }],
     });
-    expect(results[0]).toMatchObject({ status: "published", parent_note_id: noteId });
+    expect(results[0]).toMatchObject({ published: true, parent_note_id: noteId });
 
     // 5. 학부모 열람. 본문을 열면 읽음이 됩니다.
     setMockSession("parent");
@@ -186,16 +187,16 @@ describe("핵심 흐름 목", () => {
     const state = Object.fromEntries(
       rail.map((item) => [
         item.child_id,
-        item.unclassified
+        item.unclassified_reason
           ? "확인 필요"
           : item.parent_note?.published_at
             ? "게시됨"
-            : item.parent_note?.status,
+            : item.parent_note?.state,
       ]),
     );
     // 게시는 반 전체를 하루 한 번 하므로 검토 중인 날짜에는 게시된 원아가 없습니다.
     expect(state).toEqual({
-      [DOYUN]: "verified",
+      [DOYUN]: "review",
       [fixtureId("child", 3)]: "확인 필요",
       [HAJUN]: "approved",
       [fixtureId("child", 4)]: "approved",
@@ -239,12 +240,12 @@ describe("목의 판정 규칙", () => {
   it("학부모는 남의 자녀 알림장을 게시돼 있어도 열 수 없고, 미승인 초안은 게시되지 않는다", async () => {
     const client = queryClient();
     const unapproved = fixtureId("draft", 12);
-    const { results } = await publishParentNotes({
+    const results = await publishParentNotes({
       request_id: fixtureId("request", 950),
       include_photos: false,
       items: [{ draft_id: unapproved, expected_version: 1 }],
     });
-    expect(results[0]).toMatchObject({ status: "failed", error_code: "DRAFT_NOT_APPROVED" });
+    expect(results[0]).toMatchObject({ published: false, error_code: "DRAFT_NOT_APPROVED" });
 
     setMockSession("parent");
     // 최지우(parent 4번의 자녀)의 그제 알림장은 게시돼 있지만 김서연에게는 없는 것과 같습니다.
@@ -282,12 +283,12 @@ describe("목의 판정 규칙", () => {
     await expect(
       approveDraft(verified, { expected_version: 0, reviewed: true }),
     ).rejects.toMatchObject({ status: 409, code: "DRAFT_VERSION_CONFLICT" });
-    const { results } = await publishParentNotes({
+    const results = await publishParentNotes({
       request_id: fixtureId("request", 960),
       include_photos: false,
       items: [{ draft_id: fixtureId("draft", 22), expected_version: 1 }], // 승인본은 version 2
     });
-    expect(results[0]).toMatchObject({ status: "failed", error_code: "DRAFT_VERSION_CONFLICT" });
+    expect(results[0]).toMatchObject({ published: false, error_code: "DRAFT_VERSION_CONFLICT" });
   });
 
   it("같은 날짜로 다시 만들어도 승인·게시된 문서는 그대로 남는다", async () => {

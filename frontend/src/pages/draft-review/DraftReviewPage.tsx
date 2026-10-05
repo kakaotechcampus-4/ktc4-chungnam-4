@@ -6,6 +6,10 @@ import { useNavigate, useParams, useSearchParams } from "react-router";
 
 import {
   approveDraft,
+  canApprove,
+  canReopen,
+  type ClassDraftView,
+  type RosterState,
   classDraftsQueryOptions,
   createDraft,
   documentsKeys,
@@ -23,12 +27,10 @@ import { useCurrentClass } from "@/features/class-context/use-current-class";
 import { ApiError } from "@/lib/api-client";
 import { formatDate, isDateOnly, kstToday } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
-import type { ClassDraftItem } from "@/types/api-draft/documents";
-import type { MediaUrl } from "@/types/api-draft/media";
 
 import { EvidencePanel } from "./components/EvidencePanel";
 import { PublishConfirmDialog } from "./components/PublishConfirmDialog";
-import { RosterList, type RosterRow, type RosterState } from "./components/RosterList";
+import { RosterList, type RosterRow } from "./components/RosterList";
 
 // 서버가 왜 막았는지(담당 반 아님·이미 승인됨·버전 밀림)를 교사가 알아야 다음 행동을 고릅니다.
 // 그래서 고정 문구 대신 응답의 message를 보여 줍니다(다른 화면과 같은 방식).
@@ -69,8 +71,9 @@ function toSentences(text: string) {
 }
 
 // 미분류·자료 없음은 "검토 필요"로 묶습니다 — 임시 결정(김진하), docs/api/documents.md §레일·목록 표기.
-function toRosterState(item: ClassDraftItem | undefined): RosterState {
-  return item?.parent_note?.status === "approved" ? "approved" : "pending";
+// 초안이 없는 원아(자료 없음·미분류)는 "none"입니다. 초안이 있으면 adapter가 정한 상태를 씁니다.
+function toRosterState(item: ClassDraftView | undefined): RosterState {
+  return item?.parent_note?.state ?? "none";
 }
 
 export function DraftReviewPage() {
@@ -225,16 +228,16 @@ export function DraftReviewPage() {
         include_photos: input.includePhotos,
         items: input.items,
       }),
-    onSuccess: async (response) => {
+    onSuccess: async (results) => {
       // 게시하면 published_at과 include_photos가 정해집니다. 비워 두지 않으면 알림장 상세가
       // 게시 전 캐시(include_photos가 null)를 읽어 사진을 뺀 게시본에도 사진을 보여 줍니다.
       // 원아별 목록(알림장 목록·상세의 ‹ ›)도 함께 비웁니다. 안 비우면 게시판에는 있는데
       // 그 아이 목록에는 방금 게시한 알림장이 없습니다.
       const publishedChildIds = new Set(
-        response.results.flatMap((result) => (result.child_id === null ? [] : [result.child_id])),
+        results.flatMap((result) => (result.child_id === null ? [] : [result.child_id])),
       );
       await Promise.all([
-        ...response.results.map((result) =>
+        ...results.map((result) =>
           queryClient.invalidateQueries({ queryKey: documentsKeys.draft(result.draft_id) }),
         ),
         ...[...publishedChildIds].map((id) =>
@@ -247,7 +250,7 @@ export function DraftReviewPage() {
         }),
         queryClient.invalidateQueries({ queryKey: documentsKeys.publishedNotes(classId) }),
       ]);
-      const published = response.results.filter((result) => result.status === "published").length;
+      const published = results.filter((result) => result.published).length;
       navigate("/t/notes/publish/done", { state: { publishedCount: published } });
     },
     onError: (error) => refetchOnVersionConflict(error),
@@ -275,20 +278,18 @@ export function DraftReviewPage() {
   const klassName = currentClass?.name ?? "";
   const selectedSentence =
     draft?.sentences.find((sentence) => sentence.sentence_index === selectedSentenceIndex) ?? null;
-  const photos: MediaUrl[] = draft
-    ? draft.selected_media_ids
-        .map((id) => draft.media.find((media) => media.media_id === id))
-        .filter((media): media is MediaUrl => media !== undefined && media.type === "photo")
-    : [];
+  // 게시 전 초안이라 교사가 고른 사진을 그대로 보여 줍니다. 게시본을 되짚어 보는 화면은
+  // adapter의 sentPhotos를 써서 실제로 나간 사진만 봅니다.
+  const photos = draft?.photos ?? [];
 
   // 승인은 검증을 마친 초안만(목·API 문서 규칙). 게시는 검토가 남은 원아가 없을 때만 엽니다.
   // 수정 중에는 잠급니다 — "수정 완료" 없이 승인하면 고치기 전 문장이 승인·게시되는데
   // 화면에는 고친 글이 남아 있어 교사가 알아채지 못합니다(H-1 승인 게이트).
   const isEditing = editing !== null;
-  const isVerified = draft?.status === "verified";
-  const canApprove = isVerified && !isEditing;
+  const isDraftApprovable = canApprove(draft);
+  const canApproveNow = isDraftApprovable && !isEditing;
   // 게시한 뒤에는 되돌릴 수 없습니다. 이미 학부모에게 나갔으므로 회수가 따로 필요합니다(H-1).
-  const canReopen = draft?.status === "approved" && draft.published_at === null;
+  const canReopenNow = canReopen(draft);
   // 게시는 반 전체를 하루 한 번 합니다 — 임시 결정(김진하), docs/api/documents.md §POST /publications.
   // 그래서 한 날짜에 게시된 초안이 하나라도 있으면 그날은 끝난 날입니다. 게시본은 학부모가
   // 이미 봤으므로 고칠 수 없고, 되돌리려면 회수(revoke)가 필요합니다(H-1).
@@ -303,7 +304,7 @@ export function DraftReviewPage() {
     .map((target) => ({ draft_id: target.note.draft_id, expected_version: target.note.version }));
   // 초안이 있는데 아직 승인하지 않은 원아가 있으면 게시를 막습니다.
   // 초안이 없는 원아(자료 없음·미분류)는 승인할 대상이 없어 게시를 막지 않고, 이번 게시에서 빠집니다.
-  const hasUnreviewedDraft = rows.some((row) => row.note !== null && row.state === "pending");
+  const hasUnreviewedDraft = rows.some((row) => row.note !== null && row.state === "review");
   const canPublish = publishTargets.length > 0 && !hasUnreviewedDraft;
 
   function selectChild(id: string) {
@@ -521,7 +522,7 @@ export function DraftReviewPage() {
                 )}
 
                 {/* 수정 중에도 이 버튼은 남아야 "수정 완료"로 빠져나올 수 있습니다. */}
-                {isVerified ? (
+                {isDraftApprovable ? (
                   <button
                     type="button"
                     onClick={toggleEditing}
@@ -530,7 +531,7 @@ export function DraftReviewPage() {
                   >
                     {editing !== null ? "수정 완료" : "직접 수정"}
                   </button>
-                ) : canReopen ? (
+                ) : canReopenNow ? (
                   <button
                     type="button"
                     onClick={() =>
@@ -569,7 +570,7 @@ export function DraftReviewPage() {
           <label className="flex items-center gap-2 text-body text-ink">
             <Checkbox
               checked={confirmed}
-              disabled={!canApprove}
+              disabled={!canApproveNow}
               onCheckedChange={(value) => setConfirmed(value === true)}
             />
             사진과 본문을 확인했어요
@@ -578,7 +579,7 @@ export function DraftReviewPage() {
             onClick={() =>
               draft && approveMutation.mutate({ draftId: draft.draft_id, version: draft.version })
             }
-            disabled={!confirmed || !canApprove || approveMutation.isPending}
+            disabled={!confirmed || !canApproveNow || approveMutation.isPending}
           >
             검토 완료하고 승인하기
           </Button>
