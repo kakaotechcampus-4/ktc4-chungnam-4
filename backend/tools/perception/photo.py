@@ -76,13 +76,17 @@ def assign_photo_refs(photos: Sequence[PhotoInput]) -> dict[str, PhotoInput]:
 
 
 def parse_photo_analysis(
-    raw: str, *, photos_by_ref: Mapping[str, PhotoInput], target_child_id: str, record_date: date
+    raw: str | None,
+    *,
+    photos_by_ref: Mapping[str, PhotoInput],
+    target_child_id: str,
+    record_date: date,
 ) -> PerceptionResult:
     """사진 분석 응답을 대상 원아·기록 날짜의 근거로 바꾸고, 쓸 수 없는 관찰은 사유와 함께 버린다.
 
     photos_by_ref의 키는 정확히 P1..Pn이어야 하고 target_child_id는 앞뒤 공백을 지운 뒤 비면
-    안 된다. 어기면 호출 오류로 ValueError를 낸다. 응답이 형식을 어기면 예외 대신
-    RESPONSE_ERROR를 돌려준다.
+    안 된다. 어기면 호출 오류로 ValueError를 낸다. 응답이 형식을 어기거나 본문이 없으면(None)
+    예외 대신 RESPONSE_ERROR를 돌려준다.
 
     응답에 일부 참조가 빠지면 그 사진만 PHOTO_NOT_ANSWERED로 버리고 나머지 답은 쓴다. 빈
     배열처럼 아무 사진도 답하지 않은 응답은 실패로 보고 RESPONSE_ERROR를 돌려준다.
@@ -115,12 +119,14 @@ def parse_photo_analysis(
     return PerceptionResult(status=status, items=items, dropped=dropped)
 
 
-def _parse_answers(raw: str, *, refs: Sequence[str]) -> dict[str, _PhotoAnswer] | None:
+def _parse_answers(raw: str | None, *, refs: Sequence[str]) -> dict[str, _PhotoAnswer] | None:
     """응답을 참조별 답으로 바꾼다. 형식을 어기면 None.
 
     JSON·스키마 오류는 재시도 대상이라 예외를 올리지 않고 None으로 알린다. 오류 내용에 응답
     원문이 담기므로 어디에도 남기지 않고 버린다 (H-4).
     """
+    if raw is None:
+        return None  # OpenAI 호환 응답의 message.content는 None일 수 있다
     body = raw.strip()
     fenced = _CODE_FENCE.fullmatch(body)
     if fenced is not None:

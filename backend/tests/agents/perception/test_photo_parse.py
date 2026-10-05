@@ -37,7 +37,7 @@ TEXT = "합성 관찰 문장"  # 결과에 남으면 안 되는 경우를 찾기
 REASON = "합성 관찰 없음 사유"
 
 
-def _parse(raw: str, *photos: PhotoInput, target: str = CHILD_A_ID) -> PerceptionResult:
+def _parse(raw: str | None, *photos: PhotoInput, target: str = CHILD_A_ID) -> PerceptionResult:
     return parse_photo_analysis(
         raw,
         photos_by_ref=assign_photo_refs(photos or (photo(),)),
@@ -188,6 +188,7 @@ _P2_OK = answer("P2", (TEXT, "group"))
 @pytest.mark.parametrize(
     "raw",
     [
+        pytest.param(None, id="no_content"),
         pytest.param("", id="empty"),
         pytest.param(f"{TEXT}입니다", id="not_json"),
         pytest.param(json.dumps(_P1_OK, ensure_ascii=False), id="object_not_array"),
@@ -233,7 +234,7 @@ _P2_OK = answer("P2", (TEXT, "group"))
         pytest.param("[" * 100_000, id="deep_nesting"),
     ],
 )
-def test_형식을_어긴_응답은_부분_결과_없이_RESPONSE_ERROR다(raw: str) -> None:
+def test_형식을_어긴_응답은_부분_결과_없이_RESPONSE_ERROR다(raw: str | None) -> None:
     result = _parse(raw, photo(), photo(media_id=PHOTO_B_ID, links=_links(CHILD_A_ID, CHILD_B_ID)))
 
     assert result == PerceptionResult(status=PerceptionStatus.RESPONSE_ERROR, items=[], dropped=[])
