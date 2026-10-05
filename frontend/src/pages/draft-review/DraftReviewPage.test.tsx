@@ -1,6 +1,6 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { http } from "msw";
+import { HttpResponse, http } from "msw";
 
 import { childDraftsQueryOptions, documentsKeys } from "@/api/documents";
 import { kstToday, shiftDate } from "@/lib/datetime";
@@ -252,6 +252,79 @@ describe("DraftReviewPage", () => {
       );
       expect(after.length).toBe(before.length + 1);
     });
+  });
+
+  // 게시는 HTTP 200 안에서 건별로 성공·실패가 옵니다. 실패를 두고 발행 완료로 넘어가면
+  // "전달했어요"만 보여서 교사가 못 올린 원아를 영영 모릅니다.
+  it("일부가 실패하면 발행 완료로 넘어가지 않고 누가 실패했는지 알린다", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post(apiPath("/publications"), async ({ request }) => {
+        const body = (await request.json()) as PublicationRequest;
+        return HttpResponse.json({
+          results: body.items.map((item, index) => ({
+            draft_id: item.draft_id,
+            child_id: index === 0 ? DOYUN : fixtureId("child", 2),
+            status: index === 0 ? "failed" : "published",
+            parent_note_id: index === 0 ? null : item.draft_id,
+            version: null,
+            published_at: null,
+            error_code: index === 0 ? "DRAFT_VERSION_CONFLICT" : null,
+          })),
+        });
+      }),
+    );
+    const { router } = renderPage();
+    await screen.findByRole("button", { name: /김도윤/ });
+    await screen.findByRole("heading", { name: /작은 블록/ });
+
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+    await user.click(await screen.findByRole("button", { name: "게시하기" }));
+
+    expect(
+      await screen.findByText(/김도윤.*게시하지 못했어요|게시하지 못했어요.*김도윤/),
+    ).toBeInTheDocument();
+    expect(router.state.location.pathname).not.toBe("/t/notes/publish/done");
+  });
+
+  // 한 명만 게시돼도 날짜가 닫히면, 실패한 원아를 다시 올릴 방법이 없어집니다.
+  it("승인했는데 아직 안 나간 초안이 남아 있으면 날짜를 닫지 않는다", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post(apiPath("/publications"), async ({ request }) => {
+        const body = (await request.json()) as PublicationRequest;
+        return HttpResponse.json({
+          results: body.items.map((item, index) => ({
+            draft_id: item.draft_id,
+            child_id: index === 0 ? DOYUN : fixtureId("child", 2),
+            status: index === 0 ? "failed" : "published",
+            parent_note_id: index === 0 ? null : item.draft_id,
+            version: null,
+            published_at: null,
+            error_code: index === 0 ? "DRAFT_VERSION_CONFLICT" : null,
+          })),
+        });
+      }),
+    );
+    renderPage();
+    await screen.findByRole("button", { name: /김도윤/ });
+    await screen.findByRole("heading", { name: /작은 블록/ });
+
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+    await user.click(await screen.findByRole("button", { name: "게시하기" }));
+    await screen.findByText(/게시하지 못했어요/);
+
+    // 화면이 잠기지 않아 다시 게시할 수 있습니다.
+    expect(screen.queryByRole("heading", { name: "게시를 마쳤어요" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled();
   });
 
   // 게시를 마친 날짜를 다시 열면 고칠 수 있다고 착각하지 않도록 화면 전체가 끝난 상태가 된다.

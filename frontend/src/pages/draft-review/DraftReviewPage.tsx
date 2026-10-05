@@ -9,6 +9,7 @@ import {
   canApprove,
   canReopen,
   type ClassDraftView,
+  type PublicationResultView,
   type RosterState,
   classDraftsQueryOptions,
   createDraft,
@@ -116,6 +117,8 @@ export function DraftReviewPage() {
   const [excludedChildIds, setExcludedChildIds] = useState<Set<string>>(new Set());
   /** 선택 사진을 학부모에게 함께 보낼지. 기본은 보냄 */
   const [includePhotos, setIncludePhotos] = useState(true);
+  /** 게시가 건별로 실패한 결과. 하나라도 있으면 발행 완료로 넘어가지 않습니다. */
+  const [publishFailures, setPublishFailures] = useState<PublicationResultView[]>([]);
 
   const children = childrenQuery.data ?? [];
   const draftItems = draftsQuery.data ?? [];
@@ -250,8 +253,14 @@ export function DraftReviewPage() {
         }),
         queryClient.invalidateQueries({ queryKey: documentsKeys.publishedNotes(classId) }),
       ]);
-      const published = results.filter((result) => result.published).length;
-      navigate("/t/notes/publish/done", { state: { publishedCount: published } });
+      // 게시는 HTTP 200 안에서 건별로 성공·실패가 옵니다. 실패를 두고 발행 완료로 넘어가면
+      // "전달했어요"만 보여서 교사가 못 올린 원아를 영영 모릅니다. 그래서 남아서 알립니다.
+      const failures = results.filter((result) => !result.published);
+      setPublishFailures(failures);
+      if (failures.length > 0) return;
+      navigate("/t/notes/publish/done", {
+        state: { publishedCount: results.length },
+      });
     },
     onError: (error) => refetchOnVersionConflict(error),
   });
@@ -276,6 +285,8 @@ export function DraftReviewPage() {
   }
 
   const klassName = currentClass?.name ?? "";
+  /** 실패를 알릴 때 id 대신 이름을 보여 줍니다. 못 찾으면 빈 문자열이라 사유 코드로 갈음합니다. */
+  const nameOf = (id: string | null) => children.find((child) => child.child_id === id)?.name ?? "";
   const selectedSentence =
     draft?.sentences.find((sentence) => sentence.sentence_index === selectedSentenceIndex) ?? null;
   // 게시 전 초안이라 교사가 고른 사진을 그대로 보여 줍니다. 게시본을 되짚어 보는 화면은
@@ -293,7 +304,12 @@ export function DraftReviewPage() {
   // 게시는 반 전체를 하루 한 번 합니다 — 임시 결정(김진하), docs/api/documents.md §POST /publications.
   // 그래서 한 날짜에 게시된 초안이 하나라도 있으면 그날은 끝난 날입니다. 게시본은 학부모가
   // 이미 봤으므로 고칠 수 없고, 되돌리려면 회수(revoke)가 필요합니다(H-1).
-  const isDayClosed = rows.some((row) => row.note?.published_at != null);
+  // 승인했는데 아직 안 나간 초안이 남아 있으면 그날은 끝난 게 아닙니다. 건별로 실패했거나
+  // 교사가 이번 게시에서 뺀 원아가 여기 들어오며, 둘 다 다시 올릴 수 있어야 합니다.
+  const hasUnpublishedApproved = rows.some(
+    (row) => row.state === "approved" && row.note?.published_at == null,
+  );
+  const isDayClosed = rows.some((row) => row.note?.published_at != null) && !hasUnpublishedApproved;
   const publishTargets = rows.flatMap((row) =>
     row.note && row.state === "approved"
       ? [{ childId: row.child.child_id, name: row.child.name, note: row.note }]
@@ -564,6 +580,16 @@ export function DraftReviewPage() {
               {failureText(approveMutation.error ?? publishMutation.error)}
             </p>
           ) : null}
+          {/* 건별 실패는 HTTP 200 안에 섞여 오므로 isError로는 잡히지 않습니다. */}
+          {publishFailures.length > 0 ? (
+            <p className="text-caption text-destructive">
+              {publishFailures.length}명은 게시하지 못했어요 (
+              {publishFailures
+                .map((failure) => nameOf(failure.child_id) || failure.error_code)
+                .join(", ")}
+              ). 다시 시도해 주세요.
+            </p>
+          ) : null}
           {isEditing ? (
             <p className="text-caption text-ink-muted">수정을 마치면 승인할 수 있어요.</p>
           ) : null}
@@ -607,7 +633,10 @@ export function DraftReviewPage() {
         noDraftCount={rows.filter((row) => row.note === null).length}
         includePhotos={includePhotos}
         onIncludePhotosChange={setIncludePhotos}
-        onConfirm={() => publishMutation.mutate({ items: publishable, includePhotos })}
+        onConfirm={() => {
+          setPublishFailures([]);
+          publishMutation.mutate({ items: publishable, includePhotos });
+        }}
       />
     </>
   );
