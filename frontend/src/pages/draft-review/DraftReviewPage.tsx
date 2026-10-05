@@ -33,6 +33,20 @@ import { EvidencePanel } from "./components/EvidencePanel";
 import { PublishConfirmDialog } from "./components/PublishConfirmDialog";
 import { RosterList, type RosterRow } from "./components/RosterList";
 
+/**
+ * 게시가 건별로 실패한 사유입니다. 서버는 코드만 주므로 교사가 읽을 말로 바꿉니다.
+ * 모르는 코드는 코드 그대로 보여 줍니다 — 지어내면 교사가 엉뚱한 조치를 합니다.
+ */
+const PUBLISH_ERROR_LABEL_MAP: Record<string, string> = {
+  NO_LINKED_PARENT: "보호자가 연결되지 않았어요",
+  DRAFT_VERSION_CONFLICT: "그 사이 내용이 바뀌었어요",
+  DRAFT_NOT_APPROVED: "승인되지 않았어요",
+  DRAFT_ALREADY_PUBLISHED: "이미 게시됐어요",
+  DRAFT_NOT_FOUND: "초안을 찾을 수 없어요",
+  CLASS_ACCESS_DENIED: "담당 반이 아니에요",
+  NOT_PARENT_NOTE: "알림장이 아니에요",
+};
+
 // 서버가 왜 막았는지(담당 반 아님·이미 승인됨·버전 밀림)를 교사가 알아야 다음 행동을 고릅니다.
 // 그래서 고정 문구 대신 응답의 message를 보여 줍니다(다른 화면과 같은 방식).
 function failureText(error: unknown) {
@@ -119,6 +133,8 @@ export function DraftReviewPage() {
   const [includePhotos, setIncludePhotos] = useState(true);
   /** 게시가 건별로 실패한 결과. 하나라도 있으면 발행 완료로 넘어가지 않습니다. */
   const [publishFailures, setPublishFailures] = useState<PublicationResultView[]>([]);
+  /** 같은 게시에서 성공한 인원. 실패만 알리면 나머지가 나갔는지 교사가 알 수 없습니다. */
+  const [publishedCount, setPublishedCount] = useState(0);
 
   const children = childrenQuery.data ?? [];
   const draftItems = draftsQuery.data ?? [];
@@ -257,6 +273,7 @@ export function DraftReviewPage() {
       // "전달했어요"만 보여서 교사가 못 올린 원아를 영영 모릅니다. 그래서 남아서 알립니다.
       const failures = results.filter((result) => !result.published);
       setPublishFailures(failures);
+      setPublishedCount(results.length - failures.length);
       if (failures.length > 0) return;
       navigate("/t/notes/publish/done", {
         state: { publishedCount: results.length },
@@ -582,14 +599,22 @@ export function DraftReviewPage() {
               {failureText(approveMutation.error ?? publishMutation.error)}
             </p>
           ) : null}
-          {/* 건별 실패는 HTTP 200 안에 섞여 오므로 isError로는 잡히지 않습니다. */}
+          {/* 건별 실패는 HTTP 200 안에 섞여 오므로 isError로는 잡히지 않습니다.
+              성공 수를 함께 알립니다 — 실패만 뜨면 나머지가 나갔는지 교사가 알 수 없습니다. */}
           {publishFailures.length > 0 ? (
             <p className="text-caption text-destructive">
-              {publishFailures.length}명은 게시하지 못했어요 (
+              {publishedCount > 0 ? `${String(publishedCount)}명은 게시했고, ` : ""}
+              {publishFailures.length}명은 게시하지 못했어요 —{" "}
               {publishFailures
-                .map((failure) => nameOf(failure.child_id) || failure.error_code)
+                .map(
+                  (failure) =>
+                    `${nameOf(failure.child_id) || "원아"}: ${
+                      PUBLISH_ERROR_LABEL_MAP[failure.error_code ?? ""] ??
+                      failure.error_code ??
+                      "알 수 없는 이유"
+                    }`,
+                )
                 .join(", ")}
-              ). 다시 시도해 주세요.
             </p>
           ) : null}
           {isEditing ? (
@@ -637,6 +662,7 @@ export function DraftReviewPage() {
         onIncludePhotosChange={setIncludePhotos}
         onConfirm={() => {
           setPublishFailures([]);
+          setPublishedCount(0);
           publishMutation.mutate({ items: publishable, includePhotos });
         }}
       />

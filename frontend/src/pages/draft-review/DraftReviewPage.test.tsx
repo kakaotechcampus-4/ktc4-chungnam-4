@@ -354,13 +354,15 @@ describe("DraftReviewPage", () => {
 
     await user.click(screen.getByRole("button", { name: "게시하기" }));
     await user.click(await screen.findByRole("button", { name: "게시하기" }));
-    expect(await screen.findByText(/1명은 게시하지 못했어요 \(정예린\)/)).toBeInTheDocument();
+    // 실패만 알리면 나머지가 나갔는지 교사가 알 수 없습니다. 성공 수도 함께 나와야 합니다.
+    expect(await screen.findByText(/명은 게시했고, 1명은 게시하지 못했어요/)).toBeInTheDocument();
+    expect(screen.getByText(/정예린: 보호자가 연결되지 않았어요/)).toBeInTheDocument();
 
     // 다시 눌러도 이미 나간 건은 빠지므로 실패는 여전히 정예린 한 명입니다.
     await user.click(screen.getByRole("button", { name: "게시하기" }));
     await user.click(await screen.findByRole("button", { name: "게시하기" }));
 
-    expect(await screen.findByText(/1명은 게시하지 못했어요 \(정예린\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/정예린: 보호자가 연결되지 않았어요/)).toBeInTheDocument();
   });
 
   // 게시를 마친 날짜를 다시 열면 고칠 수 있다고 착각하지 않도록 화면 전체가 끝난 상태가 된다.
