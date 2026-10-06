@@ -3,6 +3,7 @@ import { ChevronLeft } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 
+import type { TranscriptSpeakerView } from "@/api/media";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,7 +26,6 @@ import {
 } from "@/features/upload-queue/upload-queue-store";
 import { kstToday } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
-import type { TranscriptSpeaker } from "@/types/api-draft/media";
 import type { ClassChild } from "@/types/api-draft/organization";
 
 import { type DayRow, DayTimeline } from "./components/DayTimeline";
@@ -39,7 +39,7 @@ import { nickname } from "./nickname";
 
 const CLASSIFICATION = "/t/today/classification";
 
-const SPEAKER_LABEL_MAP: Record<TranscriptSpeaker, string> = {
+const SPEAKER_LABEL_MAP: Record<TranscriptSpeakerView, string> = {
   child: "아이의 말",
   teacher_observation: "교사의 관찰",
   together: "함께 한 말",

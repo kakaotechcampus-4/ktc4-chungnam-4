@@ -9,31 +9,44 @@ import type {
   MediaUrlDetail,
   TranscriptSegment,
   TranscriptSegmentsResponse,
-  TranscriptSegmentUpdateRequest,
   UploadUrlsResponse,
 } from "@/types/api-draft/media";
 
 import {
   type ChildLinksInput,
+  isTranscriptPending,
   type MediaCompleteInput,
   toChildLinksBody,
   toChildLinksView,
+  toFaceEmbeddingView,
   toMediaAssetView,
   toMediaCompleteBody,
+  toMediaUrlView,
+  toTranscriptSegmentBody,
+  toTranscriptSegmentView,
+  toTranscriptView,
+  type TranscriptSegmentInput,
   toUploadUrlsBody,
   toUploadUrlsView,
   type UploadTicketView,
   type UploadUrlsInput,
 } from "./media-adapter";
 
-// 화면은 업로드·귀속 서버 타입 대신 여기서 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
-// 발화(STT)·얼굴 임베딩·재생 URL(김동건)은 아직 adapter로 옮기지 않았습니다.
+// 화면은 media 서버 타입 대신 여기서 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
 export {
   type ChildLinksInput,
   type ChildLinkView,
+  type FaceEmbeddingView,
+  isTranscriptPending,
   type MediaAssetView,
   type MediaCompleteInput,
   type MediaTypeView,
+  type MediaUrlView,
+  type TranscriptSegmentInput,
+  type TranscriptSegmentView,
+  type TranscriptSpeakerView,
+  type TranscriptStatusView,
+  type TranscriptView,
   type UploadTicketView,
   type UploadUrlsInput,
 } from "./media-adapter";
@@ -86,8 +99,10 @@ export async function saveChildLinks(mediaId: string, input: ChildLinksInput) {
 export function mediaUrlQueryOptions(mediaId: string) {
   return queryOptions({
     queryKey: mediaKeys.detail(mediaId),
-    queryFn: ({ signal }) =>
-      api.get<MediaUrlDetail>(`/media/${encodeURIComponent(mediaId)}`, { signal }),
+    queryFn: async ({ signal }) =>
+      toMediaUrlView(
+        await api.get<MediaUrlDetail>(`/media/${encodeURIComponent(mediaId)}`, { signal }),
+      ),
   });
 }
 
@@ -104,33 +119,37 @@ export function faceEmbeddingsQueryOptions(classId: string) {
           `/classes/${encodeURIComponent(classId)}/face-embeddings`,
           { signal },
         )
-      ).items,
+      ).items.map(toFaceEmbeddingView),
     gcTime: 0,
     staleTime: 0,
   });
 }
 
 /**
- * 영상·음성의 발화 구간(임시 결정, 김동건). 분류 확인 화면들이 서버 STT가 끝날 때까지(pending) 폴링합니다.
+ * 영상·음성의 발화 구간(임시 결정, 김동건). 분류 확인 화면들이 서버 STT가 끝날 때까지(pending·unknown) 폴링합니다.
  * 파일은 분류와 함께 먼저 올라가 있어야 합니다(features/classify/clip-upload.ts).
  */
 export function transcriptQueryOptions(mediaId: string) {
   return queryOptions({
     queryKey: mediaKeys.transcript(mediaId),
-    queryFn: ({ signal }) =>
-      api.get<TranscriptSegmentsResponse>(
-        `/media/${encodeURIComponent(mediaId)}/transcript-segments`,
-        { signal },
+    queryFn: async ({ signal }) =>
+      toTranscriptView(
+        await api.get<TranscriptSegmentsResponse>(
+          `/media/${encodeURIComponent(mediaId)}/transcript-segments`,
+          { signal },
+        ),
       ),
     refetchInterval: (query) =>
-      query.state.data?.transcript_status === "pending" ? TRANSCRIPT_POLL_INTERVAL_MS : false,
+      isTranscriptPending(query.state.data) ? TRANSCRIPT_POLL_INTERVAL_MS : false,
   });
 }
 
 /** 발화를 아이에게 연결하거나, 화자·문장을 고치거나, 뺍니다(임시 결정, 김동건). */
-export function updateTranscriptSegment(segmentId: string, body: TranscriptSegmentUpdateRequest) {
-  return api.patch<TranscriptSegment>(
-    `/transcript-segments/${encodeURIComponent(segmentId)}`,
-    body,
+export async function updateTranscriptSegment(segmentId: string, input: TranscriptSegmentInput) {
+  return toTranscriptSegmentView(
+    await api.patch<TranscriptSegment>(
+      `/transcript-segments/${encodeURIComponent(segmentId)}`,
+      toTranscriptSegmentBody(input),
+    ),
   );
 }
