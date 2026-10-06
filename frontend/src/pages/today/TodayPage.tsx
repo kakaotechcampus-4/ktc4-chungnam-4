@@ -30,7 +30,7 @@ export function TodayPage() {
   const classId = currentClass?.class_id ?? "";
 
   // 처리 중 화면을 떠난 뒤에도 초안 검토로 돌아올 수 있게 합니다(#109, docs/api/README.md 하루 흐름 2단계).
-  // 자동으로 넘기지 않고 버튼으로 둡니다 — 초안이 있어도 자료를 더 올리거나 직접 기록하러 들어올 수 있습니다.
+  // 자동으로 넘기지 않고 버튼으로 둡니다 — 초안이 있어도 자료를 더 올리러 들어올 수 있습니다.
   const draftsQuery = useQuery({
     ...classDraftsQueryOptions(classId, recordDate),
     enabled: classId !== "",
@@ -55,25 +55,18 @@ export function TodayPage() {
           <Link to="/t/today/upload" className={TEXT_LINK_CLASS}>
             {"자료 더 올리기  →"}
           </Link>
-          <Link to="/t/today/write" className={TEXT_LINK_CLASS}>
-            {"사진 없이 직접 기록하기  →"}
-          </Link>
         </FocusCard>
       ) : (
         <FocusCard centered className="min-h-140 justify-center">
           <img src={emptyMedia} alt="" className="size-14" />
           <h2 className="text-h3 font-bold text-ink">아직 담긴 순간이 없어요</h2>
+          {/* 자료 없는 아이는 초안 검토 화면에서 직접 씁니다. 그래서 여기엔 직접 기록 링크를 두지 않습니다. */}
           <p className="max-w-140 text-lead text-ink-muted">
             오늘 찍은 사진·영상·음성 메모를 올려 주세요.
-            <br />
-            사진이 없는 날에는 직접 기록해도 괜찮아요.
           </p>
           <Button asChild size="lg">
             <Link to="/t/today/upload">오늘 찍은 자료 올리기</Link>
           </Button>
-          <Link to="/t/today/write" className={TEXT_LINK_CLASS}>
-            {"사진 없이 직접 기록하기  →"}
-          </Link>
           <p className="text-caption text-ink-muted">파일을 이곳으로 끌어다 놓아도 돼요</p>
         </FocusCard>
       )}

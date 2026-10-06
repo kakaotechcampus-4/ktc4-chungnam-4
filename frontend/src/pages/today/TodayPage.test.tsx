@@ -11,7 +11,7 @@ import type { ClassDraftItem } from "@/types/api-draft/documents";
 import { TodayPage } from "./TodayPage";
 
 describe("TodayPage", () => {
-  it("빈 상태에서 자료 올리기와 직접 기록하기로 보낸다", async () => {
+  it("빈 상태에서 자료 올리기로 보낸다", async () => {
     renderRoute(<TodayPage />);
 
     expect(
@@ -22,10 +22,7 @@ describe("TodayPage", () => {
       "href",
       "/t/today/upload",
     );
-    expect(screen.getByRole("link", { name: /사진 없이 직접 기록하기/ })).toHaveAttribute(
-      "href",
-      "/t/today/write",
-    );
+    expect(screen.queryByRole("link", { name: /직접 기록/ })).not.toBeInTheDocument();
     expect(await screen.findByText(/·\s+햇살반$/)).toBeInTheDocument();
   });
 
@@ -61,15 +58,12 @@ describe("TodayPage", () => {
       "href",
       `/t/today/review/${seoa}`,
     );
-    // 자료를 더 올리거나 직접 기록하는 길은 그대로 남는다.
+    // 자료를 더 올리는 길은 그대로 남는다.
     expect(screen.getByRole("link", { name: /자료 더 올리기/ })).toHaveAttribute(
       "href",
       "/t/today/upload",
     );
-    expect(screen.getByRole("link", { name: /사진 없이 직접 기록하기/ })).toHaveAttribute(
-      "href",
-      "/t/today/write",
-    );
+    expect(screen.queryByRole("link", { name: /직접 기록/ })).not.toBeInTheDocument();
   });
 
   it("오늘 초안이 없으면 검토 버튼을 보여 주지 않는다", async () => {
