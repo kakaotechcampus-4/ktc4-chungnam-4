@@ -52,6 +52,17 @@ describe("TeacherLayout", () => {
     expect(within(menu).queryByRole("link", { current: "page" })).not.toBeInTheDocument();
   });
 
+  it("교사 홈에서는 아무 메뉴도 표시하지 않고, 오늘의 기록 메뉴는 대시보드로 간다", async () => {
+    renderAt("/t/today");
+
+    const menu = await screen.findByRole("navigation", { name: "주 메뉴" });
+    expect(within(menu).queryByRole("link", { current: "page" })).not.toBeInTheDocument();
+    expect(within(menu).getByRole("link", { name: "오늘의 기록" })).toHaveAttribute(
+      "href",
+      "/t/dashboard",
+    );
+  });
+
   it("로고는 교사 홈으로 간다", async () => {
     renderAt("/t/notes");
 

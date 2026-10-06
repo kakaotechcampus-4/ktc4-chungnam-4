@@ -22,20 +22,13 @@ export function TodayPage() {
       <FocusCard centered className="min-h-140 justify-center">
         <img src={emptyMedia} alt="" className="size-14" />
         <h2 className="text-h3 font-bold text-ink">아직 담긴 순간이 없어요</h2>
+        {/* 자료 없는 아이는 초안 검토 화면에서 직접 씁니다. 그래서 여기엔 직접 기록 링크를 두지 않습니다. */}
         <p className="max-w-140 text-lead text-ink-muted">
           오늘 찍은 사진·영상·음성 메모를 올려 주세요.
-          <br />
-          사진이 없는 날에는 직접 기록해도 괜찮아요.
         </p>
         <Button asChild size="lg">
           <Link to="/t/today/upload">오늘 찍은 자료 올리기</Link>
         </Button>
-        <Link
-          to="/t/today/write"
-          className="rounded-xs text-body font-bold whitespace-pre text-brand-ink outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
-        >
-          {"사진 없이 직접 기록하기  →"}
-        </Link>
         <p className="text-caption text-ink-muted">파일을 이곳으로 끌어다 놓아도 돼요</p>
       </FocusCard>
     </>

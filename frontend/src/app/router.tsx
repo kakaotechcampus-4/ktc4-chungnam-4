@@ -50,7 +50,8 @@ const areaRoutes: RouteObject[] = [
             children: [
               // loader로 보내지 않습니다. replace()는 앱 안에서 올 때 직전 기록을 덮어쓰고,
               // redirect()는 주소창으로 올 때 뒤로 가기를 막습니다. Navigate는 /t 한 칸만 바꿉니다.
-              { index: true, element: <Navigate to="/t/dashboard" replace /> },
+              // 교사 홈은 사진 올리는 첫 화면(오늘의 기록)입니다. 로그인 직후와 로고가 여기로 옵니다.
+              { index: true, element: <Navigate to="/t/today" replace /> },
               ...slot("teacher"),
               { path: "*", Component: NotFoundPage },
             ],

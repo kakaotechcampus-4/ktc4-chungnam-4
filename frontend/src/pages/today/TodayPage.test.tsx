@@ -9,7 +9,7 @@ import { renderRoute } from "@/test/render";
 import { TodayPage } from "./TodayPage";
 
 describe("TodayPage", () => {
-  it("빈 상태에서 자료 올리기와 직접 기록하기로 보낸다", async () => {
+  it("빈 상태에서 자료 올리기로 보낸다", async () => {
     renderRoute(<TodayPage />);
 
     expect(
@@ -20,10 +20,7 @@ describe("TodayPage", () => {
       "href",
       "/t/today/upload",
     );
-    expect(screen.getByRole("link", { name: /사진 없이 직접 기록하기/ })).toHaveAttribute(
-      "href",
-      "/t/today/write",
-    );
+    expect(screen.queryByRole("link", { name: /직접 기록/ })).not.toBeInTheDocument();
     expect(await screen.findByText(/·\s+햇살반$/)).toBeInTheDocument();
   });
 

@@ -26,11 +26,13 @@ describe("routes", () => {
     expect(within(header).getByRole("link", { name: "아이담 시작하기" })).toBeInTheDocument();
   });
 
-  it("/t 는 대시보드 주소로 바꾼다", async () => {
+  it("/t 는 오늘의 기록 주소로 바꾼다", async () => {
     const router = renderAt("/t");
 
-    expect(await screen.findByRole("heading", { name: /하루를 한눈에/ })).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe("/t/dashboard");
+    expect(
+      await screen.findByRole("heading", { name: "오늘은 어떤 순간이 있었나요?" }),
+    ).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/t/today");
     expect(screen.getByRole("navigation", { name: "주 메뉴" })).toBeInTheDocument();
   });
 
@@ -39,7 +41,7 @@ describe("routes", () => {
     await screen.findByRole("navigation", { name: "주 메뉴" });
 
     await act(() => router.navigate("/t"));
-    expect(router.state.location.pathname).toBe("/t/dashboard");
+    expect(router.state.location.pathname).toBe("/t/today");
 
     await act(() => router.navigate(-1));
     expect(router.state.location.pathname).toBe("/t/notes");
