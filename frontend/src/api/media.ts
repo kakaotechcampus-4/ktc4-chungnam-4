@@ -3,19 +3,40 @@ import { queryOptions } from "@tanstack/react-query";
 import { api, putToUploadUrl } from "@/lib/api-client";
 import type { ListResponse } from "@/types/api-draft/common";
 import type {
-  ChildLinksRequest,
   ChildLinksResponse,
   FaceEmbedding,
   MediaAsset,
-  MediaCompleteRequest,
   MediaUrlDetail,
   TranscriptSegment,
   TranscriptSegmentsResponse,
   TranscriptSegmentUpdateRequest,
-  UploadUrlItem,
-  UploadUrlsRequest,
   UploadUrlsResponse,
 } from "@/types/api-draft/media";
+
+import {
+  type ChildLinksInput,
+  type MediaCompleteInput,
+  toChildLinksBody,
+  toChildLinksView,
+  toMediaAssetView,
+  toMediaCompleteBody,
+  toUploadUrlsBody,
+  toUploadUrlsView,
+  type UploadTicketView,
+  type UploadUrlsInput,
+} from "./media-adapter";
+
+// 화면은 업로드·귀속 서버 타입 대신 여기서 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
+// 발화(STT)·얼굴 임베딩·재생 URL(김동건)은 아직 adapter로 옮기지 않았습니다.
+export {
+  type ChildLinksInput,
+  type ChildLinkView,
+  type MediaAssetView,
+  type MediaCompleteInput,
+  type MediaTypeView,
+  type UploadTicketView,
+  type UploadUrlsInput,
+} from "./media-adapter";
 
 // 업로드·재생 URL·얼굴 임베딩 요청과 query key는 이 파일에서만 만듭니다(frontend/CLAUDE.md §데이터).
 // 업로드 순서(API 문서 §media): requestUploadUrls → uploadFile → completeUpload → saveChildLinks.
@@ -30,13 +51,15 @@ export const mediaKeys = {
 export const TRANSCRIPT_POLL_INTERVAL_MS = 2000;
 
 /** 여러 파일의 업로드 URL을 한 번에 받습니다. 형식이 틀린 파일이 하나라도 있으면 전체가 MEDIA_TYPE_NOT_ALLOWED입니다. */
-export function requestUploadUrls(body: UploadUrlsRequest) {
-  return api.post<UploadUrlsResponse>("/media/upload-urls", body);
+export async function requestUploadUrls(input: UploadUrlsInput) {
+  return toUploadUrlsView(
+    await api.post<UploadUrlsResponse>("/media/upload-urls", toUploadUrlsBody(input)),
+  );
 }
 
 /** 받은 URL로 파일을 올립니다. media_id가 이미 있는 항목(등록된 파일)은 부르지 않습니다. 화면은 File을 넘깁니다. */
 export function uploadFile(
-  item: UploadUrlItem,
+  item: UploadTicketView,
   file: Blob | Uint8Array<ArrayBuffer>,
   signal?: AbortSignal,
 ) {
@@ -45,13 +68,18 @@ export function uploadFile(
 }
 
 /** 업로드 완료 통지(ack). 이 응답을 받은 뒤에 원본 blob을 지웁니다. */
-export function completeUpload(body: MediaCompleteRequest) {
-  return api.post<MediaAsset>("/media", body);
+export async function completeUpload(input: MediaCompleteInput) {
+  return toMediaAssetView(await api.post<MediaAsset>("/media", toMediaCompleteBody(input)));
 }
 
 /** 교사가 확정한 귀속과 llm_allowed를 한 번에 저장합니다(전체 교체). */
-export function saveChildLinks(mediaId: string, body: ChildLinksRequest) {
-  return api.put<ChildLinksResponse>(`/media/${encodeURIComponent(mediaId)}/child-links`, body);
+export async function saveChildLinks(mediaId: string, input: ChildLinksInput) {
+  return toChildLinksView(
+    await api.put<ChildLinksResponse>(
+      `/media/${encodeURIComponent(mediaId)}/child-links`,
+      toChildLinksBody(input),
+    ),
+  );
 }
 
 /** 만료된 근거 미디어의 서명 URL 재발급 */
