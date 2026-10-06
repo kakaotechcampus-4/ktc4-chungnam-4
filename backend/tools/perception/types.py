@@ -97,6 +97,7 @@ class DropReason(StrEnum):
     AMBIGUOUS_ACTOR = "ambiguous_actor"  # 사진의 아이 수와 관찰 scope가 맞지 않음
     NO_VISIBLE_OBSERVATION = "no_visible_observation"  # 사진에서 쓸 관찰이 없다고 응답함
     PHOTO_NOT_ANSWERED = "photo_not_answered"  # 사진 분석 응답에 그 사진이 빠짐
+    PHOTO_RESPONSE_ERROR = "photo_response_error"  # 재시도 뒤에도 그 사진의 분석 응답이 형식 위반
 
 
 class Dropped(ContractModel):
