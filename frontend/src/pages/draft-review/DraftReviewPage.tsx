@@ -305,9 +305,17 @@ export function DraftReviewPage() {
   const publishable = publishTargets
     .filter((target) => !excludedChildIds.has(target.childId))
     .map((target) => ({ draft_id: target.note.draft_id, expected_version: target.note.version }));
-  // 초안이 있는데 아직 승인하지 않은 원아가 있으면 게시를 막습니다.
-  // 초안이 없는 원아(자료 없음·미분류)는 승인할 대상이 없어 게시를 막지 않고, 이번 게시에서 빠집니다.
+  // 교사가 지금 승인할 수 있는 초안(review)이 남아 있으면 게시를 막습니다 — 보고 넘긴 것과
+  // 아직 안 본 것을 구분할 수 없게 되기 때문입니다.
+  //
+  // 승인할 수 없는 상태(만드는 중·미분류·모르는 값)는 게시를 막지 않습니다(#88 송유진 님 방향).
+  // 기다려도 교사가 할 수 있는 것이 없는데 막으면 그날을 영영 못 닫습니다. 대신 조용히
+  // 빠지지 않도록 게시 확인 모달이 그 수를 알려 줍니다(#107 리뷰 송유진 님).
+  // 초안이 없는 원아도 같은 이유로 막지 않고, 모달에 따로 셉니다.
   const hasUnreviewedDraft = rows.some((row) => row.note !== null && row.status === "review");
+  const notReadyCount = rows.filter(
+    (row) => row.note !== null && row.status !== "approved" && row.status !== "review",
+  ).length;
   const canPublish = publishTargets.length > 0 && !hasUnreviewedDraft;
 
   function selectChild(id: string) {
@@ -608,6 +616,7 @@ export function DraftReviewPage() {
           })
         }
         noDraftCount={rows.filter((row) => row.note === null).length}
+        notReadyCount={notReadyCount}
         includePhotos={includePhotos}
         onIncludePhotosChange={setIncludePhotos}
         onConfirm={() => publishMutation.mutate({ items: publishable, includePhotos })}
