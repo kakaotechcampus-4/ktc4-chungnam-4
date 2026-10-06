@@ -86,7 +86,7 @@ def _source_type(source: AudioSource, speaker: Speaker | None) -> SourceType | N
     if speaker in (Speaker.CHILD, Speaker.TOGETHER):
         return SourceType.VIDEO_SPEECH
     if speaker == Speaker.TEACHER_OBSERVATION:
-        # TODO(송유진): 계약에 '영상 속 교사 발화' 타입이 없어 임시로 교사 음성메모로 둔다.
+        # 영상 속 교사 관찰도 교사 진술이라 교사 음성메모로 둔다 (SourceType.TEACHER_VOICE_MEMO).
         return SourceType.TEACHER_VOICE_MEMO
     return None
 
@@ -104,10 +104,10 @@ def _normalize_segment(
         return DropReason.NOT_TARGET_CHILD
     if kst_date(segment.captured_at) != record_date:
         return DropReason.DATE_MISMATCH
-    # TODO(송유진): 교사가 text를 고쳤어도 인식 실패 구간은 버린다(보수적 선택, 미확정).
-    if segment.raw_text.strip() == NO_SPEECH_TEXT:
-        return DropReason.STT_NO_SPEECH
     text = segment.text.strip()
+    # STT가 알아듣지 못한 구간이라도 교사가 들어 보고 문장을 적었으면 그 문장을 쓴다.
+    if segment.raw_text.strip() == NO_SPEECH_TEXT and text in ("", NO_SPEECH_TEXT):
+        return DropReason.STT_NO_SPEECH
     if not text:
         return DropReason.EMPTY_TEXT
     source_type = _source_type(segment.source, segment.speaker)
