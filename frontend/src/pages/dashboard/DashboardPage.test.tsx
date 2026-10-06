@@ -23,14 +23,14 @@ function summary(draftId: number, status: "verified" | "approved") {
 }
 
 describe("DashboardPage", () => {
-  it("오늘 기록이 없으면 모두 기록 전이고 직접 기록하기로 보낸다", async () => {
+  it("오늘 기록이 없으면 모두 기록 전이고 초안 검토에서 기록하게 보낸다", async () => {
     renderRoute(<DashboardPage />);
 
     expect(await screen.findByText("승인 완료 0명 · 기록 전 5명")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "햇살반의 하루를 한눈에" })).toBeVisible();
     expect(screen.getByRole("link", { name: "김도윤 기록하기" })).toHaveAttribute(
       "href",
-      "/t/today/write",
+      `/t/today/review/${DOYUN}`,
     );
     expect(screen.getByRole("link", { name: "오늘의 기록 이어하기" })).toHaveAttribute(
       "href",

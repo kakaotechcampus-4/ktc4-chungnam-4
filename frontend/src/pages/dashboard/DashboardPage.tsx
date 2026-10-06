@@ -164,18 +164,13 @@ export function DashboardPage() {
                     {STATE_DETAIL_MAP[state]}
                   </p>
                   <Button asChild variant="secondary" size="sm" className="w-32">
-                    {state === "none" ? (
-                      <Link to="/t/today/write" aria-label={`${child.name} 기록하기`}>
-                        기록하기
-                      </Link>
-                    ) : (
-                      <Link
-                        to={`/t/today/review/${child.child_id}`}
-                        aria-label={`${child.name} 검토하기`}
-                      >
-                        검토하기
-                      </Link>
-                    )}
+                    {/* 기록 전인 아이도 초안 검토로 보냅니다. 초안이 없으면 그 자리에서 직접 씁니다. */}
+                    <Link
+                      to={`/t/today/review/${child.child_id}`}
+                      aria-label={`${child.name} ${state === "none" ? "기록하기" : "검토하기"}`}
+                    >
+                      {state === "none" ? "기록하기" : "검토하기"}
+                    </Link>
                   </Button>
                 </li>
               ))}
