@@ -5,12 +5,12 @@ import { cn } from "@/lib/utils";
 import type { ClassChild } from "@/types/api-draft/organization";
 
 /**
- * 레일 한 줄. 상태는 adapter가 정합니다(api/documents-adapter.ts) — 초안이 없는 원아와
- * 미분류는 교사가 할 일이 사진 추가·직접 작성으로 같아서 함께 "검토 필요"로 보여 줍니다.
+ * 레일 한 줄. 상태는 adapter가 정합니다(api/documents-adapter.ts).
+ * 표기는 `docs/api/documents.md` §레일·목록 표기를 따릅니다.
  */
 export interface RosterRow {
   child: ClassChild;
-  /** 그날의 알림장 초안. 없으면 자료 없음이거나 미분류입니다. */
+  /** 그날의 알림장 초안. 없으면 자료가 없어 초안이 만들어지지 않은 것입니다. */
   note: DraftSummaryView | null;
   state: RosterState;
 }
@@ -23,6 +23,10 @@ const STATE_LABEL_MAP: Record<RosterState, string> = {
   none: "검토 필요",
   // 아직 만드는 중이라 교사가 할 일이 없습니다. "검토 필요"로 보여 주면 눌러도 할 게 없습니다.
   generating: "생성 중",
+  // 미분류로 끝났거나 모르는 값이라 교사가 봐야 합니다. 기다린다고 달라지지 않아
+  // "생성 중"과 나눕니다(#107 리뷰 송유진 님, docs/api/documents.md §레일·목록 표기).
+  unclassified: "확인 필요",
+  unknown: "확인 필요",
 };
 
 /** 승인을 마친 줄만 체크로 표시합니다(H-1: 승인 전은 검토 대기). */

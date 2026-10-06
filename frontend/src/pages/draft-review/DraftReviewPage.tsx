@@ -70,8 +70,9 @@ function toSentences(text: string) {
     .map((line) => ({ text: line }));
 }
 
-// 미분류·자료 없음은 "검토 필요"로 묶습니다 — 임시 결정(김진하), docs/api/documents.md §레일·목록 표기.
-// 초안이 없는 원아(자료 없음·미분류)는 "none"입니다. 초안이 있으면 adapter가 정한 상태를 씁니다.
+// 초안이 아예 없는 원아는 "none"입니다 — 자료가 없어 만들어지지 않은 경우이고,
+// 교사가 직접 쓸 수 있어 "검토 필요"로 보여 줍니다. 초안이 있으면 adapter가 정한 상태를 씁니다.
+// 표기는 docs/api/documents.md §레일·목록 표기.
 function toRosterState(item: ClassDraftView | undefined): RosterState {
   return item?.parent_note?.state ?? "none";
 }

@@ -63,16 +63,22 @@ describe("초안 상태 해석", () => {
   });
 
   // draft는 AI가 아직 쓰는 중입니다. 열어 두면 교사가 승인해 미완성 글이 그대로 나갑니다.
-  // unclassified도 잠급니다 — 초안 없이 미분류 필드만 오는 경우와 다릅니다(#107 리뷰).
-  it.each([["draft"], ["unclassified"]] as const)("%s는 잠근다", (status) => {
-    expect(toDraftState(status)).toBe("generating");
+  it("draft는 만드는 중이라 잠근다", () => {
+    expect(toDraftState("draft")).toBe("generating");
+  });
+
+  // 미분류는 재시도 상한을 넘겨 끝난 상태라 기다려도 달라지지 않습니다. 교사가 봐야 해서
+  // 만드는 중과 나눕니다(#107 리뷰 송유진 님, docs/api/documents.md §레일·목록 표기).
+  it("unclassified는 만드는 중과 구분해 잠근다", () => {
+    expect(toDraftState("unclassified")).toBe("unclassified");
   });
 
   // 모르는 값을 열어 두면 같은 사고가 납니다. 애매하면 잠그는 쪽이 맞습니다(H-1).
-  it("모르는 상태는 잠그고 값만 로그에 남긴다", () => {
+  // generating에 섞으면 서버가 이상한 값을 보내도 "만드는 중"으로 보여 아무도 모릅니다.
+  it("모르는 상태는 unknown으로 두고 값만 로그에 남긴다", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    expect(toDraftState("in_review" as DraftStatus)).toBe("generating");
+    expect(toDraftState("in_review" as DraftStatus)).toBe("unknown");
 
     expect(warn).toHaveBeenCalledWith("모르는 초안 상태", "in_review");
     warn.mockRestore();

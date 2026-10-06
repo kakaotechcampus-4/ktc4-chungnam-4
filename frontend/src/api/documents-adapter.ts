@@ -16,16 +16,23 @@ import type { MediaUrl } from "@/types/api-draft/media";
 // 서버 필드 이름이나 상태값이 API 문서와 다르게 오면 이 파일만 고칩니다. 화면은 서버 타입을 쓰지 않습니다.
 
 /**
- * 화면이 초안을 두고 판단하는 것은 **"교사가 지금 승인해도 되는가"** 하나입니다.
+ * 화면이 초안을 두고 판단하는 것은 **"교사가 지금 승인해도 되는가"** 하나이고,
+ * 승인할 수 없는 경우는 교사가 할 일이 달라서 나눕니다(`docs/api/documents.md` §레일·목록 표기).
  *
  * - `review` — 교사가 보고 승인할 수 있습니다
  * - `approved` — 교사가 승인했습니다
- * - `generating` — 아직 만드는 중이라 **교사가 손댈 수 없습니다.** 모르는 값도 여기로 둡니다
+ * - `generating` — 아직 만드는 중입니다. 기다리면 됩니다
+ * - `unclassified` — 재시도 상한을 넘겨 미분류로 끝났습니다. 교사가 확인해야 합니다
+ * - `unknown` — 서버가 보낸 값을 화면이 모릅니다
  *
- * 모르는 값을 `review`로 두면 승인 버튼이 열려 미완성 글이 그대로 나갈 수 있습니다.
- * 애매하면 잠그는 쪽이 맞습니다(H-1, #96 규칙과 같은 방향) — 이슈 #106 정은 님 지적.
+ * 뒤 셋은 모두 잠급니다. 모르는 값을 `review`로 두면 승인 버튼이 열려 미완성 글이
+ * 그대로 나갑니다. 애매하면 잠그는 쪽이 맞습니다(H-1, #96 규칙과 같은 방향) —
+ * 이슈 #106 정은 님 지적.
+ *
+ * `unknown`을 `generating`에 섞지 않는 것은 `frontend/CLAUDE.md` §데이터 규칙입니다.
+ * 섞으면 서버가 이상한 값을 보내도 "만드는 중"으로 보여 아무도 알아채지 못합니다.
  */
-export type DraftState = "approved" | "review" | "generating";
+export type DraftState = "approved" | "review" | "generating" | "unclassified" | "unknown";
 
 /** 레일 한 줄이 보여 줄 상태. 초안이 아예 없는 원아는 `none`입니다. */
 export type RosterState = DraftState | "none";
@@ -89,9 +96,9 @@ export interface PublicationResultView {
 
 // 서버가 모르는 상태를 보내면 값만 남깁니다(H-4: 이름·연락처는 찍지 않음). 긴 문자열은 앞 32자만.
 // 모르면 잠급니다 — 열어 두면 교사가 승인해 미완성 글이 나갈 수 있습니다(H-1).
-function warnUnknownStatus(value: unknown): "generating" {
+function warnUnknownStatus(value: unknown): "unknown" {
   console.warn("모르는 초안 상태", typeof value === "string" ? value.slice(0, 32) : typeof value);
-  return "generating";
+  return "unknown";
 }
 
 /**
@@ -100,10 +107,8 @@ function warnUnknownStatus(value: unknown): "generating" {
  * `verified`는 검증을 통과해 교사 검토를 기다리는 상태입니다(이슈 #106 — 백엔드도
  * `verified`로 저장하기로 돼 있고 한상균 님 스키마 PR을 기다리는 중입니다).
  *
- * `unclassified`도 잠급니다(#107 리뷰 정은 님). 송유진 님 #88 후속의 "미분류는 초안이
- * 없는 상태에 맞게"는 **초안 없이 `unclassified` 필드만 오는 경우**를 말하고, 그 경우는
- * `parent_note`가 `null`이라 레일이 `none`으로 보아 교사가 직접 작성할 수 있습니다.
- * 여기서 다루는 것은 초안이 있는데 상태만 미분류인 경우라 서로 다릅니다.
+ * `unclassified`도 잠급니다(#107 리뷰 정은 님). 초안이 이미 있으면 직접 작성이 409에
+ * 걸려서, 교사가 할 수 있는 것은 사진을 더 넣고 다시 만드는 것뿐입니다.
  */
 export function toDraftState(value: DraftStatus): DraftState {
   switch (value) {
@@ -112,8 +117,9 @@ export function toDraftState(value: DraftStatus): DraftState {
     case "verified":
       return "review";
     case "draft":
-    case "unclassified":
       return "generating";
+    case "unclassified":
+      return "unclassified";
     default: {
       const unexpected: never = value;
       return warnUnknownStatus(unexpected);
