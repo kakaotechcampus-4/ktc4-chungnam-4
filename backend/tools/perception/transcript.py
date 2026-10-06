@@ -86,7 +86,7 @@ def _source_type(source: AudioSource, speaker: Speaker | None) -> SourceType | N
     if speaker in (Speaker.CHILD, Speaker.TOGETHER):
         return SourceType.VIDEO_SPEECH
     if speaker == Speaker.TEACHER_OBSERVATION:
-        # TODO(송유진): 계약에 '영상 속 교사 발화' 타입이 없어 임시로 교사 음성메모로 둔다.
+        # 영상 속 교사 관찰도 교사 진술이라 교사 음성메모로 둔다 (SourceType.TEACHER_VOICE_MEMO).
         return SourceType.TEACHER_VOICE_MEMO
     return None
 

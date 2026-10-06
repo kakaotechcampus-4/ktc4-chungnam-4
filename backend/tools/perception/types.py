@@ -77,7 +77,6 @@ class PerceptionStatus(StrEnum):
     RESPONSE_ERROR = "response_error"  # 사진 분석 응답이 JSON·스키마 위반. 재시도는 service가 판단
 
 
-# TODO(송유진): 결과 타입을 tools/contracts.py로 옮길지 미정.
 class PerceptionResult(ContractModel):
     """perception 결과.
 
