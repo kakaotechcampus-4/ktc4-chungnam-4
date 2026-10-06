@@ -14,7 +14,10 @@ import {
   createDraft,
   documentsKeys,
   draftQueryOptions,
+  isNotReady,
   isPublished,
+  isPublishTarget,
+  needsReview,
   patchDraft,
   publishParentNotes,
   reopenDraft,
@@ -298,7 +301,7 @@ export function DraftReviewPage() {
   // 이미 봤으므로 고칠 수 없고, 되돌리려면 회수(revoke)가 필요합니다(H-1).
   const isDayClosed = rows.some((row) => row.note?.published_at != null);
   const publishTargets = rows.flatMap((row) =>
-    row.note && row.status === "approved"
+    isPublishTarget(row) && row.note !== null
       ? [{ childId: row.child.child_id, name: row.child.name, note: row.note }]
       : [],
   );
@@ -312,10 +315,8 @@ export function DraftReviewPage() {
   // 기다려도 교사가 할 수 있는 것이 없는데 막으면 그날을 영영 못 닫습니다. 대신 조용히
   // 빠지지 않도록 게시 확인 모달이 그 수를 알려 줍니다(#107 리뷰 송유진 님).
   // 초안이 없는 원아도 같은 이유로 막지 않고, 모달에 따로 셉니다.
-  const hasUnreviewedDraft = rows.some((row) => row.note !== null && row.status === "review");
-  const notReadyCount = rows.filter(
-    (row) => row.note !== null && row.status !== "approved" && row.status !== "review",
-  ).length;
+  const hasUnreviewedDraft = rows.some(needsReview);
+  const notReadyCount = rows.filter(isNotReady).length;
   const canPublish = publishTargets.length > 0 && !hasUnreviewedDraft;
 
   function selectChild(id: string) {

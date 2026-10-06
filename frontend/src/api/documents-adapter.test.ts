@@ -5,7 +5,13 @@ import type { MediaUrl } from "@/types/api-draft/media";
 import {
   canApprove,
   canReopen,
+  didSendPhotos,
+  type DraftSummaryView,
   type DraftView,
+  isNotReady,
+  isPublishTarget,
+  needsReview,
+  type RosterState,
   isPublished,
   selectedPhotos,
   sentPhotos,
@@ -26,6 +32,17 @@ function summary(status: DraftStatus): DraftSummary {
   return {
     draft_id: fixtureId("draft", 12),
     status,
+    version: 3,
+    published_at: null,
+    preview: "도윤이는 블록을 쌓았어요.",
+  };
+}
+
+/** 레일 한 줄이 들고 있는 초안 요약. 게시 판정은 상태와 "초안이 있는지"만 봅니다. */
+function summaryView(status: RosterState): DraftSummaryView {
+  return {
+    draft_id: fixtureId("draft", 12),
+    status: status === "none" ? "generating" : status,
     version: 3,
     published_at: null,
     preview: "도윤이는 블록을 쌓았어요.",
@@ -198,5 +215,54 @@ describe("목록과 게시 결과", () => {
       error_code: "DRAFT_VERSION_CONFLICT",
     });
     expect(isPublished(failed)).toBe(false);
+  });
+});
+
+// 게시 판정이 화면 세 곳에 흩어져 있을 때 상태가 늘면서 하나를 빠뜨렸고, 만드는 중인 아이가
+// 조용히 게시에서 빠졌습니다(#107 리뷰 송유진 님). 판정을 여기 모았으니 여기서 지킵니다.
+describe("게시 판정", () => {
+  const row = (status: RosterState, note: DraftSummaryView | null = summaryView(status)) => ({
+    status,
+    note,
+  });
+
+  it("승인한 초안만 게시에 담는다", () => {
+    expect(isPublishTarget(row("approved"))).toBe(true);
+    expect(isPublishTarget(row("review"))).toBe(false);
+    expect(isPublishTarget(row("none", null))).toBe(false);
+  });
+
+  it("교사가 볼 것이 남은 줄만 게시를 막는다", () => {
+    expect(needsReview(row("review"))).toBe(true);
+    expect(needsReview(row("approved"))).toBe(false);
+    // 초안이 없으면 승인할 대상이 없어 막지 않습니다.
+    expect(needsReview(row("none", null))).toBe(false);
+  });
+
+  // 잠긴 상태는 게시를 막지 않고 모달이 수를 세어 알려 줍니다. 막으면 그날을 영영 못 닫습니다.
+  it.each([["generating"], ["unclassified"], ["unknown"]] as const)(
+    "%s는 게시를 막지 않고 빠지는 줄로 센다",
+    (status) => {
+      expect(needsReview(row(status))).toBe(false);
+      expect(isPublishTarget(row(status))).toBe(false);
+      expect(isNotReady(row(status))).toBe(true);
+    },
+  );
+
+  // 초안이 아예 없는 아이는 교사가 직접 쓸 수 있어 "준비 안 됨"과 다릅니다.
+  it("초안이 없는 줄은 빠지는 줄로 세지 않는다", () => {
+    expect(isNotReady(row("none", null))).toBe(false);
+    expect(isNotReady(row("approved"))).toBe(false);
+    expect(isNotReady(row("review"))).toBe(false);
+  });
+});
+
+describe("사진을 보냈는지", () => {
+  it("include_photos가 true일 때만 보냈다고 본다", () => {
+    expect(didSendPhotos(toDraftView(detail({ include_photos: true })))).toBe(true);
+    expect(didSendPhotos(toDraftView(detail({ include_photos: false })))).toBe(false);
+    // 게시 전에는 아직 모릅니다. 모르면 "보냈다"고 하지 않습니다(#89 리뷰).
+    expect(didSendPhotos(toDraftView(detail({ include_photos: null })))).toBe(false);
+    expect(didSendPhotos(undefined)).toBe(false);
   });
 });

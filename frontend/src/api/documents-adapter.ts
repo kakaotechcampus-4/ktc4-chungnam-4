@@ -52,7 +52,10 @@ export interface DraftSummaryView {
 export interface ClassDraftView {
   child_id: string;
   parent_note: DraftSummaryView | null;
-  /** 그날의 관찰일지 초안. 직접 작성 화면이 "관찰일지가 아직 없는 아이"를 이 값으로 고릅니다. */
+  /**
+   * 그날의 관찰일지 초안. 이 화면은 알림장만 다루지만 문서에 있는 응답 필드라 버리지 않습니다
+   * (#107 리뷰 송유진 님). 쓰는 화면이 생기면 그때 adapter를 고치지 않아도 됩니다.
+   */
   observation_log: DraftSummaryView | null;
   /**
    * 초안 없이 미분류로 끝난 사유. 아니면 `null`입니다.
@@ -71,7 +74,7 @@ export interface ChildDraftView extends DraftSummaryView {
 export interface DraftView {
   draft_id: string;
   child_id: string;
-  /** 알림장인지 관찰일지인지. 직접 작성 화면이 저장 뒤 어디로 갈지 정할 때 씁니다. */
+  /** 알림장인지 관찰일지인지. 이 화면은 안 쓰지만 문서에 있는 응답 필드라 버리지 않습니다. */
   doc_type: DocType;
   record_date: string;
   status: DraftState;
@@ -205,6 +208,14 @@ export function sentPhotos(draft: DraftView | undefined): MediaUrl[] {
   return draft?.include_photos === true ? selectedPhotos(draft) : [];
 }
 
+/**
+ * 사진을 함께 보냈는지. `sentPhotos`와 같은 규칙 위에 둡니다 — 따로 비교하면 한쪽만
+ * 고쳤을 때 "보냈다고 적혀 있는데 사진은 없는" 화면이 됩니다(#107 리뷰 송유진 님).
+ */
+export function didSendPhotos(draft: DraftView | undefined): boolean {
+  return draft?.include_photos === true;
+}
+
 /** 게시에 성공한 건인지. 화면이 `status` 문자열을 직접 비교하지 않게 합니다. */
 export function isPublished(result: PublicationResultView): boolean {
   return result.status === "published";
@@ -220,6 +231,40 @@ export function canReopen(
   draft: { status: DraftState; published_at: string | null } | null | undefined,
 ): boolean {
   return draft?.status === "approved" && draft.published_at === null;
+}
+
+// ── 게시 판정 ────────────────────────────────────────────────────────────────
+// 레일 한 줄을 두고 게시가 묻는 것은 셋입니다. 화면이 상태 문자열을 직접 비교하면
+// 상태가 늘 때 세 곳을 다 고쳐야 하고, 실제로 하나를 빠뜨려 만드는 중인 아이가 조용히
+// 게시에서 빠졌습니다(#107 리뷰 송유진 님). 판정을 여기 모아 한 곳만 고치게 합니다.
+
+/** 레일 한 줄에서 게시 판정에 필요한 것만. 화면의 `RosterRow`가 이 모양을 만족합니다. */
+interface PublishRow {
+  status: RosterState;
+  note: DraftSummaryView | null;
+}
+
+/**
+ * 이번 게시에 담을 줄인지. 교사가 승인한 초안만 담습니다(H-1).
+ *
+ * 이미 게시한 초안을 빼는 조건은 #108에서 이 함수에 더합니다 — 지금은 한 날짜를 한 번만
+ * 게시한다고 보고 있어, 재게시 판정은 그 PR에서 함께 다룹니다.
+ */
+export function isPublishTarget(row: PublishRow): boolean {
+  return row.note !== null && row.status === "approved";
+}
+
+/** 교사가 아직 봐야 하는 줄인지. 하나라도 남으면 게시를 막습니다. */
+export function needsReview(row: PublishRow): boolean {
+  return row.note !== null && row.status === "review";
+}
+
+/**
+ * 초안은 있는데 교사가 승인할 수 없어 이번 게시에서 빠지는 줄인지.
+ * 게시를 막지는 않고, 모달이 이 수를 세어 교사에게 알려 줍니다.
+ */
+export function isNotReady(row: PublishRow): boolean {
+  return row.note !== null && row.status !== "approved" && row.status !== "review";
 }
 
 // 문장과 근거는 서버 모양을 그대로 씁니다. 화면이 보여 줄 값과 같고, 바꾸면 근거 id 연결이

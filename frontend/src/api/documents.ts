@@ -28,6 +28,7 @@ import {
 export {
   canApprove,
   canReopen,
+  didSendPhotos,
   type ChildDraftView,
   type ClassDraftView,
   type DocType,
@@ -36,7 +37,10 @@ export {
   type DraftView,
   type Evidence,
   type EvidenceSourceType,
+  isNotReady,
   isPublished,
+  isPublishTarget,
+  needsReview,
   type PublicationResultView,
   type RosterState,
   selectedPhotos,
