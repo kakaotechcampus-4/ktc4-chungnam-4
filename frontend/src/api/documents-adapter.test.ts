@@ -6,6 +6,8 @@ import {
   canApprove,
   canReopen,
   type DraftView,
+  isPublished,
+  selectedPhotos,
   sentPhotos,
   toClassDraftView,
   toDraftState,
@@ -107,9 +109,10 @@ describe("판정 함수", () => {
 
 describe("사진", () => {
   // 초안 검토 화면은 게시 전 초안을 다루므로 교사가 고른 사진을 그대로 봅니다.
-  it("고른 사진은 게시 여부와 무관하게 담긴다", () => {
-    expect(toDraftView(detail()).photos).toEqual([PHOTO]);
-    expect(toDraftView(detail({ include_photos: false })).photos).toEqual([PHOTO]);
+  it("고른 사진은 게시 여부와 무관하게 나온다", () => {
+    expect(selectedPhotos(toDraftView(detail()))).toEqual([PHOTO]);
+    expect(selectedPhotos(toDraftView(detail({ include_photos: false })))).toEqual([PHOTO]);
+    expect(selectedPhotos(undefined)).toEqual([]);
   });
 
   // 알림장 상세는 "학부모가 받은 것"을 보는 자리라 실제로 나간 사진만 봅니다.
@@ -127,7 +130,8 @@ describe("사진", () => {
       detail({ selected_media_ids: [voice.media_id], media: [PHOTO, voice] }),
     );
 
-    expect(view.photos).toEqual([]);
+    expect(selectedPhotos(view)).toEqual([]);
+    // 근거 패널이 쓰므로 미디어 자체는 버리지 않습니다.
     expect(view.media).toEqual([PHOTO, voice]);
   });
 });
@@ -145,7 +149,7 @@ describe("목록과 게시 결과", () => {
       child_id: fixtureId("child", 5),
       parent_note: null,
       observation_log: null,
-      unclassified_reason: "insufficient_evidence",
+      unclassified: "insufficient_evidence",
     });
   });
 
@@ -157,8 +161,8 @@ describe("목록과 게시 결과", () => {
       unclassified: null,
     });
 
-    expect(view.parent_note?.state).toBe("review");
-    expect(view.unclassified_reason).toBeNull();
+    expect(view.parent_note?.status).toBe("review");
+    expect(view.unclassified).toBeNull();
   });
 
   // 다른 화면(정은 님 직접 작성 #110)이 쓰는 값이라 제 화면이 안 써도 버리지 않습니다.
@@ -170,28 +174,29 @@ describe("목록과 게시 결과", () => {
       unclassified: null,
     });
 
-    expect(view.observation_log?.state).toBe("review");
+    expect(view.observation_log?.status).toBe("review");
     expect(toDraftView(detail({ doc_type: "observation_log" })).doc_type).toBe("observation_log");
   });
 
-  // 게시는 HTTP 200 안에서 건별로 성공·실패가 옵니다. 화면은 published로 판단합니다.
-  it("게시 결과는 published와 사유로 바뀐다", () => {
-    expect(
-      toPublicationResultView({
-        draft_id: fixtureId("draft", 12),
-        child_id: fixtureId("child", 1),
-        status: "failed",
-        parent_note_id: null,
-        version: null,
-        published_at: null,
-        error_code: "DRAFT_VERSION_CONFLICT",
-      }),
-    ).toEqual({
+  // 게시는 HTTP 200 안에서 건별로 성공·실패가 옵니다. 화면은 isPublished로 판단합니다.
+  it("게시 결과는 status와 사유를 그대로 넘긴다", () => {
+    const failed = toPublicationResultView({
       draft_id: fixtureId("draft", 12),
       child_id: fixtureId("child", 1),
-      published: false,
+      status: "failed",
+      parent_note_id: null,
+      version: null,
+      published_at: null,
+      error_code: "DRAFT_VERSION_CONFLICT",
+    });
+
+    expect(failed).toEqual({
+      draft_id: fixtureId("draft", 12),
+      child_id: fixtureId("child", 1),
+      status: "failed",
       parent_note_id: null,
       error_code: "DRAFT_VERSION_CONFLICT",
     });
+    expect(isPublished(failed)).toBe(false);
   });
 });

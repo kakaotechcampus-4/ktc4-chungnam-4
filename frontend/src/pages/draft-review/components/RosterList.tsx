@@ -12,7 +12,7 @@ export interface RosterRow {
   child: ClassChild;
   /** 그날의 알림장 초안. 없으면 자료가 없어 초안이 만들어지지 않은 것입니다. */
   note: DraftSummaryView | null;
-  state: RosterState;
+  status: RosterState;
 }
 
 // 게시는 반 전체를 하루 한 번 하므로, 검토 중인 날짜에는 게시된 원아가 있을 수 없습니다.
@@ -30,8 +30,8 @@ const STATE_LABEL_MAP: Record<RosterState, string> = {
 };
 
 /** 승인을 마친 줄만 체크로 표시합니다(H-1: 승인 전은 검토 대기). */
-function isDone(state: RosterState) {
-  return state === "approved";
+function isDone(status: RosterState) {
+  return status === "approved";
 }
 
 interface RosterListProps {
@@ -42,7 +42,7 @@ interface RosterListProps {
 }
 
 export function RosterList({ klassName, rows, selectedChildId, onSelect }: RosterListProps) {
-  const doneCount = rows.filter((row) => isDone(row.state)).length;
+  const doneCount = rows.filter((row) => isDone(row.status)).length;
 
   return (
     <aside className="flex w-55 shrink-0 flex-col gap-4 rounded-xl bg-paper p-5">
@@ -53,8 +53,8 @@ export function RosterList({ klassName, rows, selectedChildId, onSelect }: Roste
         </p>
       </div>
       <ul className="flex flex-col gap-1">
-        {rows.map(({ child, state }) => {
-          const done = isDone(state);
+        {rows.map(({ child, status }) => {
+          const done = isDone(status);
           const isSelected = child.child_id === selectedChildId;
           return (
             <li key={child.child_id}>
@@ -85,7 +85,7 @@ export function RosterList({ klassName, rows, selectedChildId, onSelect }: Roste
                   </span>
                 </span>
                 <span className={cn("text-label", done ? "text-brand-ink" : "text-ink-muted")}>
-                  {STATE_LABEL_MAP[state]}
+                  {STATE_LABEL_MAP[status]}
                 </span>
               </button>
             </li>

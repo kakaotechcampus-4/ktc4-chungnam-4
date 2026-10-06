@@ -37,9 +37,12 @@ export type DraftState = "approved" | "review" | "generating" | "unclassified" |
 /** 레일 한 줄이 보여 줄 상태. 초안이 아예 없는 원아는 `none`입니다. */
 export type RosterState = DraftState | "none";
 
+// 필드 이름은 docs/api/를 그대로 씁니다 — 값만 화면용으로 바꿉니다(auth의 `account_type`과
+// 같은 방식, #107 리뷰 송유진 님). 이름까지 바꾸면 문서를 보고 코드를 찾을 수 없습니다.
+
 export interface DraftSummaryView {
   draft_id: string;
-  state: DraftState;
+  status: DraftState;
   version: number;
   published_at: string | null;
   preview: string;
@@ -53,9 +56,10 @@ export interface ClassDraftView {
   observation_log: DraftSummaryView | null;
   /**
    * 초안 없이 미분류로 끝난 사유. 아니면 `null`입니다.
+   * 서버는 `{ reason }` 객체로 주는데 화면이 쓸 것이 사유뿐이라 문자열로 폅니다.
    * 지금 화면은 "초안 없음"으로만 다루지만, 사유를 보여 줄 수도 있어 값을 버리지 않습니다.
    */
-  unclassified_reason: string | null;
+  unclassified: string | null;
 }
 
 /** GET /children/{child_id}/drafts 한 줄(알림장 목록·상세의 날짜 이동) */
@@ -70,13 +74,13 @@ export interface DraftView {
   /** 알림장인지 관찰일지인지. 직접 작성 화면이 저장 뒤 어디로 갈지 정할 때 씁니다. */
   doc_type: DocType;
   record_date: string;
-  state: DraftState;
+  status: DraftState;
   version: number;
   title: string | null;
   sentences: Sentence[];
-  /** 교사가 고른 사진. 게시 여부와 무관하게 그대로 담습니다. */
-  photos: MediaUrl[];
-  /** 선택 사진과 근거 미디어 전부. 근거 패널이 씁니다. */
+  /** 교사가 고른 미디어의 id. 어느 것이 사진인지는 `selectedPhotos`가 가립니다. */
+  selected_media_ids: string[];
+  /** 선택 미디어와 근거 미디어 전부. 근거 패널이 씁니다. */
   media: MediaUrl[];
   published_at: string | null;
   /** 게시할 때 사진을 함께 보냈는지. 게시 전에는 `null`입니다. */
@@ -87,7 +91,8 @@ export interface DraftView {
 export interface PublicationResultView {
   draft_id: string;
   child_id: string | null;
-  published: boolean;
+  /** 건별 결과. 화면은 `isPublished`로 봅니다. */
+  status: PublicationResult["status"];
   /** 게시된 알림장의 id. 실패했으면 `null`입니다. 학부모 화면이 이 id로 본문을 엽니다. */
   parent_note_id: string | null;
   /** 실패했을 때 서버가 준 사유 코드 */
@@ -130,7 +135,7 @@ export function toDraftState(value: DraftStatus): DraftState {
 function toDraftSummaryView(raw: DraftSummary): DraftSummaryView {
   return {
     draft_id: raw.draft_id,
-    state: toDraftState(raw.status),
+    status: toDraftState(raw.status),
     version: raw.version,
     published_at: raw.published_at,
     preview: raw.preview,
@@ -142,7 +147,7 @@ export function toClassDraftView(raw: ClassDraftItem): ClassDraftView {
     child_id: raw.child_id,
     parent_note: raw.parent_note === null ? null : toDraftSummaryView(raw.parent_note),
     observation_log: raw.observation_log === null ? null : toDraftSummaryView(raw.observation_log),
-    unclassified_reason: raw.unclassified?.reason ?? null,
+    unclassified: raw.unclassified?.reason ?? null,
   };
 }
 
@@ -151,19 +156,16 @@ export function toChildDraftView(raw: ChildDraftItem): ChildDraftView {
 }
 
 export function toDraftView(raw: DraftDetail): DraftView {
-  const photos = raw.selected_media_ids
-    .map((id) => raw.media.find((media) => media.media_id === id))
-    .filter((media): media is MediaUrl => media !== undefined && media.type === "photo");
   return {
     draft_id: raw.draft_id,
     child_id: raw.child_id,
     doc_type: raw.doc_type,
     record_date: raw.record_date,
-    state: toDraftState(raw.status),
+    status: toDraftState(raw.status),
     version: raw.version,
     title: raw.title,
     sentences: raw.sentences,
-    photos,
+    selected_media_ids: raw.selected_media_ids,
     media: raw.media,
     published_at: raw.published_at,
     include_photos: raw.include_photos,
@@ -174,33 +176,50 @@ export function toPublicationResultView(raw: PublicationResult): PublicationResu
   return {
     draft_id: raw.draft_id,
     child_id: raw.child_id,
-    published: raw.status === "published",
+    status: raw.status,
     parent_note_id: raw.parent_note_id,
     error_code: raw.error_code,
   };
 }
 
 /**
+ * **교사가 고른 사진**입니다. 게시 여부와 무관하고, 게시 전 초안을 다루는 초안 검토
+ * 화면이 씁니다. 사진이 아닌 선택 미디어(영상·음성메모)는 뺍니다.
+ *
+ * 필드가 아니라 함수로 두는 것은 `media`와 `selected_media_ids`에서 계산되는 값이라
+ * 서버 응답에 없는 필드를 adapter가 만들어 내지 않게 하려는 것입니다(#107 리뷰 송유진 님).
+ */
+export function selectedPhotos(draft: DraftView | undefined): MediaUrl[] {
+  if (draft === undefined) return [];
+  return draft.selected_media_ids
+    .map((id) => draft.media.find((media) => media.media_id === id))
+    .filter((media): media is MediaUrl => media !== undefined && media.type === "photo");
+}
+
+/**
  * **학부모에게 실제로 나간 사진**입니다. 알림장 상세처럼 게시본을 되짚어 보는 화면이 씁니다.
  * `true`일 때만 돌려줍니다 — `null`(게시 전 캐시가 남은 경우)에 보여 주면 사진을 빼고
  * 게시했는데도 교사에게는 사진이 보입니다(#89 리뷰).
- *
- * 게시 전 초안을 다루는 초안 검토 화면은 이 함수 대신 `photos`를 그대로 씁니다.
  */
 export function sentPhotos(draft: DraftView | undefined): MediaUrl[] {
-  return draft?.include_photos === true ? draft.photos : [];
+  return draft?.include_photos === true ? selectedPhotos(draft) : [];
+}
+
+/** 게시에 성공한 건인지. 화면이 `status` 문자열을 직접 비교하지 않게 합니다. */
+export function isPublished(result: PublicationResultView): boolean {
+  return result.status === "published";
 }
 
 /** 교사가 승인할 수 있는 초안인지. 받기 전(undefined)이면 false입니다. */
-export function canApprove(draft: { state: DraftState } | null | undefined): boolean {
-  return draft?.state === "review";
+export function canApprove(draft: { status: DraftState } | null | undefined): boolean {
+  return draft?.status === "review";
 }
 
 /** 승인을 되돌릴 수 있는지. 게시한 뒤에는 회수가 따로 필요합니다(H-1). */
 export function canReopen(
-  draft: { state: DraftState; published_at: string | null } | null | undefined,
+  draft: { status: DraftState; published_at: string | null } | null | undefined,
 ): boolean {
-  return draft?.state === "approved" && draft.published_at === null;
+  return draft?.status === "approved" && draft.published_at === null;
 }
 
 // 문장과 근거는 서버 모양을 그대로 씁니다. 화면이 보여 줄 값과 같고, 바꾸면 근거 id 연결이

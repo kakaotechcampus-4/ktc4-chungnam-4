@@ -36,8 +36,10 @@ export {
   type DraftView,
   type Evidence,
   type EvidenceSourceType,
+  isPublished,
   type PublicationResultView,
   type RosterState,
+  selectedPhotos,
   type Sentence,
   sentPhotos,
 } from "./documents-adapter";

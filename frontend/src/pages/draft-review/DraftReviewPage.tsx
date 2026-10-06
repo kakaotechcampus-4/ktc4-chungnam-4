@@ -14,9 +14,11 @@ import {
   createDraft,
   documentsKeys,
   draftQueryOptions,
+  isPublished,
   patchDraft,
   publishParentNotes,
   reopenDraft,
+  selectedPhotos,
 } from "@/api/documents";
 import { classChildrenQueryOptions } from "@/api/organization";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -74,7 +76,7 @@ function toSentences(text: string) {
 // 교사가 직접 쓸 수 있어 "검토 필요"로 보여 줍니다. 초안이 있으면 adapter가 정한 상태를 씁니다.
 // 표기는 docs/api/documents.md §레일·목록 표기.
 function toRosterState(item: ClassDraftView | undefined): RosterState {
-  return item?.parent_note?.state ?? "none";
+  return item?.parent_note?.status ?? "none";
 }
 
 export function DraftReviewPage() {
@@ -122,7 +124,7 @@ export function DraftReviewPage() {
   const draftItems = draftsQuery.data ?? [];
   const rows: RosterRow[] = children.map((child) => {
     const item = draftItems.find((draft) => draft.child_id === child.child_id);
-    return { child, note: item?.parent_note ?? null, state: toRosterState(item) };
+    return { child, note: item?.parent_note ?? null, status: toRosterState(item) };
   });
 
   const selectedChildId = childId ?? rows[0]?.child.child_id ?? "";
@@ -251,7 +253,7 @@ export function DraftReviewPage() {
         }),
         queryClient.invalidateQueries({ queryKey: documentsKeys.publishedNotes(classId) }),
       ]);
-      const published = results.filter((result) => result.published).length;
+      const published = results.filter(isPublished).length;
       navigate("/t/notes/publish/done", { state: { publishedCount: published } });
     },
     onError: (error) => refetchOnVersionConflict(error),
@@ -281,7 +283,7 @@ export function DraftReviewPage() {
     draft?.sentences.find((sentence) => sentence.sentence_index === selectedSentenceIndex) ?? null;
   // 게시 전 초안이라 교사가 고른 사진을 그대로 보여 줍니다. 게시본을 되짚어 보는 화면은
   // adapter의 sentPhotos를 써서 실제로 나간 사진만 봅니다.
-  const photos = draft?.photos ?? [];
+  const photos = selectedPhotos(draft);
 
   // 승인은 검증을 마친 초안만(목·API 문서 규칙). 게시는 검토가 남은 원아가 없을 때만 엽니다.
   // 수정 중에는 잠급니다 — "수정 완료" 없이 승인하면 고치기 전 문장이 승인·게시되는데
@@ -296,7 +298,7 @@ export function DraftReviewPage() {
   // 이미 봤으므로 고칠 수 없고, 되돌리려면 회수(revoke)가 필요합니다(H-1).
   const isDayClosed = rows.some((row) => row.note?.published_at != null);
   const publishTargets = rows.flatMap((row) =>
-    row.note && row.state === "approved"
+    row.note && row.status === "approved"
       ? [{ childId: row.child.child_id, name: row.child.name, note: row.note }]
       : [],
   );
@@ -305,7 +307,7 @@ export function DraftReviewPage() {
     .map((target) => ({ draft_id: target.note.draft_id, expected_version: target.note.version }));
   // 초안이 있는데 아직 승인하지 않은 원아가 있으면 게시를 막습니다.
   // 초안이 없는 원아(자료 없음·미분류)는 승인할 대상이 없어 게시를 막지 않고, 이번 게시에서 빠집니다.
-  const hasUnreviewedDraft = rows.some((row) => row.note !== null && row.state === "review");
+  const hasUnreviewedDraft = rows.some((row) => row.note !== null && row.status === "review");
   const canPublish = publishTargets.length > 0 && !hasUnreviewedDraft;
 
   function selectChild(id: string) {
