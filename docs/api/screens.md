@@ -43,7 +43,6 @@
 | ③ 정은 | 처리 중 / 서버 전송 | `POST /media/upload-urls`, S3 `PUT`, `POST /media`, `PUT /media/{media_id}/child-links`, 끝나면 `POST /classes/{class_id}/jobs`, 경로만 정한 API로는 `POST /media/multipart-uploads`(큰 파일)·`POST /jobs/{job_id}/cancel`(취소) | 둘 다 |
 | ③ 정은 | 처리 중 / 초안 생성 | `GET /jobs/{job_id}`(2초 폴링), `POST /jobs/{job_id}/cancel`(취소) | 둘 다 |
 | ③ 정은 | 처리 실패 · 단계 재시도 | `GET /jobs/{job_id}`(실패한 단계), `POST /jobs/{job_id}/retry` | 둘 다 |
-| ③ 정은 | 직접 작성 | `GET /classes/{class_id}/children`·`GET /classes/{class_id}/drafts?record_date=`(기록 없는 아이), `POST /children/{child_id}/drafts`(초안·임시저장), `POST /drafts/{draft_id}/approve`(저장하고 승인하기) | 둘 다 |
 | ③ 정은 | 대시보드 | `GET /classes/{class_id}/drafts?record_date=`(승인 완료·기록 전), `GET /classes/{class_id}/children`(명단, 동의·얼굴 필드는 확장(경로만)), `GET /classes/{class_id}/jobs?record_date=`(오늘의 기록 이어하기) | 둘 다 |
 | ④ 김동건 | 얼굴 분류 · 결과 확인 | `GET /classes/{class_id}/children`("전체 5명"), `GET /media/{media_id}/transcript-segments`("발화 N개", 상세 작성·임시 결정(김동건)), 추가 근거 표시는 `GET /classes/{class_id}/evidence?record_date=`(제안, agents.md 하단). 사진 분류는 브라우저 안에서, 영상·음성은 이 화면 전에 먼저 올림(제안, media-face.md 하단 §6). 사진 귀속과 `llm_allowed`(확인 체크)는 서버 전송 때 보냄 | 둘 다 |
 | ④ 김동건 | 수동 분류 / 사진 | `GET /classes/{class_id}/children`(원아 선택지). 귀속은 서버 전송 때 보냄. 아이 카드의 사진을 눌러 아이를 바꾸는 화면(Figma 없음)도 같은 호출 | 상세 작성 |
@@ -79,7 +78,7 @@
 - [ ] W3의 "이번 달 12"를 유지할지(한상균과 함께)
 - [ ] 로그인 화면을 학부모와 함께 쓸 때의 문구(로그인 후보 A는 교사 전용 문구)
 - [ ] 디자인 빈 곳: 게시 부분 실패, 열람 기간 종료(`CHILD_ACCESS_EXPIRED`), 학부모용 접근 권한 없음, 교사 초안의 `title`과 제목 없는 W4
-- [ ] 상세 작성 범위 밖이라 숨길 UI: 비밀번호 찾기·회원가입, "사진 없이 직접 기록하기", "+ 추가 근거 작성", "직접 기록 →", "AI에게 다듬기 요청", "학부모 알림 발송", "게시판에서 확인"
+- [ ] 상세 작성 범위 밖이라 숨길 UI: 비밀번호 찾기·회원가입, "+ 추가 근거 작성", "AI에게 다듬기 요청", "학부모 알림 발송", "게시판에서 확인"
 
 ---
 
@@ -88,5 +87,5 @@
 > 위 체크리스트는 송유진 님 항목이라 닫지 않았습니다. ④ 화면을 만들며 걸린 것만 적습니다.
 
 - "발화 N개" → "음성 N개": #83 리뷰 흐름(영상·음성을 분류와 함께 먼저 올려 STT)이면 분류 결과에 "발화 N개"를 그대로 보일 수 있어 이 항목은 필요 없어집니다. FE는 "사진 N장 · 영상 N개 · 음성 N개 · 발화 N개"로 셉니다.
-- 숨길 UI의 "+ 추가 근거 작성": 아이 카드에서 "오늘 하루 확인 →"로 바꾸고, 추가 근거는 아이별 하루 확인 안에서 씁니다(#83 리뷰). "직접 기록 →"은 ③ 직접 작성 화면(정은)이 생기면 이어집니다.
+- 숨길 UI의 "+ 추가 근거 작성": 아이 카드에서 "오늘 하루 확인 →"로 바꾸고, 추가 근거는 아이별 하루 확인 안에서 씁니다(#83 리뷰). 직접 작성 화면(③ 정은)은 두지 않기로 했습니다(10/06 회의). 자료 없는 원아는 초안 검토 화면에서 직접 씁니다.
 - 아이별 하루 확인은 Figma 1:3115(하루 정리 확인)를 전송 전 자료로 그린 것입니다. 서버 하루 일과가 아니라서 Figma의 활동 이름("미술 활동")과 장면 문장은 없고, 사진·발화를 시간순으로 보여 줍니다. "2 / 5명 확인"은 자료가 있는 아이 사이 이동으로 바꿨습니다.
