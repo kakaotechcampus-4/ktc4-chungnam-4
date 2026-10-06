@@ -21,6 +21,8 @@ const STATE_LABEL_MAP: Record<RosterState, string> = {
   approved: "검토 완료",
   review: "검토 필요",
   none: "검토 필요",
+  // 아직 만드는 중이라 교사가 할 일이 없습니다. "검토 필요"로 보여 주면 눌러도 할 게 없습니다.
+  generating: "생성 중",
 };
 
 /** 승인을 마친 줄만 체크로 표시합니다(H-1: 승인 전은 검토 대기). */

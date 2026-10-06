@@ -4,6 +4,7 @@ import type {
   DraftDetail,
   DraftStatus,
   DraftSummary,
+  DocType,
   Evidence,
   EvidenceSourceType,
   PublicationResult,
@@ -17,14 +18,14 @@ import type { MediaUrl } from "@/types/api-draft/media";
 /**
  * 화면이 초안을 두고 판단하는 것은 **"교사가 지금 승인해도 되는가"** 하나입니다.
  *
- * 서버의 `status` 값은 아직 막힘입니다(`docs/api/documents.md` 13행) — 문서·목은
- * `draft`·`verified`·`approved`·`unclassified`를, 백엔드 `documents/models.py`는
- * `verified` 없이 `draft`·`approved`·`revoked`를 씁니다.
+ * - `review` — 교사가 보고 승인할 수 있습니다
+ * - `approved` — 교사가 승인했습니다
+ * - `generating` — 아직 만드는 중이라 **교사가 손댈 수 없습니다.** 모르는 값도 여기로 둡니다
  *
- * 그래서 **승인된 것만 구분하고 나머지는 모두 "검토 대기"로 봅니다** — 임시 결정(김진하).
- * 서버가 어느 쪽 값을 주든 화면이 동작합니다. 확정되면 `toDraftState` 한 곳만 고칩니다.
+ * 모르는 값을 `review`로 두면 승인 버튼이 열려 미완성 글이 그대로 나갈 수 있습니다.
+ * 애매하면 잠그는 쪽이 맞습니다(H-1, #96 규칙과 같은 방향) — 이슈 #106 정은 님 지적.
  */
-export type DraftState = "approved" | "review";
+export type DraftState = "approved" | "review" | "generating";
 
 /** 레일 한 줄이 보여 줄 상태. 초안이 아예 없는 원아는 `none`입니다. */
 export type RosterState = DraftState | "none";
@@ -41,6 +42,8 @@ export interface DraftSummaryView {
 export interface ClassDraftView {
   child_id: string;
   parent_note: DraftSummaryView | null;
+  /** 그날의 관찰일지 초안. 직접 작성 화면이 "관찰일지가 아직 없는 아이"를 이 값으로 고릅니다. */
+  observation_log: DraftSummaryView | null;
   /**
    * 초안 없이 미분류로 끝난 사유. 아니면 `null`입니다.
    * 지금 화면은 "초안 없음"으로만 다루지만, 사유를 보여 줄 수도 있어 값을 버리지 않습니다.
@@ -57,6 +60,8 @@ export interface ChildDraftView extends DraftSummaryView {
 export interface DraftView {
   draft_id: string;
   child_id: string;
+  /** 알림장인지 관찰일지인지. 직접 작성 화면이 저장 뒤 어디로 갈지 정할 때 씁니다. */
+  doc_type: DocType;
   record_date: string;
   state: DraftState;
   version: number;
@@ -83,23 +88,32 @@ export interface PublicationResultView {
 }
 
 // 서버가 모르는 상태를 보내면 값만 남깁니다(H-4: 이름·연락처는 찍지 않음). 긴 문자열은 앞 32자만.
-function warnUnknownStatus(value: unknown): "review" {
+// 모르면 잠급니다 — 열어 두면 교사가 승인해 미완성 글이 나갈 수 있습니다(H-1).
+function warnUnknownStatus(value: unknown): "generating" {
   console.warn("모르는 초안 상태", typeof value === "string" ? value.slice(0, 32) : typeof value);
-  return "review";
+  return "generating";
 }
 
 /**
- * 승인된 것만 구분하고 나머지는 검토 대기로 봅니다 — 임시 결정(김진하).
  * 서버 타입에 상태가 늘면 `default`에서 컴파일 에러가 나므로 모르고 지나칠 수 없습니다.
+ *
+ * `verified`는 검증을 통과해 교사 검토를 기다리는 상태입니다(이슈 #106 — 백엔드도
+ * `verified`로 저장하기로 돼 있고 한상균 님 스키마 PR을 기다리는 중입니다).
+ *
+ * `unclassified`도 잠급니다(#107 리뷰 정은 님). 송유진 님 #88 후속의 "미분류는 초안이
+ * 없는 상태에 맞게"는 **초안 없이 `unclassified` 필드만 오는 경우**를 말하고, 그 경우는
+ * `parent_note`가 `null`이라 레일이 `none`으로 보아 교사가 직접 작성할 수 있습니다.
+ * 여기서 다루는 것은 초안이 있는데 상태만 미분류인 경우라 서로 다릅니다.
  */
 export function toDraftState(value: DraftStatus): DraftState {
   switch (value) {
     case "approved":
       return "approved";
-    case "draft":
     case "verified":
-    case "unclassified":
       return "review";
+    case "draft":
+    case "unclassified":
+      return "generating";
     default: {
       const unexpected: never = value;
       return warnUnknownStatus(unexpected);
@@ -121,6 +135,7 @@ export function toClassDraftView(raw: ClassDraftItem): ClassDraftView {
   return {
     child_id: raw.child_id,
     parent_note: raw.parent_note === null ? null : toDraftSummaryView(raw.parent_note),
+    observation_log: raw.observation_log === null ? null : toDraftSummaryView(raw.observation_log),
     unclassified_reason: raw.unclassified?.reason ?? null,
   };
 }
@@ -136,6 +151,7 @@ export function toDraftView(raw: DraftDetail): DraftView {
   return {
     draft_id: raw.draft_id,
     child_id: raw.child_id,
+    doc_type: raw.doc_type,
     record_date: raw.record_date,
     state: toDraftState(raw.status),
     version: raw.version,
@@ -183,4 +199,4 @@ export function canReopen(
 
 // 문장과 근거는 서버 모양을 그대로 씁니다. 화면이 보여 줄 값과 같고, 바꾸면 근거 id 연결이
 // 끊어질 뿐입니다. 화면이 서버 타입 파일을 직접 import하지 않도록 여기서 다시 내보냅니다.
-export type { Evidence, EvidenceSourceType, Sentence };
+export type { DocType, Evidence, EvidenceSourceType, Sentence };

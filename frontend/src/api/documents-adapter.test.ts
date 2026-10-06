@@ -53,25 +53,26 @@ function detail(over: Partial<DraftDetail> = {}): DraftDetail {
 }
 
 describe("초안 상태 해석", () => {
-  // 서버 status 값이 아직 막힘입니다(docs/api/documents.md 13행). 문서·목은 verified를 쓰고
-  // 백엔드는 verified 없이 draft를 씁니다. 화면이 알아야 하는 건 "승인해도 되는가" 하나라,
-  // 승인된 것만 구분하고 나머지는 모두 검토 대기로 봅니다 — 임시 결정(김진하).
-  it.each([["draft"], ["verified"], ["unclassified"]] as const)(
-    "%s는 아직 승인 전이라 검토 대기다",
-    (status) => {
-      expect(toDraftState(status)).toBe("review");
-    },
-  );
+  // verified는 검증을 통과해 교사 검토를 기다리는 상태입니다(이슈 #106 정은 님 답변).
+  it("verified만 교사가 검토할 수 있다", () => {
+    expect(toDraftState("verified")).toBe("review");
+  });
 
   it("approved만 검토 완료다", () => {
     expect(toDraftState("approved")).toBe("approved");
   });
 
-  // 서버가 문서에 없는 값을 보내도 화면이 터지지 않아야 하고, 승인된 것으로 봐서도 안 됩니다(H-1).
-  it("모르는 상태는 검토 대기로 두고 값만 로그에 남긴다", () => {
+  // draft는 AI가 아직 쓰는 중입니다. 열어 두면 교사가 승인해 미완성 글이 그대로 나갑니다.
+  // unclassified도 잠급니다 — 초안 없이 미분류 필드만 오는 경우와 다릅니다(#107 리뷰).
+  it.each([["draft"], ["unclassified"]] as const)("%s는 잠근다", (status) => {
+    expect(toDraftState(status)).toBe("generating");
+  });
+
+  // 모르는 값을 열어 두면 같은 사고가 납니다. 애매하면 잠그는 쪽이 맞습니다(H-1).
+  it("모르는 상태는 잠그고 값만 로그에 남긴다", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    expect(toDraftState("in_review" as DraftStatus)).toBe("review");
+    expect(toDraftState("in_review" as DraftStatus)).toBe("generating");
 
     expect(warn).toHaveBeenCalledWith("모르는 초안 상태", "in_review");
     warn.mockRestore();
@@ -81,8 +82,9 @@ describe("초안 상태 해석", () => {
 describe("판정 함수", () => {
   it("검토 대기인 초안만 승인할 수 있다", () => {
     expect(canApprove(toDraftView(detail({ status: "verified" })))).toBe(true);
-    expect(canApprove(toDraftView(detail({ status: "draft" })))).toBe(true);
     expect(canApprove(toDraftView(detail({ status: "approved" })))).toBe(false);
+    // 만드는 중이면 승인 버튼이 열리면 안 됩니다.
+    expect(canApprove(toDraftView(detail({ status: "draft" })))).toBe(false);
     expect(canApprove(undefined)).toBe(false);
   });
 
@@ -136,6 +138,7 @@ describe("목록과 게시 결과", () => {
     expect(view).toEqual({
       child_id: fixtureId("child", 5),
       parent_note: null,
+      observation_log: null,
       unclassified_reason: "insufficient_evidence",
     });
   });
@@ -150,6 +153,19 @@ describe("목록과 게시 결과", () => {
 
     expect(view.parent_note?.state).toBe("review");
     expect(view.unclassified_reason).toBeNull();
+  });
+
+  // 다른 화면(정은 님 직접 작성 #110)이 쓰는 값이라 제 화면이 안 써도 버리지 않습니다.
+  it("관찰일지와 doc_type을 그대로 넘긴다", () => {
+    const view = toClassDraftView({
+      child_id: fixtureId("child", 1),
+      observation_log: summary("verified"),
+      parent_note: null,
+      unclassified: null,
+    });
+
+    expect(view.observation_log?.state).toBe("review");
+    expect(toDraftView(detail({ doc_type: "observation_log" })).doc_type).toBe("observation_log");
   });
 
   // 게시는 HTTP 200 안에서 건별로 성공·실패가 옵니다. 화면은 published로 판단합니다.

@@ -30,6 +30,7 @@ export {
   canReopen,
   type ChildDraftView,
   type ClassDraftView,
+  type DocType,
   type DraftState,
   type DraftSummaryView,
   type DraftView,
