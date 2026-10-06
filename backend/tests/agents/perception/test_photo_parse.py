@@ -94,22 +94,23 @@ def test_아이_수와_scope가_맞는_관찰만_근거가_되고_group은_전�
 
 
 @pytest.mark.parametrize(
-    ("methods", "expected"),
+    "methods",
     [
-        (("manual",), AssignmentStatus.TEACHER_CONFIRMED),
-        (("manual", "manual"), AssignmentStatus.TEACHER_CONFIRMED),
-        (("face_recognition",), AssignmentStatus.AUTO_LINKED),
-        (("manual", "face_recognition"), AssignmentStatus.AUTO_LINKED),
+        ("manual",),
+        ("manual", "manual"),
+        ("face_recognition",),
+        ("manual", "face_recognition"),
     ],
 )
-def test_자동_인식_귀속이_하나라도_섞이면_AUTO_LINKED다(
-    methods: tuple[Literal["face_recognition", "manual"], ...], expected: AssignmentStatus
+def test_귀속_방법과_관계없이_교사_확인_귀속이다(
+    methods: tuple[Literal["face_recognition", "manual"], ...],
 ) -> None:
+    # 서버 귀속은 모두 교사 확인을 거친다. 최초 연결 방법(method)과 확인 상태는 구분한다.
     links = tuple(link(c, m) for c, m in zip((CHILD_A_ID, CHILD_B_ID), methods, strict=False))
     scope = "individual" if len(links) == 1 else "group"
     result = _parse(response(answer("P1", (TEXT, scope))), photo(links=links))
 
-    assert [item.assignment_status for item in result.items] == [expected]
+    assert [item.assignment_status for item in result.items] == [AssignmentStatus.TEACHER_CONFIRMED]
 
 
 @pytest.mark.parametrize(
@@ -319,8 +320,8 @@ def test_사진과_응답_원소의_순서가_달라도_결과가_같다(seed: i
     # 버린 관찰도 번호를 차지해 B의 세 번째 관찰은 :3이다
     assert [(i.evidence_id, i.child_ids, i.assignment_status) for i in expected.items] == [
         (f"photo:{PHOTO_A_ID}:1", [CHILD_A_ID], AssignmentStatus.TEACHER_CONFIRMED),
-        (f"photo:{PHOTO_B_ID}:1", [CHILD_A_ID, CHILD_B_ID], AssignmentStatus.AUTO_LINKED),
-        (f"photo:{PHOTO_B_ID}:3", [CHILD_A_ID, CHILD_B_ID], AssignmentStatus.AUTO_LINKED),
+        (f"photo:{PHOTO_B_ID}:1", [CHILD_A_ID, CHILD_B_ID], AssignmentStatus.TEACHER_CONFIRMED),
+        (f"photo:{PHOTO_B_ID}:3", [CHILD_A_ID, CHILD_B_ID], AssignmentStatus.TEACHER_CONFIRMED),
     ]
     assert expected.dropped == [
         Dropped(source_id=PHOTO_C_ID, reason=DropReason.NO_VISIBLE_OBSERVATION),
