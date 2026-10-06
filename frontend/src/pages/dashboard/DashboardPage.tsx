@@ -12,17 +12,19 @@ import { formatDate, kstToday } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 
 /** 원아별 오늘 기록 상태. 초안 검토 레일처럼 알림장 기준으로 봅니다. */
-type RecordState = "approved" | "review" | "none";
+type RecordState = "approved" | "review" | "generating" | "none";
 
 const STATE_LABEL_MAP: Record<RecordState, string> = {
   approved: "승인 완료",
   review: "검토 필요",
+  generating: "생성 중",
   none: "기록 전",
 };
 
 const STATE_DETAIL_MAP: Record<RecordState, string> = {
   approved: "사진과 본문을 확인했어요",
   review: "검토가 남아 있어요",
+  generating: "초안을 만들고 있어요",
   none: "아직 작성된 기록이 없어요",
 };
 
@@ -102,21 +104,27 @@ export function DashboardPage() {
   const rows = (childrenQuery.data ?? []).map((child) => {
     const item = items.find((entry) => entry.child_id === child.child_id);
     // 미분류도 교사가 확인해야 하는 기록이라 "검토 필요"로 묶습니다(초안 검토 레일과 같은 규칙).
+    // 생성 중(draft)은 아직 검토할 수 없어 따로 셉니다(레일도 #107에서 "생성 중"으로 따로 보입니다).
+    const status = item?.parent_note?.status;
     const state: RecordState =
-      item?.parent_note?.status === "approved"
+      status === "approved"
         ? "approved"
-        : item?.parent_note || item?.unclassified
-          ? "review"
-          : "none";
+        : status === "draft"
+          ? "generating"
+          : item?.parent_note || item?.unclassified
+            ? "review"
+            : "none";
     return { child, state };
   });
   const countOf = (state: RecordState) => rows.filter((row) => row.state === state).length;
   const approved = countOf("approved");
   const review = countOf("review");
+  const generating = countOf("generating");
   const none = countOf("none");
   const summary = [
     `승인 완료 ${approved}명`,
     review > 0 ? `검토 필요 ${review}명` : null,
+    generating > 0 ? `생성 중 ${generating}명` : null,
     `기록 전 ${none}명`,
   ]
     .filter((part) => part !== null)
@@ -128,7 +136,12 @@ export function DashboardPage() {
       <div className="flex flex-col gap-6">
         <div className="flex gap-6">
           <StatCard label="승인 완료" count={approved} note="게시할 준비가 되었어요" />
-          <StatCard label="아직 기록 전" count={none} note="자료가 없어도 직접 기록할 수 있어요" />
+          {/* 승인 완료 + 남은 원아 = 우리 반 원아가 되도록, 승인 전인 원아를 모두 셉니다. */}
+          <StatCard
+            label="남은 원아"
+            count={rows.length - approved}
+            note="검토하거나 기록할 아이예요"
+          />
           <StatCard label="우리 반 원아" count={rows.length} note="동의와 얼굴 정보를 관리해요" />
         </div>
 
@@ -155,7 +168,7 @@ export function DashboardPage() {
                   <p
                     className={cn(
                       "w-50 shrink-0 text-body",
-                      state === "none" ? "text-ink-muted" : "text-ink",
+                      state === "none" || state === "generating" ? "text-ink-muted" : "text-ink",
                     )}
                   >
                     {STATE_LABEL_MAP[state]}
@@ -163,15 +176,21 @@ export function DashboardPage() {
                   <p className="min-w-0 flex-1 text-body text-ink-muted">
                     {STATE_DETAIL_MAP[state]}
                   </p>
-                  <Button asChild variant="secondary" size="sm" className="w-32">
-                    {/* 기록 전인 아이도 초안 검토로 보냅니다. 초안이 없으면 그 자리에서 직접 씁니다. */}
-                    <Link
-                      to={`/t/today/review/${child.child_id}`}
-                      aria-label={`${child.name} ${state === "none" ? "기록하기" : "검토하기"}`}
-                    >
-                      {state === "none" ? "기록하기" : "검토하기"}
-                    </Link>
-                  </Button>
+                  {state === "generating" ? (
+                    <Button variant="secondary" size="sm" className="w-32" disabled>
+                      검토하기
+                    </Button>
+                  ) : (
+                    <Button asChild variant="secondary" size="sm" className="w-32">
+                      {/* 기록 전인 아이도 초안 검토로 보냅니다. 초안이 없으면 그 자리에서 직접 씁니다. */}
+                      <Link
+                        to={`/t/today/review/${child.child_id}`}
+                        aria-label={`${child.name} ${state === "none" ? "기록하기" : "검토하기"}`}
+                      >
+                        {state === "none" ? "기록하기" : "검토하기"}
+                      </Link>
+                    </Button>
+                  )}
                 </li>
               ))}
             </ul>
