@@ -4,6 +4,7 @@ describe("activeNavItem", () => {
   // 라우트 표의 교사 경로 전부와 Figma 활성 메뉴를 맞춘 표입니다.
   it.each([
     ["/t/dashboard", "오늘의 기록"],
+    ["/t/today", "오늘의 기록"],
     ["/t/today/upload", "오늘의 기록"],
     ["/t/today/processing", "오늘의 기록"],
     ["/t/today/classification", "오늘의 기록"],
@@ -27,24 +28,18 @@ describe("activeNavItem", () => {
     ["/t/children/child-1/edit", "우리 반 관리"],
     ["/t/children/child-1/invite", "우리 반 관리"],
     ["/t/children/child-1/face", "우리 반 관리"],
-    ["/T/Today/Upload", "오늘의 기록"],
+    ["/t/today/", "오늘의 기록"],
+    ["/T/Today", "오늘의 기록"],
   ])("%s → %s", (pathname, label) => {
     expect(activeNavItem(pathname)?.label).toBe(label);
   });
 
-  it.each([
-    "/t",
-    "/t/today",
-    "/t/today/",
-    "/T/Today",
-    "/t/settings",
-    "/t/todayx",
-    "/t/notesboard",
-    "/login",
-    "/",
-  ])("%s → 활성 메뉴 없음", (pathname) => {
-    expect(activeNavItem(pathname)).toBeUndefined();
-  });
+  it.each(["/t", "/t/settings", "/t/todayx", "/t/notesboard", "/login", "/"])(
+    "%s → 활성 메뉴 없음",
+    (pathname) => {
+      expect(activeNavItem(pathname)).toBeUndefined();
+    },
+  );
 
   it("메뉴 순서는 Figma와 같다", () => {
     expect(TEACHER_NAV_ITEMS.map((item) => item.label)).toEqual([
