@@ -104,10 +104,10 @@ def _normalize_segment(
         return DropReason.NOT_TARGET_CHILD
     if kst_date(segment.captured_at) != record_date:
         return DropReason.DATE_MISMATCH
-    # TODO(송유진): 교사가 text를 고쳤어도 인식 실패 구간은 버린다(보수적 선택, 미확정).
-    if segment.raw_text.strip() == NO_SPEECH_TEXT:
-        return DropReason.STT_NO_SPEECH
     text = segment.text.strip()
+    # STT가 알아듣지 못한 구간이라도 교사가 들어 보고 문장을 적었으면 그 문장을 쓴다.
+    if segment.raw_text.strip() == NO_SPEECH_TEXT and text in ("", NO_SPEECH_TEXT):
+        return DropReason.STT_NO_SPEECH
     if not text:
         return DropReason.EMPTY_TEXT
     source_type = _source_type(segment.source, segment.speaker)

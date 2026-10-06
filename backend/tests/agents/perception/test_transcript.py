@@ -61,6 +61,14 @@ def test_정상_구간은_교사_확인_근거가_된다() -> None:
     ]
 
 
+def test_멘트_없음_구간도_교사가_문장을_적었으면_그_문장을_근거로_쓴다() -> None:
+    result = _normalize(segment(raw_text=f" {NO_SPEECH_TEXT} ", text=" 탑을 만들었어요 "))
+
+    assert result.status == PerceptionStatus.OK
+    assert [item.text for item in result.items] == ["탑을 만들었어요"]
+    assert result.dropped == []
+
+
 @pytest.mark.parametrize(
     ("overrides", "reason"),
     [
@@ -69,8 +77,12 @@ def test_정상_구간은_교사_확인_근거가_된다() -> None:
         ({"child_ids": (CHILD_B_ID,)}, DropReason.NOT_TARGET_CHILD),
         ({"captured_at": CAPTURED_AT + timedelta(days=1)}, DropReason.DATE_MISMATCH),
         ({"raw_text": NO_SPEECH_TEXT, "text": NO_SPEECH_TEXT}, DropReason.STT_NO_SPEECH),
-        # 교사가 text를 고쳤어도 인식 실패 구간은 버린다
-        ({"raw_text": f" {NO_SPEECH_TEXT} ", "text": "탑을 만들었어요"}, DropReason.STT_NO_SPEECH),
+        # 교사가 문장을 고치지 않았거나 비웠으면 인식 실패 구간으로 버린다
+        (
+            {"raw_text": f" {NO_SPEECH_TEXT} ", "text": f"{NO_SPEECH_TEXT}\n"},
+            DropReason.STT_NO_SPEECH,
+        ),
+        ({"raw_text": NO_SPEECH_TEXT, "text": " "}, DropReason.STT_NO_SPEECH),
         ({"text": " \n "}, DropReason.EMPTY_TEXT),
         ({"speaker": None}, DropReason.UNMAPPED_SPEAKER),
     ],
