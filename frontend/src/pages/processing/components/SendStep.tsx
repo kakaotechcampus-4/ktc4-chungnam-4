@@ -1,7 +1,13 @@
 import { useMutation } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
-import { completeUpload, requestUploadUrls, saveChildLinks, uploadFile } from "@/api/media";
+import {
+  type ChildLinksInput,
+  completeUpload,
+  requestUploadUrls,
+  saveChildLinks,
+  uploadFile,
+} from "@/api/media";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
 import {
   isPhoto,
@@ -9,7 +15,6 @@ import {
   useUploadQueue,
   type LocalMedia,
 } from "@/features/upload-queue/upload-queue-store";
-import type { ChildLinksRequest } from "@/types/api-draft/media";
 
 import { ProcessingCard } from "./ProcessingCard";
 
@@ -19,7 +24,7 @@ interface SendStepProps {
 }
 
 /** 교사가 확정한 귀속. 후보에 있던 아이면 얼굴 인식, 교사가 고른 아이면 수동입니다. */
-function childLinksBody(item: LocalMedia): ChildLinksRequest {
+function childLinksBody(item: LocalMedia): ChildLinksInput {
   // TODO(정은): 영상·음성메모의 수동 귀속은 API 문서 §media에서 (막힘)입니다. 정해지기 전까지는 빈 귀속을 저장해
   //             서버에 미분류로 남깁니다(빈 배열 = 미분류). 귀속을 저장해야 Job이 MEDIA_NOT_READY로 막히지 않습니다.
   if (!isPhoto(item)) return { llm_allowed: false, child_links: [] };
