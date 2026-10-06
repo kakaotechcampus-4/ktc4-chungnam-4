@@ -23,9 +23,9 @@ import type {
  * `node_modules/@vladmandic/human/models/faceres.json`의 출력 `global_pooling/Mean`이
  * `[1, 1024]`인 것을 확인했습니다.
  *
- * `types/api-draft/media.ts`의 FaceEmbedding 주석은 아직 ArcFace 기준 512라 다릅니다.
- * 어느 쪽으로 맞출지는 이슈 #120에서 김동건 님 확인을 기다리는 중이고, 정해지면
- * `docs/api/media-face.md`와 함께 고칩니다.
+ * 서버도 1024로 맞췄습니다 — 백엔드에 길이 가정이 없는 것을 김동건 님이 확인하고
+ * 주석·테스트·예시를 고치셨습니다(이슈 #120). `docs/api/media-face.md`와
+ * `types/api-draft/media.ts`도 이 PR에서 함께 고쳤습니다.
  */
 export const FACE_DESCRIPTOR_LENGTH = 1024;
 
@@ -55,9 +55,15 @@ export interface ExtractedEmbedding {
    * 때 서버에서 받은 값과 견줍니다. 다르면 그 원아는 후보에서 빼고 교사가 수동으로
    * 고르게 합니다 — 다른 모델로 만든 벡터끼리 견주면 엉뚱한 원아에 붙습니다.
    *
-   * 무엇을 기준으로 적을지는 이슈 #120에서 확인 중이라 여기서 값을 정하지 않습니다.
-   * 라이브러리 버전(3.3.x)은 모델 파일을 바꿔도 그대로라 이름표로 쓰기 어렵고,
-   * faceres 모델 파일에는 자체 버전 필드가 없습니다(`versions`가 비어 있음).
+   * 형식은 `human-faceres-<faceres.bin 해시 앞 12자리>`입니다(이슈 #120, 김동건 님 확인).
+   * 라이브러리 버전(3.3.x)을 쓰지 않는 것은, 모델 파일이 그대로인데 라이브러리만 올려도
+   * 값이 바뀌어 원아 전원이 재등록 대상이 되기 때문입니다. faceres 모델 파일에는 자체
+   * 버전 필드가 없어(`versions`가 비어 있음) 파일 내용의 해시를 씁니다.
+   *
+   * 값은 `embedding.ts`가 만듭니다 — 여기서 상수로 박아 두면 모델 파일이 바뀌어도
+   * 글자가 그대로 남아, 사람이 번호를 올리는 방식과 같은 문제가 생깁니다.
+   * 전처리(검출·정렬·크롭)는 라이브러리 코드 쪽이라 버전이 바뀌면 같은 모델이어도
+   * 벡터가 달라질 수 있어, `package.json`은 `^` 없이 고정합니다(김동건 님 지적).
    */
   model_version: string;
 }

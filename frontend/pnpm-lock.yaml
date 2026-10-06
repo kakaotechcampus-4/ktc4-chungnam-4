@@ -18,7 +18,7 @@ importers:
         specifier: ^5.103.2
         version: 5.103.2(react@19.3.0)
       '@vladmandic/human':
-        specifier: ^3.3.6
+        specifier: 3.3.6
         version: 3.3.6
       class-variance-authority:
         specifier: ^0.7.1
