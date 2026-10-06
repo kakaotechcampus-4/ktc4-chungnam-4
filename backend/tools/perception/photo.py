@@ -165,7 +165,6 @@ def _photo_outcomes(
         return [DropReason.NO_VISIBLE_OBSERVATION]
 
     child_ids = list(photo.child_ids)
-    assignment_status = _assignment_status(photo)
     outcomes: list[EvidenceItem | DropReason] = []
     # n은 응답 속 관찰 위치다. 버린 관찰도 번호를 차지해 ID가 응답 위치를 가리키게 한다.
     for n, observation in enumerate(answer.observations, start=1):
@@ -181,7 +180,8 @@ def _photo_outcomes(
                 observed_date=record_date,
                 text=observation.text,
                 media_id=photo.media_id,
-                assignment_status=assignment_status,
+                # 서버에 온 귀속은 모두 교사가 확인했다. 얼굴 인식 이력은 MediaChildLink.method에 남는다.
+                assignment_status=AssignmentStatus.TEACHER_CONFIRMED,
             )
         )
     return outcomes
@@ -190,12 +190,3 @@ def _photo_outcomes(
 def _scope_matches(child_count: int, scope: _Scope) -> bool:
     """아이 1명 사진은 individual, 2명 이상은 group만 맞다 (프롬프트 기록 규칙 6·7)."""
     return scope == ("individual" if child_count == 1 else "group")
-
-
-def _assignment_status(photo: PhotoInput) -> AssignmentStatus:
-    """서버에 온 귀속은 모두 교사 확인 체크를 거쳤지만, 자동 인식이 섞였다는 정보는 남긴다."""
-    # TODO(송유진): face_recognition 귀속을 auto_linked로 볼지 미확정. 지금 검증(target.py)은
-    #   needs_confirmation만 따로 봐서 이 값이 검증 결과를 바꾸지 않는다.
-    if any(link.method == "face_recognition" for link in photo.links):
-        return AssignmentStatus.AUTO_LINKED
-    return AssignmentStatus.TEACHER_CONFIRMED
