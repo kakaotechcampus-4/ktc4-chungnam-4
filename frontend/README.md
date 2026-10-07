@@ -55,7 +55,7 @@ frontend/src/
 ├── styles/tokens.css    # 디자인 토큰
 ├── mocks/               # browser·server, handlers/(자동 수집), fixtures/, http.ts, scenario.ts, session.ts(목 로그인), db.ts(흐름 상태), guards.ts(역할·반 검사)
 ├── test/                # setup.ts, render.tsx
-└── workers/             # Web Worker, 온디바이스 모델 (예정)
+└── workers/face/        # 온디바이스 얼굴 인식. types.ts(결과 형식)만 있고 구현은 (예정)
 ```
 
 ## 화면 하나 시작하는 법

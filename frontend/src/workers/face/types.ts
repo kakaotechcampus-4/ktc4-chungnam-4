@@ -31,14 +31,17 @@ export const FACE_DESCRIPTOR_LENGTH = 1024;
 
 /**
  * 사진 한 장에서 찾은 얼굴 하나입니다. 이 값은 브라우저 밖으로 나가지 않습니다(H-3).
+ *
+ * 얼굴 위치(bounding box)는 담지 않습니다. 검출·정렬 과정에서 쓰고 거기서 끝납니다 —
+ * 수동 분류 화면 Figma에 얼굴을 네모로 표시하는 안이 없고, 교사가 판단하는 것은
+ * "이 사진이 누구 사진인가"라 사진 위에 네모를 겹치면 오히려 가립니다(#121 리뷰 송유진 님).
+ * 보여 주기로 정해지면 그때 테크스펙 ⑧과 `ClassificationResult`에 함께 넣습니다.
  */
 export interface DetectedFace {
   /** 얼굴 특징 벡터. 길이는 FACE_DESCRIPTOR_LENGTH입니다. */
   descriptor: number[];
   /** 얼굴로 볼 만한 정도(0~1). 낮으면 얼굴이 아닐 수 있습니다. */
   detection_score: number;
-  /** 사진 안 얼굴 위치 `[x, y, width, height]`. 픽셀 단위이고 수동 분류 화면이 씁니다. */
-  box: [x: number, y: number, width: number, height: number];
 }
 
 /**
@@ -82,8 +85,34 @@ export interface RegisteredFace {
   model_version: string;
 }
 
+/**
+ * 등록 벡터를 뽑으려다 생긴 결과입니다. 분류(`ClassificationResult`)와 같은 방식으로
+ * **던지지 않고 상태로 돌려줍니다** — 등록 화면이 교사에게 무엇을 고치라고 할지
+ * 정해야 하는데, 예외로 던지면 "실패했어요"밖에 보여 줄 수 없습니다(#121 리뷰 송유진 님).
+ *
+ * - `extracted` — 벡터를 만들었습니다
+ * - `no_face` — 사진에서 얼굴을 찾지 못했습니다. 교사가 다른 사진을 고르면 됩니다
+ * - `multiple_faces` — 한 사진에 얼굴이 여럿이라 누구인지 정할 수 없습니다
+ * - `failed` — 모델을 준비하지 못했거나 계산이 끊겼습니다. 다시 시도하면 됩니다
+ *
+ * 얼굴이 여럿일 때 가장 큰 얼굴을 고르지 않는 것은, 등록 벡터가 **엉뚱한 아이**로
+ * 저장되면 그 뒤 모든 분류가 조용히 틀리기 때문입니다. 애매하면 교사에게 되돌립니다.
+ */
+export type ExtractState = "extracted" | "no_face" | "multiple_faces" | "failed";
+
+export interface ExtractionResult {
+  extract_state: ExtractState;
+  /** `extracted`일 때만 값이 있습니다. */
+  embedding: ExtractedEmbedding | null;
+  /**
+   * 문제가 된 사진의 순번(`photos`에서 0부터). 어느 사진을 바꾸라고 할지 알려 주려는
+   * 것입니다. 사진과 무관한 실패(`failed`)면 `null`입니다.
+   */
+  photo_index: number | null;
+}
+
 /** 등록 사진에서 벡터를 뽑습니다. 사진은 이 함수 밖으로 나가지 않습니다(H-3). */
-export type ExtractEmbedding = (photos: readonly File[]) => Promise<ExtractedEmbedding>;
+export type ExtractEmbedding = (photos: readonly File[]) => Promise<ExtractionResult>;
 
 /** 사진 한 장에서 얼굴을 모두 찾습니다. 못 찾으면 빈 배열입니다. */
 export type DetectFaces = (photo: File) => Promise<DetectedFace[]>;
@@ -91,8 +120,9 @@ export type DetectFaces = (photo: File) => Promise<DetectedFace[]>;
 /**
  * 얼굴 하나를 등록 벡터들과 견줍니다. 닮은 순서로 돌려주고, 기준에 못 미치면 빈 배열입니다.
  *
- * 기준값(임계값)은 측정해 보고 정합니다. 노션 역할 문서에 "구현 전에 명세로 확정한다"고
- * 돼 있어, 값이 나오면 팀에 올린 뒤 여기 주석에 근거를 답니다.
+ * 기준값(임계값)은 측정해 보고 정합니다. `docs/open-questions.md`에 "얼굴 매칭 판정값
+ * (M/A/U)의 의미와 임계값 — 구현 전에 명세로 확정"으로 올라와 있어, 값이 나오면 팀에
+ * 올려 그 항목을 닫은 뒤 여기 주석에 근거를 답니다.
  */
 export type MatchFace = (
   face: DetectedFace,
