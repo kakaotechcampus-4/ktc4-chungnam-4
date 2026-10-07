@@ -15,7 +15,8 @@
 - [ ] 업로드 한도, 허용 MIME, URL 만료(예시 PUT 15분·GET 5분), 멀티파트 필요 여부
 - [ ] 파생본이 없어 HEIC·MOV가 안 보이는 문제. 데모 자료를 JPG·MP4로 제한할지
 - [ ] `error.detail`을 object로 허용할지(develop `AidamError.detail`은 지금 str)
-- [ ] `load_embedding_cache`가 `model_version`도 돌려주게 할지, 모델 버전 문자열을 어떻게 배포할지
+- [x] 모델 버전 문자열 형식 → 임시 결정(김진하), 이슈 #120 김동건 님 확인: `human-faceres-<faceres.bin 해시 앞 12자리>`. 라이브러리 버전을 쓰지 않는 것은 모델 파일이 그대로인데 라이브러리만 올라가도 값이 바뀌어 원아 전원이 재등록 대상이 되기 때문입니다. 해시는 손으로 적지 않고 빌드 때 계산하거나 테스트로 대조하며, 전처리가 라이브러리 코드 쪽이라 `package.json`은 `^` 없이 고정합니다. 반영: 이 문서 §`GET /classes/{class_id}/face-embeddings`·§등록, `frontend/src/workers/face/types.ts`
+- [ ] `load_embedding_cache`가 `model_version`도 돌려주게 할지 — 김동건 님이 로컬에서 고쳐 두셨고 `feat/be/face-media-storage-foundation` PR을 기다립니다(이슈 #120). 머지되면 닫습니다
 - [ ] 서명 함수(`get_signed_urls`, 가칭) 제공과 documents 응답 내장 분담(한상균과 함께) → 하단 §상의 필요 5
 - [ ] develop(PR #13)과 다른 점: 귀속 에러 코드 이름이 `MEDIA_INVALID_ATTRIBUTION_METHOD`(이 문서 `INVALID_ATTRIBUTION_METHOD`, 조건은 같음)이고, documents용 함수 `get_playback_url`은 한 건씩 서명·만료 없는 URL 문자열을 줌. 이 문서에 맞출지 develop에 맞출지(URL 함수는 한상균과 함께)
 - [ ] 영상·음성 서버 STT를 어디서 시작할지(동기 vs Celery)
