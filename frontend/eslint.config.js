@@ -18,7 +18,7 @@ const FETCH_MESSAGE = "api/<도메인>.ts에서 lib/api-client.ts의 api를 쓰�
 // 화면은 서버 타입 대신 @/api/<도메인>이 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
 // 도메인을 adapter로 옮길 때마다 괄호 안에 더하고, 다 옮기면 types/api-draft 전체로 넓힙니다.
 const API_DRAFT_IMPORT = {
-  regex: "(^|/)types/api-draft/(auth|agents|face)$",
+  regex: "(^|/)types/api-draft/(auth|documents|agents|face)$",
   message: "화면은 서버 타입을 쓰지 않습니다. @/api/<도메인>의 화면용 타입을 쓰세요.",
 };
 

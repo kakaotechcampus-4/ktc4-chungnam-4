@@ -124,11 +124,13 @@ describe("핵심 흐름 목", () => {
     // 3. 초안 검토. 근거는 이번에 보낸 자료 가운데 llm_allowed인 것만입니다.
     const rail = await client.fetchQuery(classDraftsQueryOptions(CLASS_ID, today));
     expect(rail.map((item) => item.child_id)).toEqual([DOYUN, YERIN]);
-    expect(rail.find((item) => item.child_id === YERIN)?.unclassified).toEqual({
-      reason: "insufficient_evidence",
-    });
+    expect(rail.find((item) => item.child_id === YERIN)?.unclassified).toBe(
+      "insufficient_evidence",
+    );
     const note = await client.fetchQuery(draftQueryOptions(noteId));
-    expect(note.status).toBe("verified");
+    // api/documents.ts가 화면용 모양으로 바꿔 줍니다. 검증을 마친 verified만 "review"이고,
+    // 만드는 중·미분류·모르는 값은 잠깁니다(#107 리뷰).
+    expect(note.status).toBe("review");
     expect(note.sentences[0]?.text).toMatch(/^도윤이는 /);
     expect(note.sentences.flatMap((s) => s.evidences.map((e) => e.media_id))).toEqual([
       doyunPhoto.media_id,
@@ -151,7 +153,7 @@ describe("핵심 흐름 목", () => {
       code: "PARENT_NOTE_NOT_FOUND",
     });
     setMockSession("teacher");
-    const { results } = await publishParentNotes({
+    const results = await publishParentNotes({
       request_id: fixtureId("request", 901),
       include_photos: true,
       items: [{ draft_id: noteId, expected_version: approved.version }],
@@ -194,7 +196,7 @@ describe("핵심 흐름 목", () => {
     );
     // 게시는 반 전체를 하루 한 번 하므로 검토 중인 날짜에는 게시된 원아가 없습니다.
     expect(state).toEqual({
-      [DOYUN]: "verified",
+      [DOYUN]: "review",
       [fixtureId("child", 3)]: "확인 필요",
       [HAJUN]: "approved",
       [fixtureId("child", 4)]: "approved",
@@ -238,7 +240,7 @@ describe("목의 판정 규칙", () => {
   it("학부모는 남의 자녀 알림장을 게시돼 있어도 열 수 없고, 미승인 초안은 게시되지 않는다", async () => {
     const client = queryClient();
     const unapproved = fixtureId("draft", 12);
-    const { results } = await publishParentNotes({
+    const results = await publishParentNotes({
       request_id: fixtureId("request", 950),
       include_photos: false,
       items: [{ draft_id: unapproved, expected_version: 1 }],
@@ -281,7 +283,7 @@ describe("목의 판정 규칙", () => {
     await expect(
       approveDraft(verified, { expected_version: 0, reviewed: true }),
     ).rejects.toMatchObject({ status: 409, code: "DRAFT_VERSION_CONFLICT" });
-    const { results } = await publishParentNotes({
+    const results = await publishParentNotes({
       request_id: fixtureId("request", 960),
       include_photos: false,
       items: [{ draft_id: fixtureId("draft", 22), expected_version: 1 }], // 승인본은 version 2
