@@ -1,12 +1,12 @@
+import type { AgeBand } from "@/types/api-draft/organization";
 import type {
-  AgeBand,
-  ClassChild,
-  ConsentType,
-  FaceStatus,
-  NuriDomain,
-  PlanType,
-  Weekday,
-} from "@/types/api-draft/organization";
+  ClassChildView,
+  ConsentTypeView,
+  FaceStatusView,
+  NuriDomainView,
+  PlanTypeView,
+  WeekdayView,
+} from "@/api/organization";
 
 // ② 교사 · 반 · 원아 · 교육 계획 화면이 같이 쓰는 표시 문구입니다. 문구는 Figma 그대로입니다.
 
@@ -16,25 +16,25 @@ export const AGE_BAND_LABEL_MAP: Record<AgeBand, { title: string; curriculum: st
 };
 
 // 화면에 보이는 순서입니다.
-export const CONSENT_TYPES: readonly ConsentType[] = [
+export const CONSENT_TYPES: readonly ConsentTypeView[] = [
   "personal_info",
   "activity_media",
   "face_feature",
 ];
 
-export const CONSENT_LABEL_MAP: Record<ConsentType, string> = {
+export const CONSENT_LABEL_MAP: Record<ConsentTypeView, string> = {
   personal_info: "개인정보 수집·이용 동의",
   activity_media: "활동 사진·영상 촬영 동의",
   face_feature: "얼굴 특징정보 처리 동의",
 };
 
-export const FACE_STATUS_LABEL_MAP: Record<FaceStatus, string> = {
+export const FACE_STATUS_LABEL_MAP: Record<FaceStatusView, string> = {
   registered: "얼굴 정보 등록됨",
   unregistered: "얼굴 정보 미등록",
   locked: "등록 잠김",
 };
 
-export const NURI_DOMAINS: readonly NuriDomain[] = [
+export const NURI_DOMAINS: readonly NuriDomainView[] = [
   "physical",
   "communication",
   "social",
@@ -42,7 +42,7 @@ export const NURI_DOMAINS: readonly NuriDomain[] = [
   "nature",
 ];
 
-export const NURI_DOMAIN_LABEL_MAP: Record<NuriDomain, string> = {
+export const NURI_DOMAIN_LABEL_MAP: Record<NuriDomainView, string> = {
   physical: "신체운동",
   communication: "의사소통",
   social: "사회관계",
@@ -50,14 +50,14 @@ export const NURI_DOMAIN_LABEL_MAP: Record<NuriDomain, string> = {
   nature: "자연탐구",
 };
 
-export const PLAN_TYPE_LABEL_MAP: Record<PlanType, string> = {
+export const PLAN_TYPE_LABEL_MAP: Record<PlanTypeView, string> = {
   weekly: "주간 계획",
   monthly: "월간 계획",
 };
 
-export const WEEKDAYS: readonly Weekday[] = ["mon", "tue", "wed", "thu", "fri"];
+export const WEEKDAYS: readonly WeekdayView[] = ["mon", "tue", "wed", "thu", "fri"];
 
-export const WEEKDAY_LABEL_MAP: Record<Weekday, string> = {
+export const WEEKDAY_LABEL_MAP: Record<WeekdayView, string> = {
   mon: "월",
   tue: "화",
   wed: "수",
@@ -67,8 +67,8 @@ export const WEEKDAY_LABEL_MAP: Record<Weekday, string> = {
 
 /** 얼굴 특징정보 처리 동의 전이면 잠김, 아니면 등록 여부 */
 export function faceStatus(
-  child: Pick<ClassChild, "is_face_registered" | "face_feature_agreed">,
-): FaceStatus {
+  child: Pick<ClassChildView, "is_face_registered" | "face_feature_agreed">,
+): FaceStatusView {
   if (!child.face_feature_agreed) return "locked";
   return child.is_face_registered ? "registered" : "unregistered";
 }

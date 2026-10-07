@@ -1,6 +1,6 @@
 import { useParams } from "react-router";
 
-import type { ClassChild } from "@/types/api-draft/organization";
+import type { ClassChildView } from "@/api/organization";
 
 import { useClassChildren } from "./use-class-children";
 
@@ -8,7 +8,7 @@ export type RouteChild =
   | { status: "loading" }
   | { status: "error"; error: Error | null }
   | { status: "missing" }
-  | { status: "ready"; child: ClassChild; children: ClassChild[] };
+  | { status: "ready"; child: ClassChildView; children: ClassChildView[] };
 
 /**
  * 주소의 :childId를 현재 반 명단에서 찾습니다. 명단에 없으면(오타, 다른 반 아이) "missing"이라

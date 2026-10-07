@@ -26,7 +26,7 @@ import {
 import { kstToday } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 import type { TranscriptSpeaker } from "@/types/api-draft/media";
-import type { ClassChild } from "@/types/api-draft/organization";
+import type { ClassChildView } from "@/api/organization";
 
 import { type DayRow, DayTimeline } from "./components/DayTimeline";
 import { EvidenceCard } from "./components/EvidenceCard";
@@ -263,7 +263,7 @@ export function DaySummaryPage() {
 }
 
 interface ChildNavProps {
-  childList: ClassChild[];
+  childList: ClassChildView[];
   currentId: string;
 }
 

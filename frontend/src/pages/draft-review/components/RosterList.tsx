@@ -2,7 +2,7 @@ import { CheckIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { DraftSummary } from "@/types/api-draft/documents";
-import type { ClassChild } from "@/types/api-draft/organization";
+import type { ClassChildView } from "@/api/organization";
 
 /**
  * 레일 한 줄의 상태. 미분류("확인 필요")와 초안 없음("자료 없음")은 교사가 할 일이
@@ -11,7 +11,7 @@ import type { ClassChild } from "@/types/api-draft/organization";
 export type RosterState = "approved" | "pending";
 
 export interface RosterRow {
-  child: ClassChild;
+  child: ClassChildView;
   /** 그날의 알림장 초안. 없으면 자료 없음이거나 미분류입니다. */
   note: DraftSummary | null;
   state: RosterState;
