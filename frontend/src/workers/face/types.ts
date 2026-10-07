@@ -40,8 +40,11 @@ export const FACE_DESCRIPTOR_LENGTH = 1024;
 export interface DetectedFace {
   /** 얼굴 특징 벡터. 길이는 FACE_DESCRIPTOR_LENGTH입니다. */
   descriptor: number[];
-  /** 얼굴로 볼 만한 정도(0~1). 낮으면 얼굴이 아닐 수 있습니다. */
-  detection_score: number;
+  /**
+   * 얼굴로 볼 만한 정도(0~1). 낮으면 얼굴이 아닐 수 있습니다.
+   * 이름은 테크스펙 §온디바이스 모델의 `confidence`를 따릅니다(#121 리뷰 송유진 님).
+   */
+  confidence: number;
 }
 
 /**
