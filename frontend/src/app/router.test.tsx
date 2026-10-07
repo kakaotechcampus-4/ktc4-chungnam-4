@@ -29,10 +29,7 @@ describe("routes", () => {
   it("/t 는 대시보드 주소로 바꾼다", async () => {
     const router = renderAt("/t");
 
-    // 대시보드가 등록되기 전이라 교사 틀 안의 404가 보입니다.
-    expect(
-      await screen.findByRole("heading", { name: "페이지를 찾을 수 없어요" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /하루를 한눈에/ })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/t/dashboard");
     expect(screen.getByRole("navigation", { name: "주 메뉴" })).toBeInTheDocument();
   });
