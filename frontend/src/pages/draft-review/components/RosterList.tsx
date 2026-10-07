@@ -15,9 +15,11 @@ export interface RosterRow {
   status: RosterState;
 }
 
-// 게시는 반 전체를 하루 한 번 하므로, 검토 중인 날짜에는 게시된 원아가 있을 수 없습니다.
-// 게시를 마친 날짜는 화면 전체가 잠기고 레일을 쓰지 않습니다 — 그래서 "게시됨" 상태가 없습니다.
+// 한 날짜에 나간 아이와 안 나간 아이가 섞입니다 — 게시가 건별로 실패하거나 교사가 일부를
+// 빼기 때문입니다(#108). 둘을 "검토 완료"로 함께 보여 주면 교사가 누가 나갔는지 모른 채
+// 나머지를 올리게 됩니다. docs/api/documents.md §레일·목록 표기.
 const STATE_LABEL_MAP: Record<RosterState, string> = {
+  published: "게시됨",
   approved: "검토 완료",
   review: "검토 필요",
   none: "검토 필요",
@@ -29,9 +31,9 @@ const STATE_LABEL_MAP: Record<RosterState, string> = {
   unknown: "확인 필요",
 };
 
-/** 승인을 마친 줄만 체크로 표시합니다(H-1: 승인 전은 검토 대기). */
+/** 교사가 손을 뗀 줄만 체크로 표시합니다(H-1: 승인 전은 검토 대기). */
 function isDone(status: RosterState) {
-  return status === "approved";
+  return status === "approved" || status === "published";
 }
 
 interface RosterListProps {

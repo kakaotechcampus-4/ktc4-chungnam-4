@@ -44,6 +44,7 @@ export {
   needsReview,
   type PublicationResultView,
   type RosterState,
+  toRosterState,
   selectedPhotos,
   type Sentence,
   sentPhotos,

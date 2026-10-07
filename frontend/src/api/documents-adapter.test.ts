@@ -42,7 +42,7 @@ function summary(status: DraftStatus): DraftSummary {
 function summaryView(status: RosterState): DraftSummaryView {
   return {
     draft_id: fixtureId("draft", 12),
-    status: status === "none" ? "generating" : status,
+    status: status === "none" || status === "published" ? "approved" : status,
     version: 3,
     published_at: null,
     preview: "도윤이는 블록을 쌓았어요.",

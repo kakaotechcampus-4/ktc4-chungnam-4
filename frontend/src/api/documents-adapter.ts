@@ -34,8 +34,15 @@ import type { MediaUrl } from "@/types/api-draft/media";
  */
 export type DraftState = "approved" | "review" | "generating" | "unclassified" | "unknown";
 
-/** 레일 한 줄이 보여 줄 상태. 초안이 아예 없는 원아는 `none`입니다. */
-export type RosterState = DraftState | "none";
+/**
+ * 레일 한 줄이 보여 줄 상태. 초안이 아예 없는 원아는 `none`입니다.
+ *
+ * `published`는 서버 `status`에 없는 값입니다 — `approved`인데 `published_at`이 있는 경우를
+ * 레일에서만 따로 부릅니다. 건별 실패와 게시 제외가 생기면서 한 날짜에 나간 아이와 안 나간
+ * 아이가 섞이게 돼, 둘을 "검토 완료"로 함께 보여 주면 교사가 누가 나갔는지 알 수 없습니다
+ * (#88 전제가 바뀜, `docs/api/documents.md` §레일·목록 표기).
+ */
+export type RosterState = DraftState | "none" | "published";
 
 // 필드 이름은 docs/api/를 그대로 씁니다 — 값만 화면용으로 바꿉니다(auth의 `account_type`과
 // 같은 방식, #107 리뷰 송유진 님). 이름까지 바꾸면 문서를 보고 코드를 찾을 수 없습니다.
@@ -254,6 +261,16 @@ export function isPublishTarget(row: PublishRow): boolean {
   return row.note !== null && row.status === "approved" && row.note.published_at === null;
 }
 
+/**
+ * 레일 한 줄이 보여 줄 상태를 고릅니다. 게시한 초안은 서버가 `approved`로 그대로 두므로
+ * `published_at`까지 봐야 나간 아이를 가려낼 수 있습니다.
+ */
+export function toRosterState(item: ClassDraftView | undefined): RosterState {
+  const note = item?.parent_note;
+  if (note === undefined || note === null) return "none";
+  return note.published_at === null ? note.status : "published";
+}
+
 /** 교사가 아직 봐야 하는 줄인지. 하나라도 남으면 게시를 막습니다. */
 export function needsReview(row: PublishRow): boolean {
   return row.note !== null && row.status === "review";
@@ -264,7 +281,7 @@ export function needsReview(row: PublishRow): boolean {
  * 게시를 막지는 않고, 모달이 이 수를 세어 교사에게 알려 줍니다.
  */
 export function isNotReady(row: PublishRow): boolean {
-  return row.note !== null && row.status !== "approved" && row.status !== "review";
+  return row.status === "generating" || row.status === "unclassified" || row.status === "unknown";
 }
 
 /**
