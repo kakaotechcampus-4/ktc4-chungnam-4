@@ -1,19 +1,28 @@
 import { queryOptions } from "@tanstack/react-query";
 
 import { api } from "@/lib/api-client";
-import type { Job, TeacherEvidence, TeacherEvidenceUpsertRequest } from "@/types/api-draft/agents";
+import type { Job, TeacherEvidence } from "@/types/api-draft/agents";
 import type { ListResponse } from "@/types/api-draft/common";
 
-import { isJobFinished, type JobCreateInput, toJobCreateBody, toJobView } from "./agents-adapter";
+import {
+  isJobFinished,
+  type JobCreateInput,
+  type TeacherEvidenceInput,
+  toJobCreateBody,
+  toJobView,
+  toTeacherEvidenceBody,
+  toTeacherEvidenceView,
+} from "./agents-adapter";
 
-// 화면은 Job 서버 타입 대신 여기서 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
-// 추가 근거(아래쪽, 김동건)는 아직 adapter로 옮기지 않았습니다.
+// 화면은 agents 서버 타입 대신 여기서 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
 export {
   isJobFinished,
   type JobChildView,
   type JobCreateInput,
   type JobStatusView,
   type JobView,
+  type TeacherEvidenceInput,
+  type TeacherEvidenceView,
 } from "./agents-adapter";
 
 // 초안 생성 작업(Job) 요청과 query key는 이 파일에서만 만듭니다(frontend/CLAUDE.md §데이터).
@@ -80,18 +89,20 @@ export function classEvidenceQueryOptions(classId: string, recordDate: string) {
           `/classes/${encodeURIComponent(classId)}/evidence`,
           { query: { record_date: recordDate }, signal },
         )
-      ).items,
+      ).items.map(toTeacherEvidenceView),
   });
 }
 
 /** (가정) 그날의 추가 근거를 저장합니다. 이미 있으면 덮어씁니다. */
-export function saveTeacherEvidence(
+export async function saveTeacherEvidence(
   childId: string,
   recordDate: string,
-  body: TeacherEvidenceUpsertRequest,
+  input: TeacherEvidenceInput,
 ) {
-  return api.put<TeacherEvidence>(
-    `/children/${encodeURIComponent(childId)}/evidence/${encodeURIComponent(recordDate)}`,
-    body,
+  return toTeacherEvidenceView(
+    await api.put<TeacherEvidence>(
+      `/children/${encodeURIComponent(childId)}/evidence/${encodeURIComponent(recordDate)}`,
+      toTeacherEvidenceBody(input),
+    ),
   );
 }
