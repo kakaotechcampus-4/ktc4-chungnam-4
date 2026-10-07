@@ -14,7 +14,7 @@ const SEOA = fixtureId("child", 3);
 const HAJUN = fixtureId("child", 2);
 const YERIN = fixtureId("child", 5);
 
-function summary(draftId: number, status: "draft" | "verified" | "approved") {
+function summary(draftId: number, status: string) {
   return {
     draft_id: fixtureId("draft", draftId),
     status,
@@ -93,6 +93,36 @@ describe("DashboardPage", () => {
     const yerin = screen.getByText("정예린").closest("li")!;
     expect(within(yerin).getByText("생성 중")).toBeInTheDocument();
     expect(within(yerin).getByRole("button", { name: "검토하기" })).toBeDisabled();
+  });
+
+  // 기록 전으로 세면 초안이 있는데도 "아직 작성된 기록이 없어요"가 보인다.
+  it("초안이 미분류이거나 모르는 상태면 검토 필요로 센다", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    server.use(
+      http.get(apiPath("/classes/:classId/drafts"), () =>
+        listResponse([
+          {
+            child_id: DOYUN,
+            observation_log: null,
+            parent_note: summary(1, "unclassified"),
+            unclassified: null,
+          },
+          {
+            child_id: SEOA,
+            observation_log: null,
+            parent_note: summary(2, "rejected"),
+            unclassified: null,
+          },
+        ]),
+      ),
+    );
+    renderRoute(<DashboardPage />);
+
+    expect(await screen.findByText("승인 완료 0명 · 검토 필요 2명 · 기록 전 3명")).toBeVisible();
+    expect(screen.getByRole("link", { name: "박서아 검토하기" })).toHaveAttribute(
+      "href",
+      `/t/today/review/${SEOA}`,
+    );
   });
 
   it("목록을 불러오지 못하면 서버 메시지를 보여 준다", async () => {

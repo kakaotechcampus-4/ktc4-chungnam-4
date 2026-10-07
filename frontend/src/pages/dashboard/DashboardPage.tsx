@@ -103,13 +103,14 @@ export function DashboardPage() {
   const items = draftsQuery.data ?? [];
   const rows = (childrenQuery.data ?? []).map((child) => {
     const item = items.find((entry) => entry.child_id === child.child_id);
-    // 미분류도 교사가 확인해야 하는 기록이라 "검토 필요"로 묶습니다(초안 검토 레일과 같은 규칙).
-    // 생성 중(draft)은 아직 검토할 수 없어 따로 셉니다(레일도 #107에서 "생성 중"으로 따로 보입니다).
+    // 미분류·모르는 상태도 교사가 확인해야 하는 기록이라 "검토 필요"로 묶습니다.
+    // 초안 검토 화면이 두 상태를 잠가 보여 주므로 들어가도 승인되지 않습니다(H-1).
+    // 생성 중은 아직 검토할 수 없어 따로 셉니다(레일도 #107에서 "생성 중"으로 따로 보입니다).
     const status = item?.parent_note?.status;
     const state: RecordState =
       status === "approved"
         ? "approved"
-        : status === "draft"
+        : status === "generating"
           ? "generating"
           : item?.parent_note || item?.unclassified
             ? "review"
