@@ -5,14 +5,14 @@ import { cn } from "@/lib/utils";
 import type { ClassChild } from "@/types/api-draft/organization";
 
 /**
- * 레일 한 줄. 상태는 adapter가 정합니다(api/documents-adapter.ts) — 초안이 없는 원아와
- * 미분류는 교사가 할 일이 사진 추가·직접 작성으로 같아서 함께 "검토 필요"로 보여 줍니다.
+ * 레일 한 줄. 상태는 adapter가 정합니다(api/documents-adapter.ts).
+ * 표기는 `docs/api/documents.md` §레일·목록 표기를 따릅니다.
  */
 export interface RosterRow {
   child: ClassChild;
-  /** 그날의 알림장 초안. 없으면 자료 없음이거나 미분류입니다. */
+  /** 그날의 알림장 초안. 없으면 자료가 없어 초안이 만들어지지 않은 것입니다. */
   note: DraftSummaryView | null;
-  state: RosterState;
+  status: RosterState;
 }
 
 // 게시는 반 전체를 하루 한 번 하므로, 검토 중인 날짜에는 게시된 원아가 있을 수 없습니다.
@@ -21,11 +21,17 @@ const STATE_LABEL_MAP: Record<RosterState, string> = {
   approved: "검토 완료",
   review: "검토 필요",
   none: "검토 필요",
+  // 아직 만드는 중이라 교사가 할 일이 없습니다. "검토 필요"로 보여 주면 눌러도 할 게 없습니다.
+  generating: "생성 중",
+  // 미분류로 끝났거나 모르는 값이라 교사가 봐야 합니다. 기다린다고 달라지지 않아
+  // "생성 중"과 나눕니다(#107 리뷰 송유진 님, docs/api/documents.md §레일·목록 표기).
+  unclassified: "확인 필요",
+  unknown: "확인 필요",
 };
 
 /** 승인을 마친 줄만 체크로 표시합니다(H-1: 승인 전은 검토 대기). */
-function isDone(state: RosterState) {
-  return state === "approved";
+function isDone(status: RosterState) {
+  return status === "approved";
 }
 
 interface RosterListProps {
@@ -36,7 +42,7 @@ interface RosterListProps {
 }
 
 export function RosterList({ klassName, rows, selectedChildId, onSelect }: RosterListProps) {
-  const doneCount = rows.filter((row) => isDone(row.state)).length;
+  const doneCount = rows.filter((row) => isDone(row.status)).length;
 
   return (
     <aside className="flex w-55 shrink-0 flex-col gap-4 rounded-xl bg-paper p-5">
@@ -47,8 +53,8 @@ export function RosterList({ klassName, rows, selectedChildId, onSelect }: Roste
         </p>
       </div>
       <ul className="flex flex-col gap-1">
-        {rows.map(({ child, state }) => {
-          const done = isDone(state);
+        {rows.map(({ child, status }) => {
+          const done = isDone(status);
           const isSelected = child.child_id === selectedChildId;
           return (
             <li key={child.child_id}>
@@ -79,7 +85,7 @@ export function RosterList({ klassName, rows, selectedChildId, onSelect }: Roste
                   </span>
                 </span>
                 <span className={cn("text-label", done ? "text-brand-ink" : "text-ink-muted")}>
-                  {STATE_LABEL_MAP[state]}
+                  {STATE_LABEL_MAP[status]}
                 </span>
               </button>
             </li>

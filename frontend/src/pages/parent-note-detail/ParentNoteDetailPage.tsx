@@ -3,7 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useNavigate, useParams } from "react-router";
 
-import { childDraftsQueryOptions, draftQueryOptions, sentPhotos } from "@/api/documents";
+import {
+  childDraftsQueryOptions,
+  didSendPhotos,
+  draftQueryOptions,
+  sentPhotos,
+} from "@/api/documents";
 import { classChildrenQueryOptions } from "@/api/organization";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -76,7 +81,7 @@ export function ParentNoteDetailPage() {
   const draft = draftQuery.data;
   // 여기는 "학부모가 받은 것"을 보는 자리입니다. 사진을 빼고 게시했으면 교사에게도
   // 보여 주지 않습니다 — 보낸 것과 본 것이 달라지면 안 됩니다(api/documents-adapter.ts).
-  const photosSent = draft?.include_photos === true;
+  const photosSent = didSendPhotos(draft);
   const photos = sentPhotos(draft);
 
   return (

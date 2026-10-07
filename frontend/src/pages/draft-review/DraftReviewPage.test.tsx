@@ -4,6 +4,7 @@ import { HttpResponse, http } from "msw";
 
 import { childDraftsQueryOptions, documentsKeys } from "@/api/documents";
 import { kstToday, shiftDate } from "@/lib/datetime";
+import { updateDb } from "@/mocks/db";
 import { fixtureId } from "@/mocks/fixtures/ids";
 import { apiPath, errorResponse } from "@/mocks/http";
 import { server } from "@/mocks/server";
@@ -174,6 +175,51 @@ describe("DraftReviewPage", () => {
     expect(ids).toContain(fixtureId("draft", 12)); // 김도윤 — 방금 승인
     expect(ids).toContain(fixtureId("draft", 22)); // 이하준 — 시드에서 승인
     expect(ids).not.toContain(fixtureId("draft", 42)); // 최지우 — 교사가 뺌
+  });
+
+  // 아직 만드는 중인 초안은 교사가 승인할 수 없어 게시를 막지 않습니다(#88 송유진 님 방향).
+  // 그래서 조용히 빠질 수 있는데, 교사는 반 전체를 보냈다고 믿게 됩니다. 모달이 알려 줘야
+  // 교사가 알고 누릅니다(#107 리뷰 송유진 님).
+  it("만드는 중인 초안이 있으면 게시는 열리고 모달이 빠지는 인원을 알려 준다", async () => {
+    const user = userEvent.setup();
+    // 박서아는 시드에서 초안 없이 미분류라 "초안 없음"으로 셉니다. 여기서는 초안이 있는데
+    // 아직 만드는 중인 경우를 봐야 해서 draft 상태의 초안을 하나 넣습니다.
+    updateDb((db) => {
+      const draftId = fixtureId("draft", 32);
+      db.drafts[draftId] = {
+        draft_id: draftId,
+        child_id: fixtureId("child", 3),
+        class_id: fixtureId("class", 1),
+        doc_type: "parent_note",
+        record_date: YESTERDAY,
+        status: "draft",
+        version: 1,
+        title: null,
+        sentences: [],
+        selected_media_ids: [],
+        author_teacher_id: fixtureId("teacher", 1),
+        author_name: "김하늘",
+        approved_at: null,
+        published_at: null,
+        include_photos: false,
+        updated_at: `${YESTERDAY}T06:40:00Z`,
+      };
+      db.unclassified = [];
+    });
+    await renderAndWait();
+
+    expect(screen.getByRole("button", { name: /박서아.*생성 중/ })).toBeInTheDocument();
+
+    // 김도윤을 승인하면 교사가 볼 것이 남지 않아 게시가 열립니다 — 만드는 중인 박서아는 막지 않습니다.
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+
+    expect(
+      await screen.findByText("초안이 아직 준비되지 않은 1명은 이번 게시에서 빠져요."),
+    ).toBeVisible();
   });
 
   // 사진을 뺀 게시는 학부모에게 글만 갑니다. 교사가 게시할 때 한 번만 정할 수 있습니다.

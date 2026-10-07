@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 
-import { createJob, jobQueryOptions } from "@/api/agents";
+import { createJob, isJobFinished, jobQueryOptions, type JobView } from "@/api/agents";
 import {
   approveDraft,
   classDraftsQueryOptions,
@@ -23,7 +23,6 @@ import {
   myChildrenQueryOptions,
 } from "@/api/organization";
 import { kstToday, shiftDate } from "@/lib/datetime";
-import type { Job } from "@/types/api-draft/agents";
 import type { ChildLink } from "@/types/api-draft/media";
 
 import { updateDb } from "./db";
@@ -74,9 +73,9 @@ async function uploadPhoto(n: number) {
   });
 }
 
-async function pollUntilDone(client: QueryClient, started: Job) {
+async function pollUntilDone(client: QueryClient, started: JobView) {
   let job = started;
-  for (let i = 0; i < 10 && job.status !== "succeeded" && job.status !== "failed"; i += 1) {
+  for (let i = 0; i < 10 && !isJobFinished(job); i += 1) {
     job = await client.fetchQuery(jobQueryOptions(started.job_id));
   }
   return job;
@@ -125,12 +124,13 @@ describe("핵심 흐름 목", () => {
     // 3. 초안 검토. 근거는 이번에 보낸 자료 가운데 llm_allowed인 것만입니다.
     const rail = await client.fetchQuery(classDraftsQueryOptions(CLASS_ID, today));
     expect(rail.map((item) => item.child_id)).toEqual([DOYUN, YERIN]);
-    expect(rail.find((item) => item.child_id === YERIN)?.unclassified_reason).toBe(
+    expect(rail.find((item) => item.child_id === YERIN)?.unclassified).toBe(
       "insufficient_evidence",
     );
     const note = await client.fetchQuery(draftQueryOptions(noteId));
-    // api/documents.ts가 화면용 모양으로 바꿔 줍니다. 승인 전은 모두 "review"입니다.
-    expect(note.state).toBe("review");
+    // api/documents.ts가 화면용 모양으로 바꿔 줍니다. 검증을 마친 verified만 "review"이고,
+    // 만드는 중·미분류·모르는 값은 잠깁니다(#107 리뷰).
+    expect(note.status).toBe("review");
     expect(note.sentences[0]?.text).toMatch(/^도윤이는 /);
     expect(note.sentences.flatMap((s) => s.evidences.map((e) => e.media_id))).toEqual([
       doyunPhoto.media_id,
@@ -146,7 +146,7 @@ describe("핵심 흐름 목", () => {
       expected_version: edited.version,
       reviewed: true,
     });
-    expect(approved.state).toBe("approved");
+    expect(approved.status).toBe("approved");
     setMockSession("parent");
     await expect(client.fetchQuery(parentNoteQueryOptions(noteId))).rejects.toMatchObject({
       status: 404,
@@ -158,7 +158,7 @@ describe("핵심 흐름 목", () => {
       include_photos: true,
       items: [{ draft_id: noteId, expected_version: approved.version }],
     });
-    expect(results[0]).toMatchObject({ published: true, parent_note_id: noteId });
+    expect(results[0]).toMatchObject({ status: "published", parent_note_id: noteId });
 
     // 5. 학부모 열람. 본문을 열면 읽음이 됩니다.
     setMockSession("parent");
@@ -187,11 +187,11 @@ describe("핵심 흐름 목", () => {
     const state = Object.fromEntries(
       rail.map((item) => [
         item.child_id,
-        item.unclassified_reason
+        item.unclassified
           ? "확인 필요"
           : item.parent_note?.published_at
             ? "게시됨"
-            : item.parent_note?.state,
+            : item.parent_note?.status,
       ]),
     );
     // 게시는 반 전체를 하루 한 번 하므로 검토 중인 날짜에는 게시된 원아가 없습니다.
@@ -245,7 +245,7 @@ describe("목의 판정 규칙", () => {
       include_photos: false,
       items: [{ draft_id: unapproved, expected_version: 1 }],
     });
-    expect(results[0]).toMatchObject({ published: false, error_code: "DRAFT_NOT_APPROVED" });
+    expect(results[0]).toMatchObject({ status: "failed", error_code: "DRAFT_NOT_APPROVED" });
 
     setMockSession("parent");
     // 최지우(parent 4번의 자녀)의 그제 알림장은 게시돼 있지만 김서연에게는 없는 것과 같습니다.
@@ -288,7 +288,7 @@ describe("목의 판정 규칙", () => {
       include_photos: false,
       items: [{ draft_id: fixtureId("draft", 22), expected_version: 1 }], // 승인본은 version 2
     });
-    expect(results[0]).toMatchObject({ published: false, error_code: "DRAFT_VERSION_CONFLICT" });
+    expect(results[0]).toMatchObject({ status: "failed", error_code: "DRAFT_VERSION_CONFLICT" });
   });
 
   it("같은 날짜로 다시 만들어도 승인·게시된 문서는 그대로 남는다", async () => {

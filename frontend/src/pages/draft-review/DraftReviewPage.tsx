@@ -15,9 +15,15 @@ import {
   createDraft,
   documentsKeys,
   draftQueryOptions,
+  isNotReady,
+  isPublished,
+  isPublishTarget,
+  isUnpublishedDraft,
+  needsReview,
   patchDraft,
   publishParentNotes,
   reopenDraft,
+  selectedPhotos,
 } from "@/api/documents";
 import { classChildrenQueryOptions } from "@/api/organization";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -85,10 +91,11 @@ function toSentences(text: string) {
     .map((line) => ({ text: line }));
 }
 
-// 미분류·자료 없음은 "검토 필요"로 묶습니다 — 임시 결정(김진하), docs/api/documents.md §레일·목록 표기.
-// 초안이 없는 원아(자료 없음·미분류)는 "none"입니다. 초안이 있으면 adapter가 정한 상태를 씁니다.
+// 초안이 아예 없는 원아는 "none"입니다 — 자료가 없어 만들어지지 않은 경우이고,
+// 교사가 직접 쓸 수 있어 "검토 필요"로 보여 줍니다. 초안이 있으면 adapter가 정한 상태를 씁니다.
+// 표기는 docs/api/documents.md §레일·목록 표기.
 function toRosterState(item: ClassDraftView | undefined): RosterState {
-  return item?.parent_note?.state ?? "none";
+  return item?.parent_note?.status ?? "none";
 }
 
 export function DraftReviewPage() {
@@ -140,7 +147,7 @@ export function DraftReviewPage() {
   const draftItems = draftsQuery.data ?? [];
   const rows: RosterRow[] = children.map((child) => {
     const item = draftItems.find((draft) => draft.child_id === child.child_id);
-    return { child, note: item?.parent_note ?? null, state: toRosterState(item) };
+    return { child, note: item?.parent_note ?? null, status: toRosterState(item) };
   });
 
   const selectedChildId = childId ?? rows[0]?.child.child_id ?? "";
@@ -271,7 +278,7 @@ export function DraftReviewPage() {
       ]);
       // 게시는 HTTP 200 안에서 건별로 성공·실패가 옵니다. 실패를 두고 발행 완료로 넘어가면
       // "전달했어요"만 보여서 교사가 못 올린 원아를 영영 모릅니다. 그래서 남아서 알립니다.
-      const failures = results.filter((result) => !result.published);
+      const failures = results.filter((result) => !isPublished(result));
       setPublishFailures(failures);
       setPublishedCount(results.length - failures.length);
       if (failures.length > 0) return;
@@ -308,7 +315,7 @@ export function DraftReviewPage() {
     draft?.sentences.find((sentence) => sentence.sentence_index === selectedSentenceIndex) ?? null;
   // 게시 전 초안이라 교사가 고른 사진을 그대로 보여 줍니다. 게시본을 되짚어 보는 화면은
   // adapter의 sentPhotos를 써서 실제로 나간 사진만 봅니다.
-  const photos = draft?.photos ?? [];
+  const photos = selectedPhotos(draft);
 
   // 승인은 검증을 마친 초안만(목·API 문서 규칙). 게시는 검토가 남은 원아가 없을 때만 엽니다.
   // 수정 중에는 잠급니다 — "수정 완료" 없이 승인하면 고치기 전 문장이 승인·게시되는데
@@ -321,25 +328,30 @@ export function DraftReviewPage() {
   // 게시는 반 전체를 하루 한 번 합니다 — 임시 결정(김진하), docs/api/documents.md §POST /publications.
   // 그래서 한 날짜에 게시된 초안이 하나라도 있으면 그날은 끝난 날입니다. 게시본은 학부모가
   // 이미 봤으므로 고칠 수 없고, 되돌리려면 회수(revoke)가 필요합니다(H-1).
-  // 승인했는데 아직 안 나간 초안이 남아 있으면 그날은 끝난 게 아닙니다. 건별로 실패했거나
-  // 교사가 이번 게시에서 뺀 원아가 여기 들어오며, 둘 다 다시 올릴 수 있어야 합니다.
-  const hasUnpublishedApproved = rows.some(
-    (row) => row.state === "approved" && row.note?.published_at == null,
-  );
-  const isDayClosed = rows.some((row) => row.note?.published_at != null) && !hasUnpublishedApproved;
-  // 이미 나간 알림장은 다시 보내지 않습니다. 게시해도 status는 approved로 남아 있어서
-  // published_at까지 봐야 합니다 — 안 보면 두 번째 게시에서 전부 실패합니다.
+  // 아직 안 나간 초안이 하나라도 있으면 그날은 끝난 게 아닙니다 — 건별로 실패했거나, 교사가
+  // 이번 게시에서 뺐거나, 아직 만드는 중인 원아가 여기 들어오고 모두 다시 올릴 수 있어야
+  // 합니다. 승인한 것만 보면 실패한 아이를 "다시 검토하기"로 되돌리는 순간 그날이 닫혀
+  // 실패 안내까지 사라집니다(#108 리뷰 송유진 님).
+  const isDayClosed =
+    rows.some((row) => row.note?.published_at != null) && !rows.some(isUnpublishedDraft);
+  // 이미 나간 알림장을 다시 보내지 않는 판정은 isPublishTarget 안에 있습니다(#107).
   const publishTargets = rows.flatMap((row) =>
-    row.note && row.state === "approved" && row.note.published_at === null
+    isPublishTarget(row) && row.note !== null
       ? [{ childId: row.child.child_id, name: row.child.name, note: row.note }]
       : [],
   );
   const publishable = publishTargets
     .filter((target) => !excludedChildIds.has(target.childId))
     .map((target) => ({ draft_id: target.note.draft_id, expected_version: target.note.version }));
-  // 초안이 있는데 아직 승인하지 않은 원아가 있으면 게시를 막습니다.
-  // 초안이 없는 원아(자료 없음·미분류)는 승인할 대상이 없어 게시를 막지 않고, 이번 게시에서 빠집니다.
-  const hasUnreviewedDraft = rows.some((row) => row.note !== null && row.state === "review");
+  // 교사가 지금 승인할 수 있는 초안(review)이 남아 있으면 게시를 막습니다 — 보고 넘긴 것과
+  // 아직 안 본 것을 구분할 수 없게 되기 때문입니다.
+  //
+  // 승인할 수 없는 상태(만드는 중·미분류·모르는 값)는 게시를 막지 않습니다(#88 송유진 님 방향).
+  // 기다려도 교사가 할 수 있는 것이 없는데 막으면 그날을 영영 못 닫습니다. 대신 조용히
+  // 빠지지 않도록 게시 확인 모달이 그 수를 알려 줍니다(#107 리뷰 송유진 님).
+  // 초안이 없는 원아도 같은 이유로 막지 않고, 모달에 따로 셉니다.
+  const hasUnreviewedDraft = rows.some(needsReview);
+  const notReadyCount = rows.filter(isNotReady).length;
   const canPublish = publishTargets.length > 0 && !hasUnreviewedDraft;
 
   function selectChild(id: string) {
@@ -658,6 +670,7 @@ export function DraftReviewPage() {
           })
         }
         noDraftCount={rows.filter((row) => row.note === null).length}
+        notReadyCount={notReadyCount}
         includePhotos={includePhotos}
         onIncludePhotosChange={setIncludePhotos}
         onConfirm={() => {
