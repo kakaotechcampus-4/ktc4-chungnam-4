@@ -8,8 +8,8 @@ import {
   approveDraft,
   canApprove,
   canReopen,
-  type ClassDraftView,
-  type RosterState,
+  type PublicationResultView,
+  toRosterState,
   classDraftsQueryOptions,
   createDraft,
   documentsKeys,
@@ -17,6 +17,7 @@ import {
   isNotReady,
   isPublished,
   isPublishTarget,
+  isUnpublishedDraft,
   needsReview,
   patchDraft,
   publishParentNotes,
@@ -36,6 +37,20 @@ import { cn } from "@/lib/utils";
 import { EvidencePanel } from "./components/EvidencePanel";
 import { PublishConfirmDialog } from "./components/PublishConfirmDialog";
 import { RosterList, type RosterRow } from "./components/RosterList";
+
+/**
+ * 게시가 건별로 실패한 사유입니다. 서버는 코드만 주므로 교사가 읽을 말로 바꿉니다.
+ * 모르는 코드는 코드 그대로 보여 줍니다 — 지어내면 교사가 엉뚱한 조치를 합니다.
+ */
+const PUBLISH_ERROR_LABEL_MAP: Record<string, string> = {
+  NO_LINKED_PARENT: "보호자가 연결되지 않았어요",
+  DRAFT_VERSION_CONFLICT: "그 사이 내용이 바뀌었어요",
+  DRAFT_NOT_APPROVED: "승인되지 않았어요",
+  DRAFT_ALREADY_PUBLISHED: "이미 게시됐어요",
+  DRAFT_NOT_FOUND: "초안을 찾을 수 없어요",
+  CLASS_ACCESS_DENIED: "담당 반이 아니에요",
+  NOT_PARENT_NOTE: "알림장이 아니에요",
+};
 
 // 서버가 왜 막았는지(담당 반 아님·이미 승인됨·버전 밀림)를 교사가 알아야 다음 행동을 고릅니다.
 // 그래서 고정 문구 대신 응답의 message를 보여 줍니다(다른 화면과 같은 방식).
@@ -73,13 +88,6 @@ function toSentences(text: string) {
     .map((line) => line.trim())
     .filter((line) => line !== "")
     .map((line) => ({ text: line }));
-}
-
-// 초안이 아예 없는 원아는 "none"입니다 — 자료가 없어 만들어지지 않은 경우이고,
-// 교사가 직접 쓸 수 있어 "검토 필요"로 보여 줍니다. 초안이 있으면 adapter가 정한 상태를 씁니다.
-// 표기는 docs/api/documents.md §레일·목록 표기.
-function toRosterState(item: ClassDraftView | undefined): RosterState {
-  return item?.parent_note?.status ?? "none";
 }
 
 export function DraftReviewPage() {
@@ -122,6 +130,10 @@ export function DraftReviewPage() {
   const [excludedChildIds, setExcludedChildIds] = useState<Set<string>>(new Set());
   /** 선택 사진을 학부모에게 함께 보낼지. 기본은 보냄 */
   const [includePhotos, setIncludePhotos] = useState(true);
+  /** 게시가 건별로 실패한 결과. 하나라도 있으면 발행 완료로 넘어가지 않습니다. */
+  const [publishFailures, setPublishFailures] = useState<PublicationResultView[]>([]);
+  /** 같은 게시에서 성공한 인원. 실패만 알리면 나머지가 나갔는지 교사가 알 수 없습니다. */
+  const [publishedCount, setPublishedCount] = useState(0);
 
   const children = childrenQuery.data ?? [];
   const draftItems = draftsQuery.data ?? [];
@@ -256,8 +268,15 @@ export function DraftReviewPage() {
         }),
         queryClient.invalidateQueries({ queryKey: documentsKeys.publishedNotes(classId) }),
       ]);
-      const published = results.filter(isPublished).length;
-      navigate("/t/notes/publish/done", { state: { publishedCount: published } });
+      // 게시는 HTTP 200 안에서 건별로 성공·실패가 옵니다. 실패를 두고 발행 완료로 넘어가면
+      // "전달했어요"만 보여서 교사가 못 올린 원아를 영영 모릅니다. 그래서 남아서 알립니다.
+      const failures = results.filter((result) => !isPublished(result));
+      setPublishFailures(failures);
+      setPublishedCount(results.length - failures.length);
+      if (failures.length > 0) return;
+      navigate("/t/notes/publish/done", {
+        state: { publishedCount: results.length },
+      });
     },
     onError: (error) => refetchOnVersionConflict(error),
   });
@@ -282,6 +301,8 @@ export function DraftReviewPage() {
   }
 
   const klassName = currentClass?.name ?? "";
+  /** 실패를 알릴 때 id 대신 이름을 보여 줍니다. 못 찾으면 빈 문자열이라 사유 코드로 갈음합니다. */
+  const nameOf = (id: string | null) => children.find((child) => child.child_id === id)?.name ?? "";
   const selectedSentence =
     draft?.sentences.find((sentence) => sentence.sentence_index === selectedSentenceIndex) ?? null;
   // 게시 전 초안이라 교사가 고른 사진을 그대로 보여 줍니다. 게시본을 되짚어 보는 화면은
@@ -299,7 +320,13 @@ export function DraftReviewPage() {
   // 게시는 반 전체를 하루 한 번 합니다 — 임시 결정(김진하), docs/api/documents.md §POST /publications.
   // 그래서 한 날짜에 게시된 초안이 하나라도 있으면 그날은 끝난 날입니다. 게시본은 학부모가
   // 이미 봤으므로 고칠 수 없고, 되돌리려면 회수(revoke)가 필요합니다(H-1).
-  const isDayClosed = rows.some((row) => row.note?.published_at != null);
+  // 아직 안 나간 초안이 하나라도 있으면 그날은 끝난 게 아닙니다 — 건별로 실패했거나, 교사가
+  // 이번 게시에서 뺐거나, 아직 만드는 중인 원아가 여기 들어오고 모두 다시 올릴 수 있어야
+  // 합니다. 승인한 것만 보면 실패한 아이를 "다시 검토하기"로 되돌리는 순간 그날이 닫혀
+  // 실패 안내까지 사라집니다(#108 리뷰 송유진 님).
+  const isDayClosed =
+    rows.some((row) => row.note?.published_at != null) && !rows.some(isUnpublishedDraft);
+  // 이미 나간 알림장을 다시 보내지 않는 판정은 isPublishTarget 안에 있습니다(#107).
   const publishTargets = rows.flatMap((row) =>
     isPublishTarget(row) && row.note !== null
       ? [{ childId: row.child.child_id, name: row.child.name, note: row.note }]
@@ -576,6 +603,24 @@ export function DraftReviewPage() {
               {failureText(approveMutation.error ?? publishMutation.error)}
             </p>
           ) : null}
+          {/* 건별 실패는 HTTP 200 안에 섞여 오므로 isError로는 잡히지 않습니다.
+              성공 수를 함께 알립니다 — 실패만 뜨면 나머지가 나갔는지 교사가 알 수 없습니다. */}
+          {publishFailures.length > 0 ? (
+            <p className="text-caption text-destructive">
+              {publishedCount > 0 ? `${String(publishedCount)}명은 게시했고, ` : ""}
+              {publishFailures.length}명은 게시하지 못했어요 —{" "}
+              {publishFailures
+                .map(
+                  (failure) =>
+                    `${nameOf(failure.child_id) || "원아"}: ${
+                      PUBLISH_ERROR_LABEL_MAP[failure.error_code ?? ""] ??
+                      failure.error_code ??
+                      "알 수 없는 이유"
+                    }`,
+                )
+                .join(", ")}
+            </p>
+          ) : null}
           {isEditing ? (
             <p className="text-caption text-ink-muted">수정을 마치면 승인할 수 있어요.</p>
           ) : null}
@@ -620,7 +665,11 @@ export function DraftReviewPage() {
         notReadyCount={notReadyCount}
         includePhotos={includePhotos}
         onIncludePhotosChange={setIncludePhotos}
-        onConfirm={() => publishMutation.mutate({ items: publishable, includePhotos })}
+        onConfirm={() => {
+          setPublishFailures([]);
+          setPublishedCount(0);
+          publishMutation.mutate({ items: publishable, includePhotos });
+        }}
       />
     </>
   );
