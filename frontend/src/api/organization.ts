@@ -3,42 +3,52 @@ import { queryOptions } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import type { ListResponse } from "@/types/api-draft/common";
 import type {
-  CenterCreateRequest,
   CenterSummary,
   ChildDetail,
   ChildInvite,
   ChildOverview,
   ClassChild,
-  ClassCreateRequest,
+  ClassFavoriteRequest,
   ClassSummary,
   EducationPlan,
   MyChild,
-  TeacherProfileRequest,
 } from "@/types/api-draft/organization";
 
 import {
+  type CenterCreateInput,
   type ChildInput,
+  type ClassCreateInput,
   type EducationPlanInput,
   type PlanTypeView,
+  type TeacherProfileInput,
+  toCenterCreateBody,
+  toCenterSummaryView,
   toChildBody,
   toChildDetailView,
   toChildInviteView,
   toChildOverviewView,
   toClassChildView,
+  toClassCreateBody,
+  toClassSummaryView,
   toEducationPlanBody,
   toEducationPlanView,
   toMyChildView,
+  toTeacherProfileBody,
 } from "./organization-adapter";
 
-// 화면은 원아·교육 계획 서버 타입 대신 여기서 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
-// 반·어린이집·교사 정보(송유진 몫)는 아직 adapter로 옮기지 않았습니다.
+// 화면은 서버 타입 대신 여기서 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
 export {
+  type AgeBandView,
+  type CenterCreateInput,
+  type CenterSummaryView,
   type ChildDetailView,
   type ChildInput,
   type ChildInviteView,
   type ChildNoteSummaryView,
   type ChildOverviewView,
   type ClassChildView,
+  type ClassCreateInput,
+  type ClassSummaryView,
   type ConsentItemView,
   type ConsentTypeView,
   type EducationPlanInput,
@@ -47,6 +57,7 @@ export {
   type MyChildView,
   type NuriDomainView,
   type PlanTypeView,
+  type TeacherProfileInput,
   type WeekdayView,
 } from "./organization-adapter";
 
@@ -82,7 +93,9 @@ export function classesQueryOptions() {
   return queryOptions({
     queryKey: organizationKeys.classes(),
     queryFn: async ({ signal }) =>
-      (await api.get<ListResponse<ClassSummary>>("/classes", { signal })).items,
+      (await api.get<ListResponse<ClassSummary>>("/classes", { signal })).items.map(
+        toClassSummaryView,
+      ),
   });
 }
 
@@ -91,8 +104,9 @@ export function centerClassesQueryOptions(centerId: string) {
   return queryOptions({
     queryKey: organizationKeys.centerClasses(centerId),
     queryFn: async ({ signal }) =>
-      (await api.get<ListResponse<ClassSummary>>(`/centers/${enc(centerId)}/classes`, { signal }))
-        .items,
+      (
+        await api.get<ListResponse<ClassSummary>>(`/centers/${enc(centerId)}/classes`, { signal })
+      ).items.map(toClassSummaryView),
   });
 }
 
@@ -166,30 +180,35 @@ export function planQueryOptions(planId: string) {
 // 쓰기 요청입니다. 화면은 useMutation의 mutationFn으로 넘기고, 성공하면 위 key로 무효화합니다.
 
 /** 어린이집 코드 확인. 없으면 404 CENTER_NOT_FOUND */
-export function findCenterByCode(centerCode: string) {
-  return api.get<CenterSummary>("/centers", { query: { center_code: centerCode } });
+export async function findCenterByCode(centerCode: string) {
+  return toCenterSummaryView(
+    await api.get<CenterSummary>("/centers", { query: { center_code: centerCode } }),
+  );
 }
 
-export function createCenter(body: CenterCreateRequest) {
-  return api.post<CenterSummary>("/centers", body);
+export async function createCenter(input: CenterCreateInput) {
+  return toCenterSummaryView(await api.post<CenterSummary>("/centers", toCenterCreateBody(input)));
 }
 
-export function saveTeacherProfile(body: TeacherProfileRequest) {
-  return api.put<void>("/teachers/me/profile", body);
+export function saveTeacherProfile(input: TeacherProfileInput) {
+  return api.put<void>("/teachers/me/profile", toTeacherProfileBody(input));
 }
 
-export function createClass(body: ClassCreateRequest) {
-  return api.post<ClassSummary>("/classes", body);
+export async function createClass(input: ClassCreateInput) {
+  return toClassSummaryView(await api.post<ClassSummary>("/classes", toClassCreateBody(input)));
 }
 
 /** 그 반의 담임으로 배정 */
-export function assignClass(classId: string) {
-  return api.post<ClassSummary>(`/classes/${enc(classId)}/assign`);
+export async function assignClass(classId: string) {
+  return toClassSummaryView(await api.post<ClassSummary>(`/classes/${enc(classId)}/assign`));
 }
 
 /** 가정: 반 선택 카드의 별. API 문서에 없습니다 */
-export function setClassFavorite(classId: string, isFavorite: boolean) {
-  return api.patch<ClassSummary>(`/classes/${enc(classId)}/favorite`, { is_favorite: isFavorite });
+export async function setClassFavorite(classId: string, isFavorite: boolean) {
+  const body: ClassFavoriteRequest = { is_favorite: isFavorite };
+  return toClassSummaryView(
+    await api.patch<ClassSummary>(`/classes/${enc(classId)}/favorite`, body),
+  );
 }
 
 export async function createChild(input: ChildInput) {

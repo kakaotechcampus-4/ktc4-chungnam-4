@@ -1,22 +1,68 @@
 import type { DateOnly } from "@/lib/datetime";
 import type {
+  CenterCreateRequest,
+  CenterSummary,
   ChildDetail,
   ChildInvite,
   ChildNoteSummary,
   ChildOverview,
   ChildUpsertRequest,
   ClassChild,
+  ClassCreateRequest,
+  ClassSummary,
   ConsentItem,
   EducationPlan,
   EducationPlanRequest,
   MyChild,
   NuriDomain,
+  TeacherProfileRequest,
   Weekday,
 } from "@/types/api-draft/organization";
 
-// 원아·교육 계획 응답을 화면이 쓰는 모양으로 바꾸는 곳입니다(frontend/CLAUDE.md §데이터, #92 멘토 리뷰).
+// 반·어린이집·교사 정보·원아·교육 계획 응답을 화면이 쓰는 모양으로 바꾸는 곳입니다(frontend/CLAUDE.md §데이터, #92 멘토 리뷰).
 // 서버 필드 이름이나 값이 API 문서와 다르게 오면 이 파일만 고칩니다. 화면은 서버 타입을 쓰지 않습니다.
-// 반·어린이집·교사 정보(송유진 몫)는 이 파일에서 다루지 않습니다 — 그쪽 adapter에서 옮깁니다.
+
+/** 연령 구분. 반 만들기 화면의 2택(만 0~2세 표준보육과정 · 만 3~5세 누리과정) */
+export type AgeBandView = "infant" | "preschool";
+
+/** GET /classes 항목(교사가 담당하는 반), GET /centers/{center_id}/classes 항목(어린이집의 반) */
+export interface ClassSummaryView {
+  class_id: string;
+  center_id: string;
+  center_name: string;
+  name: string;
+  /** 표시용 문자열("만 4세"). 분기는 age_band로 합니다 */
+  age_group: string;
+  age_band: AgeBandView;
+  child_count: number;
+  is_favorite: boolean;
+  needs_record_today: boolean;
+}
+
+/** 반 만들기 폼 값 */
+export interface ClassCreateInput {
+  center_id: string;
+  name: string;
+  age_band: AgeBandView;
+}
+
+/** GET /centers?center_code=, POST /centers */
+export interface CenterSummaryView {
+  center_id: string;
+  name: string;
+}
+
+/** 어린이집 새로 등록하기 폼 값 */
+export interface CenterCreateInput {
+  name: string;
+  address: string;
+}
+
+/** 교사 정보 입력 폼 값 */
+export interface TeacherProfileInput {
+  name: string;
+  center_id: string;
+}
 
 /** 동의 항목. 코드는 API 문서 제안값이고 아직 미정입니다(docs/open-questions.md §C) */
 export type ConsentTypeView = "personal_info" | "activity_media" | "face_feature";
@@ -151,6 +197,36 @@ function toDailyActivities(
     if (activity !== undefined) result[day] = activity;
   }
   return result;
+}
+
+export function toClassSummaryView(raw: ClassSummary): ClassSummaryView {
+  return {
+    class_id: raw.class_id,
+    center_id: raw.center_id,
+    center_name: raw.center_name,
+    name: raw.name,
+    age_group: raw.age_group,
+    age_band: raw.age_band,
+    child_count: raw.child_count,
+    is_favorite: raw.is_favorite,
+    needs_record_today: raw.needs_record_today,
+  };
+}
+
+export function toClassCreateBody(input: ClassCreateInput): ClassCreateRequest {
+  return { center_id: input.center_id, name: input.name, age_band: input.age_band };
+}
+
+export function toCenterSummaryView(raw: CenterSummary): CenterSummaryView {
+  return { center_id: raw.center_id, name: raw.name };
+}
+
+export function toCenterCreateBody(input: CenterCreateInput): CenterCreateRequest {
+  return { name: input.name, address: input.address };
+}
+
+export function toTeacherProfileBody(input: TeacherProfileInput): TeacherProfileRequest {
+  return { name: input.name, center_id: input.center_id };
 }
 
 export function toClassChildView(raw: ClassChild): ClassChildView {

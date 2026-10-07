@@ -1,5 +1,5 @@
-import type { AgeBand } from "@/types/api-draft/organization";
 import type {
+  AgeBandView,
   ClassChildView,
   ConsentTypeView,
   FaceStatusView,
@@ -10,7 +10,7 @@ import type {
 
 // ② 교사 · 반 · 원아 · 교육 계획 화면이 같이 쓰는 표시 문구입니다. 문구는 Figma 그대로입니다.
 
-export const AGE_BAND_LABEL_MAP: Record<AgeBand, { title: string; curriculum: string }> = {
+export const AGE_BAND_LABEL_MAP: Record<AgeBandView, { title: string; curriculum: string }> = {
   infant: { title: "만 0~2세", curriculum: "표준보육과정 6영역" },
   preschool: { title: "만 3~5세", curriculum: "누리과정 5영역" },
 };

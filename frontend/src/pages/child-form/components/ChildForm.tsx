@@ -5,12 +5,17 @@ import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router";
 import { z } from "zod";
 
-import { type ChildInput, createChild, organizationKeys, updateChild } from "@/api/organization";
+import {
+  type ChildInput,
+  type ClassSummaryView,
+  createChild,
+  organizationKeys,
+  updateChild,
+} from "@/api/organization";
 import { FocusCard } from "@/components/common/FocusCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { ClassSummary } from "@/types/api-draft/organization";
 
 import { parseBirthDate } from "../birth-date";
 
@@ -30,7 +35,7 @@ type ChildFormValues = z.infer<typeof schema>;
 interface ChildFormProps {
   /** 있으면 수정, 없으면 새로 등록합니다 */
   childId?: string;
-  classes: ClassSummary[];
+  classes: ClassSummaryView[];
   defaultValues: ChildFormValues;
 }
 

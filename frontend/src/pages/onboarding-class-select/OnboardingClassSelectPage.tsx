@@ -3,11 +3,15 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Flower, Flower2, Plus, Sprout, Star, Sun, type LucideIcon } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 
-import { assignClass, organizationKeys, setClassFavorite } from "@/api/organization";
+import {
+  assignClass,
+  type ClassSummaryView,
+  organizationKeys,
+  setClassFavorite,
+} from "@/api/organization";
 import { selectClass } from "@/features/class-context/current-class-store";
 import { useTeacherCenter } from "@/features/organization/use-teacher-center";
 import { cn } from "@/lib/utils";
-import type { ClassSummary } from "@/types/api-draft/organization";
 
 // Figma의 반 아이콘(🌼 ☀️ 🌱 🌷)을 반 순서대로 돌아가며 씁니다.
 const CLASS_ICONS: readonly LucideIcon[] = [Flower2, Sun, Sprout, Flower];
@@ -15,7 +19,7 @@ const CLASS_ICONS: readonly LucideIcon[] = [Flower2, Sun, Sprout, Flower];
 const CARD_CLASS = "relative flex min-h-49 flex-col rounded-xl border border-line bg-paper p-6";
 
 // 즐겨찾기한 반이 먼저, 그 안에서는 서버 순서를 지킵니다.
-function sortFavoritesFirst(classes: ClassSummary[]) {
+function sortFavoritesFirst(classes: ClassSummaryView[]) {
   return [...classes].sort((a, b) => Number(b.is_favorite) - Number(a.is_favorite));
 }
 

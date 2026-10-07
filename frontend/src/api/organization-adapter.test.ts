@@ -1,20 +1,38 @@
 import type {
   ChildDetail,
+  ClassSummary,
   ChildOverview,
   EducationPlan,
   MyChild,
 } from "@/types/api-draft/organization";
 
 import {
+  toCenterCreateBody,
+  toCenterSummaryView,
   toChildBody,
   toChildDetailView,
   toChildInviteView,
   toChildOverviewView,
   toClassChildView,
+  toClassCreateBody,
+  toClassSummaryView,
   toEducationPlanBody,
   toEducationPlanView,
   toMyChildView,
+  toTeacherProfileBody,
 } from "./organization-adapter";
+
+const CLASS: ClassSummary = {
+  class_id: "c1",
+  center_id: "ct1",
+  center_name: "햇살어린이집",
+  name: "햇살반",
+  age_group: "만 4세",
+  age_band: "preschool",
+  child_count: 5,
+  is_favorite: true,
+  needs_record_today: false,
+};
 
 const CHILD: ChildDetail = {
   child_id: "k1",
@@ -55,6 +73,36 @@ const PLAN: EducationPlan = {
 };
 
 describe("organization adapter", () => {
+  it("반은 문서 이름 그대로 옮기고, 문서에 없는 필드는 버린다", () => {
+    const raw = { ...CLASS, teacher_id: "t1" } as ClassSummary;
+
+    expect(toClassSummaryView(raw)).toEqual(CLASS);
+  });
+
+  it("반·어린이집·교사 정보 요청 본문은 문서 필드만 담는다", () => {
+    expect(
+      toClassCreateBody({
+        center_id: "ct1",
+        name: "햇살반",
+        age_band: "infant",
+        extra: 1,
+      } as never),
+    ).toEqual({ center_id: "ct1", name: "햇살반", age_band: "infant" });
+    expect(
+      toCenterCreateBody({ name: "햇살어린이집", address: "주소", extra: 1 } as never),
+    ).toEqual({ name: "햇살어린이집", address: "주소" });
+    expect(toTeacherProfileBody({ name: "교사A", center_id: "ct1", extra: 1 } as never)).toEqual({
+      name: "교사A",
+      center_id: "ct1",
+    });
+  });
+
+  it("어린이집은 문서 이름 그대로 옮긴다", () => {
+    const raw = { center_id: "ct1", name: "햇살어린이집", center_code: "ABC" };
+
+    expect(toCenterSummaryView(raw)).toEqual({ center_id: "ct1", name: "햇살어린이집" });
+  });
+
   it("원아 상세는 문서 이름 그대로 옮긴다", () => {
     expect(toChildDetailView(CHILD)).toEqual(CHILD);
   });
