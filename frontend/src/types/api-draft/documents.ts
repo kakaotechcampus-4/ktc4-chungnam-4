@@ -31,6 +31,11 @@ export interface ClassDraftItem {
   unclassified: { reason: string } | null;
 }
 
+/** GET /children/{child_id}/drafts 항목. 날짜 이동에 필요한 값만 담습니다 — 임시 결정(김진하) */
+export interface ChildDraftItem extends DraftSummary {
+  record_date: string;
+}
+
 /** 문장 하나의 근거 */
 export interface Evidence {
   /** 초안 안에서만 유일한 불투명 문자열(UUID 규약의 예외) */
@@ -69,6 +74,11 @@ export interface DraftDetail {
   author_name: string;
   approved_at: string | null;
   published_at: string | null;
+  /**
+   * 게시할 때 사진을 함께 보냈는지. **게시 전에는 `null`** 입니다 — 임시 결정(김진하).
+   * `false`면 학부모에게 글만 갔으므로 교사 화면도 사진을 보여 주지 않습니다.
+   */
+  include_photos: boolean | null;
   updated_at: string;
 }
 
