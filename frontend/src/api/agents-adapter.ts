@@ -4,11 +4,13 @@ import type {
   JobCreateRequest,
   JobDraftRef,
   JobStatus,
+  TeacherEvidence,
+  TeacherEvidenceUpsertRequest,
 } from "@/types/api-draft/agents";
 
 // 초안 생성 작업(Job) 응답을 화면이 쓰는 모양으로 바꾸는 곳입니다(frontend/CLAUDE.md §데이터, #92 멘토 리뷰).
 // 서버 필드 이름이나 상태 값이 API 문서와 다르게 오면 이 파일만 고칩니다. 화면은 서버 타입을 쓰지 않습니다.
-// 추가 근거(아이별 하루 확인, 김동건) 응답은 이 파일에서 다루지 않습니다 — 그쪽 adapter에서 옮깁니다.
+// 위쪽은 Job(정은), 맨 아래는 아이별 하루 확인 화면의 추가 근거(김동건)입니다.
 
 /** 서버가 모르는 상태를 보내면 "unknown"이 됩니다. 끝난 작업으로 보지 않습니다. */
 export type JobStatusView = "pending" | "running" | "succeeded" | "failed" | "unknown";
@@ -145,4 +147,43 @@ export function toJobCreateBody(input: JobCreateInput): JobCreateRequest {
 /** 작업이 끝났는지(succeeded·failed). 모르는 상태는 끝난 것으로 보지 않고 계속 기다립니다. */
 export function isJobFinished(job: JobView | null | undefined): boolean {
   return job?.status === "succeeded" || job?.status === "failed";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 추가 근거(④ 아이별 하루 확인) — 김동건. 가정 API입니다(types/api-draft/agents.ts 아래쪽).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 교사가 남긴 그날의 추가 근거(아이마다 최대 한 건) */
+export interface TeacherEvidenceView {
+  evidence_id: string;
+  child_id: string;
+  record_date: string;
+  /** 활동 시각 "HH:mm"(한국 시간) */
+  activity_time: string;
+  /** 교사가 쓴 관찰 내용. 실명이 들어갈 수 있습니다(H-2). */
+  text: string;
+  source: "teacher_note";
+  created_at: string;
+}
+
+/** 추가 근거 저장 값. 이미 있으면 덮어씁니다. */
+export interface TeacherEvidenceInput {
+  activity_time: string;
+  text: string;
+}
+
+export function toTeacherEvidenceView(raw: TeacherEvidence): TeacherEvidenceView {
+  return {
+    evidence_id: raw.evidence_id,
+    child_id: raw.child_id,
+    record_date: raw.record_date,
+    activity_time: raw.activity_time,
+    text: raw.text,
+    source: raw.source,
+    created_at: raw.created_at,
+  };
+}
+
+export function toTeacherEvidenceBody(input: TeacherEvidenceInput): TeacherEvidenceUpsertRequest {
+  return { activity_time: input.activity_time, text: input.text };
 }
