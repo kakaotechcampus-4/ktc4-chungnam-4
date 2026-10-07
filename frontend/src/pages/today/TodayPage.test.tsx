@@ -122,6 +122,24 @@ describe("TodayPage", () => {
     expect(screen.queryByRole("link", { name: "초안 검토하기" })).not.toBeInTheDocument();
   });
 
+  // 초안이 있는데 빈 카드로 떨어지면 같은 자료를 다시 올리게 된다.
+  it.each([
+    ["미분류", "unclassified"],
+    ["모르는 상태", "rejected"],
+  ])("초안이 %s이면 빈 상태 대신 확인하러 보낸다", async (_label, status) => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockDrafts([noteItem(DOYUN, status as DraftStatus, 98)]);
+    renderRoute(<TodayPage />);
+
+    expect(await screen.findByRole("link", { name: "확인하기" })).toHaveAttribute(
+      "href",
+      `/t/today/review/${DOYUN}`,
+    );
+    expect(
+      screen.queryByRole("heading", { name: "아직 담긴 순간이 없어요" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("오늘 기록을 못 불러오면 빈 상태 대신 오류와 다시 시도를 보여 준다", async () => {
     server.use(
       http.get(apiPath("/classes/:classId/drafts"), () =>

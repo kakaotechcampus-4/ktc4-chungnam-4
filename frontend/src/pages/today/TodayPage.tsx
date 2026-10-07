@@ -2,7 +2,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 
-import { classDraftsQueryOptions } from "@/api/documents";
+import { classDraftsQueryOptions, type ClassDraftView } from "@/api/documents";
 import { organizationKeys } from "@/api/organization";
 import { FocusCard } from "@/components/common/FocusCard";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
 import { ApiError } from "@/lib/api-client";
 import { formatDate, kstToday } from "@/lib/datetime";
-import type { ClassDraftItem } from "@/types/api-draft/documents";
 
 import emptyMedia from "./empty-media.svg";
 
@@ -21,15 +20,25 @@ function failureText(error: unknown) {
   return error instanceof ApiError ? error.message : "잠시 후 다시 시도해 주세요.";
 }
 
-/** 교사가 검토할 수 있는 알림장 초안이 있는지. 초안 검토 화면은 알림장 기준이고, 생성 중(draft)은 아직 열 수 없습니다. */
-function hasReviewableNote(item: ClassDraftItem) {
+/** 교사가 검토할 수 있는 알림장 초안이 있는지. 초안 검토 화면은 알림장 기준이고, 생성 중은 아직 열 수 없습니다. */
+function hasReviewableNote(item: ClassDraftView) {
   const status = item.parent_note?.status;
-  return status === "verified" || status === "approved";
+  return status === "review" || status === "approved";
 }
 
 /** 초안 생성이 끝나지 않은 원아인지 */
-function isGenerating(item: ClassDraftItem) {
-  return item.parent_note?.status === "draft" || item.observation_log?.status === "draft";
+function isGenerating(item: ClassDraftView) {
+  return item.parent_note?.status === "generating" || item.observation_log?.status === "generating";
+}
+
+/**
+ * 교사가 확인해야 하는 원아인지. 초안 없이 미분류로 끝났거나, 초안이 미분류·모르는 상태입니다.
+ * 모르는 상태를 빈 카드로 떨어뜨리면 초안이 있는데도 자료를 다시 올리게 됩니다.
+ * 초안 검토 화면은 두 상태를 잠가 보여 주므로 승인되지 않습니다(H-1).
+ */
+function needsCheck(item: ClassDraftView) {
+  const status = item.parent_note?.status;
+  return item.unclassified !== null || status === "unclassified" || status === "unknown";
 }
 
 /** 오늘 기록 상태에 따라 카드에 무엇을 보일지 */
@@ -41,13 +50,13 @@ type TodayCard =
   | { kind: "generating" }
   | { kind: "unclassified"; childId: string };
 
-function pickCard(items: readonly ClassDraftItem[]): TodayCard {
+function pickCard(items: readonly ClassDraftView[]): TodayCard {
   // 처리 중 화면처럼 검토할 초안이 있는 원아를 먼저 고릅니다. 레일에서 다른 원아로 옮길 수 있습니다.
   const reviewable = items.find(hasReviewableNote);
   if (reviewable) return { kind: "review", childId: reviewable.child_id };
   if (items.some(isGenerating)) return { kind: "generating" };
-  // 초안 없이 미분류로 끝난 원아만 남았으면, 초안 검토 화면에서 그 원아를 골라 직접 씁니다.
-  const unclassified = items.find((item) => item.unclassified !== null);
+  // 확인이 필요한 원아만 남았으면, 초안 검토 화면에서 그 원아를 골라 직접 씁니다.
+  const unclassified = items.find(needsCheck);
   if (unclassified) return { kind: "unclassified", childId: unclassified.child_id };
   return { kind: "empty" };
 }
