@@ -2,14 +2,14 @@ import { CheckIcon } from "lucide-react";
 
 import type { DraftSummaryView, RosterState } from "@/api/documents";
 import { cn } from "@/lib/utils";
-import type { ClassChild } from "@/types/api-draft/organization";
+import type { ClassChildView } from "@/api/organization";
 
 /**
  * 레일 한 줄. 상태는 adapter가 정합니다(api/documents-adapter.ts).
  * 표기는 `docs/api/documents.md` §레일·목록 표기를 따릅니다.
  */
 export interface RosterRow {
-  child: ClassChild;
+  child: ClassChildView;
   /** 그날의 알림장 초안. 없으면 자료가 없어 초안이 만들어지지 않은 것입니다. */
   note: DraftSummaryView | null;
   status: RosterState;
