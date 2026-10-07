@@ -1,6 +1,12 @@
-import type { Job } from "@/types/api-draft/agents";
+import type { Job, TeacherEvidence } from "@/types/api-draft/agents";
 
-import { isJobFinished, toJobCreateBody, toJobView } from "./agents-adapter";
+import {
+  isJobFinished,
+  toJobCreateBody,
+  toJobView,
+  toTeacherEvidenceBody,
+  toTeacherEvidenceView,
+} from "./agents-adapter";
 
 const JOB: Job = {
   job_id: "j1",
@@ -87,6 +93,34 @@ describe("agents adapter", () => {
       request_id: "r1",
       record_date: "2026-09-15",
       media_ids: ["m1"],
+    });
+  });
+});
+
+describe("agents adapter (추가 근거)", () => {
+  it("추가 근거는 문서 이름 그대로 옮기고, 문서에 없는 필드는 버린다", () => {
+    const evidence: TeacherEvidence = {
+      evidence_id: "e1",
+      child_id: "k1",
+      record_date: "2026-09-15",
+      activity_time: "10:30",
+      text: "블록을 높이 쌓았어요",
+      source: "teacher_note",
+      created_at: "2026-09-15T01:30:00Z",
+    };
+
+    expect(toTeacherEvidenceView(evidence)).toEqual(evidence);
+    expect(
+      toTeacherEvidenceView({ ...evidence, author_id: "t1" } as TeacherEvidence),
+    ).not.toHaveProperty("author_id");
+  });
+
+  it("저장 본문은 시각과 내용만 담는다", () => {
+    const input = { activity_time: "10:30", text: "블록을 높이 쌓았어요", child_id: "k1" };
+
+    expect(toTeacherEvidenceBody(input)).toEqual({
+      activity_time: "10:30",
+      text: "블록을 높이 쌓았어요",
     });
   });
 });
