@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 
-import { createJob, jobQueryOptions } from "@/api/agents";
+import { createJob, isJobFinished, jobQueryOptions, type JobView } from "@/api/agents";
 import {
   approveDraft,
   classDraftsQueryOptions,
@@ -23,7 +23,6 @@ import {
   myChildrenQueryOptions,
 } from "@/api/organization";
 import { kstToday, shiftDate } from "@/lib/datetime";
-import type { Job } from "@/types/api-draft/agents";
 import type { ChildLink } from "@/types/api-draft/media";
 
 import { updateDb } from "./db";
@@ -74,9 +73,9 @@ async function uploadPhoto(n: number) {
   });
 }
 
-async function pollUntilDone(client: QueryClient, started: Job) {
+async function pollUntilDone(client: QueryClient, started: JobView) {
   let job = started;
-  for (let i = 0; i < 10 && job.status !== "succeeded" && job.status !== "failed"; i += 1) {
+  for (let i = 0; i < 10 && !isJobFinished(job); i += 1) {
     job = await client.fetchQuery(jobQueryOptions(started.job_id));
   }
   return job;
