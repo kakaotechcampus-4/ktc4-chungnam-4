@@ -245,13 +245,13 @@ interface PublishRow {
 }
 
 /**
- * 이번 게시에 담을 줄인지. 교사가 승인한 초안만 담습니다(H-1).
+ * 이번 게시에 담을 줄인지. 교사가 승인했고 **아직 게시하지 않은** 초안만 담습니다(H-1).
  *
- * 이미 게시한 초안을 빼는 조건은 #108에서 이 함수에 더합니다 — 지금은 한 날짜를 한 번만
- * 게시한다고 보고 있어, 재게시 판정은 그 PR에서 함께 다룹니다.
+ * 게시해도 상태는 `approved` 그대로라, 게시 여부를 보지 않으면 일부가 실패해 다시 누를 때
+ * 이미 올라간 초안까지 담아 전부 실패합니다(#107 리뷰 송유진 님).
  */
 export function isPublishTarget(row: PublishRow): boolean {
-  return row.note !== null && row.status === "approved";
+  return row.note !== null && row.status === "approved" && row.note.published_at === null;
 }
 
 /** 교사가 아직 봐야 하는 줄인지. 하나라도 남으면 게시를 막습니다. */

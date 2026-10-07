@@ -232,6 +232,14 @@ describe("게시 판정", () => {
     expect(isPublishTarget(row("none", null))).toBe(false);
   });
 
+  // 게시해도 status는 approved 그대로입니다. 게시 여부를 보지 않으면 일부가 실패해 다시
+  // 누를 때 이미 올라간 초안까지 담아 전부 실패합니다(#107 리뷰 송유진 님).
+  it("이미 게시한 초안은 다시 담지 않는다", () => {
+    const published = { ...summaryView("approved"), published_at: "2026-10-06T08:40:00Z" };
+
+    expect(isPublishTarget({ status: "approved", note: published })).toBe(false);
+  });
+
   it("교사가 볼 것이 남은 줄만 게시를 막는다", () => {
     expect(needsReview(row("review"))).toBe(true);
     expect(needsReview(row("approved"))).toBe(false);
