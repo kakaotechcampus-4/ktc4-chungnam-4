@@ -43,6 +43,7 @@ export {
   isUnpublishedDraft,
   needsReview,
   type PublicationResultView,
+  type PublicationState,
   type RosterState,
   toRosterState,
   selectedPhotos,
