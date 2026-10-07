@@ -1,4 +1,5 @@
 import type { MediaType } from "@/types/api-draft/media";
+import { FACE_DESCRIPTOR_LENGTH } from "@/workers/face/types";
 
 // API 문서 §media·face 목의 값입니다.
 
@@ -16,9 +17,15 @@ export const ALLOWED_CONTENT_TYPES: Record<MediaType, readonly string[]> = {
   voice_memo: ["audio/mp4", "audio/x-m4a", "audio/m4a", "audio/wav", "audio/x-wav", "audio/wave"],
 };
 
-/** 원아별 가짜 임베딩. 실제는 ArcFace float 512개입니다. 값은 원아마다 다르기만 하면 됩니다. */
+/**
+ * 원아별 가짜 임베딩. 실제는 HUMAN faceres float 1024개입니다(이슈 #120).
+ * 값은 원아마다 다르기만 하면 되지만, **길이는 실제와 같아야** 합니다 —
+ * 진짜 대조 코드가 들어왔을 때 목에서 1024와 512를 견주게 됩니다(#121 리뷰 송유진 님).
+ */
 export function fakeEmbedding(seed: number): number[] {
-  return Array.from({ length: 512 }, (_, i) => Number(Math.sin(seed * 1000 + i).toFixed(4)));
+  return Array.from({ length: FACE_DESCRIPTOR_LENGTH }, (_, i) =>
+    Number(Math.sin(seed * 1000 + i).toFixed(4)),
+  );
 }
 
 // 목 사진입니다. 사람이 없는 합성 그림이고, 테마는 초안 문장 템플릿(fixtures/documents.ts)과 순서가 같습니다.
