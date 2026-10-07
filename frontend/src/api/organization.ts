@@ -8,16 +8,47 @@ import type {
   ChildDetail,
   ChildInvite,
   ChildOverview,
-  ChildUpsertRequest,
   ClassChild,
   ClassCreateRequest,
   ClassSummary,
   EducationPlan,
-  EducationPlanRequest,
   MyChild,
-  PlanType,
   TeacherProfileRequest,
 } from "@/types/api-draft/organization";
+
+import {
+  type ChildInput,
+  type EducationPlanInput,
+  type PlanTypeView,
+  toChildBody,
+  toChildDetailView,
+  toChildInviteView,
+  toChildOverviewView,
+  toClassChildView,
+  toEducationPlanBody,
+  toEducationPlanView,
+  toMyChildView,
+} from "./organization-adapter";
+
+// 화면은 원아·교육 계획 서버 타입 대신 여기서 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
+// 반·어린이집·교사 정보(송유진 몫)는 아직 adapter로 옮기지 않았습니다.
+export {
+  type ChildDetailView,
+  type ChildInput,
+  type ChildInviteView,
+  type ChildNoteSummaryView,
+  type ChildOverviewView,
+  type ClassChildView,
+  type ConsentItemView,
+  type ConsentTypeView,
+  type EducationPlanInput,
+  type EducationPlanView,
+  type FaceStatusView,
+  type MyChildView,
+  type NuriDomainView,
+  type PlanTypeView,
+  type WeekdayView,
+} from "./organization-adapter";
 
 // 반·원아·교육 계획 요청과 query key는 이 파일에서만 만듭니다(frontend/CLAUDE.md §데이터).
 // 목록은 작아서 next_cursor가 항상 null이라 items만 캐시에 둡니다.
@@ -28,7 +59,7 @@ export const organizationKeys = {
   child: (childId: string) => ["children", childId] as const,
   childOverview: (childId: string) => ["children", childId, "overview"] as const,
   childInvite: (childId: string) => ["children", childId, "parent-invites"] as const,
-  plans: (classId: string, planType: PlanType) =>
+  plans: (classId: string, planType: PlanTypeView) =>
     ["classes", classId, "education-plans", planType] as const,
   allPlans: (classId: string) => ["classes", classId, "education-plans"] as const,
   plan: (planId: string) => ["education-plans", planId] as const,
@@ -42,7 +73,7 @@ export function myChildrenQueryOptions() {
   return queryOptions({
     queryKey: organizationKeys.myChildren(),
     queryFn: async ({ signal }) =>
-      (await api.get<ListResponse<MyChild>>("/me/children", { signal })).items,
+      (await api.get<ListResponse<MyChild>>("/me/children", { signal })).items.map(toMyChildView),
   });
 }
 
@@ -70,8 +101,9 @@ export function classChildrenQueryOptions(classId: string) {
   return queryOptions({
     queryKey: organizationKeys.children(classId),
     queryFn: async ({ signal }) =>
-      (await api.get<ListResponse<ClassChild>>(`/classes/${enc(classId)}/children`, { signal }))
-        .items,
+      (
+        await api.get<ListResponse<ClassChild>>(`/classes/${enc(classId)}/children`, { signal })
+      ).items.map(toClassChildView),
   });
 }
 
@@ -79,7 +111,8 @@ export function classChildrenQueryOptions(classId: string) {
 export function childQueryOptions(childId: string) {
   return queryOptions({
     queryKey: organizationKeys.child(childId),
-    queryFn: ({ signal }) => api.get<ChildDetail>(`/children/${enc(childId)}`, { signal }),
+    queryFn: async ({ signal }) =>
+      toChildDetailView(await api.get<ChildDetail>(`/children/${enc(childId)}`, { signal })),
   });
 }
 
@@ -87,8 +120,10 @@ export function childQueryOptions(childId: string) {
 export function childOverviewQueryOptions(childId: string) {
   return queryOptions({
     queryKey: organizationKeys.childOverview(childId),
-    queryFn: ({ signal }) =>
-      api.get<ChildOverview>(`/children/${enc(childId)}/overview`, { signal }),
+    queryFn: async ({ signal }) =>
+      toChildOverviewView(
+        await api.get<ChildOverview>(`/children/${enc(childId)}/overview`, { signal }),
+      ),
   });
 }
 
@@ -96,13 +131,15 @@ export function childOverviewQueryOptions(childId: string) {
 export function childInviteQueryOptions(childId: string) {
   return queryOptions({
     queryKey: organizationKeys.childInvite(childId),
-    queryFn: ({ signal }) =>
-      api.get<ChildInvite>(`/children/${enc(childId)}/parent-invites`, { signal }),
+    queryFn: async ({ signal }) =>
+      toChildInviteView(
+        await api.get<ChildInvite>(`/children/${enc(childId)}/parent-invites`, { signal }),
+      ),
   });
 }
 
 /** 반의 교육 계획 목록(시작일 최신순) */
-export function plansQueryOptions(classId: string, planType: PlanType) {
+export function plansQueryOptions(classId: string, planType: PlanTypeView) {
   return queryOptions({
     queryKey: organizationKeys.plans(classId, planType),
     queryFn: async ({ signal }) =>
@@ -111,7 +148,7 @@ export function plansQueryOptions(classId: string, planType: PlanType) {
           signal,
           query: { plan_type: planType },
         })
-      ).items,
+      ).items.map(toEducationPlanView),
   });
 }
 
@@ -119,7 +156,10 @@ export function plansQueryOptions(classId: string, planType: PlanType) {
 export function planQueryOptions(planId: string) {
   return queryOptions({
     queryKey: organizationKeys.plan(planId),
-    queryFn: ({ signal }) => api.get<EducationPlan>(`/education-plans/${enc(planId)}`, { signal }),
+    queryFn: async ({ signal }) =>
+      toEducationPlanView(
+        await api.get<EducationPlan>(`/education-plans/${enc(planId)}`, { signal }),
+      ),
   });
 }
 
@@ -152,25 +192,36 @@ export function setClassFavorite(classId: string, isFavorite: boolean) {
   return api.patch<ClassSummary>(`/classes/${enc(classId)}/favorite`, { is_favorite: isFavorite });
 }
 
-export function createChild(body: ChildUpsertRequest) {
-  return api.post<ChildDetail>(`/classes/${enc(body.class_id)}/children`, body);
+export async function createChild(input: ChildInput) {
+  return toChildDetailView(
+    await api.post<ChildDetail>(`/classes/${enc(input.class_id)}/children`, toChildBody(input)),
+  );
 }
 
-export function updateChild(childId: string, body: ChildUpsertRequest) {
-  return api.patch<ChildDetail>(`/children/${enc(childId)}`, body);
+export async function updateChild(childId: string, input: ChildInput) {
+  return toChildDetailView(
+    await api.patch<ChildDetail>(`/children/${enc(childId)}`, toChildBody(input)),
+  );
 }
 
 /** 초대 링크 다시 만들기. 이전 링크는 쓸 수 없게 됩니다 */
-export function regenerateChildInvite(childId: string) {
-  return api.post<ChildInvite>(`/children/${enc(childId)}/parent-invites`);
+export async function regenerateChildInvite(childId: string) {
+  return toChildInviteView(await api.post<ChildInvite>(`/children/${enc(childId)}/parent-invites`));
 }
 
-export function createPlan(classId: string, body: EducationPlanRequest) {
-  return api.post<EducationPlan>(`/classes/${enc(classId)}/education-plans`, body);
+export async function createPlan(classId: string, input: EducationPlanInput) {
+  return toEducationPlanView(
+    await api.post<EducationPlan>(
+      `/classes/${enc(classId)}/education-plans`,
+      toEducationPlanBody(input),
+    ),
+  );
 }
 
-export function updatePlan(planId: string, body: EducationPlanRequest) {
-  return api.patch<EducationPlan>(`/education-plans/${enc(planId)}`, body);
+export async function updatePlan(planId: string, input: EducationPlanInput) {
+  return toEducationPlanView(
+    await api.patch<EducationPlan>(`/education-plans/${enc(planId)}`, toEducationPlanBody(input)),
+  );
 }
 
 /** 가정: API 문서에 삭제가 없습니다 */
