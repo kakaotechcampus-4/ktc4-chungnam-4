@@ -3,7 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useNavigate, useParams } from "react-router";
 
-import { childDraftsQueryOptions, draftQueryOptions } from "@/api/documents";
+import {
+  childDraftsQueryOptions,
+  didSendPhotos,
+  draftQueryOptions,
+  sentPhotos,
+} from "@/api/documents";
 import { classChildrenQueryOptions } from "@/api/organization";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -15,7 +20,6 @@ import { formatDate, formatDateTime } from "@/lib/datetime";
 function failureText(error: unknown) {
   return error instanceof ApiError ? error.message : "잠시 후 다시 시도해 주세요.";
 }
-import type { MediaUrl } from "@/types/api-draft/media";
 
 export function ParentNoteDetailPage() {
   const { childId = "", draftId = "" } = useParams<{ childId: string; draftId: string }>();
@@ -75,16 +79,10 @@ export function ParentNoteDetailPage() {
   const goTo = (id: string) => navigate(`/t/notes/children/${childId}/${id}`, { replace: true });
 
   const draft = draftQuery.data;
-  // 사진 없이 게시했으면 학부모에게 글만 갔습니다. 여기는 "학부모가 받은 것"을 보는 자리라
-  // 교사에게도 사진을 보여 주지 않습니다 — 보낸 것과 본 것이 달라지면 안 됩니다.
-  // true일 때만 보여 줍니다. 게시 전 캐시(null)가 남아 있으면 !== false로는 사진이 잠깐 보입니다.
-  const photosSent = draft?.include_photos === true;
-  const photos: MediaUrl[] =
-    draft && photosSent
-      ? draft.selected_media_ids
-          .map((id) => draft.media.find((media) => media.media_id === id))
-          .filter((media): media is MediaUrl => media !== undefined && media.type === "photo")
-      : [];
+  // 여기는 "학부모가 받은 것"을 보는 자리입니다. 사진을 빼고 게시했으면 교사에게도
+  // 보여 주지 않습니다 — 보낸 것과 본 것이 달라지면 안 됩니다(api/documents-adapter.ts).
+  const photosSent = didSendPhotos(draft);
+  const photos = sentPhotos(draft);
 
   return (
     <>

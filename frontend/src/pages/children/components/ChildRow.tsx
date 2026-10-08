@@ -9,10 +9,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { consentSummary, FACE_STATUS_LABEL_MAP, faceStatus } from "@/features/organization/labels";
-import type { ClassChild } from "@/types/api-draft/organization";
+import type { ClassChildView } from "@/api/organization";
 
 interface ChildRowProps {
-  child: ClassChild;
+  child: ClassChildView;
   /** 반 이름. 명단 항목에는 반 이름이 없어서 현재 반에서 받습니다 */
   klassName: string;
 }
