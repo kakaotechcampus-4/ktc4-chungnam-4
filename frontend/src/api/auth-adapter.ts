@@ -6,54 +6,10 @@ import type {
   SessionRequest,
 } from "@/types/api-draft/auth";
 
+import type { LoginInput, MeRole, MeView, MeViewBase, SessionView } from "./auth-view";
+
 // 서버 응답을 화면이 쓰는 모양으로 바꾸는 곳입니다(frontend/CLAUDE.md §데이터, #92 멘토 리뷰).
-// 서버 필드 이름이나 역할 값이 API 문서와 다르게 오면 이 파일만 고칩니다. 화면은 서버 타입을 쓰지 않습니다.
-
-/** 역할로 들어갈 수 있는 영역입니다. 교사는 /t, 학부모는 /p입니다. */
-export type AccountRole = "teacher" | "parent";
-
-/** 서버가 모르는 역할을 보내면 "unknown"이 되고, 어느 영역에도 들어가지 못합니다(H-1). */
-export type MeRole = AccountRole | "unknown";
-
-/** GET /me — 모든 계정에 있는 필드. /me에 공통 필드가 늘면 여기와 toMeViewBase만 고칩니다. */
-export interface MeViewBase {
-  account_id: string;
-  account_type: MeRole;
-  email: string;
-  name: string;
-}
-
-/** GET /me — 교사 */
-export interface TeacherMeView extends MeViewBase {
-  account_type: "teacher";
-  teacher_id: string;
-  center_id: string;
-}
-
-/** GET /me — 학부모 */
-export interface ParentMeView extends MeViewBase {
-  account_type: "parent";
-  parent_id: string;
-}
-
-/** GET /me — 역할을 알 수 없는 계정 */
-export interface UnknownMeView extends MeViewBase {
-  account_type: "unknown";
-}
-
-export type MeView = TeacherMeView | ParentMeView | UnknownMeView;
-
-/** POST /sessions 성공 */
-export interface SessionView {
-  account_id: string;
-  account_type: MeRole;
-}
-
-/** 로그인 폼 값 */
-export interface LoginInput {
-  email: string;
-  password: string;
-}
+// 서버 필드 이름이나 역할 값이 API 문서와 다르게 오면 이 파일만 고칩니다. 화면용 타입은 auth-view.ts에 있습니다.
 
 // 서버 타입에 없는 역할이 오면 값만 남기고(H-4: 이메일·이름은 찍지 않음) "unknown"으로 둡니다.
 // 역할 자리에 객체나 긴 문자열이 와도 콘솔에 통째로 남지 않게, 문자열은 앞 32자만, 나머지는 종류만 찍습니다.
