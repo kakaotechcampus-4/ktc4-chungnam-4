@@ -1,15 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { classesQueryOptions } from "@/api/organization";
-import type { ClassSummary } from "@/types/api-draft/organization";
+import { classesQueryOptions, type ClassSummaryView } from "@/api/organization";
 
 import { useCurrentClassStore } from "./current-class-store";
 
 /** 고른 반이 담당 반 목록에 있으면 그 반, 없으면(고른 적 없음·배정 해제·다른 계정) 첫 번째 반 */
 export function pickCurrentClass(
-  classes: readonly ClassSummary[],
+  classes: readonly ClassSummaryView[],
   selectedClassId: string | null,
-): ClassSummary | null {
+): ClassSummaryView | null {
   return classes.find((c) => c.class_id === selectedClassId) ?? classes[0] ?? null;
 }
 

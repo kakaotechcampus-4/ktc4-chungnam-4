@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
 
-import { plansQueryOptions } from "@/api/organization";
+import { plansQueryOptions, type PlanTypeView } from "@/api/organization";
 import { FocusCard } from "@/components/common/FocusCard";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -11,14 +11,13 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
 import { PLAN_TYPE_LABEL_MAP } from "@/features/organization/labels";
 import { formatYearMonth, kstToday } from "@/lib/datetime";
-import type { PlanType } from "@/types/api-draft/organization";
 
 import { PlanRow } from "./components/PlanRow";
 
 const EYEBROW = "교육 계획";
 const TITLE = "계획을 세우고, 하루를 연결해요";
 
-function toPlanType(value: string | null): PlanType {
+function toPlanType(value: string | null): PlanTypeView {
   return value === "monthly" ? "monthly" : "weekly";
 }
 

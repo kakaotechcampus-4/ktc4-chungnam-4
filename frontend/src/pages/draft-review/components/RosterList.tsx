@@ -1,32 +1,39 @@
 import { CheckIcon } from "lucide-react";
 
+import type { DraftSummaryView, RosterState } from "@/api/documents";
 import { cn } from "@/lib/utils";
-import type { DraftSummary } from "@/types/api-draft/documents";
-import type { ClassChild } from "@/types/api-draft/organization";
+import type { ClassChildView } from "@/api/organization";
 
 /**
- * 레일 한 줄의 상태. 미분류("확인 필요")와 초안 없음("자료 없음")은 교사가 할 일이
- * 사진 추가·직접 작성으로 같아서 `pending`으로 묶습니다 — 임시 결정(김진하), docs/api/documents.md §레일·목록 표기.
+ * 레일 한 줄. 상태는 adapter가 정합니다(api/documents-adapter.ts).
+ * 표기는 `docs/api/documents.md` §레일·목록 표기를 따릅니다.
  */
-export type RosterState = "approved" | "pending";
-
 export interface RosterRow {
-  child: ClassChild;
-  /** 그날의 알림장 초안. 없으면 자료 없음이거나 미분류입니다. */
-  note: DraftSummary | null;
-  state: RosterState;
+  child: ClassChildView;
+  /** 그날의 알림장 초안. 없으면 자료가 없어 초안이 만들어지지 않은 것입니다. */
+  note: DraftSummaryView | null;
+  status: RosterState;
 }
 
-// 게시는 반 전체를 하루 한 번 하므로, 검토 중인 날짜에는 게시된 원아가 있을 수 없습니다.
-// 게시를 마친 날짜는 화면 전체가 잠기고 레일을 쓰지 않습니다 — 그래서 "게시됨" 상태가 없습니다.
+// 한 날짜에 나간 아이와 안 나간 아이가 섞입니다 — 게시가 건별로 실패하거나 교사가 일부를
+// 빼기 때문입니다(#108). 둘을 "검토 완료"로 함께 보여 주면 교사가 누가 나갔는지 모른 채
+// 나머지를 올리게 됩니다. docs/api/documents.md §레일·목록 표기.
 const STATE_LABEL_MAP: Record<RosterState, string> = {
+  published: "게시됨",
   approved: "검토 완료",
-  pending: "검토 필요",
+  review: "검토 필요",
+  none: "검토 필요",
+  // 아직 만드는 중이라 교사가 할 일이 없습니다. "검토 필요"로 보여 주면 눌러도 할 게 없습니다.
+  generating: "생성 중",
+  // 미분류로 끝났거나 모르는 값이라 교사가 봐야 합니다. 기다린다고 달라지지 않아
+  // "생성 중"과 나눕니다(#107 리뷰 송유진 님, docs/api/documents.md §레일·목록 표기).
+  unclassified: "확인 필요",
+  unknown: "확인 필요",
 };
 
-/** 승인을 마친 줄만 체크로 표시합니다(H-1: 승인 전은 검토 대기). */
-function isDone(state: RosterState) {
-  return state === "approved";
+/** 교사가 손을 뗀 줄만 체크로 표시합니다(H-1: 승인 전은 검토 대기). */
+function isDone(status: RosterState) {
+  return status === "approved" || status === "published";
 }
 
 interface RosterListProps {
@@ -37,7 +44,7 @@ interface RosterListProps {
 }
 
 export function RosterList({ klassName, rows, selectedChildId, onSelect }: RosterListProps) {
-  const doneCount = rows.filter((row) => isDone(row.state)).length;
+  const doneCount = rows.filter((row) => isDone(row.status)).length;
 
   return (
     <aside className="flex w-55 shrink-0 flex-col gap-4 rounded-xl bg-paper p-5">
@@ -48,8 +55,8 @@ export function RosterList({ klassName, rows, selectedChildId, onSelect }: Roste
         </p>
       </div>
       <ul className="flex flex-col gap-1">
-        {rows.map(({ child, state }) => {
-          const done = isDone(state);
+        {rows.map(({ child, status }) => {
+          const done = isDone(status);
           const isSelected = child.child_id === selectedChildId;
           return (
             <li key={child.child_id}>
@@ -80,7 +87,7 @@ export function RosterList({ klassName, rows, selectedChildId, onSelect }: Roste
                   </span>
                 </span>
                 <span className={cn("text-label", done ? "text-brand-ink" : "text-ink-muted")}>
-                  {STATE_LABEL_MAP[state]}
+                  {STATE_LABEL_MAP[status]}
                 </span>
               </button>
             </li>
