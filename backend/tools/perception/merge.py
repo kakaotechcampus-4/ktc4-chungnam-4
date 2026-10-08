@@ -6,8 +6,10 @@
     raw = ...  # LLM 호출은 domains/agents/llm.py
     result = parse_single_photo_analysis(raw, photo=photo, ...)
 
-RESPONSE_ERROR면 재시도할지는 service가 정한다. 재시도를 마친 결과를
-merge_perception_results로 발화 결과와 합친다.
+RESPONSE_ERROR인 사진은 service가 정한 횟수만큼 다시 부른다. 재시도를 마친 결과를
+merge_perception_results로 발화 결과와 합친다. 호출이 재시도 대상 예외로 끝나 응답이 없는 사진도
+photos에서 빼지 않고 parse_single_photo_analysis(None, photo=photo, ...)의 결과로 넘긴다. 빼면
+사진이 모두 실패했을 때 EMPTY가 나와 근거가 없는 경우와 구분되지 않는다.
 """
 
 from __future__ import annotations
@@ -35,12 +37,15 @@ def merge_perception_results(
     """발화 결과와 사진별 결과를 합친다.
 
     재시도 뒤에도 RESPONSE_ERROR인 사진은 그 사진만 PHOTO_RESPONSE_ERROR로 버리고 나머지
-    사진과 발화로 진행한다. 사진 한 장 때문에 다른 근거까지 버리지 않기 위해서다. 그래서
-    합친 결과는 RESPONSE_ERROR가 되지 않는다.
+    사진과 발화로 진행한다. 사진 한 장 때문에 다른 근거까지 버리지 않기 위해서다.
+    남은 근거가 하나도 없는데 응답 오류로 버린 사진이 있으면 EMPTY가 아니라 RESPONSE_ERROR를
+    돌려준다. 정상적으로 근거가 없는 경우와 응답 오류로 근거를 얻지 못한 경우를 상태로 구분하기
+    위해서다. 이 RESPONSE_ERROR는 재시도를 마친 뒤의 결과라 service는 다시 부르지 않는다.
 
     순서는 발화 근거 다음 사진 근거(촬영 시각·media_id 순)로 고정해, 입력 순서와 관계없이
     같은 결과를 낸다. 다음은 호출 오류로 ValueError를 낸다: 발화 결과가 RESPONSE_ERROR,
-    같은 사진이 두 번 옴, 사진과 결과의 짝이 맞지 않음, 대상 원아·기록 날짜가 아닌 근거가
+    같은 사진이 두 번 옴, 사진과 결과의 짝이 맞지 않음(결과의 근거·버림 기록의 media_id가
+    사진과 다름. 응답 오류 결과는 기록이 없어 확인할 수 없다), 대상 원아·기록 날짜가 아닌 근거가
     섞임, 같은 evidence_id가 두 번 나옴. 섞인 근거는 문장이 인용할 때만 검증(7-A)에서
     걸리므로 생성 입력에 들어가기 전에 여기서 막는다.
     """
@@ -69,7 +74,12 @@ def merge_perception_results(
 
     if any(target not in item.child_ids or item.observed_date != record_date for item in items):
         raise ValueError("evidence for another child or date")  # ID도 메시지에 싣지 않는다
-    status = PerceptionStatus.OK if items else PerceptionStatus.EMPTY
+    if items:
+        status = PerceptionStatus.OK
+    elif any(drop.reason == DropReason.PHOTO_RESPONSE_ERROR for drop in dropped):
+        status = PerceptionStatus.RESPONSE_ERROR
+    else:
+        status = PerceptionStatus.EMPTY
     merged = PerceptionResult(status=status, items=items, dropped=dropped)
     evidence_by_id(merged)  # 같은 evidence_id가 두 번 나오면 여기서 ValueError
     return merged

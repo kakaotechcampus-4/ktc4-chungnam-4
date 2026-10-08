@@ -123,19 +123,57 @@ def test_응답_오류_사진은_그_사진만_버리고_나머지는_쓴다(raw
     assert result.dropped == [Dropped(source_id=PHOTO_B_ID, reason=DropReason.PHOTO_RESPONSE_ERROR)]
 
 
-def test_사진이_모두_실패하고_발화도_없으면_RESPONSE_ERROR가_아니라_EMPTY다() -> None:
+def test_사진이_모두_실패해도_발화_근거가_남으면_OK다() -> None:
+    # 그 사진만 빼고 남은 근거로 진행한다. 사진이 모두 실패했다고 RESPONSE_ERROR가 되지 않는다.
+    photos = [(p, _analyze_one(p, None)) for p in (PHOTO_A, PHOTO_B)]
+
+    result = _merge(_transcript(), photos)
+
+    assert result == PerceptionResult(
+        status=PerceptionStatus.OK,
+        items=_transcript().items,
+        dropped=[
+            Dropped(source_id=PHOTO_B_ID, reason=DropReason.PHOTO_RESPONSE_ERROR),
+            Dropped(source_id=PHOTO_A_ID, reason=DropReason.PHOTO_RESPONSE_ERROR),
+        ],
+    )
+
+
+def test_사진이_모두_실패하고_발화도_없으면_EMPTY가_아니라_RESPONSE_ERROR다() -> None:
+    # 정상적으로 근거가 없는 경우(EMPTY)와 응답 오류로 근거를 얻지 못한 경우를 상태로 구분한다.
     photos = [(p, _analyze_one(p, None)) for p in (PHOTO_A, PHOTO_B)]
 
     result = _merge(_no_speech(), photos)
 
     assert result == PerceptionResult(
-        status=PerceptionStatus.EMPTY,
+        status=PerceptionStatus.RESPONSE_ERROR,
         items=[],
         dropped=[
             Dropped(source_id=PHOTO_B_ID, reason=DropReason.PHOTO_RESPONSE_ERROR),
             Dropped(source_id=PHOTO_A_ID, reason=DropReason.PHOTO_RESPONSE_ERROR),
         ],
     )
+
+
+def test_남은_근거가_없을_때_응답_오류_사진이_하나라도_있으면_RESPONSE_ERROR다() -> None:
+    photos = [
+        (PHOTO_A, _analyze_one(PHOTO_A, response(answer("P1", reason=REASON)))),
+        (PHOTO_B, _analyze_one(PHOTO_B, None)),
+    ]
+
+    result = _merge(_no_speech(), photos)
+
+    assert result.status == PerceptionStatus.RESPONSE_ERROR
+    assert result.dropped == [
+        Dropped(source_id=PHOTO_B_ID, reason=DropReason.PHOTO_RESPONSE_ERROR),
+        Dropped(source_id=PHOTO_A_ID, reason=DropReason.NO_VISIBLE_OBSERVATION),
+    ]
+
+
+def test_응답_오류_없이_근거가_없으면_EMPTY다() -> None:
+    photos = [(PHOTO_A, _analyze_one(PHOTO_A, response(answer("P1", reason=REASON))))]
+
+    assert _merge(_no_speech(), photos).status == PerceptionStatus.EMPTY
 
 
 def test_발화와_사진의_버림_사유를_그대로_옮긴다() -> None:
@@ -206,6 +244,16 @@ def test_다른_원아의_근거가_섞이면_호출_오류다() -> None:
 
     with pytest.raises(ValueError):
         _merge(_transcript(), [(photo_b, result_b)])
+
+
+def test_다른_원아로_정규화한_발화_결과가_섞이면_호출_오류다() -> None:
+    transcript_b = normalize_transcript(
+        [segment(child_ids=(CHILD_B_ID,))], target_child_id=CHILD_B_ID, record_date=RECORD_DATE
+    )
+    assert transcript_b.status == PerceptionStatus.OK
+
+    with pytest.raises(ValueError):
+        _merge(transcript_b, [])
 
 
 def test_기록_날짜가_다른_근거가_섞이면_호출_오류다() -> None:

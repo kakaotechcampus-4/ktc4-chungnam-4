@@ -97,7 +97,8 @@ class DropReason(StrEnum):
     AMBIGUOUS_ACTOR = "ambiguous_actor"  # 사진의 아이 수와 관찰 scope가 맞지 않음
     NO_VISIBLE_OBSERVATION = "no_visible_observation"  # 사진에서 쓸 관찰이 없다고 응답함
     PHOTO_NOT_ANSWERED = "photo_not_answered"  # 사진 분석 응답에 그 사진이 빠짐
-    PHOTO_RESPONSE_ERROR = "photo_response_error"  # 재시도 뒤에도 그 사진의 분석 응답이 형식 위반
+    # 재시도 뒤에도 그 사진의 분석이 실패함(응답 형식 위반·본문 없음·재시도 대상 호출 예외)
+    PHOTO_RESPONSE_ERROR = "photo_response_error"
 
 
 class Dropped(ContractModel):
@@ -114,7 +115,9 @@ class Dropped(ContractModel):
 class PerceptionStatus(StrEnum):
     OK = "ok"  # items 1개 이상
     EMPTY = "empty"  # 정상 처리했지만 쓸 근거가 없음
-    RESPONSE_ERROR = "response_error"  # 사진 분석 응답이 JSON·스키마 위반. 재시도는 service가 판단
+    # 사진 분석 응답이 JSON·스키마 위반이거나 본문이 없음. 재시도는 service가 판단한다. 합친
+    # 결과에서는 남은 근거가 없고, 재시도 뒤에도 응답 오류로 뺀 사진이 하나 이상 있다는 뜻이다.
+    RESPONSE_ERROR = "response_error"
 
 
 class PerceptionResult(ContractModel):
