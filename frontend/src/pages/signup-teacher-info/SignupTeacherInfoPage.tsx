@@ -7,12 +7,16 @@ import { useForm, useWatch } from "react-hook-form";
 import { useNavigate } from "react-router";
 import { z } from "zod";
 
-import { createCenter, findCenterByCode, saveTeacherProfile } from "@/api/organization";
+import {
+  type CenterSummaryView,
+  createCenter,
+  findCenterByCode,
+  saveTeacherProfile,
+} from "@/api/organization";
 import { FormField } from "@/components/common/FormField";
 import { Stepper } from "@/components/common/Stepper";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { CenterSummary } from "@/types/api-draft/organization";
 
 const SIGNUP_STEPS = ["이메일 가입", "교사 정보"] as const;
 
@@ -57,7 +61,7 @@ type TeacherInfoValues = z.infer<typeof teacherInfoSchema>;
 export function SignupTeacherInfoPage() {
   const navigate = useNavigate();
   // 코드로 확인한 어린이집. 코드를 고치면 다시 확인해야 합니다.
-  const [verifiedCenter, setVerifiedCenter] = useState<CenterSummary | null>(null);
+  const [verifiedCenter, setVerifiedCenter] = useState<CenterSummaryView | null>(null);
 
   const {
     register,

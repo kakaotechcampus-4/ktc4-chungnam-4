@@ -3,7 +3,7 @@ import { Ellipsis } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 
-import { deletePlan, organizationKeys } from "@/api/organization";
+import { deletePlan, organizationKeys, type EducationPlanView } from "@/api/organization";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,10 +22,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { formatDate, formatDotDate, toKstDate } from "@/lib/datetime";
-import type { EducationPlan } from "@/types/api-draft/organization";
 
 interface PlanRowProps {
-  plan: EducationPlan;
+  plan: EducationPlanView;
 }
 
 const shortDate = (date: string) => formatDate(date, { year: false, weekday: false });

@@ -2,6 +2,8 @@
 
 tools/, prompts/는 FastAPI·SQLAlchemy를 모르는 순수 함수로 유지한다 (backend/CLAUDE.md
 계층 규칙). 이 파일이 정의하는 타입만 모듈 간에 주고받고, 임의의 dict를 새로 만들지 않는다.
+한 모듈과 agents/service 사이에서만 쓰는 입출력 타입(예: tools/perception/types.py)은 그
+모듈에 두고, 다른 AI 모듈도 주고받게 되면 이 파일로 옮긴다.
 
 기존 backend/domains/agents/schemas.py(EvidenceBundleResponse 등)는 API 응답 형식이고,
 여기 정의는 AI 모듈 내부 입출력 형식이다. 두 형식이 다른 이유와 저장 형식 변환 지점은
@@ -35,7 +37,7 @@ class SourceType(StrEnum):
     PHOTO_OBSERVATION = "photo_observation"
     VIDEO_SPEECH = "video_speech"
     VIDEO_SCENE = "video_scene"
-    TEACHER_VOICE_MEMO = "teacher_voice_memo"
+    TEACHER_VOICE_MEMO = "teacher_voice_memo"  # 교사 음성메모와 영상 속 교사 관찰 발화
     ACTIVITY_PLAN = "activity_plan"
 
 
