@@ -1,4 +1,10 @@
-import type { AccountType, Me, SessionCreated, SessionRequest } from "@/types/api-draft/auth";
+import type {
+  AccountType,
+  Me,
+  MeBase,
+  SessionCreated,
+  SessionRequest,
+} from "@/types/api-draft/auth";
 
 // 서버 응답을 화면이 쓰는 모양으로 바꾸는 곳입니다(frontend/CLAUDE.md §데이터, #92 멘토 리뷰).
 // 서버 필드 이름이나 역할 값이 API 문서와 다르게 오면 이 파일만 고칩니다. 화면은 서버 타입을 쓰지 않습니다.
@@ -9,31 +15,30 @@ export type AccountRole = "teacher" | "parent";
 /** 서버가 모르는 역할을 보내면 "unknown"이 되고, 어느 영역에도 들어가지 못합니다(H-1). */
 export type MeRole = AccountRole | "unknown";
 
-/** GET /me — 교사 */
-export interface TeacherMeView {
+/** GET /me — 모든 계정에 있는 필드. /me에 공통 필드가 늘면 여기와 toMeViewBase만 고칩니다. */
+export interface MeViewBase {
   account_id: string;
-  account_type: "teacher";
+  account_type: MeRole;
   email: string;
   name: string;
+}
+
+/** GET /me — 교사 */
+export interface TeacherMeView extends MeViewBase {
+  account_type: "teacher";
   teacher_id: string;
   center_id: string;
 }
 
 /** GET /me — 학부모 */
-export interface ParentMeView {
-  account_id: string;
+export interface ParentMeView extends MeViewBase {
   account_type: "parent";
-  email: string;
-  name: string;
   parent_id: string;
 }
 
 /** GET /me — 역할을 알 수 없는 계정 */
-export interface UnknownMeView {
-  account_id: string;
+export interface UnknownMeView extends MeViewBase {
   account_type: "unknown";
-  email: string;
-  name: string;
 }
 
 export type MeView = TeacherMeView | ParentMeView | UnknownMeView;
@@ -70,40 +75,28 @@ function toRole(value: AccountType): MeRole {
   }
 }
 
+// 공통 필드는 여기서 한 번만 옮깁니다. 역할은 분기마다 따로 정하므로 빼고 돌려줍니다.
+// 서버 객체를 통째로 펼치지 않고 필드를 하나씩 옮깁니다.
+function toMeViewBase(raw: MeBase): Omit<MeViewBase, "account_type"> {
+  return { account_id: raw.account_id, email: raw.email, name: raw.name };
+}
+
 export function toMeView(raw: Me): MeView {
   switch (raw.account_type) {
     case "teacher":
       return {
-        account_id: raw.account_id,
+        ...toMeViewBase(raw),
         account_type: "teacher",
-        email: raw.email,
-        name: raw.name,
         teacher_id: raw.teacher_id,
         center_id: raw.center_id,
       };
     case "parent":
-      return {
-        account_id: raw.account_id,
-        account_type: "parent",
-        email: raw.email,
-        name: raw.name,
-        parent_id: raw.parent_id,
-      };
+      return { ...toMeViewBase(raw), account_type: "parent", parent_id: raw.parent_id };
     default: {
       // 서버 타입에 역할이 늘면 여기서 컴파일 에러가 납니다.
       const unexpected: never = raw;
-      const base = unexpected as {
-        account_id: string;
-        account_type: unknown;
-        email: string;
-        name: string;
-      };
-      return {
-        account_id: base.account_id,
-        account_type: warnUnknownRole(base.account_type),
-        email: base.email,
-        name: base.name,
-      };
+      const base = unexpected as MeBase;
+      return { ...toMeViewBase(base), account_type: warnUnknownRole(base.account_type) };
     }
   }
 }

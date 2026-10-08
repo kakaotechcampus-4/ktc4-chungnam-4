@@ -16,22 +16,24 @@ export interface SessionCreated {
   account_type: AccountType;
 }
 
-/** GET /me — 교사. 반 목록과 어린이집 이름은 /classes에서 받습니다. */
-export interface TeacherMe {
+/** GET /me — 역할과 상관없이 모든 계정에 있는 필드 */
+export interface MeBase {
   account_id: string;
-  account_type: "teacher";
+  account_type: AccountType;
   email: string;
   name: string;
+}
+
+/** GET /me — 교사. 반 목록과 어린이집 이름은 /classes에서 받습니다. */
+export interface TeacherMe extends MeBase {
+  account_type: "teacher";
   teacher_id: string;
   center_id: string;
 }
 
 /** GET /me — 학부모. 자녀는 /me/children에서 받습니다. */
-export interface ParentMe {
-  account_id: string;
+export interface ParentMe extends MeBase {
   account_type: "parent";
-  email: string;
-  name: string;
   parent_id: string;
 }
 
