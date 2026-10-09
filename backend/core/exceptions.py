@@ -76,3 +76,10 @@ class JwtSecretNotConfigured(AidamError):
 
     code = "JWT_SECRET_NOT_CONFIGURED"
     status_code = 500
+
+
+class StorageNotConfigured(AidamError):
+    """S3 버킷 설정(`S3_BUCKET`)이나 AWS 자격증명이 없어 업로드 URL을 만들 수 없습니다."""
+
+    code = "STORAGE_NOT_CONFIGURED"
+    status_code = 500

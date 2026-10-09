@@ -1,19 +1,29 @@
-"""업로드 메타데이터와 귀속 결과 저장.
+"""업로드 메타데이터와 귀속 결과 저장, S3 presigned URL.
 
-파일 바이트는 서버를 통과하지 않습니다. presigned URL 발급과 완료 통지 검증은
-S3 설정(`core/config.py`)과 `boto3`가 들어온 뒤에 추가합니다 — BE 리드 확인 대기 중.
+파일 바이트는 서버를 통과하지 않습니다. 브라우저가 presigned URL로 S3에 직접 올리고,
+서버는 URL 발급과 업로드 확인(HeadObject)만 합니다.
 """
 
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
+from functools import cache
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+import boto3
+from botocore.client import BaseClient
+from botocore.config import Config
+from botocore.exceptions import ClientError, NoCredentialsError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from core.exceptions import InvalidAttributionMethod, MediaAssetNotFound
+from core.config import get_settings
+from core.exceptions import (
+    InvalidAttributionMethod,
+    MediaAssetNotFound,
+    StorageNotConfigured,
+)
 from domains.media.models import MediaAsset, MediaChildLink, TranscriptSegment
 
 _ALLOWED_METHODS = frozenset({"face_recognition", "manual"})
@@ -228,3 +238,168 @@ def collect_media_for_llm(db: Session, child_id: UUID, target_date: date) -> lis
             )
         )
     return evidence
+
+
+# ---------------------------------------------------------------------------
+# S3 presigned URL (FR-15)
+# ---------------------------------------------------------------------------
+#
+# 근거는 presigned URL 스파이크(09/04, 김동건)입니다. 조용히 실패하는 함정이 여러 개라
+# S3 클라이언트는 이 구역에서만 만듭니다. 설정이 흩어지면 같은 함정이 다시 생깁니다.
+
+# 객체 key는 서버가 id만으로 만듭니다. 클라이언트 파일명을 넣으면 경로 주입(../)·덮어쓰기·
+# 한글 인코딩 사고가 생깁니다 (스파이크 §10).
+_OBJECT_KEY_PREFIX = "media"
+# 자격증명이 만료되기 직전에 발급한 URL이 업로드 도중 죽지 않게 남기는 여유 (스파이크 §5).
+_CREDENTIAL_SAFETY_MARGIN_SECONDS = 300
+_MIN_URL_SECONDS = 60
+
+
+@dataclass(frozen=True)
+class PresignedUpload:
+    """브라우저가 S3에 직접 PUT할 때 쓰는 값. `headers`를 그대로 붙여야 서명이 맞습니다."""
+
+    url: str
+    headers: dict[str, str]
+    expires_at: datetime
+
+
+@dataclass(frozen=True)
+class StoredObject:
+    """S3에 실제로 올라간 객체를 서버가 직접 확인한 값 (HeadObject)."""
+
+    size_bytes: int
+    content_type: str | None
+
+
+@cache
+def _s3_session(region: str) -> boto3.session.Session:
+    """자격증명은 boto3 기본 탐색 순서로 찾습니다(환경변수 → SSO 프로필 → 인스턴스 롤)."""
+    return boto3.session.Session(region_name=region)
+
+
+@cache
+def _s3_client(region: str) -> BaseClient:
+    """서울 리전 엔드포인트로 서명하는 S3 클라이언트.
+
+    `addressing_style="virtual"`이 없으면 `region_name`을 줘도 글로벌 호스트
+    (버킷.s3.amazonaws.com)로 URL을 만듭니다. 서명 리전과 호스트가 어긋나 S3가 307을 주고,
+    따라가면 SigV4 서명이 Host까지 포함해서 403이 됩니다. 브라우저에서는 CORS 에러처럼
+    보여서 CORS를 의심하게 됩니다 (스파이크 §7).
+    """
+    return _s3_session(region).client(
+        "s3",
+        config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
+    )
+
+
+def _bucket() -> str:
+    bucket = get_settings().s3_bucket
+    if not bucket:
+        raise StorageNotConfigured("파일 저장소 설정이 없어 업로드할 수 없어요.")
+    return bucket
+
+
+def _credential_seconds_left(region: str) -> int | None:
+    """서명에 쓸 자격증명의 남은 수명(초). 만료가 없는 자격증명(고정 키)이면 None.
+
+    `get_frozen_credentials()`를 먼저 불러야 합니다. 지연 갱신 자격증명은 실제로 꺼내기 전까지
+    만료 시각이 비어 있어서, 부르지 않으면 잘라내기가 조용히 꺼집니다 (스파이크 §5).
+    만료 시각은 botocore에 공개 API가 없어 비공개 속성 `_expiry_time`을 읽습니다.
+    """
+    credentials = _s3_session(region).get_credentials()
+    if credentials is None:
+        raise StorageNotConfigured("파일 저장소에 접근할 수 없어 업로드할 수 없어요.")
+    credentials.get_frozen_credentials()
+    expiry = getattr(credentials, "_expiry_time", None)
+    if expiry is None:
+        return None
+    if expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=UTC)
+    return int((expiry - datetime.now(UTC)).total_seconds())
+
+
+def _clamp_expires_in(requested: int, credential_seconds_left: int | None) -> int:
+    """URL 유효기간을 자격증명 수명 안으로 자릅니다.
+
+    presigned URL은 서명한 자격증명보다 오래 살 수 없습니다. 길게 요청해도 발급은 성공하고
+    경고도 없이 자격증명 만료 시점에 죽습니다 (스파이크 §5).
+    """
+    if credential_seconds_left is None:
+        return requested
+    ceiling = max(_MIN_URL_SECONDS, credential_seconds_left - _CREDENTIAL_SAFETY_MARGIN_SECONDS)
+    return min(requested, ceiling)
+
+
+def object_key(class_id: UUID, client_photo_id: UUID) -> str:
+    """미디어 원본의 S3 key. `client_photo_id`가 UNIQUE라 key도 겹치지 않습니다."""
+    return f"{_OBJECT_KEY_PREFIX}/{class_id}/{client_photo_id}"
+
+
+def presign_upload(key: str, content_type: str, size_bytes: int) -> PresignedUpload:
+    """브라우저가 이 key에 이 파일 하나만 올릴 수 있는 URL을 발급합니다.
+
+    `ContentLength`를 서명에 넣어 **선언한 크기와 정확히 같은 바이트만** 올라가게 합니다.
+    1바이트라도 다르면 S3가 403 `SignatureDoesNotMatch`를 줍니다. `ContentType`도 같습니다.
+    크기 상한 검사는 부르는 쪽이 이 함수 전에 합니다 (스파이크 §10).
+
+    **발급이 성공해도 업로드 권한이 있다는 뜻은 아닙니다.** 서명은 AWS를 부르지 않는 로컬
+    계산이라, 인스턴스 롤에 S3 권한이 없어도 정상 URL이 나오고 실패는 브라우저의 PUT에서야
+    드러납니다 (스파이크 §11).
+    """
+    bucket = _bucket()
+    settings = get_settings()
+    client = _s3_client(settings.s3_region)
+    expires_in = _clamp_expires_in(
+        settings.s3_upload_url_expires_seconds, _credential_seconds_left(settings.s3_region)
+    )
+    try:
+        url = client.generate_presigned_url(
+            "put_object",
+            Params={
+                "Bucket": bucket,
+                "Key": key,
+                "ContentType": content_type,
+                "ContentLength": size_bytes,
+            },
+            ExpiresIn=expires_in,
+        )
+    except NoCredentialsError as error:
+        raise StorageNotConfigured("파일 저장소에 접근할 수 없어 업로드할 수 없어요.") from error
+    return PresignedUpload(
+        url=url,
+        # Content-Length는 브라우저가 Blob 크기로 직접 붙입니다(스크립트가 설정할 수 없는 헤더).
+        headers={"Content-Type": content_type},
+        expires_at=datetime.now(UTC) + timedelta(seconds=expires_in),
+    )
+
+
+def head_uploaded_object(key: str) -> StoredObject | None:
+    """완료 통지를 믿지 않고 S3에 직접 물어봅니다. 객체가 없으면 None.
+
+    권한 오류(403) 같은 다른 실패는 None으로 바꾸지 않고 그대로 올립니다 — "없음"으로
+    보이면 FE가 다시 올리기를 반복하고 원인은 묻힙니다.
+    """
+    client = _s3_client(get_settings().s3_region)
+    try:
+        response = client.head_object(Bucket=_bucket(), Key=key)
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") in {"404", "NoSuchKey", "NotFound"}:
+            return None
+        raise
+    return StoredObject(
+        size_bytes=response["ContentLength"], content_type=response.get("ContentType")
+    )
+
+
+# 형식 판별에 필요한 앞부분 길이. ftyp 브랜드(8~12바이트)와 WAVE(8~12바이트)까지 덮습니다.
+_SIGNATURE_READ_BYTES = 64
+
+
+def _read_object_head(key: str) -> bytes:
+    """객체의 앞 몇십 바이트만 받습니다(Range 요청). 파일 전체는 EC2를 지나지 않습니다."""
+    client = _s3_client(get_settings().s3_region)
+    response = client.get_object(
+        Bucket=_bucket(), Key=key, Range=f"bytes=0-{_SIGNATURE_READ_BYTES - 1}"
+    )
+    return response["Body"].read()
