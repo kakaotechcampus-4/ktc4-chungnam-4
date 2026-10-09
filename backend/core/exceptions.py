@@ -28,6 +28,16 @@ class EmbeddingDecryptionFailed(AidamError):
     status_code = 500
 
 
+class FaceConsentRequired(AidamError):
+    """③ 얼굴특징정보처리 동의가 없는 원아의 얼굴 정보를 등록하려 했습니다 (H-3, FR-28).
+
+    코드 이름은 face 담당이 정한 값입니다(docs/api/media-face.md §상의 필요 4, 팀 공지 전).
+    """
+
+    code = "FACE_CONSENT_REQUIRED"
+    status_code = 403
+
+
 class MediaAssetNotFound(AidamError):
     """알 수 없는 미디어에 귀속 결과를 붙이려 한 경우."""
 
