@@ -98,11 +98,15 @@ export interface DraftView {
 }
 
 /**
- * 게시 한 건의 결과. 값은 서버와 같지만 **타입을 따로 선언합니다** — `PublicationResult`를
+ * 게시 한 건의 결과. **서버 타입을 참조하지 않고 따로 선언합니다** — `PublicationResult`를
  * 참조해 두면 서버 인터페이스가 바뀔 때 화면 코드까지 그대로 끌려갑니다(#124 멘토 리뷰).
  * adapter는 그 연결을 끊는 자리입니다.
+ *
+ * `unknown`은 서버 값에 없습니다. 모르는 값을 성공·실패 어느 쪽으로도 읽지 않으려고
+ * 둡니다 — 지금 화면은 `isPublished`가 false인 것을 모두 실패로 묶지만, 나중에 실패 건에
+ * "다시 게시"를 붙이면 모르는 결과까지 다시 보내게 됩니다(#125 리뷰 송유진 님).
  */
-export type PublicationState = "published" | "failed";
+export type PublicationState = "published" | "failed" | "unknown";
 
 /** POST /publications 한 건의 결과 */
 export interface PublicationResultView {
@@ -118,8 +122,8 @@ export interface PublicationResultView {
 
 // 서버가 모르는 상태를 보내면 값만 남깁니다(H-4: 이름·연락처는 찍지 않음). 긴 문자열은 앞 32자만.
 // 모르면 잠급니다 — 열어 두면 교사가 승인해 미완성 글이 나갈 수 있습니다(H-1).
-function warnUnknownStatus(value: unknown): "unknown" {
-  console.warn("모르는 초안 상태", typeof value === "string" ? value.slice(0, 32) : typeof value);
+function warnUnknownStatus(label: string, value: unknown): "unknown" {
+  console.warn(label, typeof value === "string" ? value.slice(0, 32) : typeof value);
   return "unknown";
 }
 
@@ -144,7 +148,7 @@ export function toDraftState(value: DraftStatus): DraftState {
       return "unclassified";
     default: {
       const unexpected: never = value;
-      return warnUnknownStatus(unexpected);
+      return warnUnknownStatus("모르는 초안 상태", unexpected);
     }
   }
 }
@@ -192,8 +196,9 @@ export function toDraftView(raw: DraftDetail): DraftView {
 /**
  * 서버 값을 화면 값으로 옮깁니다. 지금은 글자가 같지만 `toDraftState`처럼 하나씩 집습니다 —
  * 서버에 값이 늘면 `default`에서 컴파일 에러가 나 모르고 지나칠 수 없습니다.
- * 모르는 값은 `failed`로 둡니다. 나갔는지 모르는 것을 "나갔다"로 보면 교사가 빠진 아이를
- * 모른 채 그날을 닫습니다(H-1).
+ * 모르는 값은 `unknown`입니다. `failed`는 서버가 "실패했다"고 알려 준 결과인데, 모르는
+ * 값은 실패인지도 알 수 없습니다 — 서버에 없는 값을 adapter가 지어내지 않습니다
+ * (`frontend/CLAUDE.md` §데이터, #125 리뷰 송유진 님).
  */
 function toPublicationState(value: PublicationResult["status"]): PublicationState {
   switch (value) {
@@ -203,11 +208,7 @@ function toPublicationState(value: PublicationResult["status"]): PublicationStat
       return "failed";
     default: {
       const unexpected: never = value;
-      console.warn(
-        "모르는 게시 결과",
-        typeof unexpected === "string" ? (unexpected as string).slice(0, 32) : typeof unexpected,
-      );
-      return "failed";
+      return warnUnknownStatus("모르는 게시 결과", unexpected);
     }
   }
 }
