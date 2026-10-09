@@ -31,6 +31,17 @@ class Settings(BaseSettings):
     face_embedding_key: SecretStr | None = None
     face_embedding_key_ref: str = "local-dev-1"  # FaceEmbedding.key_ref에 저장되는 키 식별자
 
+    # 미디어 원본을 두는 S3 버킷 (FR-15). 파일은 브라우저가 presigned URL로 직접 올리고
+    # 서버를 지나지 않습니다. 버킷이 없어도 앱은 뜨고 업로드만 실패합니다(face_embedding_key와 같은 방식).
+    # 자격증명은 여기 두지 않습니다 — 캠퍼스 AWS는 IAM 액세스 키 발급이 막혀 있어(#29),
+    # 서버는 EC2 인스턴스 롤, 로컬은 `aws sso login`으로 받은 기본 자격증명을 boto3가 찾아 씁니다.
+    s3_bucket: str | None = None
+    s3_region: str = "ap-northeast-2"
+    # 업로드 URL 유효기간. 최악 회선(1MB/s)에서 3GB를 올리는 약 51분을 덮습니다
+    # (presigned 스파이크 §6, docs/api/media-face.md 임시 결정(김동건)). 자격증명 잔여 수명보다
+    # 길게 요청하면 발급은 되지만 그 시점에 조용히 죽으므로 발급할 때 잘라냅니다.
+    s3_upload_url_expires_seconds: int = Field(default=3600, gt=0)
+
     # TODO(태은): AI 기능 배포 전에는 키 누락을 차단하도록 필수값 검증을 추가합니다.
     # Redis·worker 연습은 AI 호출 없이 실행하므로 현재는 빈 값을 허용합니다.
     anthropic_api_key: SecretStr = SecretStr("")
