@@ -1,5 +1,10 @@
 import { fixtureId } from "@/mocks/fixtures/ids";
-import type { DraftDetail, DraftStatus, DraftSummary } from "@/types/api-draft/documents";
+import type {
+  DraftDetail,
+  DraftStatus,
+  DraftSummary,
+  PublicationResult,
+} from "@/types/api-draft/documents";
 import type { MediaUrl } from "@/types/api-draft/media";
 
 import {
@@ -215,6 +220,28 @@ describe("목록과 게시 결과", () => {
       error_code: "DRAFT_VERSION_CONFLICT",
     });
     expect(isPublished(failed)).toBe(false);
+  });
+
+  // 서버 타입을 참조하지 않고 값을 하나씩 옮깁니다(#124 멘토 리뷰). 모르는 값은 unknown입니다 —
+  // failed는 서버가 "실패했다"고 알려 준 결과이고, 모르는 값은 실패인지도 알 수 없습니다.
+  // 지금은 둘 다 게시되지 않은 것으로 묶이지만, 실패 건에만 붙는 동작이 생기면 달라집니다.
+  it("모르는 게시 결과는 unknown으로 두고 값만 로그에 남긴다", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const view = toPublicationResultView({
+      draft_id: fixtureId("draft", 12),
+      child_id: fixtureId("child", 1),
+      status: "pending" as PublicationResult["status"],
+      parent_note_id: null,
+      version: null,
+      published_at: null,
+      error_code: null,
+    });
+
+    expect(view.status).toBe("unknown");
+    expect(isPublished(view)).toBe(false);
+    expect(warn).toHaveBeenCalledWith("모르는 게시 결과", "pending");
+    warn.mockRestore();
   });
 });
 
