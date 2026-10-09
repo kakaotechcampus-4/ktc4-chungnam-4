@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from core.base import Base
-from core.exceptions import InvalidAttributionMethod, MediaAssetNotFound
+from core.exceptions import DuplicateChildLink, InvalidAttributionMethod, MediaAssetNotFound
 from domains.media.models import MediaAsset, MediaChildLink
 from domains.media.service import (
     Attribution,
@@ -203,5 +203,27 @@ def test_미디어를_못_찾으면_404_코드로_올라간다() -> None:
 
 
 def test_잘못된_귀속_방법은_400_코드로_올라간다() -> None:
-    assert InvalidAttributionMethod.code == "MEDIA_INVALID_ATTRIBUTION_METHOD"
+    assert InvalidAttributionMethod.code == "INVALID_ATTRIBUTION_METHOD"
     assert InvalidAttributionMethod.status_code == 400
+
+
+def test_같은_원아가_두_번_있으면_거절한다(db: Session, asset: MediaAsset) -> None:
+    """조용히 하나만 쓰면 FE 버그가 숨습니다 (docs/api/media-face.md DUPLICATE_CHILD_LINK)."""
+    child_id = uuid.uuid4()
+
+    with pytest.raises(DuplicateChildLink):
+        save_attributions(
+            db,
+            asset.id,
+            [Attribution(child_id, "manual"), Attribution(child_id, "manual")],
+            llm_allowed=True,
+        )
+
+
+def test_귀속을_저장하면_빈_목록이어도_attributed_at이_찬다(db: Session, asset: MediaAsset) -> None:
+    """'교사가 귀속을 저장했다'는 표시입니다. 미분류(빈 목록)도 저장한 것입니다."""
+    assert asset.attributed_at is None
+
+    save_attributions(db, asset.id, [], llm_allowed=False)
+
+    assert asset.attributed_at is not None

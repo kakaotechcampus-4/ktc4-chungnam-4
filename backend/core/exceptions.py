@@ -38,7 +38,7 @@ class MediaAssetNotFound(AidamError):
 class InvalidAttributionMethod(AidamError):
     """`method`가 허용된 값이 아닌 경우."""
 
-    code = "MEDIA_INVALID_ATTRIBUTION_METHOD"
+    code = "INVALID_ATTRIBUTION_METHOD"
     status_code = 400
 
 
@@ -114,3 +114,20 @@ class MediaUploadNotFound(AidamError):
 
     code = "MEDIA_UPLOAD_NOT_FOUND"
     status_code = 409
+
+
+class DuplicateChildLink(AidamError):
+    """같은 원아가 귀속 목록에 두 번 있습니다. FE 버그를 숨기지 않으려고 거절합니다."""
+
+    code = "DUPLICATE_CHILD_LINK"
+    status_code = 400
+
+
+class MediaUploadMismatch(AidamError):
+    """S3에 올라간 파일의 크기·형식·앞부분이 URL을 받을 때 선언한 것과 다릅니다.
+
+    URL을 다시 받아 같은 파일을 올리면 됩니다(같은 경로라 덮어씁니다).
+    """
+
+    code = "MEDIA_UPLOAD_MISMATCH"
+    status_code = 400
