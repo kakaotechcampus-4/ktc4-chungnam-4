@@ -89,30 +89,40 @@ export interface RegisteredFace {
 }
 
 /**
- * 등록 벡터를 뽑으려다 생긴 결과입니다. 분류(`ClassificationResult`)와 같은 방식으로
+ * 등록 벡터를 뽑은 결과의 상태. 분류(`ClassificationResult`)와 같은 방식으로
  * **던지지 않고 상태로 돌려줍니다** — 등록 화면이 교사에게 무엇을 고치라고 할지
  * 정해야 하는데, 예외로 던지면 "실패했어요"밖에 보여 줄 수 없습니다(#121 리뷰 송유진 님).
  *
- * - `extracted` — 벡터를 만들었습니다
- * - `no_face` — 사진에서 얼굴을 찾지 못했습니다. 교사가 다른 사진을 고르면 됩니다
- * - `multiple_faces` — 한 사진에 얼굴이 여럿이라 누구인지 정할 수 없습니다
- * - `failed` — 모델을 준비하지 못했거나 계산이 끊겼습니다. 다시 시도하면 됩니다
+ * 각 상태의 뜻과 함께 오는 값은 아래 `ExtractionResult`에 있습니다.
  *
  * 얼굴이 여럿일 때 가장 큰 얼굴을 고르지 않는 것은, 등록 벡터가 **엉뚱한 아이**로
  * 저장되면 그 뒤 모든 분류가 조용히 틀리기 때문입니다. 애매하면 교사에게 되돌립니다.
  */
 export type ExtractState = "extracted" | "no_face" | "multiple_faces" | "failed";
 
-export interface ExtractionResult {
-  extract_state: ExtractState;
-  /** `extracted`일 때만 값이 있습니다. */
-  embedding: ExtractedEmbedding | null;
+/**
+ * 상태마다 딸려 오는 값이 달라서 하나로 합치지 않고 나눕니다(#121 리뷰 송유진 님).
+ *
+ * 한 모양에 `embedding: ExtractedEmbedding | null`로 두면 `extracted`인데 `embedding`이
+ * `null`인 조합도 타입이 받아들입니다. 규칙이 주석에만 있고 컴파일러는 읽지 않으니,
+ * 등록 화면은 `extracted`를 확인하고도 `null`을 한 번 더 검사해야 합니다.
+ *
+ * 이렇게 나누면 상태를 확인하는 순간 나머지 값이 함께 정해져, 화면이 `embedding`을
+ * 바로 씁니다. 말이 안 되는 조합은 애초에 만들 수 없습니다.
+ */
+export type ExtractionResult =
+  /** 벡터를 만들었습니다. */
+  | { extract_state: "extracted"; embedding: ExtractedEmbedding }
   /**
-   * 문제가 된 사진의 순번(`photos`에서 0부터). 어느 사진을 바꾸라고 할지 알려 주려는
-   * 것입니다. 사진과 무관한 실패(`failed`)면 `null`입니다.
+   * 사진을 쓸 수 없습니다. `photo_index`는 문제가 된 사진의 순번(`photos`에서 0부터)이고,
+   * 교사에게 어느 사진을 바꾸라고 할지 알려 주려는 것입니다.
+   *
+   * - `no_face` — 얼굴을 찾지 못했습니다. 다른 사진을 고르면 됩니다
+   * - `multiple_faces` — 얼굴이 여럿이라 누구인지 정할 수 없습니다. 혼자 나온 사진이 필요합니다
    */
-  photo_index: number | null;
-}
+  | { extract_state: "no_face" | "multiple_faces"; photo_index: number }
+  /** 모델을 준비하지 못했거나 계산이 끊겼습니다. 사진과 무관해 순번이 없습니다. */
+  | { extract_state: "failed" };
 
 /** 등록 사진에서 벡터를 뽑습니다. 사진은 이 함수 밖으로 나가지 않습니다(H-3). */
 export type ExtractEmbedding = (photos: readonly File[]) => Promise<ExtractionResult>;
