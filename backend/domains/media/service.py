@@ -22,6 +22,7 @@ from core.config import get_settings
 from core.exceptions import (
     InvalidAttributionMethod,
     MediaAssetNotFound,
+    MediaTypeNotAllowed,
     StorageNotConfigured,
 )
 from domains.media.models import MediaAsset, MediaChildLink, TranscriptSegment
@@ -403,3 +404,79 @@ def _read_object_head(key: str) -> bytes:
         Bucket=_bucket(), Key=key, Range=f"bytes=0-{_SIGNATURE_READ_BYTES - 1}"
     )
     return response["Body"].read()
+
+
+# ---------------------------------------------------------------------------
+# 업로드 형식 (MIME 허용 목록과 파일 시그니처)
+# ---------------------------------------------------------------------------
+#
+# 브라우저의 `file.type`은 확장자를 보고 붙인 이름표라 같은 형식에도 값이 여러 개입니다.
+# 서버가 대표값 하나로 맞춰 서명에 넣으면, S3에는 허용 목록 안의 이름표로만 저장되고
+# 그 이름표로만 내려갑니다(확장자를 바꿔도 HTML로 실행되지 않음).
+# TODO(donggeon): 허용 형식은 PR에서 알린 값입니다. 팀 기기에서 실제 file.type을 확인한 뒤 조정
+
+_ALLOWED_CONTENT_TYPES: dict[str, frozenset[str]] = {
+    "photo": frozenset({"image/jpeg", "image/png", "image/heic"}),
+    "video": frozenset({"video/mp4", "video/quicktime"}),
+    "voice_memo": frozenset({"audio/mp4", "audio/wav"}),
+}
+# 브라우저·운영체제마다 다르게 붙이는 이름 → 대표값
+_CANONICAL_CONTENT_TYPE_BY_ALIAS = {
+    "image/jpg": "image/jpeg",
+    "image/heif": "image/heic",
+    "audio/x-m4a": "audio/mp4",
+    "audio/m4a": "audio/mp4",
+    "audio/x-wav": "audio/wav",
+    "audio/wave": "audio/wav",
+}
+# HEIC의 ftyp 브랜드. 영상·음성은 기기·앱마다 브랜드가 달라 ftyp가 있는지만 봅니다.
+_HEIC_BRANDS = frozenset({b"heic", b"heix", b"heim", b"heis", b"hevc", b"hevx", b"mif1", b"msf1"})
+# 오래된 QuickTime 파일은 ftyp 없이 다른 상자로 시작하기도 합니다
+_QUICKTIME_FIRST_BOXES = frozenset({b"ftyp", b"wide", b"moov", b"mdat", b"free", b"skip"})
+
+
+def _max_upload_bytes(media_type: str) -> int:
+    settings = get_settings()
+    return {
+        "photo": settings.upload_max_photo_bytes,
+        "video": settings.upload_max_video_bytes,
+        "voice_memo": settings.upload_max_voice_memo_bytes,
+    }[media_type]
+
+
+def normalize_content_type(media_type: str, content_type: str) -> str:
+    """브라우저가 보낸 MIME을 대표값으로 바꾸고, 그 종류에 허용된 값인지 확인합니다.
+
+    `;charset=` 같은 부가 정보와 대소문자는 버립니다. 빈 값(브라우저가 형식을 몰라 비운 경우)도
+    거절합니다 — 그때는 FE가 확장자로 채워 보내야 합니다.
+    """
+    allowed = _ALLOWED_CONTENT_TYPES.get(media_type)
+    essence = content_type.split(";", 1)[0].strip().lower()
+    canonical = _CANONICAL_CONTENT_TYPE_BY_ALIAS.get(essence, essence)
+    if allowed is None or canonical not in allowed:
+        # 받은 값은 메시지에 넣지 않습니다 — 클라이언트 입력이 로그에 그대로 남지 않게 (H-4)
+        raise MediaTypeNotAllowed("올릴 수 없는 형식의 파일이에요.")
+    return canonical
+
+
+def matches_signature(content_type: str, head: bytes) -> bool:
+    """파일 앞부분이 그 형식의 시그니처와 맞는지 봅니다.
+
+    이름표(`Content-Type`)는 확장자에서 왔을 뿐이라 내용과 다를 수 있습니다. 완전한 형식
+    검사는 아니고, 다른 형식을 이름만 바꿔 올린 경우를 거르는 정도입니다.
+    """
+    box = head[4:8]
+    brand = head[8:12]
+    if content_type == "image/jpeg":
+        return head.startswith(b"\xff\xd8\xff")
+    if content_type == "image/png":
+        return head.startswith(b"\x89PNG\r\n\x1a\n")
+    if content_type == "image/heic":
+        return box == b"ftyp" and brand in _HEIC_BRANDS
+    if content_type == "video/quicktime":
+        return box in _QUICKTIME_FIRST_BOXES
+    if content_type in {"video/mp4", "audio/mp4"}:
+        return box == b"ftyp"
+    if content_type == "audio/wav":
+        return head.startswith(b"RIFF") and brand == b"WAVE"
+    return False

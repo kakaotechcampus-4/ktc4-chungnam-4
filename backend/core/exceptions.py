@@ -83,3 +83,17 @@ class StorageNotConfigured(AidamError):
 
     code = "STORAGE_NOT_CONFIGURED"
     status_code = 500
+
+
+class MediaTypeNotAllowed(AidamError):
+    """허용하지 않은 형식이거나 `type`(photo/video/voice_memo)과 맞지 않는 형식입니다."""
+
+    code = "MEDIA_TYPE_NOT_ALLOWED"
+    status_code = 400
+
+
+class UploadBatchTooLarge(AidamError):
+    """한 요청의 파일 수나 파일 하나의 크기가 상한을 넘었습니다 (docs/api/media-face.md)."""
+
+    code = "UPLOAD_BATCH_TOO_LARGE"
+    status_code = 400
