@@ -26,6 +26,7 @@ from core.exceptions import (
     InvalidAttributionMethod,
     MediaAssetNotFound,
     MediaTypeNotAllowed,
+    MediaUploadMismatch,
     MediaUploadNotFound,
     StorageNotConfigured,
     UploadBatchTooLarge,
@@ -181,6 +182,20 @@ def _ensure_class_access(db: Session, class_id: UUID, teacher_id: UUID) -> None:
     """
     # TODO(donggeon): organization 반 접근 판정 함수 요청 예정 (이슈 미작성, face와 공유)
     raise NotImplementedError("반 접근 판정 함수 대기 중")
+
+
+def _ensure_children_in_class(db: Session, class_id: UUID, child_ids: Sequence[UUID]) -> None:
+    """귀속하려는 원아가 모두 그 반 원아인지 확인합니다. 아니면 `CHILD_NOT_IN_CLASS`.
+
+    다른 반·다른 어린이집 원아를 귀속하면 그 원아의 초안과 알림장에 남의 반 사진이 들어갑니다.
+    통과시키는 임시 구현을 넣지 않습니다.
+    """
+    # TODO(donggeon): organization 반 소속 원아 확인 함수 요청 예정 (이슈 미작성)
+    raise NotImplementedError("반 소속 원아 확인 함수 대기 중")
+
+
+def _child_links_of(db: Session, media_id: UUID) -> list[MediaChildLink]:
+    return list(db.scalars(select(MediaChildLink).where(MediaChildLink.media_id == media_id)))
 
 
 def _kst_day_range(target_date: date) -> tuple[datetime, datetime]:
@@ -711,3 +726,125 @@ def mark_abandoned_uploads(db: Session, *, expired_before: datetime) -> list[Med
         record.state = UPLOAD_ABANDONED
     db.flush()
     return records
+
+
+@dataclass(frozen=True)
+class AttributionInput:
+    """사진의 완료 통지에 함께 오는 귀속. 규칙은 `save_attributions`와 같습니다."""
+
+    llm_allowed: bool
+    child_links: Sequence[Attribution]
+
+
+@dataclass(frozen=True)
+class CompletedUpload:
+    """완료 통지 결과. `created`가 참이면 새로 확정(201), 거짓이면 이미 있던 것(200)."""
+
+    asset: MediaAsset
+    child_links: list[MediaChildLink]
+    created: bool
+
+
+def complete_upload(
+    db: Session,
+    *,
+    client_photo_id: UUID,
+    class_id: UUID,
+    teacher_id: UUID,
+    media_type: str,
+    captured_at: datetime,
+    model_version: str | None,
+    attribution: AttributionInput | None,
+) -> CompletedUpload:
+    """업로드 완료 통지를 받아 `MediaAsset`을 확정합니다 (FR-15, `POST /media`).
+
+    S3 실측(`verify_upload`) → `MediaAsset` 생성 → 사진이면 귀속·`llm_allowed`·`attributed_at`
+    저장 → 발급 기록에 `media_id` 연결까지 같은 Session에서 합니다. flush만 하므로 커밋은
+    부르는 쪽이 하고, 중간에 예외가 나면 부르는 쪽이 롤백해 아무것도 남지 않습니다.
+
+    - **사진은 귀속이 필수, 영상·음성은 귀속을 받지 않습니다.** 영상·음성은 교사 확인 전에
+      먼저 올라오므로 귀속 없이 만들고(`llm_allowed` false, `attributed_at` null), 나중에
+      `save_attributions`(`PUT child-links`)로 귀속합니다. 요청 모양 검사는 스키마가 먼저
+      하고, 여기서는 잘못 불린 경우만 막습니다.
+    - **같은 파일을 다시 보내면** 새로 만들지 않고 기존 것을 돌려줍니다. 사진이면 보낸 귀속으로
+      전체 교체합니다 — 응답이 끊겨 재전송해도 결과가 같습니다.
+    - 실측이 선언과 다르면 `MediaUploadMismatch`입니다. 부르는 쪽이 롤백하면 발급 기록은
+      `issued`로 남고, 다시 올리지 않으면 만료 뒤 고아 후보(`abandoned`)가 됩니다.
+    """
+    is_photo = media_type == "photo"
+    if is_photo != (attribution is not None):
+        raise ValueError("Photos need attribution on completion; videos and voice memos must not")
+    _ensure_class_access(db, class_id, teacher_id)
+    if attribution is not None:
+        _ensure_children_in_class(db, class_id, [link.child_id for link in attribution.child_links])
+
+    record = db.scalars(
+        select(MediaUpload).where(MediaUpload.client_photo_id == client_photo_id)
+    ).one_or_none()
+    if record is None:
+        raise MediaUploadNotFound("업로드를 시작하지 않은 파일이에요. 다시 올려 주세요.")
+    if record.class_id != class_id:
+        raise ClientPhotoIdConflict("다른 반에서 이미 올린 파일이에요.")
+    if record.type != media_type:
+        raise MediaUploadMismatch("올린 파일이 알린 내용과 달라요. 다시 올려 주세요.")
+
+    if record.media_id is not None:
+        asset = db.get(MediaAsset, record.media_id)
+        if attribution is not None:
+            save_attributions(db, asset.id, attribution.child_links, attribution.llm_allowed)
+        return CompletedUpload(
+            asset=asset, child_links=_child_links_of(db, asset.id), created=False
+        )
+
+    verified = verify_upload(db, client_photo_id)
+    if verified.state != UPLOAD_CONFIRMED:
+        raise MediaUploadMismatch("올린 파일이 알린 내용과 달라요. 다시 올려 주세요.")
+
+    asset = MediaAsset(
+        client_photo_id=client_photo_id,
+        class_id=class_id,
+        teacher_id=teacher_id,
+        type=media_type,
+        captured_at=captured_at,
+        # 서명 URL은 만료되므로 S3 경로를 남깁니다. 내려줄 때 서명합니다
+        storage_url=record.storage_key,
+        size_bytes=verified.actual_size_bytes,
+        storage_tier="original",
+        model_version=model_version if is_photo else None,
+    )
+    db.add(asset)
+    db.flush()
+    record.media_id = asset.id
+    if attribution is not None:
+        save_attributions(db, asset.id, attribution.child_links, attribution.llm_allowed)
+    db.flush()
+    return CompletedUpload(asset=asset, child_links=_child_links_of(db, asset.id), created=True)
+
+
+@dataclass(frozen=True)
+class AttributedMedia:
+    """귀속 저장 결과. 응답에 저장된 최종값을 그대로 돌려주려고 미디어와 링크를 함께 둡니다."""
+
+    asset: MediaAsset
+    child_links: list[MediaChildLink]
+
+
+def attribute_media(
+    db: Session, *, media_id: UUID, teacher_id: UUID, attribution: AttributionInput
+) -> AttributedMedia:
+    """이미 확정된 미디어의 귀속과 `llm_allowed`를 저장합니다 (FR-04, FR-14, `PUT child-links`).
+
+    주로 영상·음성에 씁니다 — 교사 확인 전에 먼저 올라와 완료 통지 때 귀속이 없었기 때문입니다.
+    영상·음성은 발화에 연결한 아이들을 모두 넣습니다(docs/api/media-face.md). 규칙은
+    `save_attributions`와 같습니다(둘 다 필수, 전체 교체, `attributed_at` 채움).
+    flush만 하므로 커밋은 부르는 쪽이 합니다.
+    """
+    asset = db.get(MediaAsset, media_id)
+    if asset is None:
+        raise MediaAssetNotFound("파일을 찾을 수 없어요.")
+    _ensure_class_access(db, asset.class_id, teacher_id)
+    _ensure_children_in_class(
+        db, asset.class_id, [link.child_id for link in attribution.child_links]
+    )
+    links = save_attributions(db, media_id, attribution.child_links, attribution.llm_allowed)
+    return AttributedMedia(asset=asset, child_links=links)

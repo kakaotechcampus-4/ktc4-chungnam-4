@@ -121,3 +121,13 @@ class DuplicateChildLink(AidamError):
 
     code = "DUPLICATE_CHILD_LINK"
     status_code = 400
+
+
+class MediaUploadMismatch(AidamError):
+    """S3에 올라간 파일의 크기·형식·앞부분이 URL을 받을 때 선언한 것과 다릅니다.
+
+    URL을 다시 받아 같은 파일을 올리면 됩니다(같은 경로라 덮어씁니다).
+    """
+
+    code = "MEDIA_UPLOAD_MISMATCH"
+    status_code = 400
