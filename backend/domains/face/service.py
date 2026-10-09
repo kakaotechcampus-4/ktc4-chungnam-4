@@ -29,7 +29,9 @@ from domains.face.models import EmbeddingLifecycleLog, FaceEmbedding
 _FORMAT_VERSION = 1
 _NONCE_SIZE = 12
 _KEY_SIZE = 32  # AES-256
-_FLOAT_SIZE = 4  # float32로 직렬화. ArcFace 임베딩은 512차원
+_FLOAT_SIZE = (
+    4  # float32로 직렬화. 차원 수는 모델마다 달라 고정하지 않습니다(HUMAN faceres는 1024, #120)
+)
 _HEADER_SIZE = 1 + _NONCE_SIZE
 
 

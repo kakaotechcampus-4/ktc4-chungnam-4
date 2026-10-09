@@ -17,7 +17,7 @@ from domains.audit.models import AccessLog, DeletionLog
 from domains.face import service
 from domains.face.models import EmbeddingLifecycleLog, FaceEmbedding
 
-VECTOR = [0.1, -0.25, 0.5] * 170 + [0.0, 1.0]  # 512차원
+VECTOR = [0.1, -0.25, 0.5] * 341 + [1.0]  # 1024차원(HUMAN faceres, #120)
 
 
 @pytest.fixture(autouse=True)
