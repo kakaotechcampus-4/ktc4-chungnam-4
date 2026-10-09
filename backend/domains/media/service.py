@@ -22,6 +22,7 @@ from core.config import get_settings
 from core.exceptions import (
     AidamError,
     ClientPhotoIdConflict,
+    DuplicateChildLink,
     InvalidAttributionMethod,
     MediaAssetNotFound,
     MediaTypeNotAllowed,
@@ -60,30 +61,33 @@ def save_attributions(
     링크는 그대로인데 `llm_allowed`만 바뀌는 조합을 막으려는 것입니다 — 옆 반 아이를
     빼고 다시 저장했는데 링크가 남으면 그 사진이 LLM으로 넘어갑니다 (PR #13 리뷰, H-2).
     같은 본문을 다시 보내도 결과가 같아 재전송에 안전합니다. 같은 원아가 목록에 두 번
-    있으면 앞의 것만 씁니다.
+    있으면 `DuplicateChildLink`로 거절합니다 — 조용히 하나만 쓰면 FE 버그가 숨습니다.
+
+    저장할 때마다 `attributed_at`을 채웁니다. 빈 목록이어도 채웁니다 — "교사가 귀속을
+    저장했다"는 표시라, 귀속 전인 미디어로 Job이 시작되는 것을 agents가 막는 근거입니다.
 
     돌려주는 값은 저장 후 이 사진의 링크 전체입니다.
     """
     asset = db.get(MediaAsset, media_id)
     if asset is None:
-        raise MediaAssetNotFound(f"Unknown media asset: {media_id}")
+        raise MediaAssetNotFound("파일을 찾을 수 없어요.")
 
     for attribution in attributions:
         if attribution.method not in _ALLOWED_METHODS:
-            raise InvalidAttributionMethod(f"Unknown method: {attribution.method}")
+            raise InvalidAttributionMethod("귀속 방법이 올바르지 않아요.")
         # method와 confidence_score는 짝입니다 — null이라는 사실 자체가 "교사가 정했다"를
         # 뜻합니다. 한쪽만 검사하면 face_recognition + null이 저장되고, 정확도 집계에서
         # 그 행이 조용히 빠집니다(AVG가 null을 건너뜁니다).
         if attribution.method == "manual" and attribution.confidence_score is not None:
-            raise InvalidAttributionMethod("manual attribution must not carry a confidence score")
+            raise InvalidAttributionMethod("직접 고른 귀속에는 신뢰도를 붙일 수 없어요.")
         if attribution.method == "face_recognition" and attribution.confidence_score is None:
-            raise InvalidAttributionMethod(
-                "face_recognition attribution must carry a confidence score"
-            )
+            raise InvalidAttributionMethod("얼굴 인식 귀속에는 신뢰도가 있어야 해요.")
 
     wanted: dict[UUID, Attribution] = {}
     for attribution in attributions:
-        wanted.setdefault(attribution.child_id, attribution)
+        if attribution.child_id in wanted:
+            raise DuplicateChildLink("같은 원아가 두 번 들어 있어요.")
+        wanted[attribution.child_id] = attribution
 
     existing = {
         link.child_id: link
@@ -104,6 +108,7 @@ def save_attributions(
         links.append(link)
 
     asset.llm_allowed = llm_allowed
+    asset.attributed_at = datetime.now(UTC)
     db.flush()
     return links
 
@@ -117,7 +122,7 @@ def get_playback_url(db: Session, media_id: UUID) -> str:
     """
     asset = db.get(MediaAsset, media_id)
     if asset is None:
-        raise MediaAssetNotFound(f"Unknown media asset: {media_id}")
+        raise MediaAssetNotFound("파일을 찾을 수 없어요.")
     return asset.proxy_url or asset.storage_url
 
 

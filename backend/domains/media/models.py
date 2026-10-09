@@ -47,6 +47,11 @@ class MediaAsset(Base):
     # 교사가 검수에서 확정해야 true가 됩니다 — 값이 없거나 애매하면 제외되는 쪽으로 실패시키려고
     # NOT NULL + default false로 둡니다. 절대 default를 true로 바꾸지 마세요.
     llm_allowed = Column(Boolean, nullable=False, default=False, server_default="false")
+    # 귀속(MediaChildLink·llm_allowed)을 저장한 시각. 귀속을 저장할 때만 채웁니다 — 사진은 완료 통지,
+    # 영상·음성은 나중의 귀속 저장. null이면 "아직 귀속 전"이라 Job이 거절합니다(MEDIA_NOT_READY).
+    # 없으면 귀속 전 영상·음성이 "교사가 LLM에서 뺀 것"과 똑같이 보여 근거에서 조용히 빠집니다.
+    # TODO(donggeon): 팀 논의 전 제안(docs/open-questions.md §C, 10/07). 마이그레이션은 리드 일괄
+    attributed_at = Column(DateTime(timezone=True), nullable=True)
 
     # 원본에서 만든 파생본. 스프린트 1에서는 변환을 하지 않아 비어 있습니다.
     proxy_url = Column(String, nullable=True)  # 재생용 H.264 사본
