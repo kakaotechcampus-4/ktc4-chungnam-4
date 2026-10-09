@@ -48,8 +48,9 @@ export interface DetectedFace {
 }
 
 /**
- * 등록 화면이 서버로 보낼 값입니다. `types/api-draft/face.ts`의
- * FaceEmbeddingRegisterRequest와 같은 모양이어야 합니다.
+ * 등록 화면이 서버로 넘길 값입니다. 등록 화면은 이 값을 `api/face.ts`의 요청 함수에
+ * 그대로 넘기므로, `api/face-adapter.ts`의 `FaceEmbeddingInput`과 같은 모양이어야
+ * 합니다(서버 타입 `FaceEmbeddingRegisterRequest`는 그 adapter가 만듭니다).
  *
  * 사진을 여러 장 받아 벡터 하나를 만듭니다 — 한 장은 각도·조명에 흔들려서 여러 장을
  * 모으는 쪽이 안정적입니다. 몇 장을 어떻게 합칠지는 구현에서 정합니다.
@@ -78,9 +79,8 @@ export interface ExtractedEmbedding {
  * 분류할 때 기준으로 삼는, 서버에 등록돼 있던 원아 벡터입니다.
  * `GET /classes/{class_id}/face-embeddings`로 받습니다(③ 동의가 유효한 원아만 옵니다).
  *
- * 서버 타입(`types/api-draft/media.ts`의 FaceEmbedding)을 그대로 쓰지 않고 여기에
- * 따로 둡니다 — 그 타입은 김동건 님 어댑터 PR(#119)에서 바뀔 수 있고, 이 폴더는
- * 서버 응답이 아니라 "대조에 필요한 것"만 알면 됩니다.
+ * 화면용 타입(`api/media-adapter.ts`의 `FaceEmbeddingView`)을 그대로 쓰지 않고 여기에
+ * 따로 둡니다 — 이 폴더는 서버 응답이 아니라 "대조에 필요한 것"만 알면 됩니다.
  */
 export interface RegisteredFace {
   child_id: string;
