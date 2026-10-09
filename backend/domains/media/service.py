@@ -20,12 +20,16 @@ from sqlalchemy.orm import Session
 
 from core.config import get_settings
 from core.exceptions import (
+    AidamError,
+    ClientPhotoIdConflict,
     InvalidAttributionMethod,
     MediaAssetNotFound,
     MediaTypeNotAllowed,
+    MediaUploadNotFound,
     StorageNotConfigured,
+    UploadBatchTooLarge,
 )
-from domains.media.models import MediaAsset, MediaChildLink, TranscriptSegment
+from domains.media.models import MediaAsset, MediaChildLink, MediaUpload, TranscriptSegment
 
 _ALLOWED_METHODS = frozenset({"face_recognition", "manual"})
 
@@ -151,13 +155,27 @@ class MediaEvidence:
 def _consented_child_ids(db: Session, class_id: UUID) -> list[UUID]:
     """반에서 ③ 동의가 유효한 재원 원아 id.
 
-    organization 담당(이한나)에게 요청한 함수로 교체합니다(#31):
+    organization 담당(이한나)에게 요청한 함수로 교체합니다(#105):
         get_consented_children(db, class_id, consent_type) -> list[UUID]
     값을 돌려주는 임시 구현을 넣지 않습니다 — 임시로 통과되면 미동의 원아 사진이 조용히
     LLM으로 갑니다 (H-2). face.service._consented_child_ids와 같은 자리입니다.
     """
-    # TODO(donggeon): organization.service.get_consented_children 대기 (#31)
+    # TODO(donggeon): organization.service.get_consented_children 대기 (#105)
     raise NotImplementedError("organization 동의 판정 함수 대기 중")
+
+
+def _ensure_class_access(db: Session, class_id: UUID, teacher_id: UUID) -> None:
+    """교사가 이 반에 올리거나 이 반의 미디어를 귀속할 수 있는지 확인합니다.
+
+    같은 어린이집 소속 교사는 모든 반에 접근합니다(FR-25). 반은 organization, 교사는 auth
+    소유라 직접 조회하지 않고 담당자 함수로 교체합니다. 없는 반은 `CLASS_NOT_FOUND`,
+    다른 어린이집 반은 `CLASS_ACCESS_DENIED`입니다. face의 같은 자리와 같은 함수로 바꿉니다.
+
+    통과시키는 임시 구현을 넣지 않습니다 — 다른 어린이집 교사가 반 id만 바꿔 올리거나
+    남의 사진 귀속을 바꿀 수 있게 됩니다.
+    """
+    # TODO(donggeon): organization 반 접근 판정 함수 요청 예정 (이슈 미작성, face와 공유)
+    raise NotImplementedError("반 접근 판정 함수 대기 중")
 
 
 def _kst_day_range(target_date: date) -> tuple[datetime, datetime]:
@@ -480,3 +498,211 @@ def matches_signature(content_type: str, head: bytes) -> bool:
     if content_type == "audio/wav":
         return head.startswith(b"RIFF") and brand == b"WAVE"
     return False
+
+
+# ---------------------------------------------------------------------------
+# 업로드 URL 발급 기록 (MediaUpload, 테크스펙 데이터 모델 ③)
+# ---------------------------------------------------------------------------
+#
+# 서버는 업로드 묶음을 모릅니다. URL을 내줄 때 파일마다 기록을 남겨야 "URL은 받았는데
+# 완료 통지가 없는" 파일(고아 객체 후보)을 찾을 수 있습니다.
+
+UPLOAD_ISSUED = "issued"
+UPLOAD_CONFIRMED = "confirmed"
+UPLOAD_MISMATCH = "mismatch"
+UPLOAD_ABANDONED = "abandoned"
+
+
+@dataclass(frozen=True)
+class IssuedUpload:
+    """URL 발급 요청 한 건의 결과.
+
+    이미 `MediaAsset`까지 만든 파일이면 `media_id`만 있고 `upload`는 None입니다 —
+    다시 올리지 않고 귀속 단계로 넘어갑니다 (docs/api/media-face.md `upload-urls`).
+    """
+
+    client_photo_id: UUID
+    media_id: UUID | None
+    upload: PresignedUpload | None
+
+
+def issue_upload_url(
+    db: Session,
+    *,
+    client_photo_id: UUID,
+    class_id: UUID,
+    teacher_id: UUID,
+    media_type: str,
+    content_type: str,
+    size_bytes: int,
+) -> IssuedUpload:
+    """파일 하나의 업로드 URL을 발급하고 발급 기록을 남깁니다 (FR-15).
+
+    - 처음 보는 파일이면 `issued` 행을 만듭니다.
+    - 같은 파일을 다시 요청하면(만료·403 뒤 재시도) 새 행 없이 선언값과 만료 시각을
+      갱신하고 `issued`로 되돌립니다. 경로가 같아 S3에도 새 파일이 생기지 않습니다.
+    - `MediaAsset`까지 만든 파일이면 URL 없이 `media_id`를 돌려줍니다.
+    - 같은 `client_photo_id`가 다른 반에서 쓰였으면 `ClientPhotoIdConflict`입니다.
+
+    `content_type`은 대표값으로 바꿔 서명과 기록에 씁니다. 허용되지 않은 형식이면
+    `MediaTypeNotAllowed`, 종류별 크기 상한을 넘으면 `UploadBatchTooLarge`이고 둘 다 기록을
+    남기지 않습니다. 반 접근 검사는 이 함수 전에 부르는 쪽이 합니다.
+    flush만 하므로 커밋은 부르는 쪽이 합니다.
+    """
+    content_type = normalize_content_type(media_type, content_type)
+    if size_bytes > _max_upload_bytes(media_type):
+        raise UploadBatchTooLarge("파일이 너무 커서 올릴 수 없어요.")
+    record = db.scalars(
+        select(MediaUpload).where(MediaUpload.client_photo_id == client_photo_id)
+    ).one_or_none()
+    if record is not None and record.class_id != class_id:
+        raise ClientPhotoIdConflict("다른 반에서 이미 올린 파일이에요.")
+    if record is not None and record.media_id is not None:
+        return IssuedUpload(client_photo_id=client_photo_id, media_id=record.media_id, upload=None)
+
+    key = object_key(class_id, client_photo_id)
+    upload = presign_upload(key, content_type, size_bytes)
+    if record is None:
+        record = MediaUpload(client_photo_id=client_photo_id, class_id=class_id)
+        db.add(record)
+    record.teacher_id = teacher_id
+    record.type = media_type
+    record.content_type = content_type
+    record.declared_size_bytes = size_bytes
+    record.storage_key = key
+    record.state = UPLOAD_ISSUED
+    record.issued_at = datetime.now(UTC)
+    record.url_expires_at = upload.expires_at
+    record.actual_size_bytes = None
+    record.verified_at = None
+    db.flush()
+    return IssuedUpload(client_photo_id=client_photo_id, media_id=None, upload=upload)
+
+
+@dataclass(frozen=True)
+class UploadRequestItem:
+    """URL을 받으려는 파일 하나. 브라우저가 선언한 값이라 믿지 않고 검사합니다."""
+
+    client_photo_id: UUID
+    media_type: str
+    content_type: str
+    size_bytes: int
+
+
+@dataclass(frozen=True)
+class UploadUrlResult:
+    """묶음 요청 안의 파일 하나에 대한 결과. 성공이면 `issued`, 실패면 `error`가 찹니다."""
+
+    client_photo_id: UUID
+    issued: IssuedUpload | None
+    error: AidamError | None
+
+
+# 파일 하나만 실패시키고 나머지는 계속 발급하는 예외. 모두 DB에 쓰기 전에 올라옵니다.
+_PER_FILE_UPLOAD_ERRORS = (MediaTypeNotAllowed, UploadBatchTooLarge, ClientPhotoIdConflict)
+
+
+def issue_upload_urls(
+    db: Session,
+    *,
+    class_id: UUID,
+    teacher_id: UUID,
+    items: Sequence[UploadRequestItem],
+) -> list[UploadUrlResult]:
+    """여러 파일의 업로드 URL을 한 요청으로 발급합니다 (FR-15, `POST /media/upload-urls`).
+
+    묶음은 요청 횟수를 줄이려는 포장일 뿐이고 서버는 파일마다 따로 처리합니다. 한 파일이
+    형식·크기·id 충돌로 걸려도 그 파일만 결과에 실패로 담고 나머지는 발급합니다.
+    결과 순서는 요청 순서와 같습니다.
+
+    파일 수가 상한(`UPLOAD_MAX_FILES_PER_REQUEST`)을 넘으면 하나도 발급하지 않고
+    `UploadBatchTooLarge`를 올립니다. 같은 요청에 같은 `client_photo_id`가 두 번 있으면
+    두 번째를 첫 번째 결과로 대신합니다(같은 파일의 URL을 두 번 서명하지 않음).
+    """
+    _ensure_class_access(db, class_id, teacher_id)
+    if len(items) > get_settings().upload_max_files_per_request:
+        raise UploadBatchTooLarge("한 번에 올릴 수 있는 파일 수를 넘었어요.")
+
+    results: list[UploadUrlResult] = []
+    seen: dict[UUID, UploadUrlResult] = {}
+    for item in items:
+        if item.client_photo_id in seen:
+            results.append(seen[item.client_photo_id])
+            continue
+        try:
+            issued = issue_upload_url(
+                db,
+                client_photo_id=item.client_photo_id,
+                class_id=class_id,
+                teacher_id=teacher_id,
+                media_type=item.media_type,
+                content_type=item.content_type,
+                size_bytes=item.size_bytes,
+            )
+            result = UploadUrlResult(item.client_photo_id, issued=issued, error=None)
+        except _PER_FILE_UPLOAD_ERRORS as error:
+            result = UploadUrlResult(item.client_photo_id, issued=None, error=error)
+        seen[item.client_photo_id] = result
+        results.append(result)
+    return results
+
+
+def verify_upload(db: Session, client_photo_id: UUID) -> MediaUpload:
+    """완료 통지를 받으면 S3를 직접 재서 발급 기록과 비교합니다 (FR-15).
+
+    - 크기·형식 이름표가 같고 파일 앞부분이 그 형식의 시그니처와 맞으면 `confirmed`,
+      하나라도 다르면 `mismatch`로 남기고 그 기록을 돌려줍니다.
+      `mismatch`를 예외로 올리지 않는 이유: 부르는 쪽이 롤백하면 불일치 기록까지 사라집니다.
+      거절 응답(`MEDIA_UPLOAD_MISMATCH`)은 이 결과를 보고 부르는 쪽이 정합니다.
+    - 발급 기록이 없거나 S3에 객체가 없으면 `MediaUploadNotFound`입니다. 기록은 바꾸지
+      않습니다 — FE가 URL을 다시 받아 올리면 됩니다.
+    - 만료 뒤 `abandoned`로 바뀐 기록도 객체가 있으면 다시 확인합니다(늦게 온 완료 통지).
+
+    `MediaAsset` 생성과 귀속 저장은 완료 통지 API(`POST /media`)에서 이 결과로 합니다.
+    """
+    record = db.scalars(
+        select(MediaUpload).where(MediaUpload.client_photo_id == client_photo_id)
+    ).one_or_none()
+    if record is None:
+        raise MediaUploadNotFound("업로드를 시작하지 않은 파일이에요. 다시 올려 주세요.")
+    if record.state == UPLOAD_CONFIRMED:
+        return record
+
+    stored = head_uploaded_object(record.storage_key)
+    if stored is None:
+        raise MediaUploadNotFound("파일이 아직 다 올라가지 않았어요. 다시 올려 주세요.")
+
+    is_match = (
+        stored.size_bytes == record.declared_size_bytes
+        and stored.content_type == record.content_type
+        and matches_signature(record.content_type, _read_object_head(record.storage_key))
+    )
+    record.state = UPLOAD_CONFIRMED if is_match else UPLOAD_MISMATCH
+    record.actual_size_bytes = stored.size_bytes
+    record.verified_at = datetime.now(UTC)
+    db.flush()
+    return record
+
+
+def mark_abandoned_uploads(db: Session, *, expired_before: datetime) -> list[MediaUpload]:
+    """URL이 `expired_before` 전에 만료됐는데 완료 통지가 없던 기록을 `abandoned`로 바꿉니다.
+
+    돌려준 기록의 `storage_key`가 고아 객체 후보입니다. S3에서 지울지, 지운다면 기록을
+    어떻게 남길지는 아직 미정이라 이 함수는 S3를 건드리지 않습니다.
+
+    완료 통지는 URL 만료 뒤에도 늦게 올 수 있습니다(만료 직전에 PUT을 시작한 경우).
+    그래서 기준 시각에 유예를 둘지는 부르는 쪽이 정합니다.
+    """
+    # TODO(donggeon): 유예 시간과 고아 삭제 방식(주기 작업 vs S3 수명 주기 규칙) 결정 후 호출부 작성
+    records = list(
+        db.scalars(
+            select(MediaUpload).where(
+                MediaUpload.state == UPLOAD_ISSUED,
+                MediaUpload.url_expires_at < expired_before,
+            )
+        )
+    )
+    for record in records:
+        record.state = UPLOAD_ABANDONED
+    db.flush()
+    return records

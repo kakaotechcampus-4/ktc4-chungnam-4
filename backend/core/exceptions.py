@@ -85,6 +85,13 @@ class StorageNotConfigured(AidamError):
     status_code = 500
 
 
+class ClientPhotoIdConflict(AidamError):
+    """같은 `client_photo_id`가 다른 반의 업로드로 이미 쓰였습니다 (docs/api/media-face.md)."""
+
+    code = "CLIENT_PHOTO_ID_CONFLICT"
+    status_code = 409
+
+
 class MediaTypeNotAllowed(AidamError):
     """허용하지 않은 형식이거나 `type`(photo/video/voice_memo)과 맞지 않는 형식입니다."""
 
@@ -97,3 +104,13 @@ class UploadBatchTooLarge(AidamError):
 
     code = "UPLOAD_BATCH_TOO_LARGE"
     status_code = 400
+
+
+class MediaUploadNotFound(AidamError):
+    """완료 통지를 받았지만 S3에 객체가 없거나, 서버가 URL을 내준 적이 없는 파일입니다.
+
+    업로드가 덜 끝났거나 URL이 만료된 경우입니다. FE는 URL을 다시 받아 올립니다.
+    """
+
+    code = "MEDIA_UPLOAD_NOT_FOUND"
+    status_code = 409
