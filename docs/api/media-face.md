@@ -66,37 +66,57 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 }
 ```
 
-- 응답 `200`: 항목 순서는 요청과 같습니다.
+- 요청 한 번에 최대 10개입니다(임시 결정(김동건)). FE는 업로드 큐가 진행되는 대로 10개씩 나눠 요청합니다. 묶음은 요청 횟수를 줄이려는 포장이고 서버는 파일마다 따로 처리하며, 묶음을 기억하지 않습니다.
+- 응답 `200`: **파일마다 결과가 따로 옵니다**(임시 결정(김동건)). 한 파일이 걸려도 요청 전체를 거절하지 않고 나머지는 발급합니다. 항목 순서는 요청과 같습니다.
+  - `status`: `issued`(URL 발급) / `registered`(이미 `MediaAsset`까지 만든 파일. URL 없이 `media_id`만) / `error`(이 파일만 실패. `error`에 공통 에러 모양의 `code`·`message`)
 
 ```json
 {
   "items": [
     {
       "client_photo_id": "1c000000-0000-4000-8000-000000000041",
+      "status": "issued",
       "media_id": null,
-      "upload_url": "https://<bucket>.s3.amazonaws.com/<key>?X-Amz-Expires=900&X-Amz-Signature=…",
+      "upload_url": "https://<bucket>.s3.ap-northeast-2.amazonaws.com/<key>?X-Amz-Expires=3600&X-Amz-Signature=…",
       "upload_headers": { "Content-Type": "image/jpeg" },
-      "upload_url_expires_at": "2026-09-15T06:15:00Z"
+      "upload_url_expires_at": "2026-09-15T07:00:00Z",
+      "error": null
     },
     {
       "client_photo_id": "1c000000-0000-4000-8000-000000000044",
+      "status": "registered",
       "media_id": "3ed1a000-0000-4000-8000-000000000044",
       "upload_url": null,
       "upload_headers": null,
-      "upload_url_expires_at": null
+      "upload_url_expires_at": null,
+      "error": null
+    },
+    {
+      "client_photo_id": "1c000000-0000-4000-8000-000000000045",
+      "status": "error",
+      "media_id": null,
+      "upload_url": null,
+      "upload_headers": null,
+      "upload_url_expires_at": null,
+      "error": { "code": "MEDIA_TYPE_NOT_ALLOWED", "message": "올릴 수 없는 형식의 파일이에요." }
     }
   ]
 }
 ```
 
-- `media_id`가 null이 아니면 이미 등록된 파일입니다. 다시 올리지 않고 귀속 단계로 넘어갑니다. 새로고침 뒤 이어 올릴 때 이 값을 씁니다.
-- PUT 요청에는 `upload_headers`를 그대로 붙여야 서명이 맞습니다.
-- 에러:
-  - `MEDIA_TYPE_NOT_ALLOWED` (400) — 허용 형식(JPG·PNG·HEIC / MP4·MOV / M4A·WAV, Figma 기준)이 아니거나 `type`과 맞지 않을 때. 한 항목이라도 걸리면 요청 전체를 거절하고, 걸린 항목은 `detail.client_photo_ids`에 담습니다.
-  - `UPLOAD_BATCH_TOO_LARGE` (400) — 파일 수나 크기가 상한을 넘을 때
+- `registered`면 다시 올리지 않고 귀속 단계로 넘어갑니다. 새로고침 뒤 이어 올릴 때 이 값을 씁니다.
+- PUT 요청에는 `upload_headers`를 그대로 붙여야 서명이 맞습니다. 서버가 같은 형식의 다른 이름(예: 브라우저마다 다른 MIME)을 대표값 하나로 바꿔 서명하므로, 요청에 보낸 `content_type`이 아니라 이 값을 씁니다.
+- 같은 요청에 같은 `client_photo_id`가 두 번 있으면 두 항목에 같은 결과가 옵니다(URL은 한 번만 서명).
+- 파일별 에러(`status: "error"`, 응답은 `200`):
+  - `MEDIA_TYPE_NOT_ALLOWED` — 허용 형식(JPG·PNG·HEIC / MP4·MOV / M4A·WAV, Figma 기준)이 아니거나 `type`과 맞지 않을 때. 브라우저가 형식을 몰라 `content_type`을 비운 경우도 여기에 걸리므로, FE는 빈 값이면 확장자로 채워 보냅니다.
+  - `UPLOAD_BATCH_TOO_LARGE` — 그 파일이 종류별 크기 상한을 넘을 때
+  - `CLIENT_PHOTO_ID_CONFLICT` — 같은 `client_photo_id`가 다른 반에 이미 있을 때
+- 요청 전체 에러(아무 파일도 발급하지 않음):
+  - `UPLOAD_BATCH_TOO_LARGE` (400) — 파일이 10개를 넘을 때
   - `CLASS_ACCESS_DENIED` (403) — 담당 반이 아닐 때
-  - `CLIENT_PHOTO_ID_CONFLICT` (409) — 같은 `client_photo_id`가 다른 반에 이미 있을 때
-- [확인 필요: 김동건] 요청당 최대 파일 수, 파일당 최대 크기, URL 만료 시간(예시 15분), 82MB급 영상에 멀티파트 업로드가 필요한지 정해야 합니다.
+- URL 만료는 1시간입니다(임시 결정(김동건)). 최악 회선(1MB/s)에서 3GB를 올리는 약 51분을 덮는 값입니다(presigned 스파이크 09/04). 서버 자격증명의 남은 수명이 그보다 짧으면 서버가 그 안으로 줄여 발급하므로, FE는 `upload_url_expires_at`을 기준으로 봅니다.
+- 업로드 URL은 선언한 `content_type`·`size_bytes`를 서명에 넣습니다. 실제 파일과 1바이트라도 다르면 S3가 403(`SignatureDoesNotMatch`)을 줍니다. 403은 다시 시도해도 같으니 URL을 새로 받습니다.
+- [확인 필요: 김동건] 파일당 최대 크기, 82MB급 영상에 멀티파트 업로드가 필요한지 정해야 합니다.
 
 ### `POST /api/v1/media` — 업로드 완료 통지(서버가 S3 객체를 확인한 뒤 `MediaAsset` 확정)
 
@@ -390,7 +410,8 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 
 지금 본문은 파일마다 `POST /media`(ack) → `PUT /media/{media_id}/child-links` 두 번을 부릅니다. 150장이면 URL 발급을 빼고도 300번입니다. 아래처럼 바꾸자고 제안합니다.
 
-- **`POST /media/upload-urls`는 한 번에 10개씩, 결과는 건별로.** 한 건이 틀려도 전체를 거절하지 않고 `items[].status`(`ok` / `error`)와 `items[].code`(예: `MEDIA_TYPE_NOT_ALLOWED`)로 알려 줍니다. 브라우저 사전 형식 검사(#58 정은 제안)는 그대로 하고, 서버도 다시 검사합니다.
+- ~~**`POST /media/upload-urls`는 한 번에 10개씩, 결과는 건별로.**~~ → 본문 반영(임시 결정(김동건)). `status` 값은 `issued`/`registered`/`error`로 바꿨습니다.
+  - 원래 제안: 한 건이 틀려도 전체를 거절하지 않고 `items[].status`(`ok` / `error`)와 `items[].code`(예: `MEDIA_TYPE_NOT_ALLOWED`)로 알려 줍니다. 브라우저 사전 형식 검사(#58 정은 제안)는 그대로 하고, 서버도 다시 검사합니다.
 - **완료 통지(`POST /media`)에 `child_links`·`llm_allowed`를 함께 싣고 `PUT /media/{media_id}/child-links`는 없앱니다.** 귀속은 업로드 전 로컬에서 확정되고 서버에서 바뀌지 않습니다(테크스펙 파이프라인 2단계, `UnclassifiedItem`은 서버 도달 뒤 사유만). 전체 교체 규칙(본문 child-links 절)은 완료 통지에 그대로 옮깁니다. 같은 `client_photo_id`를 다시 보내면 기존 `media_id`를 `200`으로 돌려주는 규칙도 그대로입니다.
 - 바뀌면 같이 고칠 곳: 정은 님 `SendStep`(서버 전송), 송유진 님 media 목(`mocks/handlers/media.ts`), 테크스펙 흐름 표 C의 "마지막 **귀속 저장**이 끝나면 `POST /jobs`" → "마지막 **완료 통지(ack)**를 받으면"(#61), agents.md `MEDIA_NOT_READY`의 `attributed_at` 조건.
 
