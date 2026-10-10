@@ -1,9 +1,11 @@
 // 모든 API 호출이 거치는 한 곳입니다. 화면 코드는 fetch를 직접 부르지 않고 api/<도메인>.ts의 요청 함수를 씁니다.
 // 규약 원본: docs/테크스펙.md §공통 API 규약, API 문서 §공통 규약.
 // - JSON 필드는 snake_case 그대로 주고받습니다. 성공 응답은 리소스 그대로이고, 204는 undefined입니다.
+//   화면용 모양으로 바꾸는 일은 여기가 아니라 api/<도메인>-adapter.ts에서 합니다(frontend/CLAUDE.md §데이터).
 // - 에러는 { error: { code, message, detail } }이고, 화면은 ApiError.code로 분기합니다.
 
-// 가정: 화면과 API가 같은 출처입니다(개발은 Vite 프록시, 배포는 Nginx). 다르면 VITE_API_BASE_URL에 전체 주소를 넣습니다.
+// 화면과 API는 같은 출처입니다(개발은 Vite 프록시, 배포는 CloudFront가 /api/*를 BE로 보냄, 이슈 #118).
+// 대체안(Vercel + 브라우저가 EC2 직접 호출)으로 바뀌면 VITE_API_BASE_URL에 전체 주소를 넣습니다.
 export const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api/v1";
 
 // 서버가 주는 코드가 아니라 프론트에서 붙이는 코드입니다.
@@ -106,7 +108,7 @@ export async function apiRequest<T>(
 
   let response: Response;
   try {
-    // 가정: 인증은 세션 쿠키입니다(API 문서 미정). JWT로 정해지면 여기서 Authorization 헤더만 붙입니다.
+    // 로그인은 JWT를 담은 HttpOnly 쿠키입니다(이슈 #118). 브라우저가 쿠키를 붙이므로 Authorization 헤더를 붙이지 않습니다.
     response = await fetch(url, {
       method,
       headers,

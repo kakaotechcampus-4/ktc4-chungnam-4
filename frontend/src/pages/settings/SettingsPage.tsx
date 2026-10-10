@@ -1,7 +1,7 @@
 // Figma: 1:528
 import { useQuery } from "@tanstack/react-query";
 
-import { meQueryOptions } from "@/api/auth";
+import { isTeacher, meQueryOptions } from "@/api/auth";
 import { classChildrenQueryOptions } from "@/api/organization";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -47,7 +47,7 @@ export function SettingsPage() {
     <>
       <PageHeader
         eyebrow="계정"
-        title={me && me.account_type === "teacher" ? `${me.name} 선생님` : "계정"}
+        title={isTeacher(me) ? `${me.name} 선생님` : "계정"}
         subtitle="계정 정보를 관리해요."
       />
       <div className="flex flex-col gap-6">

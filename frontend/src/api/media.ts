@@ -3,19 +3,53 @@ import { queryOptions } from "@tanstack/react-query";
 import { api, putToUploadUrl } from "@/lib/api-client";
 import type { ListResponse } from "@/types/api-draft/common";
 import type {
-  ChildLinksRequest,
   ChildLinksResponse,
   FaceEmbedding,
   MediaAsset,
-  MediaCompleteRequest,
   MediaUrlDetail,
   TranscriptSegment,
   TranscriptSegmentsResponse,
-  TranscriptSegmentUpdateRequest,
-  UploadUrlItem,
-  UploadUrlsRequest,
   UploadUrlsResponse,
 } from "@/types/api-draft/media";
+
+import {
+  type ChildLinksInput,
+  isTranscriptPending,
+  type MediaCompleteInput,
+  toChildLinksBody,
+  toChildLinksView,
+  toFaceEmbeddingView,
+  toMediaAssetView,
+  toMediaCompleteBody,
+  toMediaUrlView,
+  toTranscriptSegmentBody,
+  toTranscriptSegmentView,
+  toTranscriptView,
+  type TranscriptSegmentInput,
+  toUploadUrlsBody,
+  toUploadUrlsView,
+  type UploadTicketView,
+  type UploadUrlsInput,
+} from "./media-adapter";
+
+// 화면은 media 서버 타입 대신 여기서 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
+export {
+  type ChildLinksInput,
+  type ChildLinkView,
+  type FaceEmbeddingView,
+  isTranscriptPending,
+  type MediaAssetView,
+  type MediaCompleteInput,
+  type MediaTypeView,
+  type MediaUrlView,
+  type TranscriptSegmentInput,
+  type TranscriptSegmentView,
+  type TranscriptSpeakerView,
+  type TranscriptStatusView,
+  type TranscriptView,
+  type UploadTicketView,
+  type UploadUrlsInput,
+} from "./media-adapter";
 
 // 업로드·재생 URL·얼굴 임베딩 요청과 query key는 이 파일에서만 만듭니다(frontend/CLAUDE.md §데이터).
 // 업로드 순서(API 문서 §media): requestUploadUrls → uploadFile → completeUpload → saveChildLinks.
@@ -30,13 +64,15 @@ export const mediaKeys = {
 export const TRANSCRIPT_POLL_INTERVAL_MS = 2000;
 
 /** 여러 파일의 업로드 URL을 한 번에 받습니다. 형식이 틀린 파일이 하나라도 있으면 전체가 MEDIA_TYPE_NOT_ALLOWED입니다. */
-export function requestUploadUrls(body: UploadUrlsRequest) {
-  return api.post<UploadUrlsResponse>("/media/upload-urls", body);
+export async function requestUploadUrls(input: UploadUrlsInput) {
+  return toUploadUrlsView(
+    await api.post<UploadUrlsResponse>("/media/upload-urls", toUploadUrlsBody(input)),
+  );
 }
 
 /** 받은 URL로 파일을 올립니다. media_id가 이미 있는 항목(등록된 파일)은 부르지 않습니다. 화면은 File을 넘깁니다. */
 export function uploadFile(
-  item: UploadUrlItem,
+  item: UploadTicketView,
   file: Blob | Uint8Array<ArrayBuffer>,
   signal?: AbortSignal,
 ) {
@@ -45,21 +81,28 @@ export function uploadFile(
 }
 
 /** 업로드 완료 통지(ack). 이 응답을 받은 뒤에 원본 blob을 지웁니다. */
-export function completeUpload(body: MediaCompleteRequest) {
-  return api.post<MediaAsset>("/media", body);
+export async function completeUpload(input: MediaCompleteInput) {
+  return toMediaAssetView(await api.post<MediaAsset>("/media", toMediaCompleteBody(input)));
 }
 
 /** 교사가 확정한 귀속과 llm_allowed를 한 번에 저장합니다(전체 교체). */
-export function saveChildLinks(mediaId: string, body: ChildLinksRequest) {
-  return api.put<ChildLinksResponse>(`/media/${encodeURIComponent(mediaId)}/child-links`, body);
+export async function saveChildLinks(mediaId: string, input: ChildLinksInput) {
+  return toChildLinksView(
+    await api.put<ChildLinksResponse>(
+      `/media/${encodeURIComponent(mediaId)}/child-links`,
+      toChildLinksBody(input),
+    ),
+  );
 }
 
 /** 만료된 근거 미디어의 서명 URL 재발급 */
 export function mediaUrlQueryOptions(mediaId: string) {
   return queryOptions({
     queryKey: mediaKeys.detail(mediaId),
-    queryFn: ({ signal }) =>
-      api.get<MediaUrlDetail>(`/media/${encodeURIComponent(mediaId)}`, { signal }),
+    queryFn: async ({ signal }) =>
+      toMediaUrlView(
+        await api.get<MediaUrlDetail>(`/media/${encodeURIComponent(mediaId)}`, { signal }),
+      ),
   });
 }
 
@@ -76,33 +119,37 @@ export function faceEmbeddingsQueryOptions(classId: string) {
           `/classes/${encodeURIComponent(classId)}/face-embeddings`,
           { signal },
         )
-      ).items,
+      ).items.map(toFaceEmbeddingView),
     gcTime: 0,
     staleTime: 0,
   });
 }
 
 /**
- * 영상·음성의 발화 구간(임시 결정, 김동건). 분류 확인 화면들이 서버 STT가 끝날 때까지(pending) 폴링합니다.
+ * 영상·음성의 발화 구간(임시 결정, 김동건). 분류 확인 화면들이 서버 STT가 끝날 때까지(pending·unknown) 폴링합니다.
  * 파일은 분류와 함께 먼저 올라가 있어야 합니다(features/classify/clip-upload.ts).
  */
 export function transcriptQueryOptions(mediaId: string) {
   return queryOptions({
     queryKey: mediaKeys.transcript(mediaId),
-    queryFn: ({ signal }) =>
-      api.get<TranscriptSegmentsResponse>(
-        `/media/${encodeURIComponent(mediaId)}/transcript-segments`,
-        { signal },
+    queryFn: async ({ signal }) =>
+      toTranscriptView(
+        await api.get<TranscriptSegmentsResponse>(
+          `/media/${encodeURIComponent(mediaId)}/transcript-segments`,
+          { signal },
+        ),
       ),
     refetchInterval: (query) =>
-      query.state.data?.transcript_status === "pending" ? TRANSCRIPT_POLL_INTERVAL_MS : false,
+      isTranscriptPending(query.state.data) ? TRANSCRIPT_POLL_INTERVAL_MS : false,
   });
 }
 
 /** 발화를 아이에게 연결하거나, 화자·문장을 고치거나, 뺍니다(임시 결정, 김동건). */
-export function updateTranscriptSegment(segmentId: string, body: TranscriptSegmentUpdateRequest) {
-  return api.patch<TranscriptSegment>(
-    `/transcript-segments/${encodeURIComponent(segmentId)}`,
-    body,
+export async function updateTranscriptSegment(segmentId: string, input: TranscriptSegmentInput) {
+  return toTranscriptSegmentView(
+    await api.patch<TranscriptSegment>(
+      `/transcript-segments/${encodeURIComponent(segmentId)}`,
+      toTranscriptSegmentBody(input),
+    ),
   );
 }

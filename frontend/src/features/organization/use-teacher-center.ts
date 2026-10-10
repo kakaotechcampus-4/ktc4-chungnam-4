@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { meQueryOptions } from "@/api/auth";
+import { isTeacher, meQueryOptions } from "@/api/auth";
 import { centerClassesQueryOptions } from "@/api/organization";
 
 // 온보딩 화면(반 선택·반 만들기)이 쓰는 "내 어린이집"입니다. 어린이집 id는 GET /me(교사)에서 받습니다.
@@ -8,7 +8,7 @@ import { centerClassesQueryOptions } from "@/api/organization";
 // 어린이집 이름을 주는 API가 없어서 어린이집의 반 목록에 붙은 center_name을 씁니다. 반이 하나도 없으면 null입니다.
 export function useTeacherCenter() {
   const meQuery = useQuery(meQueryOptions());
-  const me = meQuery.data?.account_type === "teacher" ? meQuery.data : null;
+  const me = isTeacher(meQuery.data) ? meQuery.data : null;
   const centerId = me?.center_id ?? null;
   const classesQuery = useQuery({
     ...centerClassesQueryOptions(centerId ?? ""),
