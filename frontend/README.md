@@ -49,7 +49,7 @@ frontend/src/
 ├── components/ui/       # shadcn 생성물
 ├── components/common/   # 공통 컴포넌트 (PageHeader, FocusCard, BrandLogo, FormField, Stepper)
 ├── api/<도메인>.ts      # 요청 함수와 queryOptions (auth, organization, media, agents, documents, face)
-│                        # <도메인>-view.ts: 화면용 타입. 서버 타입을 import하지 않음 (옮긴 도메인부터, 지금은 auth)
+│                        # <도메인>-view.ts: 화면용 타입. 서버 타입을 import하지 않음 (옮긴 도메인부터, 지금은 auth·documents)
 │                        # <도메인>-adapter.ts: 서버 응답 ↔ 화면용 타입 변환 함수
 ├── lib/                 # api-client, datetime(한국 날짜·표기), form-rules(공통 입력 규칙), utils(cn)
 ├── types/api-draft/     # API 문서를 옮긴 임시 타입
