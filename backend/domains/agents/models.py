@@ -5,8 +5,10 @@ from sqlalchemy import (
     JSON,
     Boolean,
     Column,
+    Date,
     DateTime,
     Float,
+    ForeignKey,
     Integer,
     String,
     UniqueConstraint,
@@ -14,6 +16,36 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 
 from core.base import Base
+
+
+class GenerationJob(Base):
+    """반·날짜 단위 초안 생성 요청 1건. FE가 폴링하는 job_id가 이 레코드의 id다.
+
+    원아별 Job을 묶는 부모이고, 반 전체 진행 상태는 원아별 Job에서 계산해 따로 저장하지
+    않는다 (테크스펙 데이터 모델 ④, 09/27 결정 #61).
+
+    class_id·requested_by_teacher_id는 organization·auth 도메인 소유라 계층 규칙
+    (backend/CLAUDE.md)에 따라 UUID 컬럼만 두고 ForeignKey 제약은 걸지 않는다.
+    """
+
+    __tablename__ = "generation_jobs"
+    # 제약 이름을 둬야 나중에 바꾸거나 지우는 마이그레이션에서 이름을 찾지 않아도 된다 (#77 리뷰).
+    __table_args__ = (UniqueConstraint("request_id", name="uq_generation_jobs_request_id"),)
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    class_id = Column(UUID(as_uuid=True), nullable=False)
+    record_date = Column(Date, nullable=False)
+    # 같은 값으로 다시 보내면 기존 레코드를 돌려준다 (docs/api/agents.md)
+    request_id = Column(String, nullable=False)
+    # 비동기 task가 초안의 author_teacher_id를 채우는 데 쓴다 (FR-26)
+    requested_by_teacher_id = Column(UUID(as_uuid=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
 
 
 class Job(Base):
@@ -26,6 +58,10 @@ class Job(Base):
     __tablename__ = "jobs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # 폴링 응답이 부모 id로 원아별 Job을 모아 계산하므로 인덱스를 둔다.
+    generation_job_id = Column(
+        UUID(as_uuid=True), ForeignKey("generation_jobs.id"), nullable=False, index=True
+    )
     child_id = Column(UUID(as_uuid=True), nullable=False)
     target_date = Column(DateTime(timezone=True), nullable=False)
     # pending / running / succeeded / failed

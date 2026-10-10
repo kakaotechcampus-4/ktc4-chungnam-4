@@ -6,7 +6,7 @@
 
 | 파일 | 내용 | 상태 |
 | --- | --- | --- |
-| `models.py` | `EvidenceBundle`, `SentenceEvidence`, `VerificationResult` | 완료 (`check_type`/`result` 값 도메인은 PR #7 계약과 맞춤) |
+| `models.py` | `GenerationJob`(반·날짜 요청), `Job`(원아별), `EvidenceBundle`, `SentenceEvidence`, `VerificationResult`, `DraftDecisionLog` | 완료 (`check_type`/`result` 값 도메인은 PR #7 계약과 맞춤) |
 | `schemas.py` | 파이프라인 요청·응답 | 완료 (`context_lookup` 구조만 미정 — organization/media 확정 후) |
 | `router.py` | 직접 API가 필요한 경우만 (예: 수동 재생성 요청) | 보류 — API 목록 확정 회의 전까지 손대지 않음 |
 | `service.py` | 근거수집 → 초안생성 → Critic 검증 오케스트레이션 | 부분 구현. `orchestrate_drafts`는 `decide()`(pass/regenerate/retry_critic/needs_teacher_review) 4종 판정에 맞춰 재생성·Critic 재시도 루프를 돈다. `_verify_and_record`는 references→target→critic→decide 실제 파이프라인으로 동작. `_collect_evidence`/`_generate_draft`는 organization/media/AI팀 tools·prompts 대기 중이라 `NotImplementedError` |
