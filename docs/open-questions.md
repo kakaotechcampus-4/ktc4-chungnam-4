@@ -12,9 +12,9 @@
 
 ## B. 구조 · 인프라
 
-- [ ] ONNX 모델 배포 방식: git-lfs vs S3/CDN vs `public/` 직접 포함
-- [ ] 로컬 개발 환경: Docker Compose 통일 vs 각자 로컬 실행
-- [ ] CI에서 막을 것: 린트 / 타입체크 / 테스트 / 빌드 중 어디까지 — **현재 린트·포맷·테스트로 운영 중**(`.github/workflows/ci.yml`). 머지 차단은 `develop-ci` 룰셋으로 켰다가, 룰셋 도입 전에 열린 PR이 검사 대기 상태로 막혀 임시 해제했습니다. 타입체크·빌드를 넣을지는 미정
+- [ ] **브라우저 얼굴 모델 파일을 어디서 받을지** (원래 질문: ONNX 모델을 git-lfs vs S3/CDN vs `public/` 직접 포함) — 얼굴 인식이 HUMAN(`@vladmandic/human`)으로 바뀌는 중이라(#121, 머지 전) 대상은 HUMAN의 얼굴 모델 파일입니다. 프론트엔드가 S3 + CloudFront로 배포되므로(아래 결정 기록) 빌드 때 모델 파일을 함께 올리면 화면과 같은 주소에서 받아 CORS가 필요 없습니다(제안, 송유진 #121 리뷰). 정할 것: 복사 방식(빌드 때 패키지에서 복사 vs 저장소에 커밋), 모델 파일 캐시 기간, 브라우저 IndexedDB 저장 여부(`frontend/CLAUDE.md` §온디바이스와 업로드 게이트). 김진하·송유진
+- [ ] 로컬 개발 환경: Docker Compose 통일 vs 각자 로컬 실행 — **백엔드만 남은 질문입니다.** 프론트엔드는 배포도 컨테이너가 아니라(S3 + CloudFront, 아래 결정 기록) Compose에 넣지 않고, 로컬은 `pnpm dev`(MSW 또는 Vite 프록시로 로컬 BE)입니다
+- [ ] CI에서 막을 것: 린트 / 타입체크 / 테스트 / 빌드 중 어디까지 — **현재** backend는 ruff lint·format·pytest, frontend는 Prettier·ESLint·tsc·Vitest·빌드입니다(`.github/workflows/ci.yml`). 머지 차단은 `develop-ci` 룰셋이 backend·frontend 두 검사를 필수로 걸고 있고, strict(머지 전 최신화 강제)는 꺼져 있습니다(10/07 확인). backend에 타입체크를 넣을지만 남았으면 이 항목을 결정 기록으로 내립니다
 - [ ] **죽은 참조·깨진 링크 CI 검사 도입 여부** — 문서의 `§제목`·경로 참조가 실제로 존재하는지 검사. 블랭킷 경로 검사는 오탐이 많아(`models.py` 같은 관례 표기까지 잡힘) 표적 검사로 짜야 합니다. 새 워크플로라 BE 리드 확인 필요
 - [ ] `backend/.importlinter` — 채울지 지울지 (현재 0바이트. 빈 설정 파일이 제일 나쁨)
 - [ ] **`backend/domains/agents/CLAUDE.md` §프롬프트를 새 구조에 맞게 고치기** (AI 회의 답변으로 방향 확정, **코드 반영 대기 중**) — 현재 문서는 "코드 문자열에 하드코딩하지 않고 최상위 `prompts/*.md`에 둔다 / 파일명은 `agent1_evidence.md` 등 4개"입니다. 새 구조는 **`prompts/<영역>/` 중첩, 프롬프트 본문은 `.md`, 변수 삽입·조립 로직은 `.py`로 분리**하며, 하위 전체를 한 확장자로 고정하지 않습니다. 지금 저장소의 `prompts/verification/critic.py`는 본문과 조립이 한 파일에 섞여 있어 아직 새 구조가 아닙니다 — **AI팀 PR로 분리가 끝난 뒤 `[fix]`로 문서를 맞춥니다.** 먼저 고치면 문서가 또 현실과 어긋납니다
@@ -24,6 +24,13 @@
 - [ ] **배포 중 중단 허용 범위** (NFR-13) — 현재 설계는 컨테이너 재시작이라 수 초간 API가 끊깁니다. 서버가 1대라 블루/그린은 불가능합니다
 - [ ] **`main` 배포(운영 환경) 도입 시점** (NFR-13) — 서버가 1대라 `develop` 배포와 공존할 수 없습니다. 멘토 조언에 따라 우선 `develop`만 붙입니다
 - [ ] **컨테이너 로그 장기 보존 여부** — 파일당 10MB·3개로 제한하면 오래된 로그는 사라집니다. 보존이 필요해지면 CloudWatch Logs 등 서버 밖으로 내보내는 방식을 검토합니다 (멘토 09/20: 이번 프로젝트는 디스크 사용량 확인으로 충분)
+- [ ] **프론트엔드 배포 자원 이름** — S3 버킷, CloudFront 배포, 프론트엔드 배포 역할, 워크플로 파일, 배포 태그(NFR-15) 이름. 만든 뒤 `.claude/skills/deploy` §FE 배포에 이름만 적습니다(계정 ID·ARN은 적지 않음). 송유진
+- [ ] **목 데모 주소를 따로 배포할지** (이슈 #118 D) — BE API가 준비되기 전까지 목 화면을 시연·리뷰용 주소로 둘지. 지금 배포 빌드에는 목이 들어가지 않습니다(`frontend/src/main.tsx`의 `import.meta.env.DEV` 검사). 둔다면 같은 방식으로 주소를 하나 더 만듭니다. 프론트엔드
+- [ ] **(제안) 화면 주소 새로고침 처리** — `/t/today` 같은 주소를 새로고침하면 S3에 그 파일이 없어 403이 옵니다. CloudFront 오류 페이지(403·404 → `/index.html`)는 배포 전체에 걸려 `/api/*`의 403·404까지 `index.html` 200으로 바꿉니다. 그래서 기본 경로(S3)에만 CloudFront Function으로 확장자 없는 주소를 `/index.html`로 바꾸는 방식을 제안합니다. 송유진
+- [ ] **(제안) 정적 파일 캐시 기간과 무효화** — `index.html`은 `no-cache`, 해시가 붙은 `assets/*`는 1년 `immutable`. 배포 때마다 CloudFront 무효화를 할지(프론트엔드 역할에 그 배포 하나의 무효화 권한을 줄지)와 함께 정합니다. 송유진
+- [ ] **CloudFormation 템플릿 위치와 적용 방식** (IaC 도입은 아래 결정 기록) — 위치는 `infra/frontend/`를 제안합니다(새 최상위 디렉터리라 팀 확인). 적용은 PR 리뷰 → change set 확인 → 사람이 SSO로 실행합니다. GitHub Actions에서 적용하면 FE 배포 역할이 CloudFront·IAM 권한까지 가져야 해 NFR-14(FE 버킷만)와 어긋나기 때문입니다. CloudFormation은 서비스 역할을 주지 않으면 실행한 사람의 권한으로 자원을 만들고(SSO 권한 세트의 거부가 그대로 걸림), 스택에 IAM 역할이 들어가 `CAPABILITY_NAMED_IAM` 확인이 필요합니다. 송유진
+- [ ] **EC2 API를 CloudFront로만 받을지** — 지금은 EC2 도메인으로도 API가 그대로 열려 있습니다. 로그인 쿠키는 CloudFront 주소에만 붙으므로 로그인한 요청은 그쪽으로만 오지만, 직접 접근을 막을지(CloudFront가 붙이는 헤더 확인 등)는 미정. 엄태은
+- [ ] **`deploy.yml` 경로 필터** (이슈 #118 부탁) — 지금은 `frontend/`만 바뀐 머지에도 EC2 배포가 돕니다. `push` 트리거라 `ci.yml`의 필수 검사 문제(paths 필터 금지)와는 별개입니다. 엄태은
 
 ## C. 스펙 미정 (코드 구조에 영향)
 
@@ -80,6 +87,8 @@
 
 - [ ] `CurrentUser`에 담을 범위 — `class_ids`/`child_ids`를 JWT에 넣을지, 요청마다 조회할지
 - [ ] Celery task의 권한 처리 — `account_id`를 인자로 넘길지, 시스템 권한으로 돌릴지
+- [ ] **CSRF 검사 세부** (인증 방식은 아래 결정 기록) — ① 허용할 `Origin` 설정값 이름과 개발 환경 값(Vite 개발 서버 `http://localhost:5173`) ② 헤더 규칙(제안: `Sec-Fetch-Site`가 있으면 `same-origin`만 통과, `Origin`이 있으면 설정값과 정확히 같아야 통과하고 `null`은 거부, **`Sec-Fetch-Site`와 `Origin`이 둘 다 없으면 거부**. OWASP는 `Origin`이 없을 때 `Referer`로 확인하는 방법도 듦) ③ 거부할 때 상태·에러 코드 이름(테크스펙 공통 에러 코드표에 추가). FE는 403을 모두 "접근 권한 없음" 화면으로 보내므로(`frontend/CLAUDE.md` §데이터) 403을 쓰면 FE 처리도 같이 정합니다 ④ 검사를 둘 곳(공통 미들웨어 등). **`Host`가 아니라 설정값과 비교해야 합니다** — CloudFront가 EC2로 보낼 때 `Host`를 EC2 주소로 바꿉니다(원본 요청 정책 `AllViewerExceptHostHeader`). 같은 설정값을 학부모 초대 링크 주소(`docs/api/organization.md`의 `invite_url`)에도 쓸 수 있습니다. 엄태은
+- [ ] **(멘토 권장, #124 리뷰) API 응답에 `Cache-Control: no-store`를 전역으로 붙일지** — CloudFront `/api/*` 캐시를 꺼 둔 것과 별개로, 설정 실수가 있어도 서버 응답이 캐시되지 않게 하는 두 번째 방어선입니다. 붙이면 `docs/api/media-face.md`의 임베딩 응답 `no-store`(제안)가 여기에 흡수됩니다. 엄태은
 
 ## E. 문서 관리
 
@@ -134,6 +143,13 @@
 - `UnclassifiedItem` 소유 도메인 → **documents**
 - **동의 수집을 앱 안으로** (09/22) — 학부모가 **원아별 초대 링크**로 가입하며 직접 동의. 교사의 서면 동의 등록(FR-01) 폐기, FR-28 신설 → 테크스펙 전제조건·FR 표·온보딩 3·B 흐름·부록 4
 - `ConsentRecord` 소유 도메인 → **organization** (09/21) → `backend/README.md` §폴더 구조와 담당 범위
+
+**배포 · 인증**
+
+- **프론트엔드는 CloudFront 하나로 화면(S3, OAC로 비공개)과 API(`/api/*` → 지금 EC2, 캐시 끔)를 같은 주소에 묶어 배포.** 대체안은 Vercel + 브라우저가 EC2 직접 호출 (송유진 결정·멘토 승인(#124 리뷰, 2026-10-07), 이슈 #118) → 테크스펙 NFR-13·§기술스택·배포 표
+- **로그인은 JWT를 HttpOnly 쿠키로 주고받고, BE가 상태 변경 요청의 `Origin`을 확인해 CSRF를 막음.** 같은 주소라 CORS는 쓰지 않음 (송유진 결정·멘토 승인(#124 리뷰, 2026-10-07), 이슈 #118) → 테크스펙 §공통 API 규약·§기술스택, `docs/api/auth.md` §이 도메인의 규칙의 '인증'
+- **프론트엔드 배포는 GitHub Actions OIDC, `develop` 브랜치에서만 쓸 수 있고 FE 버킷만 다루는 전용 역할** (송유진 결정·멘토 승인(#124 리뷰, 2026-10-07), 이슈 #118) → 테크스펙 NFR-14
+- **프론트엔드 배포 자원(S3 버킷, CloudFront, FE 배포 역할)은 처음부터 CloudFormation 템플릿으로 만들고 관리.** 설정 변경도 PR 리뷰를 거칩니다. 콘솔로 만든 뒤 옮기면 `cloudfront.net` 주소가 바뀔 수 있어 처음부터 씁니다 (멘토 권고(#124 리뷰, 2026-10-07), 송유진 결정 10/08) → 테크스펙 §기술스택 FE 배포 행
 
 **컨벤션 · 문서**
 

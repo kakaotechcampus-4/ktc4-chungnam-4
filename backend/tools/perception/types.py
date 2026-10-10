@@ -7,9 +7,9 @@ perception은 domains를 import하지 않는다. agents/service가 media 행을 
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Self
+from typing import Literal, Self
 
-from pydantic import AwareDatetime, ConfigDict, model_validator
+from pydantic import AwareDatetime, ConfigDict, Field, model_validator
 
 from tools.contracts import ContractModel, EvidenceItem, NonEmpty
 
@@ -52,6 +52,38 @@ class TranscriptSegmentInput(ContractModel):
     excluded: bool
 
 
+class ChildLink(ContractModel):
+    """사진 한 장에 귀속된 원아 한 명 (테크스펙 MediaChildLink). method도 같은 값을 쓴다."""
+
+    child_id: NonEmpty
+    method: Literal["face_recognition", "manual"]  # 로컬 자동 / 로컬 수동
+
+
+class PhotoInput(ContractModel):
+    """LLM에 보낸 활동 사진 한 장 (테크스펙 MediaAsset·MediaChildLink).
+
+    귀속이 끝나고 동의 판정을 통과한 사진만 들어오므로 links는 1개 이상이다 (H-2).
+    """
+
+    # TranscriptSegmentInput과 같은 이유로 검증 오류 문자열에 입력을 싣지 않는다 (H-4).
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+
+    media_id: NonEmpty  # 서버 UUID 문자열
+    captured_at: AwareDatetime  # MediaAsset 촬영 시각
+    links: tuple[ChildLink, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def unique_children(self) -> Self:
+        if len({link.child_id for link in self.links}) != len(self.links):
+            raise ValueError("duplicate child_id in links")
+        return self
+
+    @property
+    def child_ids(self) -> tuple[str, ...]:
+        """귀속 원아 ID(정렬·고유). 프롬프트에 보내는 아이 수는 이 길이다."""
+        return tuple(sorted({link.child_id for link in self.links}))
+
+
 class DropReason(StrEnum):
     """근거로 만들지 않은 사유."""
 
@@ -62,10 +94,17 @@ class DropReason(StrEnum):
     STT_NO_SPEECH = "stt_no_speech"
     EMPTY_TEXT = "empty_text"
     UNMAPPED_SPEAKER = "unmapped_speaker"
+    AMBIGUOUS_ACTOR = "ambiguous_actor"  # 사진의 아이 수와 관찰 scope가 맞지 않음
+    NO_VISIBLE_OBSERVATION = "no_visible_observation"  # 사진에서 쓸 관찰이 없다고 응답함
+    PHOTO_NOT_ANSWERED = "photo_not_answered"  # 사진 분석 응답에 그 사진이 빠짐
 
 
 class Dropped(ContractModel):
-    """버린 입력 한 건. source_id는 segment_id다. 원문은 남기지 않고 사유만 둔다 (H-4)."""
+    """버린 입력 한 건. source_id는 발화면 segment_id, 사진이면 media_id다.
+
+    원문은 남기지 않고 사유만 둔다 (H-4). 사진 한 장에서 관찰 여러 개를 버리면 같은
+    source_id가 여러 번 나올 수 있다.
+    """
 
     source_id: NonEmpty
     reason: DropReason

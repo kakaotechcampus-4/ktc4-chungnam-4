@@ -48,8 +48,9 @@ frontend/src/
 ├── features/<기능>/     # 화면을 넘나드는 단위. class-context(현재 반), auth(역할별 홈, 로그아웃)
 ├── components/ui/       # shadcn 생성물
 ├── components/common/   # 공통 컴포넌트 (PageHeader, FocusCard, BrandLogo, FormField, Stepper)
-├── api/<도메인>.ts      # 요청 함수와 queryOptions (auth, organization, media, agents, documents)
-│                        # <도메인>-adapter.ts: 서버 응답 → 화면용 타입 (옮긴 도메인만)
+├── api/<도메인>.ts      # 요청 함수와 queryOptions (auth, organization, media, agents, documents, face)
+│                        # <도메인>-view.ts: 화면용 타입. 서버 타입을 import하지 않음 (옮긴 도메인부터, 지금은 auth)
+│                        # <도메인>-adapter.ts: 서버 응답 ↔ 화면용 타입 변환 함수
 ├── lib/                 # api-client, datetime(한국 날짜·표기), form-rules(공통 입력 규칙), utils(cn)
 ├── types/api-draft/     # API 문서를 옮긴 임시 타입
 ├── styles/tokens.css    # 디자인 토큰
@@ -65,7 +66,7 @@ frontend/src/
 3. `src/pages/<kebab-case>/<Name>Page.tsx`를 만들고 첫 줄에 노드를 적습니다: `// Figma: 1:1895`
 4. 내 영역의 `src/app/routes/<영역>.ts`에 `{ path, Component }`로 등록합니다. 파일 머리 주석에 내 화면의 경로가 적혀 있습니다.
 5. 제목은 `PageHeader`, 흰 카드 한 장은 `FocusCard`로 만들고, 스타일은 토큰 유틸리티만 씁니다(hex 금지).
-6. 데이터가 필요하면 `types/api-draft/<도메인>.ts` → `api/<도메인>.ts`(adapter로 옮긴 도메인이면 `api/<도메인>-adapter.ts`도) → `mocks/handlers/<도메인>.ts` + `mocks/fixtures/<도메인>.ts` 순서로 만듭니다. 핵심 흐름(업로드~학부모 열람)은 이미 있으니 `api/<도메인>.ts`의 요청 함수부터 씁니다(아래 §핵심 흐름 목).
+6. 데이터가 필요하면 `types/api-draft/<도메인>.ts` → `api/<도메인>-view.ts`(화면용 타입) → `api/<도메인>-adapter.ts`(변환) → `api/<도메인>.ts` → `mocks/handlers/<도메인>.ts` + `mocks/fixtures/<도메인>.ts` 순서로 만듭니다. 핵심 흐름(업로드~학부모 열람)은 이미 있으니 `api/<도메인>.ts`의 요청 함수부터 씁니다(아래 §핵심 흐름 목).
 7. `<Name>Page.test.tsx`를 만들어 `renderRoute`와 MSW로 성공 1개, 빈 상태나 실패 1개를 확인합니다.
 8. `pnpm check`를 통과시키고 PR을 올립니다. 300줄 이하, 요구사항 ID, Figma 노드, 스크린샷을 넣고 develop을 먼저 머지합니다.
 
@@ -115,7 +116,7 @@ API 문서의 상세 작성 엔드포인트 20개에 목이 있습니다. 요청
 
 - 지금은 BE에 라우터가 없어서 타입을 `types/api-draft/<도메인>.ts`에 손으로 씁니다. 인터페이스 명세(`docs/api/`)를 먼저 고치고 타입을 맞춥니다.
 - BE 라우터가 생기면 OpenAPI에서 `types/api.ts`를 생성하고, 도메인별로 `api-draft`를 생성 타입의 별칭으로 바꾼 뒤 `api-draft`를 지웁니다.
-- adapter로 옮긴 도메인(`eslint.config.js`의 `API_DRAFT_IMPORT`)은 화면이 서버 타입 대신 `api/<도메인>-adapter.ts`가 바꾼 화면용 타입을 씁니다(`frontend/CLAUDE.md` §데이터, 예시는 `api/auth-adapter.ts`). 서버 타입이 바뀌면 화면은 그대로 두고 서버 타입과 adapter를 고칩니다.
+- 화면은 서버 타입 대신 `@/api/<도메인>`이 내보내는 화면용 타입을 씁니다. 화면용 타입은 `api/<도메인>-view.ts`에 두고(옮긴 도메인부터, 예시는 `api/auth-view.ts`·`api/auth-adapter.ts`), 서버 타입은 import하지 않습니다(`frontend/CLAUDE.md` §데이터). 서버 타입이 바뀌면 화면과 view는 그대로 두고 서버 타입과 adapter를 고칩니다.
 
 ## 자주 막히는 것
 
