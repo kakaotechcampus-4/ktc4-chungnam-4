@@ -55,16 +55,21 @@ const ADAPTER_TYPE_EXPORTS = [
   },
 ];
 // 옮긴 도메인의 요청 파일(api/<도메인>.ts)은 화면용 타입을 view 파일에서만 다시 내보냅니다.
+// adapter·서버 타입 경로에서 다시 내보내거나, import한 서버 타입을 이름만 다시 내보내는 것도 막습니다.
+const VIEW_ONLY_TYPE_EXPORT = "화면용 타입은 ./<도메인>-view에서만 내보냅니다.";
 const API_TYPE_REEXPORTS = [
   {
-    selector:
-      "ExportNamedDeclaration[source.value=/-adapter$/] > ExportSpecifier[exportKind='type']",
-    message: "화면용 타입은 ./<도메인>-view에서 내보냅니다.",
+    // export type { X } from "…" · export type { X } · export type X = … · export interface X
+    selector: "ExportNamedDeclaration[exportKind='type']:not([source.value=/-view$/])",
+    message: VIEW_ONLY_TYPE_EXPORT,
   },
   {
-    selector: "ExportNamedDeclaration[source.value=/-adapter$/][exportKind='type']",
-    message: "화면용 타입은 ./<도메인>-view에서 내보냅니다.",
+    // export { type X } from "…" · export { type X }
+    selector:
+      "ExportNamedDeclaration:not([source.value=/-view$/]) > ExportSpecifier[exportKind='type']",
+    message: VIEW_ONLY_TYPE_EXPORT,
   },
+  { selector: "ExportAllDeclaration:not([source.value=/-view$/])", message: VIEW_ONLY_TYPE_EXPORT },
 ];
 
 export default defineConfig([
