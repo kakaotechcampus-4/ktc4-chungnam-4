@@ -4,9 +4,7 @@ import type {
   DraftDetail,
   DraftStatus,
   DraftSummary,
-  DocType,
   Evidence,
-  EvidenceSourceType,
   PublicationResult,
   Sentence,
 } from "@/types/api-draft/documents";
@@ -77,21 +75,59 @@ export interface ChildDraftView extends DraftSummaryView {
   record_date: string;
 }
 
+/** 알림장인지 관찰일지인지 */
+export type DocTypeView = "observation_log" | "parent_note";
+
+/** 근거가 어디서 왔는지. 근거 패널이 출처 이름으로 바꿔 보여 줍니다. */
+export type EvidenceSourceTypeView =
+  "photo_observation" | "video_speech" | "video_scene" | "teacher_voice_memo" | "activity_plan";
+
+/** 문장 하나의 근거 */
+export interface EvidenceView {
+  /** 초안 안에서만 유일한 불투명 문자열(UUID 규약의 예외) */
+  evidence_id: string;
+  source_type: EvidenceSourceTypeView;
+  text: string;
+  /** activity_plan 근거는 null */
+  media_id: string | null;
+  start_ms: number | null;
+  end_ms: number | null;
+  captured_at: string | null;
+}
+
+export interface SentenceView {
+  /** 0부터 셉니다 */
+  sentence_index: number;
+  text: string;
+  evidences: EvidenceView[];
+}
+
+/**
+ * 초안에 딸린 미디어의 서명 URL. media 도메인의 재생 URL과 달리 촬영 시각이 없어
+ * 따로 둡니다(`GET /drafts/{draft_id}`의 `media`).
+ */
+export interface DraftMediaView {
+  media_id: string;
+  type: "photo" | "video" | "voice_memo";
+  url: string;
+  url_expires_at: string;
+}
+
 /** GET /drafts/{draft_id} — 초안 본문과 근거 */
 export interface DraftView {
   draft_id: string;
   child_id: string;
   /** 알림장인지 관찰일지인지. 이 화면은 안 쓰지만 문서에 있는 응답 필드라 버리지 않습니다. */
-  doc_type: DocType;
+  doc_type: DocTypeView;
   record_date: string;
   status: DraftState;
   version: number;
   title: string | null;
-  sentences: Sentence[];
+  sentences: SentenceView[];
   /** 교사가 고른 미디어의 id. 어느 것이 사진인지는 `selectedPhotos`가 가립니다. */
   selected_media_ids: string[];
   /** 선택 미디어와 근거 미디어 전부. 근거 패널이 씁니다. */
-  media: MediaUrl[];
+  media: DraftMediaView[];
   published_at: string | null;
   /** 게시할 때 사진을 함께 보냈는지. 게시 전에는 `null`입니다. */
   include_photos: boolean | null;
@@ -120,8 +156,8 @@ export interface PublicationResultView {
   error_code: string | null;
 }
 
-// 서버가 모르는 상태를 보내면 값만 남깁니다(H-4: 이름·연락처는 찍지 않음). 긴 문자열은 앞 32자만.
-// 모르면 잠급니다 — 열어 두면 교사가 승인해 미완성 글이 나갈 수 있습니다(H-1).
+// 서버가 모르는 상태값을 보내면 값만 남기고 "unknown"으로 둡니다(H-4: 이름·연락처는 찍지 않음).
+// 긴 문자열은 앞 32자만 찍습니다. 초안 상태와 게시 결과가 함께 씁니다.
 function warnUnknownStatus(label: string, value: unknown): "unknown" {
   console.warn(label, typeof value === "string" ? value.slice(0, 32) : typeof value);
   return "unknown";
@@ -176,6 +212,37 @@ export function toChildDraftView(raw: ChildDraftItem): ChildDraftView {
   return { ...toDraftSummaryView(raw), record_date: raw.record_date };
 }
 
+// 문장·근거·미디어도 필드를 하나씩 옮깁니다(#124 멘토 리뷰). 지금은 값이 서버와 같지만,
+// 서버 객체를 그대로 넘기면 서버가 필드를 바꿀 때 근거 패널까지 함께 바뀝니다.
+function toEvidenceView(raw: Evidence): EvidenceView {
+  return {
+    evidence_id: raw.evidence_id,
+    source_type: raw.source_type,
+    text: raw.text,
+    media_id: raw.media_id,
+    start_ms: raw.start_ms,
+    end_ms: raw.end_ms,
+    captured_at: raw.captured_at,
+  };
+}
+
+function toSentenceView(raw: Sentence): SentenceView {
+  return {
+    sentence_index: raw.sentence_index,
+    text: raw.text,
+    evidences: raw.evidences.map(toEvidenceView),
+  };
+}
+
+function toDraftMediaView(raw: MediaUrl): DraftMediaView {
+  return {
+    media_id: raw.media_id,
+    type: raw.type,
+    url: raw.url,
+    url_expires_at: raw.url_expires_at,
+  };
+}
+
 export function toDraftView(raw: DraftDetail): DraftView {
   return {
     draft_id: raw.draft_id,
@@ -185,9 +252,9 @@ export function toDraftView(raw: DraftDetail): DraftView {
     status: toDraftState(raw.status),
     version: raw.version,
     title: raw.title,
-    sentences: raw.sentences,
+    sentences: raw.sentences.map(toSentenceView),
     selected_media_ids: raw.selected_media_ids,
-    media: raw.media,
+    media: raw.media.map(toDraftMediaView),
     published_at: raw.published_at,
     include_photos: raw.include_photos,
   };
@@ -230,11 +297,11 @@ export function toPublicationResultView(raw: PublicationResult): PublicationResu
  * 필드가 아니라 함수로 두는 것은 `media`와 `selected_media_ids`에서 계산되는 값이라
  * 서버 응답에 없는 필드를 adapter가 만들어 내지 않게 하려는 것입니다(#107 리뷰 송유진 님).
  */
-export function selectedPhotos(draft: DraftView | undefined): MediaUrl[] {
+export function selectedPhotos(draft: DraftView | undefined): DraftMediaView[] {
   if (draft === undefined) return [];
   return draft.selected_media_ids
     .map((id) => draft.media.find((media) => media.media_id === id))
-    .filter((media): media is MediaUrl => media !== undefined && media.type === "photo");
+    .filter((media): media is DraftMediaView => media !== undefined && media.type === "photo");
 }
 
 /**
@@ -242,7 +309,7 @@ export function selectedPhotos(draft: DraftView | undefined): MediaUrl[] {
  * `true`일 때만 돌려줍니다 — `null`(게시 전 캐시가 남은 경우)에 보여 주면 사진을 빼고
  * 게시했는데도 교사에게는 사진이 보입니다(#89 리뷰).
  */
-export function sentPhotos(draft: DraftView | undefined): MediaUrl[] {
+export function sentPhotos(draft: DraftView | undefined): DraftMediaView[] {
   return draft?.include_photos === true ? selectedPhotos(draft) : [];
 }
 
@@ -324,7 +391,3 @@ export function isNotReady(row: PublishRow): boolean {
 export function isUnpublishedDraft(row: PublishRow): boolean {
   return row.note !== null && row.note.published_at === null;
 }
-
-// 문장과 근거는 서버 모양을 그대로 씁니다. 화면이 보여 줄 값과 같고, 바꾸면 근거 id 연결이
-// 끊어질 뿐입니다. 화면이 서버 타입 파일을 직접 import하지 않도록 여기서 다시 내보냅니다.
-export type { DocType, Evidence, EvidenceSourceType, Sentence };
