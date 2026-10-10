@@ -12,6 +12,7 @@ import binascii
 import os
 import struct
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -21,7 +22,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from core.config import get_settings
-from core.exceptions import EmbeddingDecryptionFailed, EmbeddingKeyNotConfigured
+from core.exceptions import (
+    EmbeddingDecryptionFailed,
+    EmbeddingKeyNotConfigured,
+    FaceConsentRequired,
+)
 from domains.audit import service as audit
 from domains.audit.models import DeletionReason
 from domains.face.models import EmbeddingLifecycleLog, FaceEmbedding
@@ -29,7 +34,9 @@ from domains.face.models import EmbeddingLifecycleLog, FaceEmbedding
 _FORMAT_VERSION = 1
 _NONCE_SIZE = 12
 _KEY_SIZE = 32  # AES-256
-_FLOAT_SIZE = 4  # float32로 직렬화. ArcFace 임베딩은 512차원
+_FLOAT_SIZE = (
+    4  # float32로 직렬화. 차원 수는 모델마다 달라 고정하지 않습니다(HUMAN faceres는 1024, #120)
+)
 _HEADER_SIZE = 1 + _NONCE_SIZE
 
 
@@ -120,8 +127,45 @@ def _consented_child_ids(db: Session, class_id: UUID) -> list[UUID]:
     organization 담당(이한나)에게 요청한 함수로 교체합니다:
         get_consented_children(db, class_id, consent_type) -> list[UUID]
     """
-    # TODO(donggeon): organization.service.get_consented_children 대기 (#31)
+    # TODO(donggeon): organization.service.get_consented_children 대기 (#105)
     raise NotImplementedError("organization 동의 판정 함수 대기 중")
+
+
+def _ensure_class_access(db: Session, class_id: UUID, teacher_id: UUID) -> None:
+    """교사가 이 반을 볼 수 있는지 확인하고, 아니면 예외를 올립니다.
+
+    같은 어린이집(center) 소속 교사는 모든 반에 접근합니다(FR-25, 담당교사 개념 폐지).
+    반은 organization, 교사는 auth 소유라 face가 직접 조회하지 않습니다. 담당자에게 요청할
+    함수로 교체합니다. 없는 반은 `CLASS_NOT_FOUND`(404), 다른 어린이집 반은
+    `CLASS_ACCESS_DENIED`(403)입니다 (docs/api/media-face.md).
+
+    `_consented_child_ids`와 같은 이유로 통과시키는 임시 구현을 넣지 않습니다 — 임시로
+    통과되면 다른 어린이집 교사가 반 id만 바꿔 임베딩을 받아 갑니다.
+    """
+    # TODO(donggeon): organization 반 접근 판정 함수 요청 예정 (이슈 미작성)
+    raise NotImplementedError("반 접근 판정 함수 대기 중")
+
+
+def _ensure_child_access(db: Session, child_id: UUID, teacher_id: UUID) -> None:
+    """교사가 이 원아의 얼굴 정보를 다룰 수 있는지 확인합니다.
+
+    원아가 교사와 같은 어린이집의 반에 있어야 합니다(FR-25). 없는 원아는 `CHILD_NOT_FOUND`,
+    다른 어린이집 원아는 `CHILD_ACCESS_DENIED`입니다(docs/api/media-face.md).
+    원아는 organization, 교사는 auth 소유라 담당자 함수로 교체합니다. 통과시키는 임시 구현을
+    넣지 않습니다 — 다른 어린이집 교사가 원아 id만 바꿔 얼굴 정보를 등록·삭제할 수 있게 됩니다.
+    """
+    # TODO(donggeon): organization 원아 접근 판정 함수 요청 예정 (이슈 미작성, 반 접근 판정과 함께)
+    raise NotImplementedError("원아 접근 판정 함수 대기 중")
+
+
+def _has_face_consent(db: Session, child_id: UUID) -> bool:
+    """원아의 ③ 얼굴특징정보처리 동의가 지금 유효한지.
+
+    동의 판정은 organization이 맡습니다(#105는 반 단위, 이 자리는 원아 하나). 값을 돌려주는
+    임시 구현을 넣지 않습니다 — 미동의 원아의 얼굴 정보가 조용히 저장됩니다(H-3).
+    """
+    # TODO(donggeon): organization 원아 단위 동의 판정 함수 요청 예정 (#105와 함께)
+    raise NotImplementedError("원아 동의 판정 함수 대기 중")
 
 
 # 감사 로그 코드. audit 담당과 코드 목록을 맞추는 중이라(#32, #74) 값은 여기 한곳에만 둡니다.
@@ -187,8 +231,25 @@ def register_embedding(
     return embedding
 
 
-def load_embedding_cache(db: Session, class_id: UUID, teacher_id: UUID) -> dict[UUID, list[float]]:
+@dataclass(frozen=True)
+class CachedEmbedding:
+    """브라우저로 내려보낼 기준 임베딩 한 건.
+
+    `model_version`을 함께 싣는 이유: 벡터는 같은 모델로 만든 것끼리만 비교할 수 있습니다.
+    FE는 브라우저 모델과 버전이 다른 원아를 자동 분류에서 빼고 수동 분류로 보냅니다
+    (docs/api/media-face.md, 제안).
+    """
+
+    child_id: UUID
+    embedding: list[float]
+    model_version: str
+
+
+def load_embedding_cache(db: Session, class_id: UUID, teacher_id: UUID) -> list[CachedEmbedding]:
     """분류 배치 시작 시 브라우저로 내려보낼 기준 임베딩 (파이프라인 0단계).
+
+    **반 접근 권한을 먼저 확인합니다.** 다른 어린이집 교사가 반 id만 바꿔 남의 반 임베딩을
+    받아 가지 못하게 하려는 것입니다.
 
     **동의 레코드와 임베딩을 함께 확인합니다.** 철회 처리가 중간에 실패해 임베딩이
     남아 있더라도 미동의 원아가 대조 대상에 들어가지 않도록, 두 값이 어긋나면
@@ -197,14 +258,24 @@ def load_embedding_cache(db: Session, class_id: UUID, teacher_id: UUID) -> dict[
     내려보낸 임베딩마다 열람 기록을 남깁니다. 기록은 같은 Session에 flush만 하므로
     커밋은 부른 쪽(라우터)이 합니다. **라우터는 커밋이 성공한 뒤에 임베딩을 응답으로
     돌려줘야 합니다** — 응답이 먼저 나가고 커밋이 실패하면 열람 기록 없이 임베딩이 나갑니다 (NFR-05).
+    복호화는 기록보다 먼저 합니다. 하나라도 실패하면 아무것도 내보내지 않고 기록도 남지 않습니다.
     """
+    _ensure_class_access(db, class_id, teacher_id)
     consented = _consented_child_ids(db, class_id)
     if not consented:
-        return {}
+        return []
 
     rows = db.scalars(select(FaceEmbedding).where(FaceEmbedding.child_id.in_(consented))).all()
+    cache = [
+        CachedEmbedding(
+            child_id=row.child_id,
+            embedding=decrypt_embedding(row.embedding_enc, row.key_ref),
+            model_version=row.model_version,
+        )
+        for row in rows
+    ]
     _record_access(db, teacher_id, [row.id for row in rows])
-    return {row.child_id: decrypt_embedding(row.embedding_enc, row.key_ref) for row in rows}
+    return cache
 
 
 def delete_embedding(db: Session, child_id: UUID, reason: str) -> bool:
@@ -252,3 +323,47 @@ def get_embedded_child_ids(db: Session, child_ids: Sequence[UUID]) -> set[UUID]:
         return set()
     rows = db.scalars(select(FaceEmbedding.child_id).where(FaceEmbedding.child_id.in_(child_ids)))
     return set(rows)
+
+
+@dataclass(frozen=True)
+class RegisteredEmbedding:
+    """등록 결과. 벡터는 돌려주지 않습니다 (H-3)."""
+
+    child_id: UUID
+    model_version: str
+    registered_at: datetime
+
+
+def register_child_embedding(
+    db: Session,
+    *,
+    child_id: UUID,
+    teacher_id: UUID,
+    vector: Sequence[float],
+    model_version: str,
+) -> RegisteredEmbedding:
+    """얼굴 정보 등록 화면에서 브라우저가 뽑은 벡터를 저장합니다 (FR-04, H-3).
+
+    원아 접근을 확인하고, ③ 동의가 없으면 `FaceConsentRequired`로 거절합니다. 이미 있으면
+    덮어씁니다(원아당 한 개). `registered_at`은 마지막으로 등록한 시각이라, 다시 등록하면
+    갱신 시각을 돌려줍니다. flush만 하므로 커밋은 부르는 쪽이 합니다.
+    """
+    _ensure_child_access(db, child_id, teacher_id)
+    if not _has_face_consent(db, child_id):
+        raise FaceConsentRequired("얼굴 정보 처리에 동의하지 않은 원아예요.")
+    embedding = register_embedding(db, child_id, vector, model_version)
+    return RegisteredEmbedding(
+        child_id=child_id,
+        model_version=embedding.model_version,
+        registered_at=embedding.updated_at or embedding.registered_at,
+    )
+
+
+def delete_child_embedding(db: Session, *, child_id: UUID, teacher_id: UUID) -> None:
+    """얼굴 정보 삭제 화면에서 원아의 임베딩을 지웁니다 (FR-22, H-4).
+
+    교사가 얼굴 정보만 지우는 경우라 사유는 `teacher_removed`입니다(동의는 그대로).
+    지울 것이 없어도 같은 결과입니다. flush만 하므로 커밋은 부르는 쪽이 합니다.
+    """
+    _ensure_child_access(db, child_id, teacher_id)
+    delete_embedding(db, child_id, reason=DeletionReason.TEACHER_REMOVED)

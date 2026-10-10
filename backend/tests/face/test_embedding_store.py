@@ -13,11 +13,12 @@ from sqlalchemy.orm import Session
 
 from core.base import Base
 from core.config import get_settings
+from core.exceptions import EmbeddingDecryptionFailed
 from domains.audit.models import AccessLog, DeletionLog
 from domains.face import service
 from domains.face.models import EmbeddingLifecycleLog, FaceEmbedding
 
-VECTOR = [0.1, -0.25, 0.5] * 170 + [0.0, 1.0]  # 512차원
+VECTOR = [0.1, -0.25, 0.5] * 341 + [1.0]  # 1024차원(HUMAN faceres, #120)
 
 
 @pytest.fixture(autouse=True)
@@ -48,7 +49,7 @@ def db() -> Session:
 def test_등록하면_암호문으로_저장되고_이력이_남는다(db: Session) -> None:
     child_id = uuid.uuid4()
 
-    embedding = service.register_embedding(db, child_id, VECTOR, model_version="buffalo_l-1.0")
+    embedding = service.register_embedding(db, child_id, VECTOR, model_version="test-model-1")
     db.commit()
 
     assert VECTOR[0] != 0 and bytes(str(VECTOR[0]), "utf-8") not in embedding.embedding_enc
@@ -58,10 +59,10 @@ def test_등록하면_암호문으로_저장되고_이력이_남는다(db: Sessi
 
 def test_다시_등록하면_갱신되고_재등록_이력이_쌓인다(db: Session) -> None:
     child_id = uuid.uuid4()
-    service.register_embedding(db, child_id, VECTOR, model_version="buffalo_l-1.0")
+    service.register_embedding(db, child_id, VECTOR, model_version="test-model-1")
     db.commit()
 
-    service.register_embedding(db, child_id, VECTOR, model_version="buffalo_l-2.0")
+    service.register_embedding(db, child_id, VECTOR, model_version="test-model-2")
     db.commit()
 
     assert db.query(FaceEmbedding).count() == 1  # 원아당 1개
@@ -78,15 +79,17 @@ def test_동의한_원아의_임베딩만_캐시로_내려간다(
     동의한_원아 = uuid.uuid4()
     미동의_원아 = uuid.uuid4()
     for child_id in (동의한_원아, 미동의_원아):
-        service.register_embedding(db, child_id, VECTOR, model_version="buffalo_l-1.0")
+        service.register_embedding(db, child_id, VECTOR, model_version="test-model-1")
     db.commit()
+    monkeypatch.setattr(service, "_ensure_class_access", lambda db, class_id, teacher_id: None)
     monkeypatch.setattr(service, "_consented_child_ids", lambda db, class_id: [동의한_원아])
     teacher_id = uuid.uuid4()
 
-    cache = service.load_embedding_cache(db, uuid.uuid4(), teacher_id)
+    [cached] = service.load_embedding_cache(db, uuid.uuid4(), teacher_id)
 
-    assert set(cache) == {동의한_원아}
-    assert cache[동의한_원아] == pytest.approx(VECTOR, abs=1e-6)
+    assert cached.child_id == 동의한_원아
+    assert cached.embedding == pytest.approx(VECTOR, abs=1e-6)
+    assert cached.model_version == "test-model-1"
     # 내려보낸 임베딩만 열람 기록이 남고, 대상은 원아가 아니라 임베딩 id입니다 (#32).
     [log] = db.query(AccessLog).all()
     embedding_id = db.query(FaceEmbedding.id).filter_by(child_id=동의한_원아).scalar()
@@ -97,16 +100,63 @@ def test_동의한_원아의_임베딩만_캐시로_내려간다(
     )
 
 
-def test_동의_판정_함수가_없으면_조회가_실패한다(db: Session) -> None:
+def test_동의_판정_함수가_없으면_조회가_실패한다(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """목이 값을 돌려주면 미동의 원아가 조용히 통과하므로, 구현 전에는 터져야 합니다."""
-    with pytest.raises(NotImplementedError):
+    monkeypatch.setattr(service, "_ensure_class_access", lambda db, class_id, teacher_id: None)
+
+    with pytest.raises(NotImplementedError, match="동의"):
         service.load_embedding_cache(db, uuid.uuid4(), uuid.uuid4())
+
+
+def test_반_접근_판정_함수가_없으면_조회가_실패한다(db: Session) -> None:
+    """임시로 통과시키면 다른 어린이집 교사가 반 id만 바꿔 임베딩을 받아 갑니다."""
+    with pytest.raises(NotImplementedError, match="반 접근"):
+        service.load_embedding_cache(db, uuid.uuid4(), uuid.uuid4())
+
+
+def test_반_접근이_막히면_동의도_임베딩도_보지_않는다(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service.register_embedding(db, uuid.uuid4(), VECTOR, model_version="test-model-1")
+    db.commit()
+
+    def 접근_거부(db: Session, class_id: uuid.UUID, teacher_id: uuid.UUID) -> None:
+        raise PermissionError("다른 어린이집 반")
+
+    def 불리면_안_됨(db: Session, class_id: uuid.UUID) -> list[uuid.UUID]:
+        raise AssertionError("반 접근이 막혔는데 동의를 조회했습니다")
+
+    monkeypatch.setattr(service, "_ensure_class_access", 접근_거부)
+    monkeypatch.setattr(service, "_consented_child_ids", 불리면_안_됨)
+
+    with pytest.raises(PermissionError):
+        service.load_embedding_cache(db, uuid.uuid4(), uuid.uuid4())
+    assert db.query(AccessLog).count() == 0
+
+
+def test_복호화가_실패하면_열람_기록을_남기지_않는다(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """내보내지 못한 임베딩에 '열람했다'는 기록이 남으면 감사 로그가 사실과 달라집니다."""
+    child_id = uuid.uuid4()
+    service.register_embedding(db, child_id, VECTOR, model_version="test-model-1")
+    db.commit()
+    monkeypatch.setattr(service, "_ensure_class_access", lambda db, class_id, teacher_id: None)
+    monkeypatch.setattr(service, "_consented_child_ids", lambda db, class_id: [child_id])
+    monkeypatch.setenv("FACE_EMBEDDING_KEY", base64.b64encode(os.urandom(32)).decode())
+    get_settings.cache_clear()  # 다른 키로 바꿔 복호화를 실패시킵니다
+
+    with pytest.raises(EmbeddingDecryptionFailed):
+        service.load_embedding_cache(db, uuid.uuid4(), uuid.uuid4())
+    assert db.query(AccessLog).count() == 0
 
 
 def test_임베딩이_등록된_원아만_골라준다(db: Session) -> None:
     등록됨 = uuid.uuid4()
     미등록 = uuid.uuid4()
-    service.register_embedding(db, 등록됨, VECTOR, model_version="buffalo_l-1.0")
+    service.register_embedding(db, 등록됨, VECTOR, model_version="test-model-1")
     db.commit()
 
     assert service.get_embedded_child_ids(db, [등록됨, 미등록]) == {등록됨}
@@ -114,7 +164,7 @@ def test_임베딩이_등록된_원아만_골라준다(db: Session) -> None:
 
 def test_삭제하면_파기_기록과_생애주기_로그를_남긴다(db: Session) -> None:
     child_id = uuid.uuid4()
-    embedding = service.register_embedding(db, child_id, VECTOR, model_version="buffalo_l-1.0")
+    embedding = service.register_embedding(db, child_id, VECTOR, model_version="test-model-1")
     embedding_id = embedding.id
     db.commit()
 
@@ -143,7 +193,7 @@ def test_지울_임베딩이_없으면_아무것도_남기지_않는다(db: Sess
 
 def test_정해진_사유가_아니면_지우지_않는다(db: Session) -> None:
     child_id = uuid.uuid4()
-    service.register_embedding(db, child_id, VECTOR, model_version="buffalo_l-1.0")
+    service.register_embedding(db, child_id, VECTOR, model_version="test-model-1")
     db.commit()
 
     with pytest.raises(ValueError) as exc:
@@ -156,7 +206,7 @@ def test_정해진_사유가_아니면_지우지_않는다(db: Session) -> None:
 
 def test_호출자가_롤백하면_삭제와_로그가_모두_취소된다(db: Session) -> None:
     child_id = uuid.uuid4()
-    service.register_embedding(db, child_id, VECTOR, model_version="buffalo_l-1.0")
+    service.register_embedding(db, child_id, VECTOR, model_version="test-model-1")
     db.commit()
 
     service.delete_embedding(db, child_id, reason="teacher_removed")
@@ -171,7 +221,7 @@ def test_파기_기록이_실패하면_예외가_전달되고_임베딩이_남�
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     child_id = uuid.uuid4()
-    service.register_embedding(db, child_id, VECTOR, model_version="buffalo_l-1.0")
+    service.register_embedding(db, child_id, VECTOR, model_version="test-model-1")
     db.commit()
 
     def fail(*args: object, **kwargs: object) -> None:

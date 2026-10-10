@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from core.config import get_settings
 from core.database import engine, get_db
 from domains.documents.router import router as documents_router
+from domains.face.router import router as face_router
 
 
 @asynccontextmanager
@@ -31,6 +32,7 @@ app = FastAPI(
     openapi_url="/openapi.json" if _docs_public else None,
 )
 app.include_router(documents_router)
+app.include_router(face_router)
 
 
 @app.get("/health", tags=["health"])
