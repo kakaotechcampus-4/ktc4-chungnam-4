@@ -12,6 +12,7 @@ os.environ.setdefault("ANTHROPIC_API_KEY", "test-only-key")
 
 from core.exceptions import DraftVersionConflict
 from domains.agents import service
+from domains.agents.models import JobStatus
 from tests.agents.fixtures.evidence import EVIDENCE_BY_ID, EVIDENCE_CHILD_A, RECORD_DATE
 from tools import contracts
 
@@ -223,17 +224,19 @@ def test_orchestrate_drafts_성공하면_초안을_저장하고_미분류함으�
     monkeypatch,
 ) -> None:
     saved: list[contracts.DraftDocument] = []
+    job = _fake_job()
 
     def _fail_if_called(*args: object, **kwargs: object) -> None:
         raise AssertionError("성공했는데 미분류함으로 보내면 안 된다")
 
-    monkeypatch.setattr(
-        service,
-        "_save_passed_draft",
-        lambda session, job, bundle, document, evidence_by_id: saved.append(document),
-    )
+    def _save(session, job, bundle, document, evidence_by_id):
+        # 저장하는 동안은 이미 RUNNING이어야 폴링 화면이 진행 중으로 본다.
+        assert job.status == JobStatus.RUNNING.value
+        saved.append(document)
+
+    monkeypatch.setattr(service, "_save_passed_draft", _save)
     monkeypatch.setattr(service, "SessionLocal", FakeSession)
-    monkeypatch.setattr(service, "_get_job", lambda session, job_id: _fake_job())
+    monkeypatch.setattr(service, "_get_job", lambda session, job_id: job)
     monkeypatch.setattr(
         service, "_collect_evidence", lambda session, child_id, target_date: object()
     )
@@ -254,15 +257,17 @@ def test_orchestrate_drafts_성공하면_초안을_저장하고_미분류함으�
     service.orchestrate_drafts(job_id="job-1", child_id="child-1")
 
     assert len(saved) == 1
+    assert job.status == JobStatus.SUCCEEDED.value
 
 
 def test_orchestrate_drafts_교사_확인이_필요하면_미분류함으로_보낸다(
     monkeypatch,
 ) -> None:
     unclassified_calls: list[tuple[str, str]] = []
+    job = _fake_job()
 
     monkeypatch.setattr(service, "SessionLocal", FakeSession)
-    monkeypatch.setattr(service, "_get_job", lambda session, job_id: _fake_job())
+    monkeypatch.setattr(service, "_get_job", lambda session, job_id: job)
     monkeypatch.setattr(
         service, "_collect_evidence", lambda session, child_id, target_date: object()
     )
@@ -289,6 +294,49 @@ def test_orchestrate_drafts_교사_확인이_필요하면_미분류함으로_보
     service.orchestrate_drafts(job_id="job-1", child_id="child-1")
 
     assert unclassified_calls == [("job-1", "child-1")]
+    # 미분류도 예외가 아니라 정상 종료다 (docs/api/agents.md 상태값).
+    assert job.status == JobStatus.SUCCEEDED.value
+
+
+def test_orchestrate_drafts_중간에_실패하면_RUNNING으로_두고_예외를_올린다(monkeypatch) -> None:
+    """최종 실패 표시는 Celery 훅(mark_job_failed)이 한다. 여기서 FAILED로 바꾸면
+    재시도 중에도 실패로 보인다."""
+    job = _fake_job()
+
+    def _llm_down(bundle, *, previous_draft_id):
+        raise RuntimeError("LLM 호출 실패")
+
+    monkeypatch.setattr(service, "SessionLocal", FakeSession)
+    monkeypatch.setattr(service, "_get_job", lambda session, job_id: job)
+    monkeypatch.setattr(
+        service, "_collect_evidence", lambda session, child_id, target_date: object()
+    )
+    monkeypatch.setattr(service, "_generate_draft", _llm_down)
+
+    with pytest.raises(RuntimeError):
+        service.orchestrate_drafts(job_id="job-1", child_id="child-1")
+
+    assert job.status == JobStatus.RUNNING.value
+
+
+def test_record_job_retry_상태는_RUNNING_그대로_두고_횟수만_올린다(monkeypatch) -> None:
+    job = _fake_job(status=JobStatus.RUNNING.value, retry_count=0)
+    monkeypatch.setattr(service, "SessionLocal", FakeSession)
+    monkeypatch.setattr(service, "_get_job", lambda session, job_id: job)
+
+    service.record_job_retry("job-1")
+
+    assert (job.status, job.retry_count) == (JobStatus.RUNNING.value, 1)
+
+
+def test_mark_job_failed_Job을_FAILED로_남긴다(monkeypatch) -> None:
+    job = _fake_job(status=JobStatus.RUNNING.value)
+    monkeypatch.setattr(service, "SessionLocal", FakeSession)
+    monkeypatch.setattr(service, "_get_job", lambda session, job_id: job)
+
+    service.mark_job_failed("job-1")
+
+    assert job.status == JobStatus.FAILED.value
 
 
 def test_orchestrate_drafts_재생성하면_이전_draft_id를_다시_넘기고_횟수를_늘린다(

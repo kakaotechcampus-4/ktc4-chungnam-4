@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime
+from enum import StrEnum
 
 from sqlalchemy import (
     JSON,
@@ -16,6 +17,18 @@ from sqlalchemy.dialects.postgresql import UUID
 from core.base import Base
 
 
+class JobStatus(StrEnum):
+    """Job.status 값 (테크스펙 데이터 모델 ④, docs/api/agents.md 상태값).
+
+    Celery 재시도 중에도 RUNNING이고, 미분류로 끝나도 SUCCEEDED다.
+    """
+
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
 class Job(Base):
     """orchestrate_drafts 요청 1건을 추적하는 레코드.
 
@@ -28,8 +41,7 @@ class Job(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     child_id = Column(UUID(as_uuid=True), nullable=False)
     target_date = Column(DateTime(timezone=True), nullable=False)
-    # pending / running / succeeded / failed
-    status = Column(String, nullable=False, default="pending")
+    status = Column(String, nullable=False, default=JobStatus.PENDING.value)
     retry_count = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
     updated_at = Column(
