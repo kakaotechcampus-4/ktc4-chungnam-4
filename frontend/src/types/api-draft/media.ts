@@ -101,7 +101,7 @@ export interface MediaUrlDetail extends MediaUrl {
 /** GET /classes/{class_id}/face-embeddings 항목. ③ 동의가 유효하고 임베딩이 등록된 원아만 옵니다. */
 export interface FaceEmbedding {
   child_id: string;
-  /** ArcFace float 512개(H-3: 벡터만 내보냄) */
+  /** HUMAN faceres float 1024개(H-3: 벡터만 내보냄). 이슈 #120 — docs/api/media-face.md */
   embedding: number[];
   model_version: string;
 }

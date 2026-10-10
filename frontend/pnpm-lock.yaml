@@ -17,6 +17,9 @@ importers:
       '@tanstack/react-query':
         specifier: ^5.103.2
         version: 5.103.2(react@19.3.0)
+      '@vladmandic/human':
+        specifier: 3.3.6
+        version: 3.3.6
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -1662,6 +1665,10 @@ packages:
 
   '@vitest/spy@5.0.1':
     resolution: {integrity: sha512-rbto/mF/SGERxEgYOek7Xm6B9b+y+mVoo+f4b2LymYO8zM1b7uB5nHuhVMTP2hxdzgxvGiZYGxGIaMvL5y180Q==}
+
+  '@vladmandic/human@3.3.6':
+    resolution: {integrity: sha512-Nr5mPfq1gQ+uKeXY5uM3Fj8UxvF5CEh2s6txM5wRThqaW0mF9huooOuZSrT8hhGho0hGaXLFdAwfD/2+teCv6A==}
+    engines: {node: '>=14.0.0'}
 
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
@@ -5205,6 +5212,8 @@ snapshots:
       vite: 8.3.0(@types/node@24.13.6)(jiti@2.7.0)
 
   '@vitest/spy@5.0.1': {}
+
+  '@vladmandic/human@3.3.6': {}
 
   accepts@2.0.0:
     dependencies:
