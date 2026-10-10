@@ -40,7 +40,7 @@ const VIEW_API_IMPORT = {
   message: "화면용 타입 파일은 다른 화면용 타입 파일(<도메인>-view)만 import합니다.",
 };
 // 화면용 타입을 <도메인>-view.ts로 옮긴 도메인입니다. 옮길 때마다 더하고, 다 옮기면 src/api/* 전체로 넓힙니다.
-const VIEW_SPLIT_DOMAINS = ["auth"];
+const VIEW_SPLIT_DOMAINS = ["auth", "documents"];
 // 옮긴 도메인의 adapter는 변환 함수만 둡니다. 타입 선언·재내보내기는 <도메인>-view.ts에서 합니다.
 const ADAPTER_TYPE_EXPORTS = [
   {

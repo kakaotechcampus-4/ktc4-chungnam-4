@@ -13,12 +13,9 @@ import {
   canApprove,
   canReopen,
   didSendPhotos,
-  type DraftSummaryView,
-  type DraftView,
   isNotReady,
   isPublishTarget,
   needsReview,
-  type RosterState,
   isPublished,
   selectedPhotos,
   sentPhotos,
@@ -27,6 +24,7 @@ import {
   toDraftView,
   toPublicationResultView,
 } from "./documents-adapter";
+import type { DraftSummaryView, DraftView, RosterState } from "./documents-view";
 
 const PHOTO: MediaUrl = {
   media_id: fixtureId("media", 41),

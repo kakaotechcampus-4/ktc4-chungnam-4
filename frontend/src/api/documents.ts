@@ -22,7 +22,7 @@ import {
   toDraftView,
   toPublicationResultView,
 } from "./documents-adapter";
-import type { DocTypeView } from "./documents-adapter";
+import type { DocTypeView } from "./documents-view";
 
 // 화면은 서버 타입 대신 여기서 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
 export {
@@ -52,7 +52,7 @@ export type {
   PublicationState,
   RosterState,
   SentenceView,
-} from "./documents-adapter";
+} from "./documents-view";
 
 // 초안·게시·학부모 알림장 요청과 query key는 이 파일에서만 만듭니다(frontend/CLAUDE.md §데이터).
 // 교사용(/drafts)과 학부모용(/parent-notes)은 경로와 스키마가 다릅니다. 학부모 응답에는 상태·버전·근거가 없습니다.
