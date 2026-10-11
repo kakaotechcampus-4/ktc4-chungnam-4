@@ -17,7 +17,6 @@ from domains.agents.models import VerificationResult as VerificationResultRow
 from domains.documents import service as documents
 from domains.documents.schemas import DraftSaveInput
 from domains.media import service as media_service
-from domains.media.service import MediaEvidence
 from prompts.verification.critic import build_critic_prompt
 from tools import contracts
 from tools.verification.critic_result import parse_critic_response
@@ -31,7 +30,7 @@ from tools.verification.target import validate_target
 MAX_CRITIC_RETRIES = 1
 
 # 원아 1명·하루에 LLM으로 보낼 사진 수 상한. agents CLAUDE.md의 "3~5장 권장"에서 위쪽 값을
-# 골랐다. TODO(eun): 정확한 상한과 고르는 기준(지금은 촬영 시각 순)은 확정 예정이다.
+# 골랐다. TODO(eun): 정확한 상한과 고르는 기준(지금은 하루 전체에서 고르게)은 확정 예정이다.
 MAX_PHOTOS_PER_CHILD = 5
 
 GeneratedDraft = tuple[
@@ -143,18 +142,21 @@ def _collect_evidence(session: Session, child_id: str, target_date: datetime) ->
     return bundle
 
 
-def _cap_photos(media: list[MediaEvidence]) -> list[MediaEvidence]:
+def _cap_photos(media: list[media_service.MediaEvidence]) -> list[media_service.MediaEvidence]:
     """사진을 MAX_PHOTOS_PER_CHILD장까지만 남긴다. 영상·음성은 1차 근거라 자르지 않는다
-    (NFR-08). collect_media_for_llm이 촬영 시각 순으로 주므로 앞에서부터 남긴다."""
-    kept: list[MediaEvidence] = []
-    photos = 0
-    for item in media:
-        if item.type == "photo":
-            if photos >= MAX_PHOTOS_PER_CHILD:
-                continue
-            photos += 1
-        kept.append(item)
-    return kept
+    (NFR-08).
+
+    collect_media_for_llm이 촬영 시각 순으로 주므로, 앞에서 자르면 오전 사진만 남는다.
+    하루 전체에서 고르게 뽑는다 — 처음·마지막 사진을 포함해 같은 간격으로 고른다
+    (#103 리뷰, 김동건).
+    """
+    photo_positions = [i for i, item in enumerate(media) if item.type == "photo"]
+    if len(photo_positions) <= MAX_PHOTOS_PER_CHILD:
+        return media
+
+    step = (len(photo_positions) - 1) / (MAX_PHOTOS_PER_CHILD - 1)
+    kept = {photo_positions[round(i * step)] for i in range(MAX_PHOTOS_PER_CHILD)}
+    return [item for i, item in enumerate(media) if item.type != "photo" or i in kept]
 
 
 def _generate_draft(bundle: EvidenceBundle, *, previous_draft_id: str | None) -> GeneratedDraft:
