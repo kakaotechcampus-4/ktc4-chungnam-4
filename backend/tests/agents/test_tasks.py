@@ -5,6 +5,7 @@ os.environ.setdefault("POSTGRES_PASSWORD", "test-only-password")
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-only-key")
 
 import openai
+import pytest
 from celery.exceptions import SoftTimeLimitExceeded
 
 from domains.agents import tasks
@@ -31,6 +32,26 @@ def test_LLM_호출_실패와_타임아웃만_재시도한다() -> None:
 def test_재시도_상한은_2회다() -> None:
     assert tasks.generate_drafts.max_retries == 2
     assert tuple(tasks.generate_drafts.autoretry_for) == tasks.RETRYABLE_ERRORS
+
+
+def test_LLM_호출은_SDK에서_재시도하지_않는다(monkeypatch) -> None:
+    """재시도는 Celery 한 곳에서만 한다. SDK 재시도가 겹치면 한 지점에서 최대 9번 호출된다
+    (#102 리뷰)."""
+    from domains.agents import llm
+
+    created: list[dict] = []
+
+    class _FakeOpenAI:
+        def __init__(self, **kwargs) -> None:
+            created.append(kwargs)
+            raise RuntimeError("생성 인자만 확인한다")
+
+    monkeypatch.setattr(llm, "OpenAI", _FakeOpenAI)
+
+    with pytest.raises(RuntimeError):
+        llm.call_claude("CHILD_A")
+
+    assert created[0]["max_retries"] == 0
 
 
 def test_재시도하면_횟수를_남기고_최종_실패하면_FAILED로_남긴다(monkeypatch) -> None:
