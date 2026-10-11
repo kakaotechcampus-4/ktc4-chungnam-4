@@ -76,3 +76,20 @@ class JwtSecretNotConfigured(AidamError):
 
     code = "JWT_SECRET_NOT_CONFIGURED"
     status_code = 500
+
+
+class ClassNotFound(AidamError):
+    """없는 반에 접근하려 한 경우."""
+
+    code = "CLASS_NOT_FOUND"
+    status_code = 404
+
+
+class ClassAccessDenied(AidamError):
+    """다른 어린이집의 반에 접근하려 한 경우.
+
+    같은 어린이집(center) 소속 교사는 모든 반에 접근합니다 (FR-25, 담당교사 개념 폐지).
+    """
+
+    code = "CLASS_ACCESS_DENIED"
+    status_code = 403

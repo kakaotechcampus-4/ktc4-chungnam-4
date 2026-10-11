@@ -14,7 +14,8 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from domains.organization.models import Child, ConsentRecord
+from core.exceptions import ClassAccessDenied, ClassNotFound
+from domains.organization.models import Child, ConsentRecord, Klass
 
 # Child.status 값 — 재원 원아만 동의 판정 대상입니다 (졸업·퇴소 제외).
 CHILD_STATUS_ENROLLED = "enrolled"
@@ -52,3 +53,20 @@ def get_consented_children(db: Session, class_id: UUID, consent_type: str) -> li
         .order_by(Child.id)
     )
     return list(db.scalars(stmt))
+
+
+def ensure_class_access(db: Session, class_id: UUID, center_id: UUID) -> None:
+    """교사가 이 반에 접근해도 되는지 확인하고, 안 되면 예외를 올립니다.
+
+    같은 어린이집(center) 소속 교사는 모든 반에 접근합니다 (FR-25, 담당교사 개념 폐지).
+    교사의 `center_id`는 auth 로그인 의존성이 확인해 넘깁니다 — organization은 auth의
+    교사 테이블을 조회하지 않고 반의 `center_id`와만 비교합니다 (#105).
+
+    - 없는 반: `ClassNotFound` (404 `CLASS_NOT_FOUND`)
+    - 다른 어린이집의 반: `ClassAccessDenied` (403 `CLASS_ACCESS_DENIED`)
+    """
+    class_center_id = db.scalar(select(Klass.center_id).where(Klass.id == class_id))
+    if class_center_id is None:
+        raise ClassNotFound("반을 찾을 수 없습니다.")
+    if class_center_id != center_id:
+        raise ClassAccessDenied("이 반에 접근할 권한이 없습니다.")

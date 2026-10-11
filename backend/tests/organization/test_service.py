@@ -1,12 +1,14 @@
 from datetime import UTC, date, datetime
 from uuid import UUID, uuid4
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from core.base import Base
+from core.exceptions import ClassAccessDenied, ClassNotFound
 from domains.organization.models import Center, Child, ConsentRecord, Klass
-from domains.organization.service import get_consented_children
+from domains.organization.service import ensure_class_access, get_consented_children
 
 FACE = "face_feature"
 NOW = datetime(2026, 10, 11, 9, 0, tzinfo=UTC)
@@ -21,11 +23,20 @@ def _session() -> Session:
     return Session(engine)
 
 
-def _class(db: Session) -> UUID:
+def _center(db: Session) -> UUID:
     center = Center(center_code=uuid4().hex[:8], name="햇살어린이집", contract_status="trial")
     db.add(center)
     db.flush()
-    klass = Klass(center_id=center.id, teacher_id=uuid4(), name="해바라기반", age_group="만 4세")
+    return center.id
+
+
+def _class(db: Session, center_id: UUID | None = None) -> UUID:
+    klass = Klass(
+        center_id=center_id or _center(db),
+        teacher_id=uuid4(),
+        name="해바라기반",
+        age_group="만 4세",
+    )
     db.add(klass)
     db.flush()
     return klass.id
@@ -138,3 +149,26 @@ def test_여러_원아_중_유효한_원아만_한_번씩_돌려준다():
     _child(db, class_id)
 
     assert get_consented_children(db, class_id, FACE) == [agreed]
+
+
+def test_같은_어린이집_교사는_반에_접근한다():
+    db = _session()
+    center_id = _center(db)
+    class_id = _class(db, center_id)
+
+    ensure_class_access(db, class_id, center_id)
+
+
+def test_없는_반은_CLASS_NOT_FOUND():
+    db = _session()
+
+    with pytest.raises(ClassNotFound):
+        ensure_class_access(db, uuid4(), _center(db))
+
+
+def test_다른_어린이집의_반은_CLASS_ACCESS_DENIED():
+    db = _session()
+    class_id = _class(db)
+
+    with pytest.raises(ClassAccessDenied):
+        ensure_class_access(db, class_id, _center(db))
