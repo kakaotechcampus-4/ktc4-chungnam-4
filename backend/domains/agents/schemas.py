@@ -21,7 +21,7 @@ class SentenceEvidenceResponse(BaseModel):
 
     id: str
     draft_id: str
-    sentence_index: int
+    sentence_id: str
     source_media_id: str
     source_timestamp: float | None  # 사진 근거는 시간 구간이 없을 수 있음 (PR #7 계약)
     source_text: str
@@ -43,8 +43,9 @@ class VerificationResultResponse(BaseModel):
 
     id: str
     draft_id: str
+    doc_version: int
     check_type: VerificationCheckType  # PR #7의 VerificationCheckType 채택
-    sentence_index: int | None  # 영역스타일 검사는 문서 전체 대상이라 null
+    sentence_id: str | None  # 영역스타일 검사는 문서 전체 대상이라 null
     result: bool  # PR #7의 passed: bool과 맞춤
     detail: str | None
     checked_at: datetime

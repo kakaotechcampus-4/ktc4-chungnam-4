@@ -95,25 +95,26 @@ class EvidenceBundle(Base):
 
 
 class SentenceEvidence(Base):
-    """문장 하나가 근거를 여러 개 참조하면 (draft_id, sentence_index)가 같은 행을
+    """문장 하나가 근거를 여러 개 참조하면 (draft_id, sentence_id)가 같은 행을
     여러 개 만든다 — 정은-한상균 합의(9/16, ai-data-contract.md "문장-근거 관계").
 
+    문장은 순번이 아니라 contracts.DraftSentence.sentence_id로 가리킨다. 순번이면 교사가
+    문장을 끼워 넣거나 지울 때 뒤 번호가 밀려 근거가 다른 문장을 가리킨다 (#75).
+
     evidence_id는 tools.contracts.EvidenceItem.evidence_id를 그대로 저장한다 —
-    같은 문장에 같은 근거가 중복으로 안 들어가게 (draft_id, sentence_index,
+    같은 문장에 같은 근거가 중복으로 안 들어가게 (draft_id, sentence_id,
     evidence_id)에 unique 제약을 건다 (ai-data-contract.md "근거 ID·버전 연결과
     유일성 규칙", 정은-한상균 합의 09/22).
     """
 
     __tablename__ = "sentence_evidences"
     __table_args__ = (
-        UniqueConstraint(
-            "draft_id", "sentence_index", "evidence_id", name="uq_sentence_evidence_ref"
-        ),
+        UniqueConstraint("draft_id", "sentence_id", "evidence_id", name="uq_sentence_evidence_ref"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     draft_id = Column(UUID(as_uuid=True), nullable=False)
-    sentence_index = Column(Integer, nullable=False)
+    sentence_id = Column(String, nullable=False)
     evidence_id = Column(String, nullable=False)
     # 활동계획 근거는 media가 없다 — source_activity_plan_id는 EvidenceBundle이
     # 이미 갖고 있어(테크스펙 데이터 모델 ④) 여기 중복으로 안 둔다.
@@ -153,11 +154,15 @@ class VerificationResult(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     draft_id = Column(UUID(as_uuid=True), nullable=False)
+    # 재생성은 같은 draft_id에 버전만 올린다. 버전이 없으면 v1·v2의 실패 사유가 섞인다 (#91).
+    doc_version = Column(Integer, nullable=False)
     # PR #7의 VerificationCheckType 7종 채택: missing_evidence_ref, invalid_evidence_ref,
     # plan_as_observed_fact, wrong_child_evidence, wrong_date_evidence, critic_content,
     # critic_response_error
     check_type = Column(String, nullable=False)
-    sentence_index = Column(Integer, nullable=True)  # 영역스타일 검사는 문서 전체라 null
+    # 문장은 (draft_id, doc_version, sentence_id)로 구분한다 — 재생성 사이에 sentence_id가
+    # 재사용될 수 있다 (#91). 영역스타일 검사는 문서 전체라 null
+    sentence_id = Column(String, nullable=True)
     # PR #7의 passed: bool과 맞춤
     result = Column(Boolean, nullable=False)
     detail = Column(String, nullable=True)

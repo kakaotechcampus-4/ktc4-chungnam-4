@@ -140,7 +140,9 @@ def test_verify_and_record_코드_검증이_실패하면_critic을_부르지_않
     issue_rows = [obj for obj in session.added if isinstance(obj, service.VerificationResultRow)]
     assert len(issue_rows) == 1
     assert issue_rows[0].check_type == contracts.VerificationCheckType.INVALID_EVIDENCE_REF.value
-    assert issue_rows[0].sentence_index == 0
+    # 순번이 아니라 sentence_id와 검증한 초안 버전으로 남긴다 (#75, #91).
+    assert issue_rows[0].sentence_id == "s1"
+    assert issue_rows[0].doc_version == document.version
 
     sentence_rows = [obj for obj in session.added if isinstance(obj, service.SentenceEvidenceRow)]
     assert sentence_rows == []  # 실패한 시도는 근거를 남기지 않는다
@@ -383,6 +385,7 @@ def test_save_passed_draft_agents의_draft_id로_저장하고_근거와_함께_�
     sentence_rows = [obj for obj in session.added if isinstance(obj, service.SentenceEvidenceRow)]
     assert len(sentence_rows) == 1
     assert sentence_rows[0].draft_id == document.draft_id
+    assert sentence_rows[0].sentence_id == "s1"
     assert sentence_rows[0].evidence_id == "ev_001"
     assert sentence_rows[0].source_media_id == EVIDENCE_CHILD_A.media_id
     assert sentence_rows[0].source_timestamp == EVIDENCE_CHILD_A.start_ms / 1000
