@@ -35,6 +35,15 @@
 - 요청·응답·에러 형식 규약은 `docs/테크스펙.md`의 공통 API 규약 부분이 원본입니다. 프론트는 `error.code`로 분기하고 `message`는 그대로 보여 줍니다.
 - BE 라우터가 생기기 전까지 타입은 `types/api-draft/<도메인>.ts`에 손으로 씁니다. 명세를 먼저 고치고 타입을 맞춥니다. 라우터가 생기면 `types/api.ts`(openapi-typescript 생성)로 바꿉니다 — 생성 파일은 직접 수정하지 않고, 타입이 안 맞으면 BE의 스키마를 고칩니다.
 - 모든 호출은 `api/<도메인>.ts`의 요청 함수를 거치고, 요청 함수는 `lib/api-client.ts`의 `api.get`·`api.post` 등으로 씁니다. `fetch`를 직접 부르면 ESLint 에러입니다. 실패는 `ApiError`(`status`, `code`, `message`, `detail`)로 오고, 연결 실패는 `status` 0 · `NETWORK_ERROR`입니다.
+- **화면은 서버 응답 모양을 직접 쓰지 않습니다**(#92 멘토 리뷰). `api/<도메인>.ts`가 `api/<도메인>-adapter.ts`로 서버 응답을 화면용 타입으로 바꿔 넘깁니다. 서버 필드 이름·값이 문서와 다르게 오면 명세 → 서버 타입 → adapter 순서로 고치고, 화면은 고치지 않습니다.
+  - 서버 타입(`types/api-draft/`)은 `api/`·`mocks/`·테스트에서만 씁니다. 화면에서 import하면 ESLint 에러입니다. 화면은 `@/api/<도메인>`이 내보내는 화면용 타입(`XxxView`)과 판정 함수(`isTeacher` 등)를 쓰고, `-view`·`-adapter` 파일을 직접 import하지 않습니다.
+  - 화면용 타입은 `api/<도메인>-view.ts`에 둡니다(#124 멘토 리뷰). **이 파일은 서버 타입을 import하지 않습니다**(ESLint 에러). 화면용 타입이 서버 타입을 참조하면(`X["status"]`, 재내보내기) 서버가 바뀔 때 화면까지 끌려가서, adapter가 연결을 끊는 의미가 없어집니다. 다른 도메인의 화면용 타입은 `./<도메인>-view`에서 가져옵니다.
+    - 옮긴 도메인은 `eslint.config.js`의 `VIEW_SPLIT_DOMAINS`에 적습니다(지금은 auth). 아직 옮기지 않은 도메인은 화면용 타입을 지금처럼 `<도메인>-adapter.ts`에 두고, 그 도메인을 고치는 PR에서 옮깁니다. 새로 만드는 도메인은 처음부터 `-view.ts`에 둡니다.
+  - `<도메인>-adapter.ts`에는 순수 함수만 둡니다. 서버 → 화면은 `toXxxView`, 화면 → 서버 요청 본문은 `toXxxBody`, 판정은 `isXxx`입니다. React 훅과 요청 호출은 넣지 않습니다. 옮긴 도메인의 adapter는 타입을 선언하거나 다시 내보내지 않고(ESLint 에러), `api/<도메인>.ts`는 화면용 타입을 `./<도메인>-view`에서만 다시 내보냅니다.
+  - 화면용 타입의 필드 이름은 `docs/api/`를 따릅니다. 서버 타입을 `Pick`·`extends`·`...raw`로 이어 쓰지 않고 필드를 하나씩 옮깁니다. 서버가 바뀌면 adapter에서 타입 에러가 나게 하려는 것입니다.
+    - 화면용 타입끼리는 `extends`로 공통 필드를 묶어도 됩니다(`TeacherMeView extends MeViewBase`). 공통 필드가 늘 때 한 곳만 고치게 하려는 것입니다(#124 멘토 리뷰).
+  - 서버가 모르는 값(역할·상태값)을 보내면 adapter가 `"unknown"`으로 바꾸고, 화면은 그 경우 영역·버튼을 모두 잠급니다(H-1). 경고 로그에는 그 값만 남깁니다(H-4). 서버에 없는 값을 adapter가 지어내지 않습니다.
+  - 변환은 `queryFn`과 요청 함수 안에서 합니다(`select`를 쓰지 않음). 그래서 캐시에는 화면용 모양만 있습니다. 목 핸들러·픽스처는 서버 모양 그대로 둡니다.
 - 401은 로그인 화면으로, 403은 "접근 권한 없음" 화면으로 보냅니다. 예외는 두 개입니다 — 로그인 요청의 401은 폼 오류로, `CHILD_ACCESS_EXPIRED`는 화면에 남아 안내 문구를 보여 줍니다. 공통 에러 코드 표는 테크스펙의 공통 API 규약 부분에 있습니다. **이 처리는 한 곳에서 하므로 페이지에서 401·403을 직접 처리하거나 navigate하지 않습니다.** 쿼리가 401·403을 받으면 오류를 던지고(`app/query-client.ts`), 라우터의 에러 경계(`app/auth/AuthErrorBoundary.tsx`)가 401은 로그인으로 보내고 403은 주소를 그대로 둔 채 그 자리에 접근 권한 없음을 보여 줍니다. 교사 영역 입구에서는 가드(`app/auth/RequireRole.tsx`)가 로그인·역할을 먼저 확인합니다. 저장·삭제 같은 요청(mutation)의 401·403도 같은 경계로 가고, 로그인 요청만 폼 오류로 남깁니다. 401·403이 아닌 오류(서버 오류, 연결 끊김)는 화면이 직접 보여 주고, 화면이 받지 못한 오류는 맨 바깥 경계가 오류 화면으로 받습니다.
 - 서버 데이터는 TanStack Query로만 다룹니다. query key는 `api/<도메인>.ts`에서 만들고 **문자열로 조립하지 않습니다**: `["classes", classId, "children"]`
 - 시간은 서버가 UTC ISO 8601로 주고, 날짜만 있는 값(`record_date` 등)은 한국 시간 기준 `YYYY-MM-DD`입니다(테크스펙 공통 API 규약). 변환과 표기는 `lib/datetime.ts`의 함수(`kstToday`, `formatDate`, `formatTime` 등)만 씁니다. `toISOString().slice(0, 10)`은 한국 0~9시에 전날이 되므로 쓰지 않습니다.

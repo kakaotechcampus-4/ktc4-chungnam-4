@@ -60,6 +60,20 @@ function parseDateOnly(date: DateOnly): Date {
   return value;
 }
 
+/**
+ * 쓸 수 있는 "YYYY-MM-DD"인지 봅니다. 주소의 `?date=`처럼 **바깥에서 온 값**을 그대로
+ * 넘기면 화면이 그리다 말고 터지므로, 넘기기 전에 이걸로 거릅니다.
+ */
+export function isDateOnly(value: string | null | undefined): value is DateOnly {
+  if (typeof value !== "string") return false;
+  try {
+    parseDateOnly(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function parseDateTime(isoDateTime: string): Date {
   const [, datePart] = ISO_DATE_TIME.exec(isoDateTime) ?? [];
   const value = new Date(isoDateTime);

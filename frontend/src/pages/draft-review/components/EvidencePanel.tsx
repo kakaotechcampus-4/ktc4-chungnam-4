@@ -1,7 +1,7 @@
 import { X } from "lucide-react";
 
+import type { Evidence, EvidenceSourceType, Sentence } from "@/api/documents";
 import { formatMediaTime, formatTime } from "@/lib/datetime";
-import type { Evidence, EvidenceSourceType, Sentence } from "@/types/api-draft/documents";
 
 const SOURCE_LABEL_MAP: Record<EvidenceSourceType, string> = {
   photo_observation: "사진 관찰",

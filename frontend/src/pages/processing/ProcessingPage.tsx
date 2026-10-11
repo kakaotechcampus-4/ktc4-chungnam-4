@@ -2,9 +2,9 @@
 import { useCallback, useState } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router";
 
+import type { JobView } from "@/api/agents";
 import { PageHeader } from "@/components/common/PageHeader";
 import { useUploadQueue } from "@/features/upload-queue/upload-queue-store";
-import type { Job } from "@/types/api-draft/agents";
 
 import { ClassifyStep } from "./components/ClassifyStep";
 import { DraftStep } from "./components/DraftStep";
@@ -38,7 +38,7 @@ export function ProcessingPage() {
   const toReview = useCallback(() => navigate("/t/today/classification"), [navigate]);
   const toDraft = useCallback(() => setStep("draft"), []);
   const toDraftReview = useCallback(
-    (job: Job) => {
+    (job: JobView) => {
       setLeaving(true);
       // 원아 순서는 서버 응답 그대로입니다. 이름순 정렬은 초안 검토 화면(⑤)이 명단과 합쳐서 합니다.
       const firstDrafted = job.children.find((child) => child.drafts.length > 0);

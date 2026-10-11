@@ -1,5 +1,5 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
-import { http } from "msw";
+import { HttpResponse, http } from "msw";
 
 import { authKeys } from "@/api/auth";
 import { TEACHER_ME } from "@/mocks/fixtures/auth";
@@ -29,10 +29,7 @@ describe("routes", () => {
   it("/t 는 대시보드 주소로 바꾼다", async () => {
     const router = renderAt("/t");
 
-    // 대시보드가 등록되기 전이라 교사 틀 안의 404가 보입니다.
-    expect(
-      await screen.findByRole("heading", { name: "페이지를 찾을 수 없어요" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /하루를 한눈에/ })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/t/dashboard");
     expect(screen.getByRole("navigation", { name: "주 메뉴" })).toBeInTheDocument();
   });
@@ -92,6 +89,21 @@ describe("교사 영역 가드", () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "주 메뉴" })).not.toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/t/403");
+  });
+
+  it("서버가 모르는 역할을 보내면 교사 영역에 들이지 않는다", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    server.use(
+      http.get(apiPath("/me"), () => HttpResponse.json({ ...TEACHER_ME, account_type: "admin" })),
+    );
+    const router = renderAt("/t/403");
+
+    expect(
+      await screen.findByRole("heading", { name: "이 화면을 볼 수 있는 권한이 없어요" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "주 메뉴" })).not.toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/t/403");
+    warn.mockRestore();
   });
 });
 

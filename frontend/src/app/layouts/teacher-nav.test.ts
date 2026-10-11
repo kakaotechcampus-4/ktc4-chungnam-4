@@ -7,7 +7,6 @@ describe("activeNavItem", () => {
     ["/t/today", "오늘의 기록"],
     ["/t/today/upload", "오늘의 기록"],
     ["/t/today/processing", "오늘의 기록"],
-    ["/t/today/write", "오늘의 기록"],
     ["/t/today/classification", "오늘의 기록"],
     ["/t/today/manual-sort", "오늘의 기록"],
     ["/t/today/children/child-1/summary", "오늘의 기록"],
