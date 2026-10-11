@@ -2,16 +2,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 
-import { classChildrenQueryOptions } from "@/api/organization";
+import { classChildrenQueryOptions, type ClassChildView } from "@/api/organization";
 import { FocusCard } from "@/components/common/FocusCard";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
 import { consentSummary, FACE_STATUS_LABEL_MAP, faceStatus } from "@/features/organization/labels";
-import type { ClassChild } from "@/types/api-draft/organization";
 
 interface ChildSetupCardProps {
-  child: ClassChild;
+  child: ClassChildView;
 }
 
 // 동의는 학부모가 초대 링크로 합니다(FR-28, FR-01 폐기). 이 화면은 동의 결과를 보기만 하고,
@@ -21,7 +20,7 @@ const EYEBROW = "우리 반 관리 / 원아 등록";
 const TITLE = "아이를 등록하고, 동의를 확인해 주세요";
 
 // 카드 아래 상태 안내 문구입니다. 문구는 Figma 그대로입니다.
-function faceGuide(child: ClassChild) {
+function faceGuide(child: ClassChildView) {
   if (faceStatus(child) === "registered") {
     return `사진 ${child.face_photo_count}장 기준으로 등록했어요.`;
   }

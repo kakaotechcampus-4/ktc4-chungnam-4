@@ -10,7 +10,7 @@ import {
   useQueueTranscripts,
 } from "@/features/classify/use-queue-transcripts";
 import { useUpdateSegment } from "@/features/classify/use-update-segment";
-import type { TranscriptSegmentUpdateRequest, TranscriptSpeaker } from "@/types/api-draft/media";
+import type { TranscriptSegmentInput, TranscriptSpeakerView } from "@/api/media";
 
 import { nextPending, readItemIndex } from "../sort-navigation";
 import { ChildPicker } from "./ChildPicker";
@@ -35,7 +35,7 @@ export function SpeechSortView({ renderTabs }: SpeechSortViewProps) {
   const update = useUpdateSegment();
   // 저장 전 고친 문장·화자. 발화마다 따로 두어 이전·다음으로 오가도 남습니다.
   const [drafts, setDrafts] = useState<
-    Record<string, { text?: string; speaker?: TranscriptSpeaker }>
+    Record<string, { text?: string; speaker?: TranscriptSpeakerView }>
   >({});
 
   const entries = transcripts.segments;
@@ -88,14 +88,14 @@ export function SpeechSortView({ renderTabs }: SpeechSortViewProps) {
   const text = draft.text ?? segment.text;
   const speaker = draft.speaker ?? segment.speaker ?? "child";
 
-  function setDraft(change: { text?: string; speaker?: TranscriptSpeaker }) {
+  function setDraft(change: { text?: string; speaker?: TranscriptSpeakerView }) {
     setDrafts((prev) => ({
       ...prev,
       [segment.segment_id]: { ...prev[segment.segment_id], ...change },
     }));
   }
 
-  function save(body: TranscriptSegmentUpdateRequest) {
+  function save(body: TranscriptSegmentInput) {
     update.mutate(
       { segmentId: segment.segment_id, body },
       {

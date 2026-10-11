@@ -5,7 +5,7 @@ import { InfoIcon } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { Link, useLocation, useNavigate } from "react-router";
 
-import { createSession, meQueryOptions } from "@/api/auth";
+import { createSession, isTeacher, meQueryOptions } from "@/api/auth";
 import { classesQueryOptions } from "@/api/organization";
 import { FormField } from "@/components/common/FormField";
 import { Button } from "@/components/ui/button";
@@ -43,9 +43,7 @@ export function LoginPage() {
       // 받는 동안은 요청 중이라 버튼이 계속 꺼져 있습니다. 실패해도 넘어가고, 그 화면이 다시 요청합니다.
       await Promise.all([
         queryClient.prefetchQuery(meQueryOptions()),
-        session.account_type === "teacher"
-          ? queryClient.prefetchQuery(classesQueryOptions())
-          : undefined,
+        isTeacher(session) ? queryClient.prefetchQuery(classesQueryOptions()) : undefined,
       ]);
       void navigate(homePath(session.account_type), { replace: true });
     },

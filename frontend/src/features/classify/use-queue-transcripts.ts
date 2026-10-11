@@ -1,13 +1,12 @@
 import { useQueries } from "@tanstack/react-query";
 
-import { transcriptQueryOptions } from "@/api/media";
+import { transcriptQueryOptions, type TranscriptSegmentView } from "@/api/media";
 import { useClipUploads } from "@/features/classify/clip-upload";
 import {
   isPhoto,
   type LocalClip,
   useUploadQueue,
 } from "@/features/upload-queue/upload-queue-store";
-import type { TranscriptSegment } from "@/types/api-draft/media";
 
 // 업로드 큐의 영상·음성마다 서버 STT 결과(발화 구간)를 받습니다. 분류 결과·수동 분류·아이별 하루 확인이 같이 씁니다.
 // 발화는 서버 데이터라 업로드 큐에 복사하지 않고 TanStack Query 캐시만 봅니다(frontend/CLAUDE.md §상태 관리).
@@ -23,7 +22,7 @@ export interface ClipTranscript {
 
 /** 화면에 보여 줄 발화 하나. 어느 파일의 몇 번째인지와 촬영 시각을 붙입니다. */
 export interface QueueSegment {
-  segment: TranscriptSegment;
+  segment: TranscriptSegmentView;
   clip: LocalClip;
   /** 전체 발화 중 순번(1부터). "발화 02"처럼 씁니다. */
   number: number;
@@ -90,6 +89,6 @@ export function useQueueTranscripts() {
 }
 
 /** 교사가 아직 연결하거나 빼지 않은 발화 */
-export function isPendingSegment(segment: TranscriptSegment) {
+export function isPendingSegment(segment: TranscriptSegmentView) {
   return !segment.excluded && segment.child_ids.length === 0;
 }

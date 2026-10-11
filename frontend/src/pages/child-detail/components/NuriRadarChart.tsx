@@ -1,8 +1,8 @@
 import { NURI_DOMAIN_LABEL_MAP, NURI_DOMAINS } from "@/features/organization/labels";
-import type { NuriDomain } from "@/types/api-draft/organization";
+import type { NuriDomainView } from "@/api/organization";
 
 interface NuriRadarChartProps {
-  counts: Record<NuriDomain, number>;
+  counts: Record<NuriDomainView, number>;
 }
 
 // Figma 1:770(330 × 280) 크기의 5각 레이더 차트입니다. 패키지 없이 SVG로 그립니다.

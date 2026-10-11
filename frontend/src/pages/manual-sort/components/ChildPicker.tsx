@@ -3,11 +3,11 @@ import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import type { ClassChild } from "@/types/api-draft/organization";
+import type { ClassChildView } from "@/api/organization";
 
 interface ChildPickerProps {
   title: string;
-  childList: ClassChild[];
+  childList: ClassChildView[];
   /** 확실한 아이는 선택된 채로 보여 주고 애매한 아이만 교사가 고르게 합니다(frontend/CLAUDE.md 다인원 귀속). */
   initialSelected: readonly string[];
   onConnect: (childIds: string[]) => void;

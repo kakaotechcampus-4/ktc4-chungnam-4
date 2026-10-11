@@ -2,7 +2,7 @@ import { childIdsOf, needsManualReview } from "@/features/classify/review-policy
 import { isPendingSegment, type QueueSegment } from "@/features/classify/use-queue-transcripts";
 import type { LocalMedia, LocalPhoto } from "@/features/upload-queue/upload-queue-store";
 import { isPhoto } from "@/features/upload-queue/upload-queue-store";
-import type { ClassChild } from "@/types/api-draft/organization";
+import type { ClassChildView } from "@/api/organization";
 
 // 분류 결과 화면에 보여 줄 숫자를 업로드 큐 항목과 발화에서 계산합니다. 화면 코드에서 세지 않게 한곳에 둡니다.
 
@@ -15,7 +15,7 @@ export interface KindCounts {
 }
 
 export interface ChildSummary {
-  child: ClassChild;
+  child: ClassChildView;
   counts: KindCounts;
   /** 카드에 겹쳐 보여 줄 사진 */
   items: LocalPhoto[];
@@ -41,7 +41,7 @@ export function formatCounts({ photo, video, voice_memo, speech }: KindCounts) {
 
 export function summarize(
   items: readonly LocalMedia[],
-  children: readonly ClassChild[],
+  children: readonly ClassChildView[],
   segments: readonly QueueSegment[] = [],
   childrenWithEvidence: ReadonlySet<string> = new Set(),
 ) {

@@ -3,6 +3,7 @@ amqp==5.3.1
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1
+bcrypt==5.0.0
 billiard==4.2.4
 celery==5.6.3
 certifi==2026.7.22
@@ -33,6 +34,7 @@ pycparser==3.0 ; implementation_name != 'PyPy' and platform_python_implementatio
 pydantic==2.13.5
 pydantic-core==2.46.5
 pydantic-settings==2.15.0
+pyjwt==2.15.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.3
 redis==6.4.0

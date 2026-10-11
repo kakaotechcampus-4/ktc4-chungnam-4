@@ -6,7 +6,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { useNavigate } from "react-router";
 import { z } from "zod";
 
-import { createClass, organizationKeys } from "@/api/organization";
+import { type AgeBandView, createClass, organizationKeys } from "@/api/organization";
 import { FocusCard } from "@/components/common/FocusCard";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -16,9 +16,8 @@ import { selectClass } from "@/features/class-context/current-class-store";
 import { AGE_BAND_LABEL_MAP } from "@/features/organization/labels";
 import { useTeacherCenter } from "@/features/organization/use-teacher-center";
 import { cn } from "@/lib/utils";
-import type { AgeBand } from "@/types/api-draft/organization";
 
-const AGE_BANDS: readonly AgeBand[] = ["infant", "preschool"];
+const AGE_BANDS: readonly AgeBandView[] = ["infant", "preschool"];
 
 const classSchema = z.object({
   name: z.string().trim().min(1, "반 이름을 입력해 주세요."),
