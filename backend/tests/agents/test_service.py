@@ -20,11 +20,15 @@ from tools import contracts
 class FakeSession:
     def __init__(self) -> None:
         self.added: list[object] = []
+        self.executed: list[object] = []
         self.committed = False
         self.rolled_back = False
 
     def add(self, obj: object) -> None:
         self.added.append(obj)
+
+    def execute(self, statement: object) -> None:
+        self.executed.append(statement)
 
     def commit(self) -> None:
         self.committed = True
@@ -319,14 +323,118 @@ def test_orchestrate_drafts_중간에_실패하면_RUNNING으로_두고_예외�
     assert job.status == JobStatus.RUNNING.value
 
 
-def test_record_job_retry_상태는_RUNNING_그대로_두고_횟수만_올린다(monkeypatch) -> None:
-    job = _fake_job(status=JobStatus.RUNNING.value, retry_count=0)
-    monkeypatch.setattr(service, "SessionLocal", FakeSession)
+class CommitRecordingSession(FakeSession):
+    """커밋할 때마다 (Job 상태, 그때까지 쌓인 결과 기록)을 남긴다. fail_on_commit번째 커밋은 실패한다."""
+
+    def __init__(self, job: service.Job, *, fail_on_commit: int | None = None) -> None:
+        super().__init__()
+        self.job = job
+        self.fail_on_commit = fail_on_commit
+        self.commits: list[tuple[str, list[object]]] = []
+
+    def commit(self) -> None:
+        if self.fail_on_commit == len(self.commits) + 1:
+            raise RuntimeError("커밋 실패")
+        self.commits.append((self.job.status, list(self.added)))
+        self.added.clear()
+
+
+def _orchestrate_until(
+    monkeypatch, session: CommitRecordingSession, decision: contracts.Decision
+) -> None:
+    """판정 하나로 끝나는 orchestrate_drafts를 돌린다. 결과 기록은 문자열로 session에 쌓는다."""
+    monkeypatch.setattr(service, "SessionLocal", lambda: session)
+    monkeypatch.setattr(service, "_get_job", lambda session, job_id: session.job)
+    monkeypatch.setattr(
+        service, "_collect_evidence", lambda session, child_id, target_date: object()
+    )
+    monkeypatch.setattr(
+        service,
+        "_generate_draft",
+        lambda bundle, *, previous_draft_id: (_document(), EVIDENCE_BY_ID, _request()),
+    )
+    monkeypatch.setattr(
+        service,
+        "_verify_with_critic_retry",
+        lambda session, document, evidence_by_id, request, regeneration_count: (
+            contracts.DecisionResult(decision=decision, reason="테스트")
+        ),
+    )
+    monkeypatch.setattr(
+        service, "_save_passed_draft", lambda session, *args: session.add("초안·근거")
+    )
+    monkeypatch.setattr(
+        service, "_send_to_unclassified", lambda session, *args: session.add("미분류")
+    )
+
+    service.orchestrate_drafts(job_id="job-1", child_id="child-1")
+
+
+@pytest.mark.parametrize(
+    ("decision", "result_row"),
+    [
+        (contracts.Decision.PASS, "초안·근거"),
+        (contracts.Decision.NEEDS_TEACHER_REVIEW, "미분류"),
+    ],
+)
+def test_orchestrate_drafts_결과_기록과_성공_상태를_한_번에_커밋한다(
+    monkeypatch, decision: contracts.Decision, result_row: str
+) -> None:
+    """따로 커밋하면 결과는 저장됐는데 Job은 FAILED로 끝날 수 있다 (#102 리뷰)."""
+    session = CommitRecordingSession(_fake_job())
+
+    _orchestrate_until(monkeypatch, session, decision)
+
+    assert session.commits == [
+        (JobStatus.RUNNING.value, []),
+        (JobStatus.SUCCEEDED.value, [result_row]),
+    ]
+
+
+def test_orchestrate_drafts_마지막_커밋이_실패하면_초안도_커밋되지_않는다(monkeypatch) -> None:
+    """초안만 남고 Job은 FAILED가 되는 어긋남이 없어야 한다 (#102 리뷰)."""
+    session = CommitRecordingSession(_fake_job(), fail_on_commit=2)
+
+    with pytest.raises(RuntimeError):
+        _orchestrate_until(monkeypatch, session, contracts.Decision.PASS)
+
+    assert session.commits == [(JobStatus.RUNNING.value, [])]
+
+
+def _record_retry(monkeypatch, job: service.Job) -> FakeSession:
+    session = FakeSession()
+    monkeypatch.setattr(service, "SessionLocal", lambda: session)
     monkeypatch.setattr(service, "_get_job", lambda session, job_id: job)
 
     service.record_job_retry("job-1")
+    return session
 
-    assert (job.status, job.retry_count) == (JobStatus.RUNNING.value, 1)
+
+def test_record_job_retry_횟수는_UPDATE_한_문장으로_올리고_상태는_쓰지_않는다(
+    monkeypatch,
+) -> None:
+    job = _fake_job(id=uuid.uuid4(), status=JobStatus.RUNNING.value, retry_count=0)
+
+    session = _record_retry(monkeypatch, job)
+
+    [statement] = session.executed
+    set_columns = {column.key for column in statement._values}  # type: ignore[attr-defined]
+    assert set_columns == {"retry_count"}
+    assert "jobs.retry_count +" in str(statement)
+    assert session.committed
+
+
+@pytest.mark.parametrize("final_status", [JobStatus.SUCCEEDED, JobStatus.FAILED])
+def test_record_job_retry_늦게_도착해도_끝난_상태를_되돌리지_않는다(
+    monkeypatch, final_status: JobStatus
+) -> None:
+    """Celery는 다음 시도를 먼저 보내고 on_retry를 부른다. 다음 시도가 먼저 끝나도
+    이전 시도의 훅이 succeeded·failed를 running으로 바꾸면 안 된다 (#102 리뷰)."""
+    job = _fake_job(id=uuid.uuid4(), status=final_status.value, retry_count=1)
+
+    _record_retry(monkeypatch, job)
+
+    assert job.status == final_status.value
 
 
 def test_mark_job_failed_Job을_FAILED로_남긴다(monkeypatch) -> None:
@@ -404,7 +512,7 @@ def _stub_save_dependencies(monkeypatch, save_draft) -> None:
     monkeypatch.setattr(service.documents, "save_draft", save_draft)
 
 
-def test_save_passed_draft_agents의_draft_id로_저장하고_근거와_함께_커밋한다(
+def test_save_passed_draft_agents의_draft_id로_저장하고_근거를_남기되_커밋은_하지_않는다(
     monkeypatch,
 ) -> None:
     session = FakeSession()
@@ -435,7 +543,8 @@ def test_save_passed_draft_agents의_draft_id로_저장하고_근거와_함께_�
     assert sentence_rows[0].source_media_id == EVIDENCE_CHILD_A.media_id
     assert sentence_rows[0].source_timestamp == EVIDENCE_CHILD_A.start_ms / 1000
     assert sentence_rows[0].source_text == EVIDENCE_CHILD_A.text
-    assert session.committed
+    # Job 성공 상태와 한 번에 커밋하도록 orchestrate_drafts에 맡긴다 (#102 리뷰).
+    assert not session.committed
     assert not session.rolled_back
 
 

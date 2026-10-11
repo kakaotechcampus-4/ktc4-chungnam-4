@@ -6,6 +6,7 @@ tasks.py는 이 모듈의 orchestrate_drafts만 호출합니다 (CLAUDE.md: task
 from datetime import UTC, datetime
 from uuid import UUID
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from core.database import SessionLocal
@@ -71,15 +72,24 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
             regeneration_count += 1
 
         # 미분류도 예외가 아니라 정상 종료다 (docs/api/agents.md 상태값).
-        _set_job_status(session, job, JobStatus.SUCCEEDED)
+        # 초안·근거(또는 미분류 기록)와 성공 상태를 한 번에 커밋한다. 따로 커밋하면 초안은
+        # 저장됐는데 상태 커밋만 실패해 Job이 FAILED로 끝날 수 있다 (#102 리뷰, 엄태은).
+        job.status = JobStatus.SUCCEEDED.value
+        session.commit()
 
 
 def record_job_retry(job_id: str) -> None:
-    """Celery가 재시도를 걸 때 부른다. 상태는 RUNNING 그대로 두고 횟수만 올린다."""
+    """Celery가 재시도를 걸 때 부른다. 횟수만 올리고 상태는 건드리지 않는다.
+
+    Celery는 다음 시도를 먼저 보낸 뒤 이 훅을 부르므로, 훅이 도착할 때 다음 시도가 이미
+    끝났을 수 있다. 여기서 상태를 쓰면 succeeded·failed가 running으로 되돌아간다
+    (#102 리뷰, 엄태은). RUNNING은 다음 시도가 시작할 때 orchestrate_drafts가 둔다.
+    횟수는 읽고 쓰는 사이에 다른 갱신이 끼지 않게 UPDATE 한 문장으로 올린다.
+    """
     with SessionLocal() as session:
         job = _get_job(session, job_id)
-        job.retry_count += 1
-        _set_job_status(session, job, JobStatus.RUNNING)
+        session.execute(update(Job).where(Job.id == job.id).values(retry_count=Job.retry_count + 1))
+        session.commit()
 
 
 def mark_job_failed(job_id: str) -> None:
@@ -235,7 +245,8 @@ def _save_passed_draft(
 ) -> None:
     """PASS한 초안을 documents에 저장하고, 문장별 근거를 같은 트랜잭션에 남긴다 (FR-05, FR-07).
 
-    본문 저장과 근거 저장을 한 번에 커밋한다. 저장이 충돌하면 근거까지 되돌려서,
+    커밋은 하지 않는다 — orchestrate_drafts가 Job 성공 상태와 함께 한 번에 커밋한다
+    (#102 리뷰). 저장이 충돌하면 근거까지 되돌려서,
     저장되지 않은 draft_id나 반영되지 않은 AI 초안을 가리키는 근거가 남지 않게 한다
     (#75 3번). 검증 기록은 _verify_and_record가 이미 커밋해서 되돌려지지 않는다.
 
@@ -260,7 +271,6 @@ def _save_passed_draft(
         #   문서는 충돌로 거부되고 그대로 남는다.
         documents.save_draft(session, data, expected_version=None)
         _record_sentence_evidence(session, document, evidence_by_id)
-        session.commit()
     except DraftVersionConflict:
         session.rollback()
 
