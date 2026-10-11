@@ -39,6 +39,34 @@ class Settings(BaseSettings):
     # 게이트웨이의 모델 ID 형식(제공자/모델명)을 그대로 사용
     anthropic_model: str = "anthropic/claude-sonnet-5"
 
+    # 로그인 토큰 서명 키. 없으면 앱은 뜨지만 로그인만 실패합니다 — 다른 도메인
+    # 개발이 키 때문에 막히지 않게 하기 위함입니다 (face_embedding_key와 같은 방식).
+    # 생성: python3 -c "import secrets;print(secrets.token_urlsafe(48))"
+    jwt_secret: SecretStr | None = None
+    # 사진 100~150장 업로드 도중 끊기지 않도록 넉넉히 둡니다
+    # (docs/api/auth.md "세션·토큰 만료 시간" 임시 결정(엄태은) 24시간).
+    jwt_expire_hours: int = Field(default=24, gt=0)
+
+    @field_validator("jwt_secret")
+    @classmethod
+    def require_strong_jwt_secret(cls, value: SecretStr | None) -> SecretStr | None:
+        """짧은 키로 HS256을 서명하면 서명을 되맞출 수 있습니다 (RFC 7518 §3.2).
+
+        PyJWT는 경고만 하고 그대로 서명하므로, 약한 키가 조용히 운영에 들어갑니다.
+        여기서 막습니다. 키 값 자체는 메시지에 넣지 않습니다 (H-4).
+        """
+        if value is None:
+            return value
+        secret = value.get_secret_value()
+        if not secret:
+            return None
+        if len(secret.encode("utf-8")) < 32:
+            raise ValueError(
+                "JWT_SECRET must be at least 32 bytes. Generate one with: "
+                'python3 -c "import secrets;print(secrets.token_urlsafe(48))"'
+            )
+        return value
+
     @field_validator("postgres_password")
     @classmethod
     def require_configured_password(cls, value: SecretStr) -> SecretStr:

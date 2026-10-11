@@ -12,8 +12,20 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 
-# TODO(태은): 도메인별 모델 취합 후 모델 모듈을 명시적으로 import합니다.
-# 모델을 import해야 Base.metadata에 테이블이 등록됩니다.
+# 모델 모듈을 import해야 Base.metadata에 테이블이 등록됩니다. Base만 import하면
+# 비어 있어서 autogenerate가 "테이블을 전부 지워라"로 나옵니다.
+#
+# 도메인을 새로 만들면 여기에 한 줄 추가해야 합니다. auth는 아직
+# models.py가 없어 빠져 있습니다 — 생기면 같이 넣습니다.
+#
+# 각 줄의 noqa는 등록이 목적이라 이름을 직접 쓰지 않기 때문입니다.
+from domains.agents import models as agents_models  # noqa: F401
+from domains.audit import models as audit_models  # noqa: F401
+from domains.documents import models as documents_models  # noqa: F401
+from domains.face import models as face_models  # noqa: F401
+from domains.media import models as media_models  # noqa: F401
+from domains.organization import models as organization_models  # noqa: F401
+
 target_metadata = Base.metadata
 
 

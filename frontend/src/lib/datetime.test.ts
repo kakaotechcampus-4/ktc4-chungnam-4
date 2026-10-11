@@ -7,6 +7,7 @@ import {
   formatTime,
   formatWeekday,
   formatYearMonth,
+  isDateOnly,
   isoWeekday,
   kstToday,
   lastDayOfMonth,
@@ -187,5 +188,28 @@ describe.each(["Asia/Seoul", "America/Los_Angeles"])("기기 시간대가 %s여�
     expect(datetime.firstDayOfMonth("2026-10-01")).toBe("2026-10-01");
     expect(datetime.lastDayOfMonth("2026-02-10")).toBe("2026-02-28");
     expect(datetime.shiftDate("2026-10-01", -1)).toBe("2026-09-30");
+  });
+});
+
+describe("바깥에서 온 날짜 거르기", () => {
+  it.each([["2026-09-15"], ["2026-01-01"], ["2028-02-29"]])("isDateOnly(%s) → true", (value) => {
+    expect(isDateOnly(value)).toBe(true);
+  });
+
+  // 주소의 ?date=로 들어올 수 있는 값입니다. 거르지 않으면 화면을 그리다 터집니다.
+  it.each([
+    [""],
+    ["2026-9-28"],
+    ["2026-02-30"],
+    ["2026-13-01"],
+    ["오늘"],
+    ["2026-09-15T00:00:00Z"],
+  ])("isDateOnly(%s) → false", (value) => {
+    expect(isDateOnly(value)).toBe(false);
+  });
+
+  it("null·undefined도 거른다", () => {
+    expect(isDateOnly(null)).toBe(false);
+    expect(isDateOnly(undefined)).toBe(false);
   });
 });

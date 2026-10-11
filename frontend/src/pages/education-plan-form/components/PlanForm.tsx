@@ -14,7 +14,7 @@ import {
 } from "@/features/organization/labels";
 import { kstToday } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
-import type { PlanType } from "@/types/api-draft/organization";
+import type { PlanTypeView } from "@/api/organization";
 
 import {
   defaultPeriod,
@@ -34,7 +34,7 @@ interface PlanFormProps {
   onSubmit: (values: PlanFormValues) => void;
 }
 
-const PLAN_TYPES: readonly PlanType[] = ["weekly", "monthly"];
+const PLAN_TYPES: readonly PlanTypeView[] = ["weekly", "monthly"];
 
 interface FieldErrorProps {
   message?: string;

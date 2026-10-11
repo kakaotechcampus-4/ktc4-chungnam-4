@@ -15,7 +15,8 @@
 - [ ] 업로드 한도, 허용 MIME, URL 만료(예시 PUT 15분·GET 5분), 멀티파트 필요 여부
 - [ ] 파생본이 없어 HEIC·MOV가 안 보이는 문제. 데모 자료를 JPG·MP4로 제한할지
 - [ ] `error.detail`을 object로 허용할지(develop `AidamError.detail`은 지금 str)
-- [ ] `load_embedding_cache`가 `model_version`도 돌려주게 할지, 모델 버전 문자열을 어떻게 배포할지
+- [x] 모델 버전 문자열 형식 → 임시 결정(김진하), 이슈 #120 김동건 님 확인: `human-faceres-<faceres.bin SHA-256 hex 앞 12자리>`. 라이브러리 버전을 쓰지 않는 것은 모델 파일이 그대로인데 라이브러리만 올라가도 값이 바뀌어 원아 전원이 재등록 대상이 되기 때문입니다. 해시는 손으로 적지 않고 빌드 때 계산하거나 테스트로 대조하며, 전처리가 라이브러리 코드 쪽이라 `package.json`은 `^` 없이 고정합니다. 반영: 이 문서 §`GET /classes/{class_id}/face-embeddings`·§등록, `frontend/src/workers/face/types.ts`
+- [ ] `load_embedding_cache`가 `model_version`도 돌려주게 할지 — 김동건 님이 로컬에서 고쳐 두셨고 `feat/be/face-media-storage-foundation` PR을 기다립니다(이슈 #120). 머지되면 닫습니다
 - [ ] 서명 함수(`get_signed_urls`, 가칭) 제공과 documents 응답 내장 분담(한상균과 함께) → 하단 §상의 필요 5
 - [ ] develop(PR #13)과 다른 점: 귀속 에러 코드 이름이 `MEDIA_INVALID_ATTRIBUTION_METHOD`(이 문서 `INVALID_ATTRIBUTION_METHOD`, 조건은 같음)이고, documents용 함수 `get_playback_url`은 한 건씩 서명·만료 없는 URL 문자열을 줌. 이 문서에 맞출지 develop에 맞출지(URL 함수는 한상균과 함께)
 - [ ] 영상·음성 서버 STT를 어디서 시작할지(동기 vs Celery)
@@ -114,7 +115,7 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
   "class_id": "c1a50000-0000-4000-8000-000000000001",
   "type": "photo",
   "captured_at": "2026-09-15T01:10:00Z",
-  "model_version": "buffalo_l-1.0"
+  "model_version": "human-faceres-2c7d2d62b76c"
 }
 ```
 
@@ -232,16 +233,16 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 ```json
 {
   "items": [
-    { "child_id": "c41d0000-0000-4000-8000-000000000001", "embedding": [0.0213, -0.0871, 0.0456], "model_version": "buffalo_l-1.0" },
-    { "child_id": "c41d0000-0000-4000-8000-000000000002", "embedding": [-0.0342, 0.0617, 0.0129], "model_version": "buffalo_l-1.0" }
+    { "child_id": "c41d0000-0000-4000-8000-000000000001", "embedding": [0.0213, -0.0871, 0.0456], "model_version": "human-faceres-2c7d2d62b76c" },
+    { "child_id": "c41d0000-0000-4000-8000-000000000002", "embedding": [-0.0342, 0.0617, 0.0129], "model_version": "human-faceres-2c7d2d62b76c" }
   ],
   "next_cursor": null
 }
 ```
 
 - ③ 동의가 유효한 재원 원아 가운데 임베딩이 등록된 원아만 담습니다. 동의 기록과 임베딩이 어긋나면 그 원아는 빼습니다.
-- 벡터만 내보냅니다(H-3). `embedding`은 ArcFace float 512개이고, 예시는 줄였습니다.
-- `model_version`이 브라우저 모델과 다르면 그 원아는 수동 분류로 보냅니다(제안). 지금 `load_embedding_cache`는 벡터만 돌려주므로, `model_version`도 돌려주도록 service를 고쳐야 합니다.
+- 벡터만 내보냅니다(H-3). `embedding`은 float 1024개이고, 예시는 줄였습니다. 임시 결정(김진하): 온디바이스 모델을 HUMAN(`@vladmandic/human`)으로 정하면서 바뀌었습니다 — 브라우저에서 돌려야 해서(H-3) 파이썬 모델인 ArcFace(`buffalo_l`)를 쓸 수 없었습니다. 길이는 `faceres` 모델 파일의 출력 정의에서 확인했고, 백엔드에 길이 가정이 없는 것은 김동건 님이 확인했습니다(이슈 #120).
+- `model_version`이 브라우저 모델과 다르면 그 원아는 수동 분류로 보냅니다(제안). `load_embedding_cache`가 `model_version`도 돌려주도록 김동건 님이 고치는 중입니다(이슈 #120, `feat/be/face-media-storage-foundation`).
 - 응답에 `Cache-Control: no-store`를 붙입니다(제안). 브라우저는 이번 배치 동안만 들고 있다가 버립니다.
 - 호출할 때마다 원아별로 AccessLog를 남깁니다. 벡터 값은 로그에 남기지 않습니다(H-4).
 - `items`가 비면 모든 사진이 수동 분류로 갑니다.
@@ -267,7 +268,7 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 ```json
 {
   "embedding": [0.0213, -0.0871, 0.0456],
-  "model_version": "buffalo_l-1.0"
+  "model_version": "human-faceres-2c7d2d62b76c"
 }
 ```
 
@@ -276,12 +277,13 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 ```json
 {
   "child_id": "c41d0000-0000-4000-8000-000000000001",
-  "model_version": "buffalo_l-1.0",
+  "model_version": "human-faceres-2c7d2d62b76c",
   "registered_at": "2026-09-29T06:10:00Z"
 }
 ```
 
-- `embedding` 길이·`model_version` 값은 예시입니다. 온디바이스 모델이 정해지지 않아(09/28, 이번 주는 목) FE 목은 짧은 합성 벡터와 `"mock"`을 씁니다.
+- `embedding` 길이는 1024이고 예시는 줄였습니다. `model_version` 값은 예시입니다 — 임시 결정(김진하): `human-faceres-<faceres.bin SHA-256 hex 앞 12자리>` 형식입니다(이슈 #120에서 김동건 님 확인). 라이브러리 버전이 아니라 모델 파일 해시를 쓰는 것은, 라이브러리를 올려도 모델 파일이 그대로면 재등록이 일어나지 않게 하기 위함입니다. 해시는 손으로 적지 않고 빌드 때 계산하거나 테스트로 대조합니다. 라이브러리 버전은 `package.json`에 `^` 없이 고정합니다 — 전처리(검출·정렬·크롭)가 라이브러리 코드 쪽이라 버전이 바뀌면 같은 모델이어도 벡터가 달라질 수 있습니다(김동건 님 지적).
+- FE 목은 아직 짧은 합성 벡터와 `"mock"`을 씁니다. 실제 추출기가 들어오는 PR에서 바꿉니다.
 - 벡터 값은 로그에 남기지 않습니다(H-4).
 - 에러:
   - `CHILD_NOT_FOUND` (404) — 없는 원아일 때

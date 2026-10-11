@@ -26,6 +26,8 @@ interface PublishConfirmDialogProps {
   onToggle: (childId: string) => void;
   /** 초안이 없어 게시할 것이 없는 원아 수 */
   noDraftCount: number;
+  /** 초안은 있지만 아직 승인할 수 없는 상태(만드는 중·미분류)라 빠지는 원아 수 */
+  notReadyCount: number;
   /** 선택 사진을 함께 보낼지(`POST /publications`의 `include_photos`) */
   includePhotos: boolean;
   onIncludePhotosChange: (value: boolean) => void;
@@ -40,6 +42,7 @@ export function PublishConfirmDialog({
   excludedChildIds,
   onToggle,
   noDraftCount,
+  notReadyCount,
   includePhotos,
   onIncludePhotosChange,
   onConfirm,
@@ -86,10 +89,16 @@ export function PublishConfirmDialog({
           />
           사진도 함께 보내기
         </label>
-        {/* 자료가 없어 빠지는 아이를 교사가 모르고 지나치지 않게 알려 줍니다. */}
+        {/* 빠지는 아이를 교사가 모르고 지나치지 않게 알려 줍니다. 자료가 없는 경우와
+            초안이 아직 안 끝난 경우를 나눠 적습니다 — 교사가 할 일이 다릅니다(#107 리뷰 송유진 님). */}
         {noDraftCount > 0 ? (
           <p className="text-center text-caption text-ink-muted">
             초안이 없는 {noDraftCount}명은 이번 게시에서 빠져요.
+          </p>
+        ) : null}
+        {notReadyCount > 0 ? (
+          <p className="text-center text-caption text-ink-muted">
+            초안이 아직 준비되지 않은 {notReadyCount}명은 이번 게시에서 빠져요.
           </p>
         ) : null}
         <AlertDialogFooter>

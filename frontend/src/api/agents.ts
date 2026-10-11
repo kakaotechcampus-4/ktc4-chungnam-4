@@ -1,13 +1,29 @@
 import { queryOptions } from "@tanstack/react-query";
 
 import { api } from "@/lib/api-client";
-import type {
-  Job,
-  JobCreateRequest,
-  TeacherEvidence,
-  TeacherEvidenceUpsertRequest,
-} from "@/types/api-draft/agents";
+import type { Job, TeacherEvidence } from "@/types/api-draft/agents";
 import type { ListResponse } from "@/types/api-draft/common";
+
+import {
+  isJobFinished,
+  type JobCreateInput,
+  type TeacherEvidenceInput,
+  toJobCreateBody,
+  toJobView,
+  toTeacherEvidenceBody,
+  toTeacherEvidenceView,
+} from "./agents-adapter";
+
+// 화면은 agents 서버 타입 대신 여기서 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
+export {
+  isJobFinished,
+  type JobChildView,
+  type JobCreateInput,
+  type JobStatusView,
+  type JobView,
+  type TeacherEvidenceInput,
+  type TeacherEvidenceView,
+} from "./agents-adapter";
 
 // 초안 생성 작업(Job) 요청과 query key는 이 파일에서만 만듭니다(frontend/CLAUDE.md §데이터).
 // 서버 전송이 끝나면 createJob을 한 번 부르고(#60 B안), jobQueryOptions로 끝날 때까지 폴링합니다.
@@ -21,20 +37,19 @@ export const agentsKeys = {
 export const JOB_POLL_INTERVAL_MS = 2000;
 
 /** 반·날짜의 초안 생성을 시작합니다. 같은 request_id로 다시 부르면 기존 작업이 옵니다. */
-export function createJob(classId: string, body: JobCreateRequest) {
-  return api.post<Job>(`/classes/${encodeURIComponent(classId)}/jobs`, body);
+export async function createJob(classId: string, input: JobCreateInput) {
+  return toJobView(
+    await api.post<Job>(`/classes/${encodeURIComponent(classId)}/jobs`, toJobCreateBody(input)),
+  );
 }
 
-function isDone(job: Job | undefined) {
-  return job?.status === "succeeded" || job?.status === "failed";
-}
-
-/** 작업 진행 상태. succeeded·failed가 되면 폴링을 멈춥니다. */
+/** 작업 진행 상태. succeeded·failed가 되면 폴링을 멈춥니다. 캐시에는 화면용 모양(JobView)이 들어갑니다. */
 export function jobQueryOptions(jobId: string) {
   return queryOptions({
     queryKey: agentsKeys.job(jobId),
-    queryFn: ({ signal }) => api.get<Job>(`/jobs/${encodeURIComponent(jobId)}`, { signal }),
-    refetchInterval: (query) => (isDone(query.state.data) ? false : JOB_POLL_INTERVAL_MS),
+    queryFn: async ({ signal }) =>
+      toJobView(await api.get<Job>(`/jobs/${encodeURIComponent(jobId)}`, { signal })),
+    refetchInterval: (query) => (isJobFinished(query.state.data) ? false : JOB_POLL_INTERVAL_MS),
   });
 }
 
@@ -51,7 +66,7 @@ export function classJobsQueryOptions(classId: string, recordDate: string) {
           query: { record_date: recordDate },
           signal,
         })
-      ).items,
+      ).items.map(toJobView),
   });
 }
 
@@ -74,18 +89,20 @@ export function classEvidenceQueryOptions(classId: string, recordDate: string) {
           `/classes/${encodeURIComponent(classId)}/evidence`,
           { query: { record_date: recordDate }, signal },
         )
-      ).items,
+      ).items.map(toTeacherEvidenceView),
   });
 }
 
 /** (가정) 그날의 추가 근거를 저장합니다. 이미 있으면 덮어씁니다. */
-export function saveTeacherEvidence(
+export async function saveTeacherEvidence(
   childId: string,
   recordDate: string,
-  body: TeacherEvidenceUpsertRequest,
+  input: TeacherEvidenceInput,
 ) {
-  return api.put<TeacherEvidence>(
-    `/children/${encodeURIComponent(childId)}/evidence/${encodeURIComponent(recordDate)}`,
-    body,
+  return toTeacherEvidenceView(
+    await api.put<TeacherEvidence>(
+      `/children/${encodeURIComponent(childId)}/evidence/${encodeURIComponent(recordDate)}`,
+      toTeacherEvidenceBody(input),
+    ),
   );
 }
