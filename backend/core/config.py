@@ -34,11 +34,13 @@ class Settings(BaseSettings):
     # TODO(태은): AI 기능 배포 전에는 키 누락을 차단하도록 필수값 검증을 추가합니다.
     # Redis·worker 연습은 AI 호출 없이 실행하므로 현재는 빈 값을 허용합니다.
     anthropic_api_key: SecretStr = SecretStr("")
-    # 기수·팀별로 게이트웨이 주소가 달라 default를 비워둠 — 반드시 .env에서 설정.
-    # 게이트웨이는 요청의 model 값이 아니라 **이 URL로 모델을 고릅니다.**
+    # agents(초안 생성·Critic)용 게이트웨이. 기수·팀별 주소라 반드시 .env에서 설정합니다.
     llm_gateway_base_url: str = ""
-    # 게이트웨이가 무시하는 값. 로그에서 어느 모델인지 알아보려고 둡니다.
-    anthropic_model: str = "glm-5.3-flash"
+    # 테크스펙의 에이전트 모델(Claude Sonnet 계열).
+    anthropic_model: str = "anthropic/claude-sonnet-5"
+    # 사진 분석용 게이트웨이는 agents와 분리합니다 (09/23 결정, #98).
+    vision_gateway_base_url: str = ""
+    vision_model: str = "glm-5.3-flash"
 
     # 로그인 토큰 서명 키. 없으면 앱은 뜨지만 로그인만 실패합니다 — 다른 도메인
     # 개발이 키 때문에 막히지 않게 하기 위함입니다 (face_embedding_key와 같은 방식).
