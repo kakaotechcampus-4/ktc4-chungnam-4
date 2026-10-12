@@ -83,12 +83,12 @@ from __future__ import annotations
 import uuid
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, exists, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.exceptions import DraftVersionConflict
-from domains.documents.models import DraftDocument, DraftStatus
+from domains.documents.models import DraftDocument, DraftSentence, DraftStatus, RevisionLog
 from domains.documents.schemas import (
     ApproveResponse,
     DraftDetailResponse,
@@ -105,13 +105,15 @@ _AI_LOCKED_STATUSES = (DraftStatus.APPROVED.value, DraftStatus.REVOKED.value)
 
 
 def save_draft(db: Session, data: DraftSaveInput, *, expected_version: int | None) -> DraftDocument:
-    """AI가 최종 통과(PASS)한 초안을 저장한다 (FR-05, FR-06, #35).
+    """AI가 최종 통과(PASS)한 초안을 저장한다 (FR-05, FR-06, #35, #75).
 
+    - 검증을 통과한 초안만 여기로 오므로 VERIFIED(교사 검토 대기)로 저장한다 (#75·#106).
+    - 본문은 data.sentences 순서대로 DraftSentence에 넣는다. position은 0부터다.
     - expected_version이 None이면 최초 생성이다. (child_id, doc_type, record_date)
       문서가 이미 있으면 덮어쓰지 않고 충돌로 거부한다.
     - 값이 있으면 재생성이다. 같은 문서 ID를 유지한 채, 버전이 그대로이고 승인·회수
-      전이고 원아·문서 종류·날짜가 기존 문서와 같을 때만 본문을 바꾼다. 비교와 갱신은
-      UPDATE 한 문장으로 묶는다(모듈 docstring).
+      전이고 원아·문서 종류·날짜가 기존 문서와 같고 교사가 한 번도 손대지 않았을 때만
+      문장을 바꿔 넣는다. 비교와 갱신은 UPDATE 한 문장으로 묶는다(모듈 docstring).
       그 사이 교사 수정·승인이 있었으면 교사 문서를 그대로 두고 충돌로 거부한다 —
       반영하지 못한 AI 결과를 따로 보관하지 않는다.
 
@@ -130,8 +132,7 @@ def _insert_draft(db: Session, data: DraftSaveInput) -> DraftDocument:
         author_teacher_id=data.author_teacher_id,
         doc_type=data.doc_type.value,
         record_date=data.record_date,
-        status=DraftStatus.DRAFT.value,
-        content=data.content,
+        status=DraftStatus.VERIFIED.value,
         ai_version=data.ai_version,
         evidence_bundle_id=data.evidence_bundle_id,
     )
@@ -143,6 +144,10 @@ def _insert_draft(db: Session, data: DraftSaveInput) -> DraftDocument:
     try:
         with db.begin_nested():
             db.add(draft)
+            # 문서 행이 들어간 뒤에 문장을 넣는다. 중복 문서면 이 flush에서 멈춰 문장도
+            # 같은 savepoint와 함께 되돌아간다.
+            db.flush()
+            db.add_all(_sentence_rows(draft.id, data))
     except IntegrityError:
         # 예상한 중복(같은 원아·종류·날짜)만 충돌로 바꾼다. 제약 이름은 DB 드라이버마다
         # 꺼내는 방법이 달라서, savepoint를 되돌린 뒤 실제로 그 문서가 있는지 확인한다.
@@ -178,9 +183,13 @@ def _update_generated_draft(
             DraftDocument.record_date == data.record_date,
             DraftDocument.version == expected_version,
             DraftDocument.status.notin_(_AI_LOCKED_STATUSES),
+            # 교사가 한 번이라도 손댄 문서는 AI 결과로 덮어쓰지 않는다 (#75 6-1). 교사의
+            # 수정·승인은 모두 RevisionLog에 남는다(documents/CLAUDE.md). 판단을 이 UPDATE에
+            # 넣어, 확인한 뒤 갱신하기 전에 교사 수정이 끼어들 틈을 두지 않는다.
+            ~exists().where(RevisionLog.draft_id == DraftDocument.id),
         )
         .values(
-            content=data.content,
+            status=DraftStatus.VERIFIED.value,
             ai_version=data.ai_version,
             evidence_bundle_id=data.evidence_bundle_id,
             version=DraftDocument.version + 1,
@@ -191,7 +200,24 @@ def _update_generated_draft(
         raise DraftVersionConflict(
             "초안이 없거나, 대상이 다르거나, 그 사이 수정·승인됐습니다. 기존 문서를 유지합니다."
         )
+    # 문장은 모두 바꿔 넣는다. 새 초안이 같은 sentence_id를 다른 문장에 쓸 수 있어서
+    # 문장별로 맞춰 갱신하지 않는다 (#75).
+    db.execute(delete(DraftSentence).where(DraftSentence.draft_id == data.draft_id))
+    db.add_all(_sentence_rows(data.draft_id, data))
+    db.flush()
     return db.get(DraftDocument, data.draft_id, populate_existing=True)
+
+
+def _sentence_rows(draft_id: UUID, data: DraftSaveInput) -> list[DraftSentence]:
+    return [
+        DraftSentence(
+            draft_id=draft_id,
+            sentence_id=sentence.sentence_id,
+            position=position,
+            text=sentence.text,
+        )
+        for position, sentence in enumerate(data.sentences)
+    ]
 
 
 def get_draft_for_teacher(db: Session, *, draft_id: UUID, teacher_id: UUID) -> DraftDetailResponse:

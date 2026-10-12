@@ -378,7 +378,11 @@ def test_save_passed_draft_agents의_draft_id로_저장하고_근거와_함께_�
     assert data.author_teacher_id == TEACHER_UUID
     assert data.ai_version == document.version
     assert data.evidence_bundle_id == BUNDLE_UUID
-    assert data.content == "블록 놀이를 했다\n탑을 높이 쌓았다"
+    # 문장은 합치지 않고 ID·순서 그대로 넘긴다 (#75 ①).
+    assert [(sentence.sentence_id, sentence.text) for sentence in data.sentences] == [
+        ("s1", "블록 놀이를 했다"),
+        ("s2", "탑을 높이 쌓았다"),
+    ]
 
     sentence_rows = [obj for obj in session.added if isinstance(obj, service.SentenceEvidenceRow)]
     assert len(sentence_rows) == 1
