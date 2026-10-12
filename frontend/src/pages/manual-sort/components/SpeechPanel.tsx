@@ -4,11 +4,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { speechLabel } from "@/features/classify/speech-label";
 import type { QueueSegment } from "@/features/classify/use-queue-transcripts";
 import { formatTime } from "@/lib/datetime";
-import type { TranscriptSpeaker } from "@/types/api-draft/media";
+import type { TranscriptSpeakerView } from "@/api/media";
 
 import { SegmentPlayer } from "./SegmentPlayer";
 
-const SPEAKERS: { value: TranscriptSpeaker; label: string }[] = [
+const SPEAKERS: { value: TranscriptSpeakerView; label: string }[] = [
   { value: "child", label: "아이의 말" },
   { value: "teacher_observation", label: "교사의 관찰" },
   { value: "together", label: "함께 한 말" },
@@ -18,8 +18,8 @@ interface SpeechPanelProps {
   entry: QueueSegment;
   text: string;
   onTextChange: (text: string) => void;
-  speaker: TranscriptSpeaker;
-  onSpeakerChange: (speaker: TranscriptSpeaker) => void;
+  speaker: TranscriptSpeakerView;
+  onSpeakerChange: (speaker: TranscriptSpeakerView) => void;
 }
 
 // 수동 분류 · 발화 탭 왼쪽 패널(Figma 1:3064). 연결 버튼은 오른쪽 아이 패널에 있고, 고친 문장·화자는 그때 함께 저장합니다.

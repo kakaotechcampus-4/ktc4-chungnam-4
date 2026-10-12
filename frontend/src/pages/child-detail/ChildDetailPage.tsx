@@ -3,7 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft } from "lucide-react";
 import { Link, useParams } from "react-router";
 
-import { childOverviewQueryOptions, childQueryOptions } from "@/api/organization";
+import {
+  childOverviewQueryOptions,
+  childQueryOptions,
+  type ChildNoteSummaryView,
+  type FaceStatusView,
+} from "@/api/organization";
 import { FocusCard } from "@/components/common/FocusCard";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -11,17 +16,16 @@ import { faceStatus, NURI_DOMAIN_LABEL_MAP, NURI_DOMAINS } from "@/features/orga
 import { ApiError } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { formatDate, formatWeekday, kstToday } from "@/lib/datetime";
-import type { ChildNoteSummary, FaceStatus } from "@/types/api-draft/organization";
 
 import { NuriRadarChart } from "./components/NuriRadarChart";
 
 interface NoteItemProps {
-  note: ChildNoteSummary;
+  note: ChildNoteSummaryView;
   today: string;
 }
 
 // 하단 요약 줄의 짧은 얼굴 상태 문구입니다. Figma: "동의 3 / 3  ·  얼굴 등록됨"
-const FACE_SHORT_LABEL_MAP: Record<FaceStatus, string> = {
+const FACE_SHORT_LABEL_MAP: Record<FaceStatusView, string> = {
   registered: "얼굴 등록됨",
   unregistered: "얼굴 미등록",
   locked: "등록 잠김",

@@ -3,10 +3,10 @@ import { useState } from "react";
 
 import { classEvidenceQueryOptions, evidenceKeys, saveTeacherEvidence } from "@/api/agents";
 import { Button } from "@/components/ui/button";
-import type { ClassChild } from "@/types/api-draft/organization";
+import type { ClassChildView } from "@/api/organization";
 
 interface EvidenceCardProps {
-  child: ClassChild;
+  child: ClassChildView;
   recordDate: string;
 }
 

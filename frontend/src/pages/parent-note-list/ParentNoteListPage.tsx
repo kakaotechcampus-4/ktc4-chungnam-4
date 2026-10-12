@@ -3,14 +3,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
-import { childDraftsQueryOptions } from "@/api/documents";
+import { type ChildDraftView, childDraftsQueryOptions } from "@/api/documents";
 import { classChildrenQueryOptions } from "@/api/organization";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
 import { ApiError } from "@/lib/api-client";
 import { formatDate, formatYearMonth } from "@/lib/datetime";
-import type { ChildDraftItem } from "@/types/api-draft/documents";
 
 // 서버가 왜 막았는지 교사가 알아야 다음 행동을 고릅니다(다른 화면과 같은 방식).
 function failureText(error: unknown) {
@@ -24,8 +23,8 @@ function failureText(error: unknown) {
 const FIRST_MONTHS = 1;
 
 /** 목록은 이미 record_date 최신순이라 앞에서부터 담으면 달도 최신순이 됩니다. */
-function groupByMonth(items: ChildDraftItem[]) {
-  const months: { key: string; label: string; items: ChildDraftItem[] }[] = [];
+function groupByMonth(items: ChildDraftView[]) {
+  const months: { key: string; label: string; items: ChildDraftView[] }[] = [];
   for (const item of items) {
     const key = item.record_date.slice(0, 7);
     const last = months.at(-1);

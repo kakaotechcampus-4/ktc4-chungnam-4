@@ -9,12 +9,12 @@ import {
   shiftDate,
 } from "@/lib/datetime";
 import type {
-  EducationPlan,
-  EducationPlanRequest,
-  NuriDomain,
-  PlanType,
-  Weekday,
-} from "@/types/api-draft/organization";
+  EducationPlanView,
+  EducationPlanInput,
+  NuriDomainView,
+  PlanTypeView,
+  WeekdayView,
+} from "@/api/organization";
 
 // 교육 계획 작성 폼의 규칙과 기본값입니다.
 
@@ -24,7 +24,7 @@ const DOMAIN_VALUES = [
   "social",
   "art",
   "nature",
-] as const satisfies readonly NuriDomain[];
+] as const satisfies readonly NuriDomainView[];
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -58,7 +58,7 @@ export type PlanFormInput = z.input<typeof planFormSchema>;
 export type PlanFormValues = z.output<typeof planFormSchema>;
 
 /** 주간은 today가 속한 주의 월~금, 월간은 그달 1일~말일 */
-export function defaultPeriod(planType: PlanType, today: DateOnly) {
+export function defaultPeriod(planType: PlanTypeView, today: DateOnly) {
   if (planType === "weekly") {
     // 월 1 ~ 일 7. 주말(토·일)에는 끝난 주 대신 다가오는 주를 잡습니다.
     const weekday = isoWeekday(today);
@@ -68,9 +68,9 @@ export function defaultPeriod(planType: PlanType, today: DateOnly) {
   return { start_date: firstDayOfMonth(today), end_date: lastDayOfMonth(today) };
 }
 
-const EMPTY_DAILY: Record<Weekday, string> = { mon: "", tue: "", wed: "", thu: "", fri: "" };
+const EMPTY_DAILY: Record<WeekdayView, string> = { mon: "", tue: "", wed: "", thu: "", fri: "" };
 
-export function emptyPlanForm(planType: PlanType, today: DateOnly): PlanFormInput {
+export function emptyPlanForm(planType: PlanTypeView, today: DateOnly): PlanFormInput {
   return {
     plan_type: planType,
     ...defaultPeriod(planType, today),
@@ -81,7 +81,7 @@ export function emptyPlanForm(planType: PlanType, today: DateOnly): PlanFormInpu
   };
 }
 
-export function planToForm(plan: EducationPlan): PlanFormInput {
+export function planToForm(plan: EducationPlanView): PlanFormInput {
   return {
     plan_type: plan.plan_type,
     start_date: plan.start_date,
@@ -94,8 +94,8 @@ export function planToForm(plan: EducationPlan): PlanFormInput {
 }
 
 /** 폼 값을 요청 본문으로. 월간 계획은 요일별 놀이를 비우고, 빈 요일은 보내지 않습니다. */
-export function formToRequest(values: PlanFormValues): EducationPlanRequest {
-  const daily_activities: EducationPlanRequest["daily_activities"] = {};
+export function formToRequest(values: PlanFormValues): EducationPlanInput {
+  const daily_activities: EducationPlanInput["daily_activities"] = {};
   if (values.plan_type === "weekly") {
     for (const day of WEEKDAYS) {
       const activity = values.daily_activities[day];

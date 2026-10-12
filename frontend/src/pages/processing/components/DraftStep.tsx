@@ -1,23 +1,18 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
-import { createJob, jobQueryOptions } from "@/api/agents";
+import { createJob, isJobFinished, jobQueryOptions, type JobView } from "@/api/agents";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
 import { useUploadQueue } from "@/features/upload-queue/upload-queue-store";
 import { ApiError } from "@/lib/api-client";
 import { kstToday } from "@/lib/datetime";
-import type { Job } from "@/types/api-draft/agents";
 
 import { ProcessingCard } from "./ProcessingCard";
 
 interface DraftStepProps {
   /** 작업이 끝나면(succeeded·failed) 결과를 넘깁니다. 실패한 원아가 있어도 나머지 초안은 검토할 수 있습니다. */
-  onDone: (job: Job) => void;
+  onDone: (job: JobView) => void;
   onCancel: () => void;
-}
-
-function isFinished(job: Job | undefined) {
-  return job?.status === "succeeded" || job?.status === "failed";
 }
 
 /** 같은 반·날짜에 이미 돌고 있는 작업이 있으면 그 job_id. docs/api/agents.md `JOB_ALREADY_RUNNING` */
@@ -60,7 +55,7 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
   }, [currentClass, create]);
 
   useEffect(() => {
-    if (job && isFinished(job)) onDone(job);
+    if (job && isJobFinished(job)) onDone(job);
   }, [job, onDone]);
 
   // 폴링 요청이 실패한 것과 작업이 failed인 것은 다른 문구입니다. 작업 실패는 처리 실패 화면이 맡습니다.
