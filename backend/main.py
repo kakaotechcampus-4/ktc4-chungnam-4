@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from core.config import get_settings
 from core.database import engine, get_db
+from core.exceptions import AidamError
+from domains.auth.router import router as auth_router
 from domains.documents.router import router as documents_router
 
 
@@ -30,7 +32,20 @@ app = FastAPI(
     redoc_url="/redoc" if _docs_public else None,
     openapi_url="/openapi.json" if _docs_public else None,
 )
+app.include_router(auth_router)
 app.include_router(documents_router)
+
+
+@app.exception_handler(AidamError)
+def handle_aidam_error(_request: Request, error: AidamError) -> JSONResponse:
+    """도메인 예외를 공통 에러 형식으로 바꿉니다 (테크스펙 §공통 API 규약).
+
+    message·detail에는 실명·토큰을 넣지 않는다는 전제(H-4)로 그대로 옮깁니다.
+    """
+    return JSONResponse(
+        status_code=error.status_code,
+        content={"error": {"code": error.code, "message": error.message, "detail": error.detail}},
+    )
 
 
 @app.get("/health", tags=["health"])

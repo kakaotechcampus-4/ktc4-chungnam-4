@@ -9,9 +9,9 @@ from sqlalchemy.orm import Session
 
 from core.base import Base
 from core.config import get_settings
-from core.exceptions import InvalidCredentials, InvalidToken
+from core.exceptions import InvalidCredentials, InvalidToken, Unauthenticated
 from domains.auth import service
-from domains.auth.models import Account, AccountType
+from domains.auth.models import Account, AccountType, Parent, Teacher
 
 
 def _session() -> Session:
@@ -217,3 +217,40 @@ def test_짧은_JWT_SECRET은_설정_단계에서_거부한다():
 
     with pytest.raises(ValidationError):
         Settings(POSTGRES_PASSWORD="test-only-password", JWT_SECRET="too-short")
+
+
+# ---- 프로필 ----
+
+
+def _profile_session() -> Session:
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(
+        engine, tables=[Account.__table__, Teacher.__table__, Parent.__table__]
+    )
+    return Session(engine)
+
+
+def test_토큰의_역할과_DB의_역할이_다르면_로그인하지_않은_것으로_본다():
+    db = _profile_session()
+    account = _account(db)
+    db.add(Teacher(account_id=account.id, name="교사A"))
+    db.commit()
+
+    with pytest.raises(Unauthenticated):
+        service.get_profile(
+            db, service.TokenPayload(account_id=account.id, account_type=AccountType.PARENT)
+        )
+
+
+def test_가입_코드를_확정하기_전_교사도_프로필을_받는다():
+    db = _profile_session()
+    account = _account(db)
+    db.add(Teacher(account_id=account.id, name="교사A", center_id=None))
+    db.commit()
+
+    profile = service.get_profile(
+        db, service.TokenPayload(account_id=account.id, account_type=AccountType.TEACHER)
+    )
+
+    assert isinstance(profile, service.TeacherProfile)
+    assert profile.center_id is None
