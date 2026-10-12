@@ -240,7 +240,7 @@ def test_orchestrate_drafts_성공하면_초안을_저장하고_미분류함으�
     monkeypatch.setattr(
         service,
         "_generate_draft",
-        lambda bundle, *, previous_draft_id: (_document(), EVIDENCE_BY_ID, _request()),
+        lambda bundle, *, previous, issues: (_document(), EVIDENCE_BY_ID, _request()),
     )
     monkeypatch.setattr(
         service,
@@ -269,7 +269,7 @@ def test_orchestrate_drafts_교사_확인이_필요하면_미분류함으로_보
     monkeypatch.setattr(
         service,
         "_generate_draft",
-        lambda bundle, *, previous_draft_id: (_document(), EVIDENCE_BY_ID, _request()),
+        lambda bundle, *, previous, issues: (_document(), EVIDENCE_BY_ID, _request()),
     )
     monkeypatch.setattr(
         service,
@@ -291,23 +291,35 @@ def test_orchestrate_drafts_교사_확인이_필요하면_미분류함으로_보
     assert unclassified_calls == [("job-1", "child-1")]
 
 
-def test_orchestrate_drafts_재생성하면_이전_draft_id를_다시_넘기고_횟수를_늘린다(
+def test_orchestrate_drafts_재생성하면_이전_초안과_걸린_문제를_넘기고_횟수를_늘린다(
     monkeypatch,
 ) -> None:
-    generate_calls: list[str | None] = []
+    generate_calls: list[tuple[str | None, list[contracts.VerificationIssue]]] = []
     verify_calls: list[int] = []
     documents: list[contracts.DraftDocument] = []
-    decisions = iter([contracts.Decision.REGENERATE, contracts.Decision.PASS])
+    issue = contracts.VerificationIssue(
+        sentence_id="s1",
+        check_type=contracts.VerificationCheckType.CRITIC_CONTENT,
+        reason="unsupported_claim: 근거에 없는 내용",
+    )
+    decisions = iter(
+        [
+            contracts.DecisionResult(
+                decision=contracts.Decision.REGENERATE, reason="테스트", issues=[issue]
+            ),
+            contracts.DecisionResult(decision=contracts.Decision.PASS, reason="테스트"),
+        ]
+    )
 
-    def _fake_generate(bundle, *, previous_draft_id):
-        generate_calls.append(previous_draft_id)
+    def _fake_generate(bundle, *, previous, issues):
+        generate_calls.append((previous.draft_id if previous else None, list(issues)))
         document = _document()
         documents.append(document)
         return document, EVIDENCE_BY_ID, _request()
 
     def _fake_verify(session, document, evidence_by_id, request, regeneration_count):
         verify_calls.append(regeneration_count)
-        return contracts.DecisionResult(decision=next(decisions), reason="테스트")
+        return next(decisions)
 
     monkeypatch.setattr(service, "SessionLocal", FakeSession)
     monkeypatch.setattr(service, "_get_job", lambda session, job_id: _fake_job())
@@ -327,7 +339,7 @@ def test_orchestrate_drafts_재생성하면_이전_draft_id를_다시_넘기고_
 
     service.orchestrate_drafts(job_id="job-1", child_id="child-1")
 
-    assert generate_calls == [None, documents[0].draft_id]
+    assert generate_calls == [(None, []), (documents[0].draft_id, [issue])]
     assert verify_calls == [0, 1]
 
 
@@ -477,3 +489,147 @@ def test_get_job_raises_when_missing(monkeypatch) -> None:
         pass
     else:
         raise AssertionError("expected ValueError for missing job")
+
+
+# ---- 초안 생성 (_generate_draft) ----
+
+# 합성 이름이다 (실제 원아 정보 금지).
+_SYNTHETIC_NAMES = {"child_A": ["가나다", "나다"], "child_B": ["라마바"]}
+
+
+def _speech_with_name() -> contracts.EvidenceItem:
+    return EVIDENCE_CHILD_A.model_copy(update={"text": "나다가 높은 탑을 만들었어요"})
+
+
+def _inputs(evidence: list[contracts.EvidenceItem]) -> service.GenerationInputs:
+    return service.GenerationInputs(
+        request=_request(tuple(item.evidence_id for item in evidence)),
+        evidence=evidence,
+        names_by_child_id=_SYNTHETIC_NAMES,
+    )
+
+
+def _draft_answer(refs: list[str]) -> str:
+    return json.dumps(
+        {"sentences": [{"text": "CHILD_A는 높은 탑을 만들었어요.", "evidence_refs": refs}]},
+        ensure_ascii=False,
+    )
+
+
+def test_generate_draft_LLM_프롬프트와_검증용_근거에_실명이_없다(monkeypatch) -> None:
+    prompts: list[str] = []
+    monkeypatch.setattr(
+        service, "_load_generation_inputs", lambda bundle: _inputs([_speech_with_name()])
+    )
+
+    def _fake_claude(prompt: str) -> str:
+        prompts.append(prompt)
+        return _draft_answer(["E1"])
+
+    monkeypatch.setattr(service, "call_claude", _fake_claude)
+
+    document, evidence_by_id, request = service._generate_draft(object(), previous=None, issues=[])
+
+    assert "나다" not in prompts[0]
+    assert "child_A" not in prompts[0]
+    assert "ev_001" not in prompts[0]
+    assert evidence_by_id["ev_001"].text == "CHILD_A가 높은 탑을 만들었어요"
+    assert document.doc_type == contracts.DocType.PARENT_NOTE
+    assert document.version == 1
+    assert document.sentences[0].evidence_ids == ["ev_001"]
+    assert request.child_id == document.child_id
+
+
+def test_generate_draft_재생성은_같은_draft_id의_다음_버전이고_문제를_피드백한다(
+    monkeypatch,
+) -> None:
+    prompts: list[str] = []
+    monkeypatch.setattr(
+        service, "_load_generation_inputs", lambda bundle: _inputs([_speech_with_name()])
+    )
+    monkeypatch.setattr(
+        service, "call_claude", lambda prompt: prompts.append(prompt) or _draft_answer(["E1"])
+    )
+    previous = _document()
+    issue = contracts.VerificationIssue(
+        sentence_id="s1",
+        check_type=contracts.VerificationCheckType.INVALID_EVIDENCE_REF,
+        reason="제공되지 않은 근거 ev_999를 참조했습니다.",
+    )
+
+    document, _, _ = service._generate_draft(object(), previous=previous, issues=[issue])
+
+    assert document.draft_id == previous.draft_id
+    assert document.version == previous.version + 1
+    assert "invalid_evidence_ref" in prompts[0]
+    assert "블록 놀이를 했다" in prompts[0]
+    # 코드 검증 사유에는 서버 근거 ID가 섞여 있어 넘기지 않는다.
+    assert "ev_999" not in prompts[0]
+
+
+def test_generate_draft_쓸_근거가_없으면_LLM을_부르지_않는다(monkeypatch) -> None:
+    other_child = EVIDENCE_CHILD_A.model_copy(update={"child_ids": ["child_B"]})
+    monkeypatch.setattr(service, "_load_generation_inputs", lambda bundle: _inputs([other_child]))
+    monkeypatch.setattr(
+        service,
+        "call_claude",
+        lambda prompt: (_ for _ in ()).throw(AssertionError("LLM을 부르면 안 된다")),
+    )
+
+    with pytest.raises(service.InsufficientEvidence):
+        service._generate_draft(object(), previous=None, issues=[])
+
+
+def test_orchestrate_drafts_근거가_없으면_미분류함으로_보낸다(monkeypatch) -> None:
+    unclassified_calls: list[tuple[str, str]] = []
+
+    def _no_evidence(bundle, *, previous, issues):
+        raise service.InsufficientEvidence
+
+    monkeypatch.setattr(service, "SessionLocal", FakeSession)
+    monkeypatch.setattr(service, "_get_job", lambda session, job_id: _fake_job())
+    monkeypatch.setattr(
+        service, "_collect_evidence", lambda session, child_id, target_date: object()
+    )
+    monkeypatch.setattr(service, "_generate_draft", _no_evidence)
+    monkeypatch.setattr(
+        service,
+        "_send_to_unclassified",
+        lambda session, job_id, child_id: unclassified_calls.append((job_id, child_id)),
+    )
+
+    service.orchestrate_drafts(job_id="job-1", child_id="child-1")
+
+    assert unclassified_calls == [("job-1", "child-1")]
+
+
+def test_생성부터_Critic까지_실명이_LLM에_가지_않는다(monkeypatch) -> None:
+    prompts: list[str] = []
+    monkeypatch.setattr(
+        service, "_load_generation_inputs", lambda bundle: _inputs([_speech_with_name()])
+    )
+
+    def _fake_claude(prompt: str) -> str:
+        prompts.append(prompt)
+        if len(prompts) == 1:
+            return _draft_answer(["E1"])
+        return json.dumps(
+            [
+                {
+                    "sentence_id": "s_01",
+                    "verdict": "pass",
+                    "reason_code": "ok",
+                    "detail": "근거와 일치",
+                    "evidence_ids": ["ev_001"],
+                }
+            ]
+        )
+
+    monkeypatch.setattr(service, "call_claude", _fake_claude)
+
+    document, evidence_by_id, request = service._generate_draft(object(), previous=None, issues=[])
+    result = service._verify_and_record(FakeSession(), document, evidence_by_id, request, 0)
+
+    assert result.decision == contracts.Decision.PASS
+    assert len(prompts) == 2
+    assert all("나다" not in prompt for prompt in prompts)
