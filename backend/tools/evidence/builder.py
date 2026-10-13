@@ -25,7 +25,7 @@ def build_evidence(
     # evidence_by_id(...) 같은 dict를 넘기면 키 문자열을 돌게 된다. 조용히 다른 오류로
     # 터지지 않게 입력 형태부터 거부한다 (#128 연결 시 주의점).
     if isinstance(items, Mapping):
-        raise ValueError("근거는 dict가 아니라 EvidenceItem 목록으로 넘겨야 합니다.")
+        raise TypeError("근거는 dict가 아니라 EvidenceItem 목록으로 넘겨야 합니다.")
     # 계약 모델은 가변이므로 재검증하며, 오류에 원문·식별자를 포함하지 않는다.
     try:
         validated_request = GenerationRequest.model_validate(request.model_dump())
