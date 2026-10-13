@@ -3,19 +3,21 @@
 tasks.py는 이 모듈의 orchestrate_drafts만 호출합니다 (CLAUDE.md: tasks.py는 로직을 갖지 않음).
 """
 
+import logging
 from datetime import UTC, datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 
 from core.database import SessionLocal
 from core.exceptions import DraftVersionConflict
 from domains.agents.llm import call_claude
-from domains.agents.models import DraftDecisionLog, EvidenceBundle, Job
+from domains.agents.models import DraftDecisionLog, EvidenceBundle, GenerationJob, Job
 from domains.agents.models import SentenceEvidence as SentenceEvidenceRow
 from domains.agents.models import VerificationResult as VerificationResultRow
 from domains.documents import service as documents
 from domains.documents.schemas import DraftSaveInput
+from domains.media import service as media_service
 from prompts.verification.critic import build_critic_prompt
 from tools import contracts
 from tools.verification.critic_result import parse_critic_response
@@ -27,6 +29,16 @@ from tools.verification.target import validate_target
 # 재생성 횟수에 포함되지 않는다. 상한 값 자체는 스펙에 없어 무한 루프 방지용으로 1을
 # 임의로 골랐다 — 팀 확인 필요.
 MAX_CRITIC_RETRIES = 1
+
+# 백엔드 로그 형식: 모듈마다 getLogger(__name__), 정상 흐름 안의 예외 상황은 WARNING (#90).
+logger = logging.getLogger(__name__)
+
+# PASS 초안 저장이 교사 문서와 충돌해 건너뛴 경우의 로그 코드. 원인은 세분화하지 않는다 (#75).
+DRAFT_SAVE_CONFLICT = "draft_save_conflict"
+
+# 원아 1명·하루에 LLM으로 보낼 사진 수 상한. agents CLAUDE.md의 "3~5장 권장"에서 위쪽 값을
+# 골랐다. TODO(eun): 정확한 상한과 고르는 기준(지금은 하루 전체에서 고르게)은 확정 예정이다.
+MAX_PHOTOS_PER_CHILD = 5
 
 GeneratedDraft = tuple[
     contracts.DraftDocument,
@@ -109,11 +121,49 @@ def _get_job(session: Session, job_id: str) -> Job:
 
 
 def _collect_evidence(session: Session, child_id: str, target_date: datetime) -> EvidenceBundle:
-    # TODO(eun): organization.Child 준비되면 발달 맥락을 조회해서 EvidenceBundle을 구성합니다.
-    # 미디어는 MediaAsset을 여기서 직접 조회하지 않고 media.service.collect_media_for_llm(
-    # session, child_id, target_date)를 호출해서 받습니다 — 동의 필터링(H-2)이 그 함수 안에서
-    # 이미 처리되어 있어야 하므로 이 함수에서 규칙을 복제하지 않습니다 (PR #12 리뷰, 김동건).
-    raise NotImplementedError("media/organization 도메인 완료 후 연결 예정")
+    """원아 한 명의 하루치 근거를 모아 EvidenceBundle로 저장한다 (파이프라인 3단계, FR-07).
+
+    미디어는 media.collect_media_for_llm으로만 받는다. 동의·llm_allowed·파기 필터(H-2)는
+    그 함수가 하므로 여기서 규칙을 복제하지 않는다 (PR #12 리뷰, 김동건). 실명 치환도
+    여기서 하지 않는다 — 매핑을 적용한 입력 가공은 AI 쪽 담당이다 (ai-data-contract.md
+    "내부 ID와 LLM 입력").
+
+    TODO(eun): 근거가 하나도 없을 때 미분류함으로 보내는 기준은 "근거 부족 상태 계약"
+      (ai-data-contract.md, 태은님과 합의)이 정해지면 연결한다. 지금은 빈 Bundle을 저장한다.
+    """
+    media = _cap_photos(media_service.collect_media_for_llm(session, UUID(child_id), target_date))
+    bundle = EvidenceBundle(
+        id=uuid4(),
+        child_id=UUID(child_id),
+        date=target_date,
+        media_refs=[str(item.media_id) for item in media],
+        # TODO(eun): media.TranscriptPart에 segment_id가 생기면 구간 단위로 가리킨다.
+        #   지금은 발화가 있는 미디어 id로 둔다 (EvidenceBundleResponse.transcript_refs: list[str]).
+        transcript_refs=[str(item.media_id) for item in media if item.transcript],
+        # TODO(eun): 발달지침·교사 문체의 출처(organization TeacherPersona 등)가 연결되면 채운다.
+        #   키는 테크스펙 데이터 모델 ④의 두 고정 키를 그대로 둔다.
+        context_lookup={"developmental_guideline": None, "teacher_persona": None},
+    )
+    session.add(bundle)
+    session.commit()
+    return bundle
+
+
+def _cap_photos(media: list[media_service.MediaEvidence]) -> list[media_service.MediaEvidence]:
+    """사진을 MAX_PHOTOS_PER_CHILD장까지만 남긴다. 영상·음성은 1차 근거라 자르지 않는다
+    (NFR-08).
+
+    collect_media_for_llm이 촬영 시각 순으로 주므로, 앞에서 자르면 오전 사진만 남는다.
+    하루 전체에서 고르게 뽑는다 — 처음·마지막 사진을 포함해 같은 간격으로 고른다
+    (#103 리뷰, 김동건).
+    """
+    photo_positions = [i for i, item in enumerate(media) if item.type == "photo"]
+    if len(photo_positions) <= MAX_PHOTOS_PER_CHILD:
+        return media
+
+    step = (len(photo_positions) - 1) / (MAX_PHOTOS_PER_CHILD - 1)
+    kept = {photo_positions[round(i * step)] for i in range(MAX_PHOTOS_PER_CHILD)}
+    return [item for i, item in enumerate(media) if item.type != "photo" or i in kept]
 
 
 def _generate_draft(bundle: EvidenceBundle, *, previous_draft_id: str | None) -> GeneratedDraft:
@@ -231,15 +281,26 @@ def _save_passed_draft(
         session.commit()
     except DraftVersionConflict:
         session.rollback()
+        # 검증 PASS 기록은 남았는데 문서가 없는 이유를 나중에 추적하려고 남긴다 (#90).
+        # 서버 id와 코드만 남기고 본문·실명은 넣지 않는다 (H-4).
+        logger.warning(
+            "draft save skipped: code=%s job_id=%s draft_id=%s",
+            DRAFT_SAVE_CONFLICT,
+            job.id,
+            document.draft_id,
+        )
 
 
 def _author_teacher_id(session: Session, job: Job) -> UUID:
     """초안의 작성 교사. 요청한 교사를 GenerationJob에서 읽는다 (FR-26, 테크스펙 데이터 모델 ④).
 
-    TODO(eun): Job.generation_job_id → GenerationJob.requested_by_teacher_id로 읽는다.
-    두 모델이 아직 없어 값을 꺼낼 수 없다 — 임의 값으로 채우지 않는다 (#75 4번).
+    Child → Class로 유추하지 않는다 — 비동기 task에는 세션 교사가 없어서, 요청 시점에
+    저장해 둔 교사를 쓴다 (#75 4번).
     """
-    raise NotImplementedError("GenerationJob 모델 추가 후 연결 예정")
+    generation_job = session.get(GenerationJob, job.generation_job_id)
+    if generation_job is None:
+        raise ValueError(f"GenerationJob {job.generation_job_id} not found")
+    return generation_job.requested_by_teacher_id
 
 
 def _join_sentences(document: contracts.DraftDocument) -> str:
