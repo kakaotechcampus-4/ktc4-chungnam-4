@@ -70,3 +70,19 @@ def test_database_password_special_characters_are_preserved():
 def test_empty_or_example_password_is_rejected(password):
     with pytest.raises(ValidationError):
         Settings(_env_file=None, postgres_password=password)
+
+
+def test_agents_and_photo_analysis_gateways_are_configured_separately(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_GATEWAY_BASE_URL", "https://agents.example/v1")
+    monkeypatch.setenv("ANTHROPIC_MODEL", "anthropic/claude-sonnet-5")
+    monkeypatch.setenv("VISION_GATEWAY_BASE_URL", "https://vision.example/v1")
+    monkeypatch.setenv("VISION_MODEL", "glm-5.3-flash")
+
+    settings = Settings(_env_file=None, postgres_password="test-only")
+
+    assert settings.llm_gateway_base_url == "https://agents.example/v1"
+    assert settings.anthropic_model == "anthropic/claude-sonnet-5"
+    assert settings.vision_gateway_base_url == "https://vision.example/v1"
+    assert settings.vision_model == "glm-5.3-flash"
