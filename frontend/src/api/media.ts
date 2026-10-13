@@ -13,9 +13,7 @@ import type {
 } from "@/types/api-draft/media";
 
 import {
-  type ChildLinksInput,
   isTranscriptPending,
-  type MediaCompleteInput,
   toChildLinksBody,
   toChildLinksView,
   toFaceEmbeddingView,
@@ -25,31 +23,35 @@ import {
   toTranscriptSegmentBody,
   toTranscriptSegmentView,
   toTranscriptView,
-  type TranscriptSegmentInput,
   toUploadUrlsBody,
   toUploadUrlsView,
-  type UploadTicketView,
-  type UploadUrlsInput,
 } from "./media-adapter";
+import type {
+  ChildLinksInput,
+  MediaCompleteInput,
+  TranscriptSegmentInput,
+  UploadTicketView,
+  UploadUrlsInput,
+} from "./media-view";
 
 // 화면은 media 서버 타입 대신 여기서 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
-export {
-  type ChildLinksInput,
-  type ChildLinkView,
-  type FaceEmbeddingView,
-  isTranscriptPending,
-  type MediaAssetView,
-  type MediaCompleteInput,
-  type MediaTypeView,
-  type MediaUrlView,
-  type TranscriptSegmentInput,
-  type TranscriptSegmentView,
-  type TranscriptSpeakerView,
-  type TranscriptStatusView,
-  type TranscriptView,
-  type UploadTicketView,
-  type UploadUrlsInput,
-} from "./media-adapter";
+export { isTranscriptPending } from "./media-adapter";
+export type {
+  ChildLinksInput,
+  ChildLinkView,
+  FaceEmbeddingView,
+  MediaAssetView,
+  MediaCompleteInput,
+  MediaTypeView,
+  MediaUrlView,
+  TranscriptSegmentInput,
+  TranscriptSegmentView,
+  TranscriptSpeakerView,
+  TranscriptStatusView,
+  TranscriptView,
+  UploadTicketView,
+  UploadUrlsInput,
+} from "./media-view";
 
 // 업로드·재생 URL·얼굴 임베딩 요청과 query key는 이 파일에서만 만듭니다(frontend/CLAUDE.md §데이터).
 // 업로드 순서(API 문서 §media): requestUploadUrls → uploadFile → completeUpload → saveChildLinks.
