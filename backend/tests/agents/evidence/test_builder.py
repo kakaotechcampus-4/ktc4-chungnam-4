@@ -161,3 +161,16 @@ def test_unrequested_reference_is_rejected_by_downstream_verification() -> None:
     issues = validate_references(document, result)
 
     assert [issue.check_type for issue in issues] == [VerificationCheckType.INVALID_EVIDENCE_REF]
+
+
+@pytest.mark.parametrize(
+    "items",
+    [
+        {item.evidence_id: item for item in SAMPLE_EVIDENCE_POOL},
+        ["ev_001"],
+    ],
+    ids=["evidence_by_id_dict", "id_strings"],
+)
+def test_items_must_be_evidence_sequence_not_ids_or_dict(items) -> None:
+    with pytest.raises(ValueError):
+        build_evidence(items, request=make_request(["ev_001"]))

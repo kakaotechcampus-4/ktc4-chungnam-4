@@ -1,6 +1,6 @@
 """생성 요청에 사용할 근거를 선별한다. 저장소 조회·모델 호출은 호출자 책임이다."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from pydantic import ValidationError
 
@@ -22,11 +22,15 @@ def build_evidence(
     빈 요청/선별 결과는 빈 dict이다. 비어 있지 않더라도 생성 가능 판정은 아니다.
     TODO(엄태은): 근거 부족 상태·최소 관찰 기준은 공통 계약 합의 후 호출자에서 처리한다.
     """
+    # evidence_by_id(...) 같은 dict를 넘기면 키 문자열을 돌게 된다. 조용히 다른 오류로
+    # 터지지 않게 입력 형태부터 거부한다 (#128 연결 시 주의점).
+    if isinstance(items, Mapping):
+        raise ValueError("근거는 dict가 아니라 EvidenceItem 목록으로 넘겨야 합니다.")
     # 계약 모델은 가변이므로 재검증하며, 오류에 원문·식별자를 포함하지 않는다.
     try:
         validated_request = GenerationRequest.model_validate(request.model_dump())
         snapshots = [EvidenceItem.model_validate(item.model_dump()) for item in items]
-    except ValidationError:
+    except (ValidationError, AttributeError):
         raise ValueError("근거 선별 입력이 공통 데이터 계약에 맞지 않습니다.") from None
 
     requested_ids = validated_request.evidence_ids
