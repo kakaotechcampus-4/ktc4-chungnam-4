@@ -49,7 +49,7 @@ frontend/src/
 ├── components/ui/       # shadcn 생성물
 ├── components/common/   # 공통 컴포넌트 (PageHeader, FocusCard, BrandLogo, FormField, Stepper)
 ├── api/<도메인>.ts      # 요청 함수와 queryOptions (auth, organization, media, agents, documents, face)
-│                        # <도메인>-view.ts: 화면용 타입. 서버 타입을 import하지 않음 (옮긴 도메인부터, 지금은 auth·documents)
+│                        # <도메인>-view.ts: 화면용 타입. 서버 타입을 import하지 않음
 │                        # <도메인>-adapter.ts: 서버 응답 ↔ 화면용 타입 변환 함수
 ├── lib/                 # api-client, datetime(한국 날짜·표기), form-rules(공통 입력 규칙), utils(cn)
 ├── types/api-draft/     # API 문서를 옮긴 임시 타입
@@ -116,7 +116,7 @@ API 문서의 상세 작성 엔드포인트 20개에 목이 있습니다. 요청
 
 - 지금은 BE에 라우터가 없어서 타입을 `types/api-draft/<도메인>.ts`에 손으로 씁니다. 인터페이스 명세(`docs/api/`)를 먼저 고치고 타입을 맞춥니다.
 - BE 라우터가 생기면 OpenAPI에서 `types/api.ts`를 생성하고, 도메인별로 `api-draft`를 생성 타입의 별칭으로 바꾼 뒤 `api-draft`를 지웁니다.
-- 화면은 서버 타입 대신 `@/api/<도메인>`이 내보내는 화면용 타입을 씁니다. 화면용 타입은 `api/<도메인>-view.ts`에 두고(옮긴 도메인부터, 예시는 `api/auth-view.ts`·`api/auth-adapter.ts`), 서버 타입은 import하지 않습니다(`frontend/CLAUDE.md` §데이터). 서버 타입이 바뀌면 화면과 view는 그대로 두고 서버 타입과 adapter를 고칩니다.
+- 화면은 서버 타입 대신 `@/api/<도메인>`이 내보내는 화면용 타입을 씁니다. 화면용 타입은 `api/<도메인>-view.ts`에 두고(예시는 `api/auth-view.ts`·`api/auth-adapter.ts`), 서버 타입은 import하지 않습니다(`frontend/CLAUDE.md` §데이터). 서버 타입이 바뀌면 화면과 view는 그대로 두고 서버 타입과 adapter를 고칩니다.
 
 ## 자주 막히는 것
 
