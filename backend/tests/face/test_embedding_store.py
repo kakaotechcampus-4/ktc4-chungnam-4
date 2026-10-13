@@ -1,11 +1,12 @@
 """임베딩 저장·조회 (NFR-01, H-2, H-3).
 
-다른 도메인 함수(동의 판정·열람 기록)는 아직 없어 목으로 대체합니다.
+반 접근과 동의는 organization 판정 함수가 실제 행으로 판단하게 둡니다.
 """
 
 import base64
 import os
 import uuid
+from datetime import UTC, date, datetime
 
 import pytest
 from sqlalchemy import create_engine
@@ -13,10 +14,11 @@ from sqlalchemy.orm import Session
 
 from core.base import Base
 from core.config import get_settings
-from core.exceptions import EmbeddingDecryptionFailed
+from core.exceptions import ClassAccessDenied, EmbeddingDecryptionFailed
 from domains.audit.models import AccessLog, DeletionLog
 from domains.face import service
 from domains.face.models import EmbeddingLifecycleLog, FaceEmbedding
+from domains.organization.models import Center, Child, ConsentRecord, Klass
 
 VECTOR = [0.1, -0.25, 0.5] * 341 + [1.0]  # 1024차원(HUMAN faceres, #120)
 
@@ -40,6 +42,10 @@ def db() -> Session:
             EmbeddingLifecycleLog.__table__,
             AccessLog.__table__,
             DeletionLog.__table__,
+            Center.__table__,
+            Klass.__table__,
+            Child.__table__,
+            ConsentRecord.__table__,
         ],
     )
     with Session(engine) as session:
@@ -72,20 +78,59 @@ def test_다시_등록하면_갱신되고_재등록_이력이_쌓인다(db: Sess
     ]
 
 
-def test_동의한_원아의_임베딩만_캐시로_내려간다(
-    db: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """미동의 원아는 임베딩이 남아 있어도 대조 대상에서 빠집니다 (H-2, 테크스펙 0단계)."""
-    동의한_원아 = uuid.uuid4()
-    미동의_원아 = uuid.uuid4()
-    for child_id in (동의한_원아, 미동의_원아):
-        service.register_embedding(db, child_id, VECTOR, model_version="test-model-1")
+def _center(db: Session) -> uuid.UUID:
+    center = Center(center_code=uuid.uuid4().hex[:8], name="햇살어린이집", contract_status="trial")
+    db.add(center)
+    db.flush()
+    return center.id
+
+
+def _class(db: Session, center_id: uuid.UUID) -> uuid.UUID:
+    klass = Klass(
+        center_id=center_id, teacher_id=uuid.uuid4(), name="해바라기반", age_group="만 4세"
+    )
+    db.add(klass)
+    db.flush()
+    return klass.id
+
+
+def _child(db: Session, class_id: uuid.UUID, *, consented: bool = True) -> uuid.UUID:
+    """원아 한 명. 기준 임베딩도 함께 등록합니다. `consented`면 ③ 동의 행을 둡니다."""
+    child = Child(
+        class_id=class_id,
+        name="합성원아",
+        birth_date=date(2021, 5, 1),
+        status="enrolled",
+        enrolled_at=date(2025, 3, 1),
+    )
+    db.add(child)
+    db.flush()
+    if consented:
+        db.add(
+            ConsentRecord(
+                child_id=child.id,
+                parent_id=uuid.uuid4(),
+                consent_type="face_feature",
+                status="agreed",
+                agreed_at=datetime.now(UTC),
+            )
+        )
+    service.register_embedding(db, child.id, VECTOR, model_version="test-model-1")
     db.commit()
-    monkeypatch.setattr(service, "_ensure_class_access", lambda db, class_id, teacher_id: None)
-    monkeypatch.setattr(service, "_consented_child_ids", lambda db, class_id: [동의한_원아])
+    return child.id
+
+
+def test_동의한_원아의_임베딩만_캐시로_내려간다(db: Session) -> None:
+    """미동의 원아는 임베딩이 남아 있어도 대조 대상에서 빠집니다 (H-2, 테크스펙 0단계)."""
+    center_id = _center(db)
+    class_id = _class(db, center_id)
+    동의한_원아 = _child(db, class_id)
+    _child(db, class_id, consented=False)
     teacher_id = uuid.uuid4()
 
-    [cached] = service.load_embedding_cache(db, uuid.uuid4(), teacher_id)
+    [cached] = service.load_embedding_cache(
+        db, class_id, teacher_id=teacher_id, center_id=center_id
+    )
 
     assert cached.child_id == 동의한_원아
     assert cached.embedding == pytest.approx(VECTOR, abs=1e-6)
@@ -100,39 +145,13 @@ def test_동의한_원아의_임베딩만_캐시로_내려간다(
     )
 
 
-def test_동의_판정_함수가_없으면_조회가_실패한다(
-    db: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """목이 값을 돌려주면 미동의 원아가 조용히 통과하므로, 구현 전에는 터져야 합니다."""
-    monkeypatch.setattr(service, "_ensure_class_access", lambda db, class_id, teacher_id: None)
+def test_다른_어린이집의_반이면_임베딩도_열람_기록도_남지_않는다(db: Session) -> None:
+    """반 id만 바꿔 남의 어린이집 임베딩을 받아 가지 못합니다 (FR-25)."""
+    class_id = _class(db, _center(db))
+    _child(db, class_id)
 
-    with pytest.raises(NotImplementedError, match="동의"):
-        service.load_embedding_cache(db, uuid.uuid4(), uuid.uuid4())
-
-
-def test_반_접근_판정_함수가_없으면_조회가_실패한다(db: Session) -> None:
-    """임시로 통과시키면 다른 어린이집 교사가 반 id만 바꿔 임베딩을 받아 갑니다."""
-    with pytest.raises(NotImplementedError, match="반 접근"):
-        service.load_embedding_cache(db, uuid.uuid4(), uuid.uuid4())
-
-
-def test_반_접근이_막히면_동의도_임베딩도_보지_않는다(
-    db: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    service.register_embedding(db, uuid.uuid4(), VECTOR, model_version="test-model-1")
-    db.commit()
-
-    def 접근_거부(db: Session, class_id: uuid.UUID, teacher_id: uuid.UUID) -> None:
-        raise PermissionError("다른 어린이집 반")
-
-    def 불리면_안_됨(db: Session, class_id: uuid.UUID) -> list[uuid.UUID]:
-        raise AssertionError("반 접근이 막혔는데 동의를 조회했습니다")
-
-    monkeypatch.setattr(service, "_ensure_class_access", 접근_거부)
-    monkeypatch.setattr(service, "_consented_child_ids", 불리면_안_됨)
-
-    with pytest.raises(PermissionError):
-        service.load_embedding_cache(db, uuid.uuid4(), uuid.uuid4())
+    with pytest.raises(ClassAccessDenied):
+        service.load_embedding_cache(db, class_id, teacher_id=uuid.uuid4(), center_id=_center(db))
     assert db.query(AccessLog).count() == 0
 
 
@@ -140,16 +159,14 @@ def test_복호화가_실패하면_열람_기록을_남기지_않는다(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """내보내지 못한 임베딩에 '열람했다'는 기록이 남으면 감사 로그가 사실과 달라집니다."""
-    child_id = uuid.uuid4()
-    service.register_embedding(db, child_id, VECTOR, model_version="test-model-1")
-    db.commit()
-    monkeypatch.setattr(service, "_ensure_class_access", lambda db, class_id, teacher_id: None)
-    monkeypatch.setattr(service, "_consented_child_ids", lambda db, class_id: [child_id])
+    center_id = _center(db)
+    class_id = _class(db, center_id)
+    _child(db, class_id)
     monkeypatch.setenv("FACE_EMBEDDING_KEY", base64.b64encode(os.urandom(32)).decode())
     get_settings.cache_clear()  # 다른 키로 바꿔 복호화를 실패시킵니다
 
     with pytest.raises(EmbeddingDecryptionFailed):
-        service.load_embedding_cache(db, uuid.uuid4(), uuid.uuid4())
+        service.load_embedding_cache(db, class_id, teacher_id=uuid.uuid4(), center_id=center_id)
     assert db.query(AccessLog).count() == 0
 
 

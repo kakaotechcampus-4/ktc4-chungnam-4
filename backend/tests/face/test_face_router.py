@@ -1,12 +1,14 @@
 """face 라우터 — 임베딩 캐시 조회, 얼굴 정보 등록·삭제 (FR-04, FR-22, NFR-05, H-3).
 
-인증·반 접근·동의 판정은 아직 다른 담당의 함수가 없어 테스트에서만 바꿔 끼웁니다.
+로그인 교사만 바꿔 끼우고, 반·원아 접근과 동의는 organization 판정 함수가 실제 행으로
+판단하게 둡니다. 에러는 FE가 받는 HTTP 상태와 `error.code`로 확인합니다.
 """
 
 import base64
 import os
 import uuid
 from collections.abc import Iterator
+from datetime import UTC, date, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,16 +19,17 @@ from sqlalchemy.pool import StaticPool
 from core.base import Base
 from core.config import get_settings
 from core.database import get_db
-from core.exceptions import FaceConsentRequired
 from domains.audit.models import AccessLog, DeletionLog
-from domains.face import router as face_router
+from domains.auth.middleware import get_current_teacher
+from domains.auth.service import TeacherProfile
 from domains.face import service
 from domains.face.models import EmbeddingLifecycleLog, FaceEmbedding
+from domains.organization.models import Center, Child, ConsentRecord, Klass
 from main import app
 
 VECTOR = [0.1, -0.25, 0.5] * 341 + [1.0]  # 1024차원(HUMAN faceres, #120)
 TEACHER_ID = uuid.uuid4()
-CLASS_ID = uuid.uuid4()
+NOW = datetime(2026, 10, 13, 9, 0, tzinfo=UTC)
 
 
 @pytest.fixture(autouse=True)
@@ -51,25 +54,99 @@ def session_factory() -> sessionmaker[Session]:
             EmbeddingLifecycleLog.__table__,
             AccessLog.__table__,
             DeletionLog.__table__,
+            Center.__table__,
+            Klass.__table__,
+            Child.__table__,
+            ConsentRecord.__table__,
         ],
     )
     return sessionmaker(bind=engine)
 
 
 @pytest.fixture
-def client(session_factory: sessionmaker[Session]) -> Iterator[TestClient]:
+def center_id(session_factory: sessionmaker[Session]) -> uuid.UUID:
+    """로그인 교사가 속한 어린이집."""
+    with session_factory() as db:
+        return _center(db)
+
+
+def _login_as(center_id: uuid.UUID | None) -> None:
+    app.dependency_overrides[get_current_teacher] = lambda: TeacherProfile(
+        account_id=uuid.uuid4(),
+        email="teacher@example.com",
+        name="교사A",
+        teacher_id=TEACHER_ID,
+        center_id=center_id,
+    )
+
+
+@pytest.fixture
+def anonymous_client(session_factory: sessionmaker[Session]) -> Iterator[TestClient]:
+    """로그인하지 않은 요청. 도메인 예외를 500으로 터뜨리지 않고 응답으로 받습니다."""
+
     def override_db() -> Iterator[Session]:
         with session_factory() as session:
             yield session
 
     app.dependency_overrides[get_db] = override_db
-    app.dependency_overrides[face_router.get_current_teacher_id] = lambda: TEACHER_ID
-    # 실제 함수가 없는 동안 예외가 그대로 보이도록 500으로 바꾸지 않습니다.
-    yield TestClient(app)
+    yield TestClient(app, raise_server_exceptions=False)
     app.dependency_overrides.clear()
 
 
-def _path(class_id: uuid.UUID = CLASS_ID) -> str:
+@pytest.fixture
+def client(anonymous_client: TestClient, center_id: uuid.UUID) -> TestClient:
+    _login_as(center_id)
+    return anonymous_client
+
+
+def _center(db: Session) -> uuid.UUID:
+    center = Center(center_code=uuid.uuid4().hex[:8], name="햇살어린이집", contract_status="trial")
+    db.add(center)
+    db.commit()
+    return center.id
+
+
+def _class(db: Session, center_id: uuid.UUID) -> uuid.UUID:
+    klass = Klass(center_id=center_id, teacher_id=TEACHER_ID, name="해바라기반", age_group="만 4세")
+    db.add(klass)
+    db.commit()
+    return klass.id
+
+
+def _child(db: Session, class_id: uuid.UUID, *, consent: str | None = "agreed") -> uuid.UUID:
+    """원아 한 명. `consent`는 ③ 얼굴특징정보처리 동의 상태(agreed/revoked, None은 행 없음)."""
+    child = Child(
+        class_id=class_id,
+        name="합성원아",
+        birth_date=date(2021, 5, 1),
+        status="enrolled",
+        enrolled_at=date(2025, 3, 1),
+    )
+    db.add(child)
+    db.flush()
+    if consent is not None:
+        db.add(
+            ConsentRecord(
+                child_id=child.id,
+                parent_id=uuid.uuid4(),
+                consent_type="face_feature",
+                status=consent,
+                agreed_at=NOW,
+                revoked_at=NOW if consent == "revoked" else None,
+            )
+        )
+    db.commit()
+    return child.id
+
+
+def _error_code(response) -> str:
+    return response.json()["error"]["code"]
+
+
+# ---- 캐시 조회 ----
+
+
+def _path(class_id: uuid.UUID) -> str:
     return f"/classes/{class_id}/face-embeddings"
 
 
@@ -79,21 +156,19 @@ def test_face_라우터가_main_app에_등록된다() -> None:
     }
 
 
-def test_동의_원아의_임베딩과_모델_버전을_내려준다(
-    client: TestClient,
-    session_factory: sessionmaker[Session],
-    monkeypatch: pytest.MonkeyPatch,
+def test_동의_원아의_임베딩과_모델_버전만_내려준다(
+    client: TestClient, session_factory: sessionmaker[Session], center_id: uuid.UUID
 ) -> None:
-    동의한_원아 = uuid.uuid4()
-    미동의_원아 = uuid.uuid4()
+    """미동의 원아는 임베딩이 남아 있어도 대조 대상에서 빠집니다 (H-3, 테크스펙 0단계)."""
     with session_factory() as db:
-        service.register_embedding(db, 동의한_원아, VECTOR, model_version="test-model-1")
-        service.register_embedding(db, 미동의_원아, VECTOR, model_version="test-model-1")
+        class_id = _class(db, center_id)
+        동의한_원아 = _child(db, class_id)
+        미동의_원아 = _child(db, class_id, consent=None)
+        for child_id in (동의한_원아, 미동의_원아):
+            service.register_embedding(db, child_id, VECTOR, model_version="test-model-1")
         db.commit()
-    monkeypatch.setattr(service, "_ensure_class_access", lambda db, class_id, teacher_id: None)
-    monkeypatch.setattr(service, "_consented_child_ids", lambda db, class_id: [동의한_원아])
 
-    response = client.get(_path())
+    response = client.get(_path(class_id))
 
     assert response.status_code == 200
     body = response.json()
@@ -107,19 +182,16 @@ def test_동의_원아의_임베딩과_모델_버전을_내려준다(
 
 
 def test_응답을_보내기_전에_열람_기록이_커밋된다(
-    client: TestClient,
-    session_factory: sessionmaker[Session],
-    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient, session_factory: sessionmaker[Session], center_id: uuid.UUID
 ) -> None:
     """모든 열람 API 호출이 AccessLog를 남긴다 (NFR-05, backend 필수 테스트 4)."""
-    child_id = uuid.uuid4()
     with session_factory() as db:
+        child_id = _child(db, _class(db, center_id))
         service.register_embedding(db, child_id, VECTOR, model_version="test-model-1")
         db.commit()
-    monkeypatch.setattr(service, "_ensure_class_access", lambda db, class_id, teacher_id: None)
-    monkeypatch.setattr(service, "_consented_child_ids", lambda db, class_id: [child_id])
+        class_id = db.get(Child, child_id).class_id
 
-    client.get(_path())
+    client.get(_path(class_id))
 
     # 요청이 쓴 세션과 다른 세션에서 보여야 커밋된 것입니다.
     with session_factory() as db:
@@ -127,69 +199,94 @@ def test_응답을_보내기_전에_열람_기록이_커밋된다(
         assert (log.actor_id, log.target_type) == (TEACHER_ID, "face_embedding")
 
 
-def test_반_접근_검사에_로그인한_교사와_경로의_반을_넘긴다(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+def test_다른_어린이집의_반은_403_CLASS_ACCESS_DENIED이고_열람_기록이_없다(
+    client: TestClient, session_factory: sessionmaker[Session]
 ) -> None:
-    seen: list[tuple[uuid.UUID, uuid.UUID]] = []
+    """반 id만 바꿔 남의 어린이집 임베딩을 받아 가지 못합니다 (FR-25)."""
+    with session_factory() as db:
+        other_class = _class(db, _center(db))
+        service.register_embedding(db, _child(db, other_class), VECTOR, model_version="m")
+        db.commit()
 
-    def 기록(db: Session, class_id: uuid.UUID, teacher_id: uuid.UUID) -> None:
-        seen.append((class_id, teacher_id))
+    response = client.get(_path(other_class))
 
-    monkeypatch.setattr(service, "_ensure_class_access", 기록)
-    monkeypatch.setattr(service, "_consented_child_ids", lambda db, class_id: [])
-
-    response = client.get(_path())
-
-    assert response.status_code == 200
-    assert response.json()["items"] == []
-    assert seen == [(CLASS_ID, TEACHER_ID)]
+    assert response.status_code == 403
+    assert _error_code(response) == "CLASS_ACCESS_DENIED"
+    with session_factory() as db:
+        assert db.query(AccessLog).count() == 0
 
 
-def test_판정_함수가_없으면_빈_목록이_아니라_실패한다(client: TestClient) -> None:
-    """빈 목록으로 대신하면 FE가 '등록된 원아 없음'으로 착각하고 전부 수동 분류로 보냅니다."""
-    with pytest.raises(NotImplementedError):
-        client.get(_path())
+def test_없는_반은_404_CLASS_NOT_FOUND(client: TestClient) -> None:
+    response = client.get(_path(uuid.uuid4()))
+
+    assert response.status_code == 404
+    assert _error_code(response) == "CLASS_NOT_FOUND"
+
+
+def test_소속_어린이집이_없는_교사는_어느_반에도_접근하지_못한다(
+    anonymous_client: TestClient, session_factory: sessionmaker[Session], center_id: uuid.UUID
+) -> None:
+    """가입 코드로 소속을 확정하기 전(center_id 없음)에는 막습니다 (FR-23)."""
+    with session_factory() as db:
+        class_id = _class(db, center_id)
+    _login_as(None)
+
+    response = anonymous_client.get(_path(class_id))
+
+    assert response.status_code == 403
+    assert _error_code(response) == "CLASS_ACCESS_DENIED"
+
+
+def test_로그인하지_않으면_401_UNAUTHENTICATED(anonymous_client: TestClient) -> None:
+    response = anonymous_client.get(_path(uuid.uuid4()))
+
+    assert response.status_code == 401
+    assert _error_code(response) == "UNAUTHENTICATED"
 
 
 def test_반_id가_UUID가_아니면_422(client: TestClient) -> None:
     assert client.get("/classes/not-a-uuid/face-embeddings").status_code == 422
 
 
-CHILD_ID = uuid.uuid4()
-실제_원아_동의_판정 = service._has_face_consent
+# ---- 등록·삭제 ----
 
 
-def _register_path(child_id: uuid.UUID = CHILD_ID) -> str:
+def _register_path(child_id: uuid.UUID) -> str:
     return f"/children/{child_id}/face-embedding"
 
 
+def _register(client: TestClient, child_id: uuid.UUID, model_version: str = "human-1"):
+    return client.put(
+        _register_path(child_id), json={"embedding": VECTOR, "model_version": model_version}
+    )
+
+
 @pytest.fixture
-def 원아_접근_통과(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(service, "_ensure_child_access", lambda db, child_id, teacher_id: None)
-    monkeypatch.setattr(service, "_has_face_consent", lambda db, child_id: True)
+def child_id(session_factory: sessionmaker[Session], center_id: uuid.UUID) -> uuid.UUID:
+    """로그인 교사의 어린이집에 있는 ③ 동의 원아."""
+    with session_factory() as db:
+        return _child(db, _class(db, center_id))
 
 
-@pytest.mark.usefixtures("원아_접근_통과")
 def test_등록하면_벡터는_돌려주지_않고_모델_버전과_시각만_준다(
-    client: TestClient, session_factory: sessionmaker[Session]
+    client: TestClient, session_factory: sessionmaker[Session], child_id: uuid.UUID
 ) -> None:
-    response = client.put(_register_path(), json={"embedding": VECTOR, "model_version": "human-1"})
+    response = _register(client, child_id)
 
     assert response.status_code == 200
     body = response.json()
     assert set(body) == {"child_id", "model_version", "registered_at"}  # 벡터 없음 (H-3)
-    assert (body["child_id"], body["model_version"]) == (str(CHILD_ID), "human-1")
+    assert (body["child_id"], body["model_version"]) == (str(child_id), "human-1")
     with session_factory() as other:  # 커밋됐는지
-        assert other.query(FaceEmbedding).filter_by(child_id=CHILD_ID).count() == 1
+        assert other.query(FaceEmbedding).filter_by(child_id=child_id).count() == 1
 
 
-@pytest.mark.usefixtures("원아_접근_통과")
 def test_다시_등록하면_덮어쓰고_갱신_시각을_준다(
-    client: TestClient, session_factory: sessionmaker[Session]
+    client: TestClient, session_factory: sessionmaker[Session], child_id: uuid.UUID
 ) -> None:
-    first = client.put(_register_path(), json={"embedding": VECTOR, "model_version": "human-1"})
+    first = _register(client, child_id, "human-1")
 
-    again = client.put(_register_path(), json={"embedding": VECTOR, "model_version": "human-2"})
+    again = _register(client, child_id, "human-2")
 
     assert again.json()["model_version"] == "human-2"
     assert again.json()["registered_at"] >= first.json()["registered_at"]
@@ -197,18 +294,49 @@ def test_다시_등록하면_덮어쓰고_갱신_시각을_준다(
         assert other.query(FaceEmbedding).count() == 1  # 원아당 한 개
 
 
-def test_동의가_없는_원아는_등록하지_않는다(
-    client: TestClient, session_factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("consent", [None, "revoked"], ids=["동의_없음", "철회"])
+def test_동의가_없는_원아는_403_FACE_CONSENT_REQUIRED이고_저장하지_않는다(
+    client: TestClient,
+    session_factory: sessionmaker[Session],
+    center_id: uuid.UUID,
+    consent: str | None,
 ) -> None:
     """③ 미동의 원아의 얼굴 정보가 서버에 저장되면 안 됩니다 (H-3, FR-28)."""
-    monkeypatch.setattr(service, "_ensure_child_access", lambda db, child_id, teacher_id: None)
-    monkeypatch.setattr(service, "_has_face_consent", lambda db, child_id: False)
+    with session_factory() as db:
+        미동의_원아 = _child(db, _class(db, center_id), consent=consent)
 
-    # TODO(엄태은): 전역 예외 핸들러가 생기면 403 FACE_CONSENT_REQUIRED 응답 확인으로 바꿉니다.
-    with pytest.raises(FaceConsentRequired):
-        client.put(_register_path(), json={"embedding": VECTOR, "model_version": "human-1"})
+    response = _register(client, 미동의_원아)
+
+    assert response.status_code == 403
+    assert _error_code(response) == "FACE_CONSENT_REQUIRED"
     with session_factory() as other:
         assert other.query(FaceEmbedding).count() == 0
+
+
+def test_다른_어린이집_원아는_등록도_삭제도_403_CHILD_ACCESS_DENIED(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """원아 id만 바꿔 남의 어린이집 원아의 얼굴 정보를 다루지 못합니다 (FR-25)."""
+    with session_factory() as db:
+        남의_원아 = _child(db, _class(db, _center(db)))
+        service.register_embedding(db, 남의_원아, VECTOR, model_version="m")
+        db.commit()
+
+    registered = _register(client, 남의_원아)
+    deleted = client.delete(_register_path(남의_원아))
+
+    assert (registered.status_code, _error_code(registered)) == (403, "CHILD_ACCESS_DENIED")
+    assert (deleted.status_code, _error_code(deleted)) == (403, "CHILD_ACCESS_DENIED")
+    with session_factory() as other:
+        assert other.query(FaceEmbedding).count() == 1  # 지워지지 않음
+        assert other.query(DeletionLog).count() == 0
+
+
+def test_없는_원아는_404_CHILD_NOT_FOUND(client: TestClient) -> None:
+    response = _register(client, uuid.uuid4())
+
+    assert response.status_code == 404
+    assert _error_code(response) == "CHILD_NOT_FOUND"
 
 
 @pytest.mark.parametrize(
@@ -220,17 +348,16 @@ def test_동의가_없는_원아는_등록하지_않는다(
         {"embedding": VECTOR},
     ],
 )
-def test_등록_요청_모양이_틀리면_422(client: TestClient, body: dict) -> None:
-    assert client.put(_register_path(), json=body).status_code == 422
+def test_등록_요청_모양이_틀리면_422(client: TestClient, child_id: uuid.UUID, body: dict) -> None:
+    assert client.put(_register_path(child_id), json=body).status_code == 422
 
 
-@pytest.mark.usefixtures("원아_접근_통과")
 def test_삭제하면_204이고_파기_기록이_남는다(
-    client: TestClient, session_factory: sessionmaker[Session]
+    client: TestClient, session_factory: sessionmaker[Session], child_id: uuid.UUID
 ) -> None:
-    client.put(_register_path(), json={"embedding": VECTOR, "model_version": "human-1"})
+    _register(client, child_id)
 
-    response = client.delete(_register_path())
+    response = client.delete(_register_path(child_id))
 
     assert response.status_code == 204
     with session_factory() as other:
@@ -239,24 +366,5 @@ def test_삭제하면_204이고_파기_기록이_남는다(
         assert deletion.reason == "teacher_removed"  # 교사가 얼굴 정보만 지움, 동의는 그대로
 
 
-@pytest.mark.usefixtures("원아_접근_통과")
-def test_지울_것이_없어도_204(client: TestClient) -> None:
-    assert client.delete(_register_path(uuid.uuid4())).status_code == 204
-
-
-def test_원아_접근_판정_함수가_없으면_등록도_삭제도_막힌다(client: TestClient) -> None:
-    """임시로 통과시키면 다른 어린이집 교사가 원아 id만 바꿔 얼굴 정보를 다룹니다."""
-    with pytest.raises(NotImplementedError, match="원아 접근"):
-        client.put(_register_path(), json={"embedding": VECTOR, "model_version": "human-1"})
-    with pytest.raises(NotImplementedError, match="원아 접근"):
-        client.delete(_register_path())
-
-
-def test_동의_판정_함수가_없으면_등록이_막힌다(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(service, "_ensure_child_access", lambda db, child_id, teacher_id: None)
-    monkeypatch.setattr(service, "_has_face_consent", 실제_원아_동의_판정)
-
-    with pytest.raises(NotImplementedError, match="동의"):
-        client.put(_register_path(), json={"embedding": VECTOR, "model_version": "human-1"})
+def test_지울_것이_없어도_204(client: TestClient, child_id: uuid.UUID) -> None:
+    assert client.delete(_register_path(child_id)).status_code == 204
