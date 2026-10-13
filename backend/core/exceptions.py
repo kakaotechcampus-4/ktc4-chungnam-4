@@ -114,3 +114,41 @@ class MediaUploadNotFound(AidamError):
 
     code = "MEDIA_UPLOAD_NOT_FOUND"
     status_code = 409
+
+
+class ClassNotFound(AidamError):
+    """없는 반에 접근하려 한 경우."""
+
+    code = "CLASS_NOT_FOUND"
+    status_code = 404
+
+
+class ClassAccessDenied(AidamError):
+    """다른 어린이집의 반에 접근하려 한 경우.
+
+    같은 어린이집(center) 소속 교사는 모든 반에 접근합니다 (FR-25, 담당교사 개념 폐지).
+    """
+
+    code = "CLASS_ACCESS_DENIED"
+    status_code = 403
+
+
+class ChildNotFound(AidamError):
+    """없는 원아에 접근하려 한 경우."""
+
+    code = "CHILD_NOT_FOUND"
+    status_code = 404
+
+
+class ChildAccessDenied(AidamError):
+    """다른 어린이집의 원아에 접근하려 한 경우."""
+
+    code = "CHILD_ACCESS_DENIED"
+    status_code = 403
+
+
+class ChildNotInClass(AidamError):
+    """그 반 원아가 아닌 원아를 반의 미디어·기록에 연결하려 한 경우."""
+
+    code = "CHILD_NOT_IN_CLASS"
+    status_code = 400
