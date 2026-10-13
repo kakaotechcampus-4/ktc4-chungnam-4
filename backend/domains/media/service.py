@@ -30,7 +30,7 @@ from core.exceptions import (
     UploadBatchTooLarge,
 )
 from domains.media.models import MediaAsset, MediaChildLink, MediaUpload, TranscriptSegment
-from domains.organization.service import ensure_class_access
+from domains.organization.service import ensure_class_access, get_consented_children
 
 _ALLOWED_METHODS = frozenset({"face_recognition", "manual"})
 
@@ -130,6 +130,8 @@ def get_playback_url(db: Session, media_id: UUID) -> str:
 _KST = ZoneInfo("Asia/Seoul")
 # ③ 얼굴특징정보처리 동의는 얼굴이 담기는 사진·영상에만 봅니다.
 _FACE_MEDIA_TYPES = frozenset({"photo", "video"})
+# ConsentRecord.consent_type에 저장되는 ③ 동의 영문 값입니다 (#38).
+_FACE_CONSENT_TYPE = "face_feature"
 
 
 @dataclass(frozen=True)
@@ -151,18 +153,6 @@ class MediaEvidence:
     # 원본 객체 위치. 서명 URL이 아니라 서버 내부 참조입니다 — 학부모·브라우저에 그대로 주지 않습니다.
     storage_url: str
     transcript: tuple[TranscriptPart, ...] = ()
-
-
-def _consented_child_ids(db: Session, class_id: UUID) -> list[UUID]:
-    """반에서 ③ 동의가 유효한 재원 원아 id.
-
-    organization 담당(이한나)에게 요청한 함수로 교체합니다(#105):
-        get_consented_children(db, class_id, consent_type) -> list[UUID]
-    값을 돌려주는 임시 구현을 넣지 않습니다 — 임시로 통과되면 미동의 원아 사진이 조용히
-    LLM으로 갑니다 (H-2). face.service._consented_child_ids와 같은 자리입니다.
-    """
-    # TODO(donggeon): organization.service.get_consented_children 대기 (#105)
-    raise NotImplementedError("organization 동의 판정 함수 대기 중")
 
 
 def _kst_day_range(target_date: date) -> tuple[datetime, datetime]:
@@ -215,7 +205,7 @@ def collect_media_for_llm(db: Session, child_id: UUID, target_date: date) -> lis
 
     consented: dict[UUID, set[UUID]] = {}
     for class_id in {asset.class_id for asset in assets if asset.type in _FACE_MEDIA_TYPES}:
-        consented[class_id] = set(_consented_child_ids(db, class_id))
+        consented[class_id] = set(get_consented_children(db, class_id, _FACE_CONSENT_TYPE))
 
     segments: dict[UUID, list[TranscriptPart]] = {}
     for segment in db.scalars(
