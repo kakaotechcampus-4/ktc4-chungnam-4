@@ -414,22 +414,57 @@ def test_save_passed_draft_저장이_충돌하면_근거를_남기지_않고_되
     assert not session.committed
 
 
-def test_save_passed_draft_작성_교사를_모르면_저장하지_않고_멈춘다(monkeypatch) -> None:
-    """GenerationJob 모델 전에는 작성 교사를 알 수 없다 — 임의 값으로 저장하지 않는다."""
+def test_save_passed_draft_충돌하면_id와_코드만_로그로_남긴다(monkeypatch, caplog) -> None:
+    """PASS 기록은 있는데 문서가 없는 이유를 추적할 단서를 남긴다 (#90). 본문은 남기지 않는다(H-4)."""
+    job = _fake_job(id=uuid.uuid4())
+    document = _saveable_document()
 
-    def _fail_if_called(db, data, *, expected_version):
-        raise AssertionError("작성 교사 없이 저장하면 안 된다")
+    def _conflict(db, data, *, expected_version):
+        raise DraftVersionConflict("이미 있습니다")
 
-    monkeypatch.setattr(service.documents, "save_draft", _fail_if_called)
+    _stub_save_dependencies(monkeypatch, _conflict)
 
-    with pytest.raises(NotImplementedError):
+    with caplog.at_level("WARNING", logger=service.__name__):
         service._save_passed_draft(
-            FakeSession(),
-            _fake_job(),
-            service.EvidenceBundle(id=BUNDLE_UUID),
-            _saveable_document(),
-            EVIDENCE_BY_ID,
+            FakeSession(), job, service.EvidenceBundle(id=BUNDLE_UUID), document, EVIDENCE_BY_ID
         )
+
+    [record] = caplog.records
+    message = record.getMessage()
+    assert service.DRAFT_SAVE_CONFLICT in message
+    assert str(job.id) in message
+    assert document.draft_id in message
+    assert all(sentence.text not in message for sentence in document.sentences)
+
+
+class _GetSession(FakeSession):
+    def __init__(self, rows: dict[object, object]) -> None:
+        super().__init__()
+        self.rows = rows
+
+    def get(self, model: type, key: object) -> object | None:
+        return self.rows.get((model, key))
+
+
+def test_author_teacher_id_요청한_교사를_GenerationJob에서_읽는다() -> None:
+    """비동기 task에는 세션 교사가 없어서, 요청 시점에 저장한 교사를 쓴다 (FR-26)."""
+    generation_job_id = uuid.uuid4()
+    session = _GetSession(
+        {
+            (service.GenerationJob, generation_job_id): service.GenerationJob(
+                id=generation_job_id, requested_by_teacher_id=TEACHER_UUID
+            )
+        }
+    )
+
+    teacher_id = service._author_teacher_id(session, _fake_job(generation_job_id=generation_job_id))
+
+    assert teacher_id == TEACHER_UUID
+
+
+def test_author_teacher_id_GenerationJob이_없으면_임의_값으로_채우지_않는다() -> None:
+    with pytest.raises(ValueError):
+        service._author_teacher_id(_GetSession({}), _fake_job(generation_job_id=uuid.uuid4()))
 
 
 def test_get_job_raises_when_missing(monkeypatch) -> None:
