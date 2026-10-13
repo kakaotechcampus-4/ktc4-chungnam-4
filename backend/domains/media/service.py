@@ -30,6 +30,7 @@ from core.exceptions import (
     UploadBatchTooLarge,
 )
 from domains.media.models import MediaAsset, MediaChildLink, MediaUpload, TranscriptSegment
+from domains.organization.service import ensure_class_access
 
 _ALLOWED_METHODS = frozenset({"face_recognition", "manual"})
 
@@ -162,20 +163,6 @@ def _consented_child_ids(db: Session, class_id: UUID) -> list[UUID]:
     """
     # TODO(donggeon): organization.service.get_consented_children 대기 (#105)
     raise NotImplementedError("organization 동의 판정 함수 대기 중")
-
-
-def _ensure_class_access(db: Session, class_id: UUID, teacher_id: UUID) -> None:
-    """교사가 이 반에 올리거나 이 반의 미디어를 귀속할 수 있는지 확인합니다.
-
-    같은 어린이집 소속 교사는 모든 반에 접근합니다(FR-25). 반은 organization, 교사는 auth
-    소유라 직접 조회하지 않고 담당자 함수로 교체합니다. 없는 반은 `CLASS_NOT_FOUND`,
-    다른 어린이집 반은 `CLASS_ACCESS_DENIED`입니다. face의 같은 자리와 같은 함수로 바꿉니다.
-
-    통과시키는 임시 구현을 넣지 않습니다 — 다른 어린이집 교사가 반 id만 바꿔 올리거나
-    남의 사진 귀속을 바꿀 수 있게 됩니다.
-    """
-    # TODO(donggeon): organization 반 접근 판정 함수 요청 예정 (이슈 미작성, face와 공유)
-    raise NotImplementedError("반 접근 판정 함수 대기 중")
 
 
 def _kst_day_range(target_date: date) -> tuple[datetime, datetime]:
@@ -619,6 +606,7 @@ def issue_upload_urls(
     *,
     class_id: UUID,
     teacher_id: UUID,
+    center_id: UUID | None,
     items: Sequence[UploadRequestItem],
 ) -> list[UploadUrlResult]:
     """여러 파일의 업로드 URL을 한 요청으로 발급합니다 (FR-15, `POST /media/upload-urls`).
@@ -630,8 +618,12 @@ def issue_upload_urls(
     파일 수가 상한(`UPLOAD_MAX_FILES_PER_REQUEST`)을 넘으면 하나도 발급하지 않고
     `UploadBatchTooLarge`를 올립니다. 같은 요청에 같은 `client_photo_id`가 두 번 있으면
     두 번째를 첫 번째 결과로 대신합니다(같은 파일의 URL을 두 번 서명하지 않음).
+
+    먼저 반 접근을 확인합니다 — 다른 어린이집 교사가 반 id만 바꿔 올리지 못하게 합니다
+    (FR-25). `center_id`는 로그인 교사의 어린이집이고, 소속이 정해지기 전(None)이면 어느
+    반에도 올리지 못합니다. `teacher_id`는 발급 기록에 남길 올린 사람입니다.
     """
-    _ensure_class_access(db, class_id, teacher_id)
+    ensure_class_access(db, class_id, center_id)
     if len(items) > get_settings().upload_max_files_per_request:
         raise UploadBatchTooLarge("한 번에 올릴 수 있는 파일 수를 넘었어요.")
 
