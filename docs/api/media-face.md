@@ -174,7 +174,7 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 - `attributed_at`(제안)은 **귀속을 저장할 때만** 채웁니다. 사진은 이 응답에서 채워지고, 영상·음성은 `PUT child-links` 전까지 null입니다(`llm_allowed`도 기본값 false). 귀속 전인 영상·음성이 Job에 들어가면 agents가 `MEDIA_NOT_READY`로 거절하므로, 에러 없이 근거에서 빠지는 일이 없습니다.
 - 에러:
   - `MEDIA_UPLOAD_NOT_FOUND` (409) — S3에 객체가 없을 때(업로드 미완료, URL 만료). FE는 URL을 다시 받아 올립니다.
-  - `MEDIA_UPLOAD_MISMATCH` (400) — 실제 타입이나 크기가 선언과 다르거나, 파일 앞부분이 그 형식이 아닐 때. URL을 다시 받아 같은 파일을 올립니다(같은 경로라 덮어씁니다)
+  - `MEDIA_UPLOAD_MISMATCH` (400) — 실제 타입이나 크기가 선언과 다르거나, 파일 앞부분이 그 형식이 아닐 때. URL을 다시 받아 같은 파일을 올립니다(발급할 때마다 새 경로라 이전 파일과 겹치지 않습니다)
   - `CLASS_ACCESS_DENIED` (403) — 담당 반이 아닐 때
   - `CLIENT_PHOTO_ID_CONFLICT` (409) — 같은 `client_photo_id`가 다른 반에 이미 있을 때
   - 사진의 귀속 에러 — `INVALID_ATTRIBUTION_METHOD`·`DUPLICATE_CHILD_LINK`·`CHILD_NOT_IN_CLASS` (400), 뜻은 `PUT child-links` 절과 같습니다
