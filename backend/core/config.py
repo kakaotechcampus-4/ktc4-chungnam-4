@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     # (presigned 스파이크 §6, docs/api/media-face.md 임시 결정(김동건)). 자격증명 잔여 수명보다
     # 길게 요청하면 발급은 되지만 그 시점에 조용히 죽으므로 발급할 때 잘라냅니다.
     s3_upload_url_expires_seconds: int = Field(default=3600, gt=0)
+    # 재생 URL. 영상은 재생 중 Range 요청을 계속 보내므로 업로드보다 짧으면 중간에 끊깁니다
+    s3_playback_url_expires_seconds: int = Field(default=3600, gt=0)
     # 업로드 상한. 정상 파일은 막지 않고 뒷단(STT·사진 분석)이 받을 수 있는 크기 사이에서 정했습니다.
     # TODO(donggeon): 외부 STT의 파일 크기 제한을 확인하면 음성 상한을 그 안으로 맞춥니다.
     upload_max_files_per_request: int = Field(default=10, gt=0)  # FE도 10장씩 나눠 요청

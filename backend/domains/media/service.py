@@ -109,19 +109,6 @@ def save_attributions(
     return links
 
 
-def get_playback_url(db: Session, media_id: UUID) -> str:
-    """초안 화면(FR-07)에서 근거 미디어를 재생·표시할 주소.
-
-    documents가 `MediaAsset`을 직접 조회하지 않도록 제공하는 함수입니다.
-    스프린트 1은 변환을 하지 않아 원본 주소를 그대로 돌려줍니다 — 파생본이
-    생기면 `proxy_url`이 있을 때 그것을 우선합니다.
-    """
-    asset = db.get(MediaAsset, media_id)
-    if asset is None:
-        raise MediaAssetNotFound(f"Unknown media asset: {media_id}")
-    return asset.proxy_url or asset.storage_url
-
-
 # ---------------------------------------------------------------------------
 # LLM 근거용 미디어 (agents 근거 수집, #34)
 # ---------------------------------------------------------------------------
@@ -378,6 +365,68 @@ def presign_upload(key: str, content_type: str, size_bytes: int) -> PresignedUpl
         headers={"Content-Type": content_type, "If-None-Match": "*"},
         expires_at=datetime.now(UTC) + timedelta(seconds=expires_in),
     )
+
+
+@dataclass(frozen=True)
+class SignedMediaUrl:
+    """근거 미디어를 재생·표시할 서명 URL. 모든 도메인이 이 모양 하나로 씁니다(docs/api/media-face.md).
+
+    S3 경로(`storage_url`)는 싣지 않습니다 — 서명 없이는 쓸 수 없고 내부 구조가 드러납니다.
+    """
+
+    media_id: UUID
+    type: str
+    url: str
+    url_expires_at: datetime
+
+
+def get_signed_urls(db: Session, media_ids: Sequence[UUID]) -> list[SignedMediaUrl]:
+    """근거 미디어의 재생용 서명 URL(presigned GET)을 만듭니다 (FR-07, 비공개 S3).
+
+    documents가 `MediaAsset`을 직접 조회하지 않고 초안 상세·학부모 응답에 URL을 담도록
+    제공합니다. **승인·원아 접근 판정과 열람 기록(AccessLog)은 부르는 쪽이 합니다** —
+    media는 누가 왜 보는지 모릅니다(H-1, H-4).
+
+    - 결과는 요청 순서대로이고, 같은 id가 여러 번 오면 한 번만 서명합니다.
+    - 모르는 id가 섞이면 `MediaAssetNotFound`입니다. 부르는 쪽의 버그를 숨기지 않습니다.
+    - 파기된 미디어(`storage_tier == deleted`)는 결과에서 뺍니다. 파일이 없어 열리지 않습니다.
+    - 파생본(`proxy_url`)이 있으면 그것에 서명합니다. 지금은 변환이 없어 원본에 서명합니다.
+    - 만료는 `S3_PLAYBACK_URL_EXPIRES_SECONDS`이고, 자격증명이 먼저 끝나면 그 안으로 줄입니다.
+    """
+    unique_ids = list(dict.fromkeys(media_ids))
+    if not unique_ids:
+        return []
+    assets = {
+        asset.id: asset
+        for asset in db.scalars(select(MediaAsset).where(MediaAsset.id.in_(unique_ids)))
+    }
+    if len(assets) != len(unique_ids):
+        raise MediaAssetNotFound("파일을 찾을 수 없어요.")
+
+    settings = get_settings()
+    client = _s3_client(settings.s3_region)
+    bucket = _bucket()
+    expires_in = _clamp_expires_in(
+        settings.s3_playback_url_expires_seconds, _credential_seconds_left(settings.s3_region)
+    )
+    expires_at = datetime.now(UTC) + timedelta(seconds=expires_in)
+    signed = []
+    for media_id in unique_ids:
+        asset = assets[media_id]
+        if asset.storage_tier == "deleted":
+            continue
+        try:
+            url = client.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": bucket, "Key": asset.proxy_url or asset.storage_url},
+                ExpiresIn=expires_in,
+            )
+        except NoCredentialsError as error:
+            raise StorageNotConfigured("파일 저장소에 접근할 수 없어 보여 줄 수 없어요.") from error
+        signed.append(
+            SignedMediaUrl(media_id=media_id, type=asset.type, url=url, url_expires_at=expires_at)
+        )
+    return signed
 
 
 def head_uploaded_object(key: str) -> StoredObject | None:
