@@ -39,7 +39,8 @@ const VIEW_API_IMPORT = {
   regex: "(^|/)api/[a-z-]+(?<!-view)$|^\\./[a-z-]+(?<!-view)$",
   message: "화면용 타입 파일은 다른 화면용 타입 파일(<도메인>-view)만 import합니다.",
 };
-// adapter는 변환 함수만 둡니다. 타입 선언·재내보내기는 <도메인>-view.ts에서 합니다.
+// adapter는 변환 함수만 내보냅니다. 화면용 타입 선언·재내보내기는 <도메인>-view.ts에서 합니다.
+// adapter 안에서만 쓰는 보조 타입(export 없음, 예: documents의 PublishRow)은 둘 수 있습니다.
 const ADAPTER_TYPE_EXPORTS = [
   {
     selector:
