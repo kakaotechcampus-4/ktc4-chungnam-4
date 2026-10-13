@@ -26,7 +26,8 @@ from domains.auth.schemas import (
     to_me_response,
 )
 
-router = APIRouter(prefix="/api/v1", tags=["auth"])
+# 베이스 경로 /api/v1은 main.py에서 붙입니다. 라우터에는 리소스 경로만 둡니다.
+router = APIRouter(tags=["auth"])
 
 
 @router.post("/sessions", status_code=HTTPStatus.CREATED, response_model=SessionResponse)

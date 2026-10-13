@@ -254,3 +254,19 @@ def test_가입_코드를_확정하기_전_교사도_프로필을_받는다():
 
     assert isinstance(profile, service.TeacherProfile)
     assert profile.center_id is None
+
+
+def test_프로필을_통째로_로그에_남겨도_실명과_이메일이_찍히지_않는다():
+    teacher = service.TeacherProfile(
+        account_id=uuid.uuid4(),
+        email="teacher@example.com",
+        name="교사A",
+        teacher_id=uuid.uuid4(),
+        center_id=None,
+    )
+    parent = service.ParentProfile(
+        account_id=uuid.uuid4(), email="parent@example.com", name="보호자A", parent_id=uuid.uuid4()
+    )
+
+    for profile, secrets in ((teacher, ("teacher@", "교사A")), (parent, ("parent@", "보호자A"))):
+        assert all(secret not in repr(profile) for secret in secrets)
