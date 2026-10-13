@@ -3,19 +3,20 @@ import { queryOptions } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import type { Me, SessionCreated } from "@/types/api-draft/auth";
 
-import { type LoginInput, toMeView, toSessionBody, toSessionView } from "./auth-adapter";
+import { toMeView, toSessionBody, toSessionView } from "./auth-adapter";
+import type { LoginInput } from "./auth-view";
 
 // 화면은 서버 타입 대신 여기서 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
-export {
-  type AccountRole,
-  isTeacher,
-  type LoginInput,
-  type MeRole,
-  type MeView,
-  type ParentMeView,
-  type SessionView,
-  type TeacherMeView,
-} from "./auth-adapter";
+export { isTeacher } from "./auth-adapter";
+export type {
+  AccountRole,
+  LoginInput,
+  MeRole,
+  MeView,
+  ParentMeView,
+  SessionView,
+  TeacherMeView,
+} from "./auth-view";
 
 // 로그인·로그아웃 요청과 내 정보 query key는 이 파일에서만 만듭니다(frontend/CLAUDE.md §데이터).
 export const authKeys = {
