@@ -89,7 +89,7 @@ def test_발급하면_파일마다_issued_기록이_남는다(db: Session) -> No
     assert issued.upload is not None
     [record] = db.query(MediaUpload).all()
     assert record.state == "issued"
-    assert record.storage_key == f"media/{CLASS_ID}/{client_photo_id}"
+    assert record.storage_key.startswith(f"media/{CLASS_ID}/{client_photo_id}/")
     assert (record.declared_size_bytes, record.content_type) == (2048, "image/jpeg")
     assert record.url_expires_at.replace(tzinfo=UTC) == EXPIRES_AT
 
@@ -97,7 +97,7 @@ def test_발급하면_파일마다_issued_기록이_남는다(db: Session) -> No
 def test_같은_파일을_다시_요청하면_새_행_없이_갱신된다(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """만료·403 뒤 재시도입니다. 경로가 같아 S3에도 새 파일이 생기지 않습니다."""
+    """만료·403·불일치 뒤 재시도입니다."""
     client_photo_id = uuid.uuid4()
     _issue(db, client_photo_id)
     _stored(monkeypatch, service.StoredObject(size_bytes=1, content_type="image/jpeg"))
@@ -108,6 +108,21 @@ def test_같은_파일을_다시_요청하면_새_행_없이_갱신된다(
     [record] = db.query(MediaUpload).all()
     assert (record.state, record.declared_size_bytes) == ("issued", 4096)
     assert (record.actual_size_bytes, record.verified_at) == (None, None)
+
+
+def test_다시_발급하면_새_key로_서명한다(
+    db: Session, 고정_서명: list[tuple[str, str, int]]
+) -> None:
+    """업로드 URL은 파일이 이미 있는 key에 쓰지 못하므로, 불일치 파일이 남은 key를 그대로 쓰면
+    다시 올릴 수 없습니다. 발급할 때마다 key를 새로 만들고 기록도 새 key를 가리킵니다."""
+    client_photo_id = uuid.uuid4()
+    _issue(db, client_photo_id)
+    _issue(db, client_photo_id)
+
+    first_key, second_key = (key for key, _, _ in 고정_서명)
+    assert first_key != second_key
+    [record] = db.query(MediaUpload).all()
+    assert record.storage_key == second_key
 
 
 def test_MediaAsset까지_만든_파일은_URL_대신_media_id를_준다(
