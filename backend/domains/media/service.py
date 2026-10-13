@@ -759,9 +759,9 @@ def complete_upload(
     부르는 쪽이 하고, 중간에 예외가 나면 부르는 쪽이 롤백해 아무것도 남지 않습니다.
 
     - **사진은 귀속이 필수, 영상·음성은 귀속을 받지 않습니다.** 영상·음성은 교사 확인 전에
-      먼저 올라오므로 귀속 없이 만들고(`llm_allowed` false, `attributed_at` null), 나중에
-      `save_attributions`(`PUT child-links`)로 귀속합니다. 요청 모양 검사는 스키마가 먼저
-      하고, 여기서는 잘못 불린 경우만 막습니다.
+      먼저 올라오므로 귀속 없이 만들고(`llm_allowed` false, `attributed_at` null), 교사가
+      발화 검수를 확정할 때 서버가 발화 연결로 귀속을 계산합니다(다음 PR, #132 리뷰).
+      요청 모양 검사는 스키마가 먼저 하고, 여기서는 잘못 불린 경우만 막습니다.
     - **같은 파일을 다시 보내면** 새로 만들지 않고 기존 것을 돌려줍니다. 사진이면 보낸 귀속으로
       전체 교체합니다 — 응답이 끊겨 재전송해도 결과가 같습니다.
     - 실측이 선언과 다르면 `MediaUploadMismatch`입니다. 부르는 쪽이 롤백하면 발급 기록은
@@ -817,32 +817,3 @@ def complete_upload(
         save_attributions(db, asset.id, attribution.child_links, attribution.llm_allowed)
     db.flush()
     return CompletedUpload(asset=asset, child_links=_child_links_of(db, asset.id), created=True)
-
-
-@dataclass(frozen=True)
-class AttributedMedia:
-    """귀속 저장 결과. 응답에 저장된 최종값을 그대로 돌려주려고 미디어와 링크를 함께 둡니다."""
-
-    asset: MediaAsset
-    child_links: list[MediaChildLink]
-
-
-def attribute_media(
-    db: Session, *, media_id: UUID, center_id: UUID | None, attribution: AttributionInput
-) -> AttributedMedia:
-    """이미 확정된 미디어의 귀속과 `llm_allowed`를 저장합니다 (FR-04, FR-14, `PUT child-links`).
-
-    주로 영상·음성에 씁니다 — 교사 확인 전에 먼저 올라와 완료 통지 때 귀속이 없었기 때문입니다.
-    영상·음성은 발화에 연결한 아이들을 모두 넣습니다(docs/api/media-face.md). 규칙은
-    `save_attributions`와 같습니다(둘 다 필수, 전체 교체, `attributed_at` 채움).
-    flush만 하므로 커밋은 부르는 쪽이 합니다.
-    """
-    asset = db.get(MediaAsset, media_id)
-    if asset is None:
-        raise MediaAssetNotFound("파일을 찾을 수 없어요.")
-    ensure_class_access(db, asset.class_id, center_id)
-    ensure_children_in_class(
-        db, asset.class_id, [link.child_id for link in attribution.child_links]
-    )
-    links = save_attributions(db, media_id, attribution.child_links, attribution.llm_allowed)
-    return AttributedMedia(asset=asset, child_links=links)

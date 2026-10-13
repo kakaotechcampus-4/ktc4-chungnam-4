@@ -1,7 +1,7 @@
 """업로드 완료 통지 — MediaAsset 확정과 사진 귀속 (FR-15, FR-04, H-2).
 
 사진은 완료 통지에 귀속이 함께 오고, 영상·음성은 귀속 없이 먼저 확정한 뒤 나중에
-`save_attributions`(PUT child-links)로 귀속합니다(docs/api/media-face.md `POST /media`).
+`save_attributions`로 귀속합니다(docs/api/media-face.md `POST /media`).
 S3 서명·실측은 바꿔 끼우고, 반 접근·원아 소속은 organization 판정 함수가 실제 행으로
 판단하게 둡니다.
 """
@@ -285,25 +285,6 @@ def test_귀속_검사에_걸리면_롤백으로_MediaAsset도_남지_않는다(
     assert db.query(MediaUpload).one().media_id is None
 
 
-def test_PUT_child_links로_영상_음성을_귀속하면_최종값을_돌려준다(db: Session) -> None:
-    client_photo_id = _issue(db, "voice_memo")
-    asset = _complete(db, client_photo_id, media_type="voice_memo").asset
-
-    result = service.attribute_media(
-        db,
-        media_id=asset.id,
-        center_id=CENTER_ID,
-        attribution=service.AttributionInput(
-            llm_allowed=True,
-            child_links=[service.Attribution(child_id=DOYUN, method="manual")],
-        ),
-    )
-
-    assert result.asset.llm_allowed is True
-    assert result.asset.attributed_at is not None
-    assert [link.child_id for link in result.child_links] == [DOYUN]
-
-
 def test_귀속_원아가_없는_사진도_확정된다(db: Session) -> None:
     """원아가 찍히지 않은 사진(풍경·활동 자료)도 저장할 수 있어야 합니다. 귀속 저장 시각은 남깁니다."""
     client_photo_id = _issue(db)
@@ -327,25 +308,8 @@ def test_다른_반_원아가_섞이면_CHILD_NOT_IN_CLASS이고_아무것도_�
     assert db.query(MediaChildLink).count() == 0
 
 
-def test_PUT_child_links도_다른_반_원아는_CHILD_NOT_IN_CLASS(db: Session) -> None:
-    client_photo_id = _issue(db, "voice_memo")
-    asset = _complete(db, client_photo_id, media_type="voice_memo").asset
-
-    with pytest.raises(ChildNotInClass):
-        service.attribute_media(
-            db,
-            media_id=asset.id,
-            center_id=CENTER_ID,
-            attribution=service.AttributionInput(
-                llm_allowed=True,
-                child_links=[service.Attribution(child_id=OTHER_CLASS_CHILD, method="manual")],
-            ),
-        )
-    assert _links(db, asset.id) == set()
-
-
-def test_다른_어린이집_교사는_확정도_귀속도_못_한다(db: Session) -> None:
-    """반 id나 미디어 id만 바꿔 남의 어린이집 사진을 확정하거나 귀속을 바꾸지 못합니다 (FR-25)."""
+def test_다른_어린이집_교사는_확정하지_못한다(db: Session) -> None:
+    """반 id만 바꿔 남의 어린이집 사진을 확정하거나 귀속을 바꾸지 못합니다 (FR-25)."""
     client_photo_id = _issue(db)
     asset = _complete(db, client_photo_id, attribution=_photo_attribution(DOYUN)).asset
     other_center = uuid.uuid4()
@@ -361,12 +325,5 @@ def test_다른_어린이집_교사는_확정도_귀속도_못_한다(db: Sessio
             captured_at=CAPTURED_AT,
             model_version="mock-1",
             attribution=_photo_attribution(),
-        )
-    with pytest.raises(ClassAccessDenied):
-        service.attribute_media(
-            db,
-            media_id=asset.id,
-            center_id=other_center,
-            attribution=service.AttributionInput(llm_allowed=False, child_links=[]),
         )
     assert _links(db, asset.id) == {DOYUN}  # 귀속이 바뀌지 않음
