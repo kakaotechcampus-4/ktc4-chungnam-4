@@ -32,7 +32,7 @@ from core.exceptions import (
     UploadBatchTooLarge,
 )
 from domains.media.models import MediaAsset, MediaChildLink, MediaUpload, TranscriptSegment
-from domains.organization.service import ensure_class_access
+from domains.organization.service import ensure_children_in_class, ensure_class_access
 
 _ALLOWED_METHODS = frozenset({"face_recognition", "manual"})
 
@@ -746,6 +746,7 @@ def complete_upload(
     client_photo_id: UUID,
     class_id: UUID,
     teacher_id: UUID,
+    center_id: UUID | None,
     media_type: str,
     captured_at: datetime,
     model_version: str | None,
@@ -765,13 +766,15 @@ def complete_upload(
       전체 교체합니다 — 응답이 끊겨 재전송해도 결과가 같습니다.
     - 실측이 선언과 다르면 `MediaUploadMismatch`입니다. 부르는 쪽이 롤백하면 발급 기록은
       `issued`로 남고, 다시 올리지 않으면 만료 뒤 고아 후보(`abandoned`)가 됩니다.
+    - 반 접근은 로그인 교사의 `center_id`로, 귀속 원아는 모두 그 반 재원 원아인지
+      organization이 판정합니다(FR-25, FR-04). 귀속 원아가 없는 사진도 받습니다.
     """
     is_photo = media_type == "photo"
     if is_photo != (attribution is not None):
         raise ValueError("Photos need attribution on completion; videos and voice memos must not")
-    _ensure_class_access(db, class_id, teacher_id)
+    ensure_class_access(db, class_id, center_id)
     if attribution is not None:
-        _ensure_children_in_class(db, class_id, [link.child_id for link in attribution.child_links])
+        ensure_children_in_class(db, class_id, [link.child_id for link in attribution.child_links])
 
     record = db.scalars(
         select(MediaUpload).where(MediaUpload.client_photo_id == client_photo_id)
@@ -825,7 +828,7 @@ class AttributedMedia:
 
 
 def attribute_media(
-    db: Session, *, media_id: UUID, teacher_id: UUID, attribution: AttributionInput
+    db: Session, *, media_id: UUID, center_id: UUID | None, attribution: AttributionInput
 ) -> AttributedMedia:
     """이미 확정된 미디어의 귀속과 `llm_allowed`를 저장합니다 (FR-04, FR-14, `PUT child-links`).
 
@@ -837,8 +840,8 @@ def attribute_media(
     asset = db.get(MediaAsset, media_id)
     if asset is None:
         raise MediaAssetNotFound("파일을 찾을 수 없어요.")
-    _ensure_class_access(db, asset.class_id, teacher_id)
-    _ensure_children_in_class(
+    ensure_class_access(db, asset.class_id, center_id)
+    ensure_children_in_class(
         db, asset.class_id, [link.child_id for link in attribution.child_links]
     )
     links = save_attributions(db, media_id, attribution.child_links, attribution.llm_allowed)

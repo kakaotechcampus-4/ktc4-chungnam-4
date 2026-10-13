@@ -2,12 +2,13 @@
 
 사진은 완료 통지에 귀속이 함께 오고, 영상·음성은 귀속 없이 먼저 확정한 뒤 나중에
 `save_attributions`(PUT child-links)로 귀속합니다(docs/api/media-face.md `POST /media`).
-S3 서명·실측은 바꿔 끼웁니다.
+S3 서명·실측은 바꿔 끼우고, 반 접근·원아 소속은 organization 판정 함수가 실제 행으로
+판단하게 둡니다.
 """
 
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 from sqlalchemy import create_engine
@@ -15,6 +16,8 @@ from sqlalchemy.orm import Session
 
 from core.base import Base
 from core.exceptions import (
+    ChildNotInClass,
+    ClassAccessDenied,
     ClientPhotoIdConflict,
     DuplicateChildLink,
     MediaUploadMismatch,
@@ -22,16 +25,18 @@ from core.exceptions import (
 )
 from domains.media import service
 from domains.media.models import MediaAsset, MediaChildLink, MediaUpload
+from domains.organization.models import Center, Child, Klass
 
+CENTER_ID = uuid.uuid4()
 CLASS_ID = uuid.uuid4()
+OTHER_CLASS_ID = uuid.uuid4()  # 같은 어린이집의 다른 반
 TEACHER_ID = uuid.uuid4()
 DOYUN = uuid.uuid4()
 SEOA = uuid.uuid4()
+OTHER_CLASS_CHILD = uuid.uuid4()
 CAPTURED_AT = datetime(2026, 10, 7, 1, 10, tzinfo=UTC)
 JPEG_HEAD = b"\xff\xd8\xff\xe0" + bytes(60)
 M4A_HEAD = b"\x00\x00\x00\x18ftypM4A " + bytes(52)
-# 픽스처가 바꿔 끼우기 전의 실제 함수
-실제_원아_소속_확인 = service._ensure_children_in_class
 
 
 @pytest.fixture
@@ -39,17 +44,57 @@ def db() -> Iterator[Session]:
     engine = create_engine("sqlite://")
     Base.metadata.create_all(
         engine,
-        tables=[MediaAsset.__table__, MediaUpload.__table__, MediaChildLink.__table__],
+        tables=[
+            MediaAsset.__table__,
+            MediaUpload.__table__,
+            MediaChildLink.__table__,
+            Center.__table__,
+            Klass.__table__,
+            Child.__table__,
+        ],
     )
     with Session(engine) as session:
+        # 로그인 교사의 어린이집에 반 둘. 도윤·서아는 CLASS_ID 원아입니다.
+        _add_center(session, CENTER_ID)
+        _add_class(session, CENTER_ID, CLASS_ID)
+        _add_class(session, CENTER_ID, OTHER_CLASS_ID)
+        for child_id in (DOYUN, SEOA):
+            _add_child(session, CLASS_ID, child_id)
+        _add_child(session, OTHER_CLASS_ID, OTHER_CLASS_CHILD)
+        session.commit()
         yield session
 
 
-@pytest.fixture(autouse=True)
-def 권한_검사_통과(monkeypatch: pytest.MonkeyPatch) -> None:
-    """반 접근·원아 소속 판정은 organization 함수가 없어 바꿔 끼웁니다(실제 함수는 실패로 막혀 있음)."""
-    monkeypatch.setattr(service, "_ensure_class_access", lambda db, class_id, teacher_id: None)
-    monkeypatch.setattr(service, "_ensure_children_in_class", lambda db, class_id, child_ids: None)
+def _add_center(db: Session, center_id: uuid.UUID) -> None:
+    db.add(
+        Center(
+            id=center_id,
+            center_code=center_id.hex[:8],
+            name="햇살어린이집",
+            contract_status="trial",
+        )
+    )
+
+
+def _add_class(db: Session, center_id: uuid.UUID, class_id: uuid.UUID) -> None:
+    db.add(
+        Klass(
+            id=class_id, center_id=center_id, teacher_id=TEACHER_ID, name="반", age_group="만 4세"
+        )
+    )
+
+
+def _add_child(db: Session, class_id: uuid.UUID, child_id: uuid.UUID) -> None:
+    db.add(
+        Child(
+            id=child_id,
+            class_id=class_id,
+            name="합성원아",
+            birth_date=date(2021, 5, 1),
+            status="enrolled",
+            enrolled_at=date(2025, 3, 1),
+        )
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -109,6 +154,7 @@ def _complete(
         client_photo_id=client_photo_id,
         class_id=class_id,
         teacher_id=TEACHER_ID,
+        center_id=CENTER_ID,
         media_type=media_type,
         captured_at=CAPTURED_AT,
         model_version="mock-1" if media_type == "photo" else None,
@@ -127,7 +173,7 @@ def test_사진은_완료_통지_한_번으로_확정과_귀속이_끝난다(db:
 
     asset = result.asset
     assert result.created is True
-    assert asset.storage_url == f"media/{CLASS_ID}/{client_photo_id}"  # 서명 URL이 아니라 경로
+    assert asset.storage_url == db.query(MediaUpload).one().storage_key  # 서명 URL이 아니라 경로
     assert asset.size_bytes == 2048  # 실측값
     assert asset.llm_allowed is True
     assert asset.attributed_at is not None
@@ -183,7 +229,7 @@ def test_실측이_선언과_다르면_확정하지_않는다(
     db: Session, 가짜_S3: dict[str, service.StoredObject]
 ) -> None:
     client_photo_id = _issue(db)
-    key = f"media/{CLASS_ID}/{client_photo_id}"
+    key = db.query(MediaUpload).one().storage_key
     가짜_S3[key] = service.StoredObject(size_bytes=1, content_type="image/jpeg")
 
     with pytest.raises(MediaUploadMismatch):
@@ -202,7 +248,7 @@ def test_다른_반의_파일로는_확정하지_않는다(db: Session) -> None:
     client_photo_id = _issue(db)
 
     with pytest.raises(ClientPhotoIdConflict):
-        _complete(db, client_photo_id, attribution=_photo_attribution(DOYUN), class_id=uuid.uuid4())
+        _complete(db, client_photo_id, attribution=_photo_attribution(), class_id=OTHER_CLASS_ID)
 
 
 def test_URL을_받을_때와_종류가_다르면_확정하지_않는다(db: Session) -> None:
@@ -246,7 +292,7 @@ def test_PUT_child_links로_영상_음성을_귀속하면_최종값을_돌려준
     result = service.attribute_media(
         db,
         media_id=asset.id,
-        teacher_id=TEACHER_ID,
+        center_id=CENTER_ID,
         attribution=service.AttributionInput(
             llm_allowed=True,
             child_links=[service.Attribution(child_id=DOYUN, method="manual")],
@@ -258,33 +304,69 @@ def test_PUT_child_links로_영상_음성을_귀속하면_최종값을_돌려준
     assert [link.child_id for link in result.child_links] == [DOYUN]
 
 
-def test_반_접근_판정_함수가_없으면_발급도_확정도_귀속도_막힌다(
-    db: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """임시로 통과시키면 다른 어린이집 교사가 반 id만 바꿔 올리거나 귀속을 바꿉니다."""
+def test_귀속_원아가_없는_사진도_확정된다(db: Session) -> None:
+    """원아가 찍히지 않은 사진(풍경·활동 자료)도 저장할 수 있어야 합니다. 귀속 저장 시각은 남깁니다."""
     client_photo_id = _issue(db)
-    asset = _complete(db, client_photo_id, attribution=_photo_attribution(DOYUN)).asset
-    monkeypatch.undo()  # 권한 검사·가짜 S3를 실제 함수로 되돌립니다
 
-    with pytest.raises(NotImplementedError, match="반 접근"):
-        service.issue_upload_urls(db, class_id=CLASS_ID, teacher_id=TEACHER_ID, items=[])
-    with pytest.raises(NotImplementedError, match="반 접근"):
-        _complete(db, client_photo_id, attribution=_photo_attribution(DOYUN))
-    with pytest.raises(NotImplementedError, match="반 접근"):
+    asset = _complete(db, client_photo_id, attribution=_photo_attribution(llm_allowed=False)).asset
+
+    assert _links(db, asset.id) == set()
+    assert asset.attributed_at is not None
+
+
+def test_다른_반_원아가_섞이면_CHILD_NOT_IN_CLASS이고_아무것도_남지_않는다(db: Session) -> None:
+    """다른 반 원아를 귀속하면 그 원아의 초안·알림장에 남의 반 사진이 들어갑니다 (FR-04)."""
+    client_photo_id = _issue(db)
+    db.commit()
+
+    with pytest.raises(ChildNotInClass):
+        _complete(db, client_photo_id, attribution=_photo_attribution(DOYUN, OTHER_CLASS_CHILD))
+    db.rollback()
+
+    assert db.query(MediaAsset).count() == 0
+    assert db.query(MediaChildLink).count() == 0
+
+
+def test_PUT_child_links도_다른_반_원아는_CHILD_NOT_IN_CLASS(db: Session) -> None:
+    client_photo_id = _issue(db, "voice_memo")
+    asset = _complete(db, client_photo_id, media_type="voice_memo").asset
+
+    with pytest.raises(ChildNotInClass):
         service.attribute_media(
             db,
             media_id=asset.id,
+            center_id=CENTER_ID,
+            attribution=service.AttributionInput(
+                llm_allowed=True,
+                child_links=[service.Attribution(child_id=OTHER_CLASS_CHILD, method="manual")],
+            ),
+        )
+    assert _links(db, asset.id) == set()
+
+
+def test_다른_어린이집_교사는_확정도_귀속도_못_한다(db: Session) -> None:
+    """반 id나 미디어 id만 바꿔 남의 어린이집 사진을 확정하거나 귀속을 바꾸지 못합니다 (FR-25)."""
+    client_photo_id = _issue(db)
+    asset = _complete(db, client_photo_id, attribution=_photo_attribution(DOYUN)).asset
+    other_center = uuid.uuid4()
+
+    with pytest.raises(ClassAccessDenied):
+        service.complete_upload(
+            db,
+            client_photo_id=client_photo_id,
+            class_id=CLASS_ID,
             teacher_id=TEACHER_ID,
+            center_id=other_center,
+            media_type="photo",
+            captured_at=CAPTURED_AT,
+            model_version="mock-1",
+            attribution=_photo_attribution(),
+        )
+    with pytest.raises(ClassAccessDenied):
+        service.attribute_media(
+            db,
+            media_id=asset.id,
+            center_id=other_center,
             attribution=service.AttributionInput(llm_allowed=False, child_links=[]),
         )
-
-
-def test_원아_소속_확인_함수가_없으면_귀속이_막힌다(
-    db: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """다른 반 원아를 귀속하면 그 원아의 초안·알림장에 남의 반 사진이 들어갑니다."""
-    client_photo_id = _issue(db)
-    monkeypatch.setattr(service, "_ensure_children_in_class", 실제_원아_소속_확인)
-
-    with pytest.raises(NotImplementedError, match="원아 확인"):
-        _complete(db, client_photo_id, attribution=_photo_attribution(DOYUN))
+    assert _links(db, asset.id) == {DOYUN}  # 귀속이 바뀌지 않음
