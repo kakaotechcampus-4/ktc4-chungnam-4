@@ -39,9 +39,7 @@ const VIEW_API_IMPORT = {
   regex: "(^|/)api/[a-z-]+(?<!-view)$|^\\./[a-z-]+(?<!-view)$",
   message: "화면용 타입 파일은 다른 화면용 타입 파일(<도메인>-view)만 import합니다.",
 };
-// 화면용 타입을 <도메인>-view.ts로 옮긴 도메인입니다. 옮길 때마다 더하고, 다 옮기면 src/api/* 전체로 넓힙니다.
-const VIEW_SPLIT_DOMAINS = ["auth", "documents"];
-// 옮긴 도메인의 adapter는 변환 함수만 둡니다. 타입 선언·재내보내기는 <도메인>-view.ts에서 합니다.
+// adapter는 변환 함수만 둡니다. 타입 선언·재내보내기는 <도메인>-view.ts에서 합니다.
 const ADAPTER_TYPE_EXPORTS = [
   {
     selector:
@@ -54,7 +52,7 @@ const ADAPTER_TYPE_EXPORTS = [
       "adapter는 이름을 다시 내보내지 않습니다. 화면용 타입은 <도메인>-view.ts에서 내보냅니다.",
   },
 ];
-// 옮긴 도메인의 요청 파일(api/<도메인>.ts)은 화면용 타입을 view 파일에서만 다시 내보냅니다.
+// 요청 파일(api/<도메인>.ts)은 화면용 타입을 view 파일에서만 다시 내보냅니다.
 // adapter·서버 타입 경로에서 다시 내보내거나, import한 서버 타입을 이름만 다시 내보내는 것도 막습니다.
 const VIEW_ONLY_TYPE_EXPORT = "화면용 타입은 ./<도메인>-view에서만 내보냅니다.";
 const API_TYPE_REEXPORTS = [
@@ -122,11 +120,12 @@ export default defineConfig([
   },
   // 아래 세 블록은 src/api/** 블록 뒤에 둬야 그 규칙을 덮어씁니다.
   {
-    files: VIEW_SPLIT_DOMAINS.map((domain) => `src/api/${domain}.ts`),
+    files: ["src/api/*.ts"],
+    ignores: ["src/api/*-adapter.ts", "src/api/*-view.ts", "src/api/*.test.ts"],
     rules: { "no-restricted-syntax": ["error", MOCKS_DYNAMIC_IMPORT, ...API_TYPE_REEXPORTS] },
   },
   {
-    files: VIEW_SPLIT_DOMAINS.map((domain) => `src/api/${domain}-adapter.ts`),
+    files: ["src/api/*-adapter.ts"],
     rules: { "no-restricted-syntax": ["error", MOCKS_DYNAMIC_IMPORT, ...ADAPTER_TYPE_EXPORTS] },
   },
   {
