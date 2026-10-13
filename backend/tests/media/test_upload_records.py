@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session
 
 from core.base import Base
 from core.exceptions import (
+    ClassAccessDenied,
+    ClassNotFound,
     ClientPhotoIdConflict,
     MediaTypeNotAllowed,
     MediaUploadNotFound,
@@ -21,7 +23,9 @@ from core.exceptions import (
 )
 from domains.media import service
 from domains.media.models import MediaAsset, MediaUpload
+from domains.organization.models import Center, Klass
 
+CENTER_ID = uuid.uuid4()
 CLASS_ID = uuid.uuid4()
 OTHER_CLASS_ID = uuid.uuid4()
 TEACHER_ID = uuid.uuid4()
@@ -32,9 +36,35 @@ JPEG_HEAD = b"\xff\xd8\xff\xe0" + bytes(60)
 @pytest.fixture
 def db() -> Iterator[Session]:
     engine = create_engine("sqlite://")
-    Base.metadata.create_all(engine, tables=[MediaAsset.__table__, MediaUpload.__table__])
+    Base.metadata.create_all(
+        engine,
+        tables=[MediaAsset.__table__, MediaUpload.__table__, Center.__table__, Klass.__table__],
+    )
     with Session(engine) as session:
+        # 로그인 교사의 어린이집과 반. 반 접근은 organization 판정 함수가 이 행으로 판단합니다.
+        _add_class(session, CENTER_ID, CLASS_ID)
         yield session
+
+
+def _add_class(db: Session, center_id: uuid.UUID, class_id: uuid.UUID) -> None:
+    db.add(
+        Center(
+            id=center_id,
+            center_code=center_id.hex[:8],
+            name="햇살어린이집",
+            contract_status="trial",
+        )
+    )
+    db.add(
+        Klass(
+            id=class_id,
+            center_id=center_id,
+            teacher_id=TEACHER_ID,
+            name="해바라기반",
+            age_group="만 4세",
+        )
+    )
+    db.commit()
 
 
 @pytest.fixture(autouse=True)
@@ -51,12 +81,6 @@ def 고정_서명(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, int]]
 
     monkeypatch.setattr(service, "presign_upload", presign)
     return calls
-
-
-@pytest.fixture(autouse=True)
-def 권한_검사_통과(monkeypatch: pytest.MonkeyPatch) -> None:
-    """반 접근 판정은 organization 함수가 없어 바꿔 끼웁니다(실제 함수는 실패로 막혀 있음)."""
-    monkeypatch.setattr(service, "_ensure_class_access", lambda db, class_id, teacher_id: None)
 
 
 @pytest.fixture(autouse=True)
@@ -89,7 +113,7 @@ def test_발급하면_파일마다_issued_기록이_남는다(db: Session) -> No
     assert issued.upload is not None
     [record] = db.query(MediaUpload).all()
     assert record.state == "issued"
-    assert record.storage_key == f"media/{CLASS_ID}/{client_photo_id}"
+    assert record.storage_key.startswith(f"media/{CLASS_ID}/{client_photo_id}/")
     assert (record.declared_size_bytes, record.content_type) == (2048, "image/jpeg")
     assert record.url_expires_at.replace(tzinfo=UTC) == EXPIRES_AT
 
@@ -97,7 +121,7 @@ def test_발급하면_파일마다_issued_기록이_남는다(db: Session) -> No
 def test_같은_파일을_다시_요청하면_새_행_없이_갱신된다(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """만료·403 뒤 재시도입니다. 경로가 같아 S3에도 새 파일이 생기지 않습니다."""
+    """만료·403·불일치 뒤 재시도입니다."""
     client_photo_id = uuid.uuid4()
     _issue(db, client_photo_id)
     _stored(monkeypatch, service.StoredObject(size_bytes=1, content_type="image/jpeg"))
@@ -108,6 +132,21 @@ def test_같은_파일을_다시_요청하면_새_행_없이_갱신된다(
     [record] = db.query(MediaUpload).all()
     assert (record.state, record.declared_size_bytes) == ("issued", 4096)
     assert (record.actual_size_bytes, record.verified_at) == (None, None)
+
+
+def test_다시_발급하면_새_key로_서명한다(
+    db: Session, 고정_서명: list[tuple[str, str, int]]
+) -> None:
+    """업로드 URL은 파일이 이미 있는 key에 쓰지 못하므로, 불일치 파일이 남은 key를 그대로 쓰면
+    다시 올릴 수 없습니다. 발급할 때마다 key를 새로 만들고 기록도 새 key를 가리킵니다."""
+    client_photo_id = uuid.uuid4()
+    _issue(db, client_photo_id)
+    _issue(db, client_photo_id)
+
+    first_key, second_key = (key for key, _, _ in 고정_서명)
+    assert first_key != second_key
+    [record] = db.query(MediaUpload).all()
+    assert record.storage_key == second_key
 
 
 def test_MediaAsset까지_만든_파일은_URL_대신_media_id를_준다(
@@ -292,7 +331,9 @@ def _item(client_photo_id: uuid.UUID, **overrides: object) -> service.UploadRequ
 
 
 def _issue_many(db: Session, items: list[service.UploadRequestItem]) -> list:
-    return service.issue_upload_urls(db, class_id=CLASS_ID, teacher_id=TEACHER_ID, items=items)
+    return service.issue_upload_urls(
+        db, class_id=CLASS_ID, teacher_id=TEACHER_ID, center_id=CENTER_ID, items=items
+    )
 
 
 @pytest.mark.parametrize(
@@ -374,3 +415,39 @@ def test_같은_요청에_같은_파일이_두_번_있으면_한_번만_서명�
     assert len(results) == 2
     assert results[0] is results[1]
     assert len(고정_서명) == 1
+
+
+def test_다른_어린이집의_반에는_발급하지_않는다(
+    db: Session, 고정_서명: list[tuple[str, str, int]]
+) -> None:
+    """반 id만 바꿔 남의 어린이집 반에 올리지 못합니다 (FR-25)."""
+    other_center, other_class = uuid.uuid4(), uuid.uuid4()
+    _add_class(db, other_center, other_class)
+
+    with pytest.raises(ClassAccessDenied):
+        service.issue_upload_urls(
+            db,
+            class_id=other_class,
+            teacher_id=TEACHER_ID,
+            center_id=CENTER_ID,
+            items=[_item(uuid.uuid4())],
+        )
+    assert 고정_서명 == []
+    assert db.query(MediaUpload).count() == 0
+
+
+@pytest.mark.parametrize("center_id", [uuid.uuid4(), None], ids=["다른_어린이집", "소속_없음"])
+def test_소속이_다르거나_없는_교사는_발급받지_못한다(
+    db: Session, center_id: uuid.UUID | None
+) -> None:
+    with pytest.raises(ClassAccessDenied):
+        service.issue_upload_urls(
+            db, class_id=CLASS_ID, teacher_id=TEACHER_ID, center_id=center_id, items=[]
+        )
+
+
+def test_없는_반이면_CLASS_NOT_FOUND(db: Session) -> None:
+    with pytest.raises(ClassNotFound):
+        service.issue_upload_urls(
+            db, class_id=uuid.uuid4(), teacher_id=TEACHER_ID, center_id=CENTER_ID, items=[]
+        )

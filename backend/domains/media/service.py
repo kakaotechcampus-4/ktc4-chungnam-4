@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from functools import cache
-from uuid import UUID
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 import boto3
@@ -32,6 +32,7 @@ from core.exceptions import (
     UploadBatchTooLarge,
 )
 from domains.media.models import MediaAsset, MediaChildLink, MediaUpload, TranscriptSegment
+from domains.organization.service import ensure_class_access
 
 _ALLOWED_METHODS = frozenset({"face_recognition", "manual"})
 
@@ -168,30 +169,6 @@ def _consented_child_ids(db: Session, class_id: UUID) -> list[UUID]:
     """
     # TODO(donggeon): organization.service.get_consented_children 대기 (#105)
     raise NotImplementedError("organization 동의 판정 함수 대기 중")
-
-
-def _ensure_class_access(db: Session, class_id: UUID, teacher_id: UUID) -> None:
-    """교사가 이 반에 올리거나 이 반의 미디어를 귀속할 수 있는지 확인합니다.
-
-    같은 어린이집 소속 교사는 모든 반에 접근합니다(FR-25). 반은 organization, 교사는 auth
-    소유라 직접 조회하지 않고 담당자 함수로 교체합니다. 없는 반은 `CLASS_NOT_FOUND`,
-    다른 어린이집 반은 `CLASS_ACCESS_DENIED`입니다. face의 같은 자리와 같은 함수로 바꿉니다.
-
-    통과시키는 임시 구현을 넣지 않습니다 — 다른 어린이집 교사가 반 id만 바꿔 올리거나
-    남의 사진 귀속을 바꿀 수 있게 됩니다.
-    """
-    # TODO(donggeon): organization 반 접근 판정 함수 요청 예정 (이슈 미작성, face와 공유)
-    raise NotImplementedError("반 접근 판정 함수 대기 중")
-
-
-def _ensure_children_in_class(db: Session, class_id: UUID, child_ids: Sequence[UUID]) -> None:
-    """귀속하려는 원아가 모두 그 반 원아인지 확인합니다. 아니면 `CHILD_NOT_IN_CLASS`.
-
-    다른 반·다른 어린이집 원아를 귀속하면 그 원아의 초안과 알림장에 남의 반 사진이 들어갑니다.
-    통과시키는 임시 구현을 넣지 않습니다.
-    """
-    # TODO(donggeon): organization 반 소속 원아 확인 함수 요청 예정 (이슈 미작성)
-    raise NotImplementedError("반 소속 원아 확인 함수 대기 중")
 
 
 def _child_links_of(db: Session, media_id: UUID) -> list[MediaChildLink]:
@@ -370,9 +347,13 @@ def _clamp_expires_in(requested: int, credential_seconds_left: int | None) -> in
     return min(requested, ceiling)
 
 
-def object_key(class_id: UUID, client_photo_id: UUID) -> str:
-    """미디어 원본의 S3 key. `client_photo_id`가 UNIQUE라 key도 겹치지 않습니다."""
-    return f"{_OBJECT_KEY_PREFIX}/{class_id}/{client_photo_id}"
+def object_key(class_id: UUID, client_photo_id: UUID, attempt_id: UUID) -> str:
+    """미디어 원본의 S3 key. 서버가 id로만 만들고 클라이언트 파일명은 쓰지 않습니다.
+
+    `attempt_id`는 URL을 발급할 때마다 새로 만듭니다. 업로드 URL은 key에 파일이 이미 있으면
+    거절하므로(`presign_upload`), 같은 파일을 다시 올리려면 새 key가 필요합니다.
+    """
+    return f"{_OBJECT_KEY_PREFIX}/{class_id}/{client_photo_id}/{attempt_id}"
 
 
 def presign_upload(key: str, content_type: str, size_bytes: int) -> PresignedUpload:
@@ -381,6 +362,11 @@ def presign_upload(key: str, content_type: str, size_bytes: int) -> PresignedUpl
     `ContentLength`를 서명에 넣어 **선언한 크기와 정확히 같은 바이트만** 올라가게 합니다.
     1바이트라도 다르면 S3가 403 `SignatureDoesNotMatch`를 줍니다. `ContentType`도 같습니다.
     크기 상한 검사는 부르는 쪽이 이 함수 전에 합니다 (스파이크 §10).
+
+    **한 key에 한 번만 올라갑니다.** `If-None-Match: *`를 서명에 넣어, key에 파일이 이미
+    있으면 S3가 412 `PreconditionFailed`로 거절합니다. URL은 만료 전까지 여러 번 쓸 수 있어,
+    이 조건이 없으면 서버가 확인을 마친 뒤에도 같은 URL로 다른 파일을 덮어쓸 수 있습니다.
+    그러면 확인하지 않은 파일이 승인·LLM 경로에 들어갑니다 (H-1, H-2, #131 리뷰).
 
     **발급이 성공해도 업로드 권한이 있다는 뜻은 아닙니다.** 서명은 AWS를 부르지 않는 로컬
     계산이라, 인스턴스 롤에 S3 권한이 없어도 정상 URL이 나오고 실패는 브라우저의 PUT에서야
@@ -400,6 +386,7 @@ def presign_upload(key: str, content_type: str, size_bytes: int) -> PresignedUpl
                 "Key": key,
                 "ContentType": content_type,
                 "ContentLength": size_bytes,
+                "IfNoneMatch": "*",
             },
             ExpiresIn=expires_in,
         )
@@ -408,7 +395,7 @@ def presign_upload(key: str, content_type: str, size_bytes: int) -> PresignedUpl
     return PresignedUpload(
         url=url,
         # Content-Length는 브라우저가 Blob 크기로 직접 붙입니다(스크립트가 설정할 수 없는 헤더).
-        headers={"Content-Type": content_type},
+        headers={"Content-Type": content_type, "If-None-Match": "*"},
         expires_at=datetime.now(UTC) + timedelta(seconds=expires_in),
     )
 
@@ -559,8 +546,10 @@ def issue_upload_url(
     """파일 하나의 업로드 URL을 발급하고 발급 기록을 남깁니다 (FR-15).
 
     - 처음 보는 파일이면 `issued` 행을 만듭니다.
-    - 같은 파일을 다시 요청하면(만료·403 뒤 재시도) 새 행 없이 선언값과 만료 시각을
-      갱신하고 `issued`로 되돌립니다. 경로가 같아 S3에도 새 파일이 생기지 않습니다.
+    - 같은 파일을 다시 요청하면(만료·403·불일치 뒤 재시도) 새 행 없이 선언값과 만료 시각을
+      갱신하고 `issued`로 되돌립니다. key는 새로 만듭니다 — 이전 key에 파일이 남아 있으면
+      한 번만 쓸 수 있는 URL로는 다시 올릴 수 없기 때문입니다. 이전 key의 파일은 고아 객체가
+      되며, 정리 방식은 `mark_abandoned_uploads`의 고아 객체와 함께 정합니다(미정).
     - `MediaAsset`까지 만든 파일이면 URL 없이 `media_id`를 돌려줍니다.
     - 같은 `client_photo_id`가 다른 반에서 쓰였으면 `ClientPhotoIdConflict`입니다.
 
@@ -580,7 +569,7 @@ def issue_upload_url(
     if record is not None and record.media_id is not None:
         return IssuedUpload(client_photo_id=client_photo_id, media_id=record.media_id, upload=None)
 
-    key = object_key(class_id, client_photo_id)
+    key = object_key(class_id, client_photo_id, uuid4())
     upload = presign_upload(key, content_type, size_bytes)
     if record is None:
         record = MediaUpload(client_photo_id=client_photo_id, class_id=class_id)
@@ -627,6 +616,7 @@ def issue_upload_urls(
     *,
     class_id: UUID,
     teacher_id: UUID,
+    center_id: UUID | None,
     items: Sequence[UploadRequestItem],
 ) -> list[UploadUrlResult]:
     """여러 파일의 업로드 URL을 한 요청으로 발급합니다 (FR-15, `POST /media/upload-urls`).
@@ -638,8 +628,12 @@ def issue_upload_urls(
     파일 수가 상한(`UPLOAD_MAX_FILES_PER_REQUEST`)을 넘으면 하나도 발급하지 않고
     `UploadBatchTooLarge`를 올립니다. 같은 요청에 같은 `client_photo_id`가 두 번 있으면
     두 번째를 첫 번째 결과로 대신합니다(같은 파일의 URL을 두 번 서명하지 않음).
+
+    먼저 반 접근을 확인합니다 — 다른 어린이집 교사가 반 id만 바꿔 올리지 못하게 합니다
+    (FR-25). `center_id`는 로그인 교사의 어린이집이고, 소속이 정해지기 전(None)이면 어느
+    반에도 올리지 못합니다. `teacher_id`는 발급 기록에 남길 올린 사람입니다.
     """
-    _ensure_class_access(db, class_id, teacher_id)
+    ensure_class_access(db, class_id, center_id)
     if len(items) > get_settings().upload_max_files_per_request:
         raise UploadBatchTooLarge("한 번에 올릴 수 있는 파일 수를 넘었어요.")
 
@@ -686,6 +680,7 @@ def verify_upload(db: Session, client_photo_id: UUID) -> MediaUpload:
     if record is None:
         raise MediaUploadNotFound("업로드를 시작하지 않은 파일이에요. 다시 올려 주세요.")
     if record.state == UPLOAD_CONFIRMED:
+        # 확인한 파일은 바뀌지 않습니다 — 업로드 URL이 key에 한 번만 쓰게 합니다(presign_upload).
         return record
 
     stored = head_uploaded_object(record.storage_key)

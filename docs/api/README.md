@@ -36,7 +36,7 @@
 
 | 파일 | 내용 |
 |---|---|
-| [auth.md](auth.md) | 로그인·로그아웃·내 계정, 인증 방식별 차이 |
+| [auth.md](auth.md) | 로그인·로그아웃·내 계정, 로그인 쿠키 |
 | [organization.md](organization.md) | 교사의 반, 반 원아 명단, 학부모의 자녀 |
 | [media-face.md](media-face.md) | 업로드 URL·완료 통지·귀속 저장, 재생 URL, 발화 구간, 얼굴 임베딩 캐시·등록·삭제 |
 | [agents.md](agents.md) | 초안 생성 작업(Job) 시작과 진행 조회 |
@@ -71,7 +71,7 @@
 - **원아 이름**: 교사 화면의 원아 이름은 organization 명단(`GET /api/v1/classes/{class_id}/children`)에서만 받습니다. agents·documents 응답은 `child_id`만 줍니다.
 - **재생 URL**: 모든 도메인에서 `{media_id, type, url, url_expires_at}` 한 가지 모양입니다.
 - **ID 예외**: 초안 안에서만 유일한 `evidence_id`는 UUID가 아니라 불투명 문자열입니다.
-- **인증**: 세션 쿠키와 JWT 중 아직 정하지 않았습니다. 어느 쪽이든 경로·요청 본문·`/me` 응답은 같습니다. 차이는 [auth.md](auth.md)에 있습니다.
+- **인증**: JWT를 HttpOnly 쿠키로 주고받습니다(이슈 #118). 형식 규칙(인증·CSRF·캐시)은 테크스펙 §공통 API 규약에, 쿠키 속성과 로그인·로그아웃은 [auth.md](auth.md) §이 도메인의 규칙의 '인증'에 있습니다.
 - **용어**: 루트 `CLAUDE.md` §도메인 용어를 따릅니다. 알림장은 `parent_note`(letter가 아님), 승인은 `approve`(confirm이 아님)이고, `publish`는 "학부모에게 노출"의 뜻으로만 씁니다.
 
 ## 하루 흐름과 API

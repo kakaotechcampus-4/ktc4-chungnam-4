@@ -24,6 +24,7 @@ import {
 } from "@/api/organization";
 import { kstToday, shiftDate } from "@/lib/datetime";
 import type { ChildLink } from "@/types/api-draft/media";
+import { FACE_DESCRIPTOR_LENGTH } from "@/workers/face/types";
 
 import { updateDb } from "./db";
 import { fixtureId } from "./fixtures/ids";
@@ -444,7 +445,7 @@ describe("목의 판정 규칙", () => {
     const embeddings = await queryClient().fetchQuery(faceEmbeddingsQueryOptions(CLASS_ID));
     expect(embeddings.map((item) => item.child_id)).not.toContain(YERIN);
     expect(embeddings).toHaveLength(4);
-    expect(embeddings[0]?.embedding).toHaveLength(512);
+    expect(embeddings[0]?.embedding).toHaveLength(FACE_DESCRIPTOR_LENGTH);
   });
 
   it("생성이 실패하면 그 원아와 작업이 failed로 끝난다", async () => {

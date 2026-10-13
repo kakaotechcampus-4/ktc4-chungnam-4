@@ -65,8 +65,20 @@ def test_크기와_형식을_서명에_못_박는다() -> None:
 
     signed = _query(upload.url)["X-Amz-SignedHeaders"].split(";")
     assert {"content-length", "content-type", "host"} <= set(signed)
-    # 브라우저는 Content-Length를 스스로 붙이므로 돌려주는 헤더에는 형식만 있습니다.
-    assert upload.headers == {"Content-Type": "image/jpeg"}
+    # 브라우저는 Content-Length를 스스로 붙이므로 돌려주는 헤더에는 Content-Length가 없습니다.
+    assert upload.headers["Content-Type"] == "image/jpeg"
+
+
+def test_파일이_이미_있는_key에는_다시_올리지_못하게_서명한다() -> None:
+    """확인을 마친 뒤 같은 URL로 다른 파일을 덮어쓰지 못하게 합니다 (#131 리뷰, H-1·H-2).
+
+    `If-None-Match: *`가 서명 대상이라 브라우저가 이 헤더를 빼면 서명이 맞지 않고,
+    붙이면 key에 파일이 있을 때 S3가 412로 거절합니다.
+    """
+    upload = service.presign_upload(KEY, "image/jpeg", 2048)
+
+    assert "if-none-match" in _query(upload.url)["X-Amz-SignedHeaders"].split(";")
+    assert upload.headers == {"Content-Type": "image/jpeg", "If-None-Match": "*"}
 
 
 def test_기본_유효기간은_1시간이다() -> None:
@@ -143,9 +155,12 @@ def test_자격증명이_없으면_발급하지_않는다(monkeypatch: pytest.Mo
 
 
 def test_객체_key는_서버가_id로만_만든다() -> None:
-    class_id, client_photo_id = uuid.uuid4(), uuid.uuid4()
+    class_id, client_photo_id, attempt_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 
-    assert service.object_key(class_id, client_photo_id) == f"media/{class_id}/{client_photo_id}"
+    assert (
+        service.object_key(class_id, client_photo_id, attempt_id)
+        == f"media/{class_id}/{client_photo_id}/{attempt_id}"
+    )
 
 
 def _stub_head() -> Stubber:
