@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 
 from tools.contracts import AssignmentStatus, EvidenceItem, SourceType
-from tools.generation.pseudonymize import pseudonymize_evidence
+from tools.generation.pseudonymize import pseudonymize_evidence, restore_names
 
 RECORD_DATE = date(2026, 9, 8)
 # 실제 원아가 아닌 합성 이름이다 (루트 CLAUDE.md §Git: 실제 원아 정보 금지).
@@ -67,3 +67,37 @@ def test_같은_입력이면_토큰이_항상_같다():
     second = pseudonymize_evidence(evidence, target_child_id="child-1", names_by_child_id=NAMES)
 
     assert first == second
+
+
+def test_근거에_귀속되지_않은_같은_반_원아_이름도_토큰으로_바꾼다():
+    # child-2는 근거의 child_ids에 없지만 발화에서 불린다 (#137 리뷰).
+    evidence = {"ev-1": _speech("ev-1", "마바야 나다랑 같이 탑 쌓자", ["child-1"])}
+
+    result = pseudonymize_evidence(evidence, target_child_id="child-1", names_by_child_id=NAMES)
+
+    assert result.llm_items[0].text == "CHILD_B야 CHILD_A랑 같이 탑 쌓자"
+    assert result.child_id_by_token == {"CHILD_A": "child-1", "CHILD_B": "child-2"}
+
+
+def test_반_원아가_26명을_넘어도_토큰이_겹치지_않는다():
+    names = {f"child-{index:02d}": [f"이름{index:02d}"] for index in range(30)}
+    evidence = {"ev-1": _speech("ev-1", "같이 놀았어요", ["child-00"])}
+
+    result = pseudonymize_evidence(evidence, target_child_id="child-00", names_by_child_id=names)
+
+    assert len(set(result.child_id_by_token)) == 30
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("CHILD_A는 CHILD_B랑 놀았어요", "민준은 서아랑 놀았어요"),
+        ("CHILD_A가 웃었어요.", "민준이 웃었어요."),
+        ("CHILD_B가 CHILD_A를 도왔어요", "서아가 민준을 도왔어요"),
+        ("CHILD_A와 CHILD_B", "민준과 서아"),
+        ("CHILD_A이에요", "민준이에요"),
+        ("CHILD_Z는 지어낸 토큰", "CHILD_Z는 지어낸 토큰"),
+    ],
+)
+def test_토큰을_호칭으로_되돌리며_조사를_받침에_맞춘다(text, expected):
+    assert restore_names(text, {"CHILD_A": "민준", "CHILD_B": "서아"}) == expected
