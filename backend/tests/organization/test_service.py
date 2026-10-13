@@ -6,9 +6,21 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from core.base import Base
-from core.exceptions import ClassAccessDenied, ClassNotFound
+from core.exceptions import (
+    ChildAccessDenied,
+    ChildNotFound,
+    ChildNotInClass,
+    ClassAccessDenied,
+    ClassNotFound,
+)
 from domains.organization.models import Center, Child, ConsentRecord, Klass
-from domains.organization.service import ensure_class_access, get_consented_children
+from domains.organization.service import (
+    ensure_child_access,
+    ensure_children_in_class,
+    ensure_class_access,
+    get_consented_children,
+    has_consent,
+)
 
 FACE = "face_feature"
 NOW = datetime(2026, 10, 11, 9, 0, tzinfo=UTC)
@@ -172,3 +184,102 @@ def test_다른_어린이집의_반은_CLASS_ACCESS_DENIED():
 
     with pytest.raises(ClassAccessDenied):
         ensure_class_access(db, class_id, _center(db))
+
+
+def test_같은_어린이집_원아에_접근한다():
+    db = _session()
+    center_id = _center(db)
+    child_id = _child(db, _class(db, center_id))
+
+    ensure_child_access(db, child_id, center_id)
+
+
+def test_졸업한_원아도_같은_어린이집이면_접근한다():
+    db = _session()
+    center_id = _center(db)
+    child_id = _child(db, _class(db, center_id), status="graduated")
+
+    ensure_child_access(db, child_id, center_id)
+
+
+def test_없는_원아는_CHILD_NOT_FOUND():
+    db = _session()
+
+    with pytest.raises(ChildNotFound):
+        ensure_child_access(db, uuid4(), _center(db))
+
+
+def test_다른_어린이집의_원아는_CHILD_ACCESS_DENIED():
+    db = _session()
+    child_id = _child(db, _class(db))
+
+    with pytest.raises(ChildAccessDenied):
+        ensure_child_access(db, child_id, _center(db))
+
+
+def test_모두_그_반_원아면_통과한다():
+    db = _session()
+    class_id = _class(db)
+    first, second = _child(db, class_id), _child(db, class_id)
+
+    ensure_children_in_class(db, class_id, [first, second, first])
+
+
+def test_빈_목록은_통과한다():
+    db = _session()
+
+    ensure_children_in_class(db, _class(db), [])
+
+
+def test_다른_반_원아가_섞이면_CHILD_NOT_IN_CLASS():
+    db = _session()
+    class_id = _class(db)
+    mine = _child(db, class_id)
+    other = _child(db, _class(db))
+
+    with pytest.raises(ChildNotInClass):
+        ensure_children_in_class(db, class_id, [mine, other])
+
+
+def test_없는_원아가_섞이면_CHILD_NOT_IN_CLASS():
+    db = _session()
+    class_id = _class(db)
+
+    with pytest.raises(ChildNotInClass):
+        ensure_children_in_class(db, class_id, [_child(db, class_id), uuid4()])
+
+
+def test_졸업한_원아는_반에_연결하지_않는다():
+    db = _session()
+    class_id = _class(db)
+
+    with pytest.raises(ChildNotInClass):
+        ensure_children_in_class(db, class_id, [_child(db, class_id, status="graduated")])
+
+
+def test_원아_한_명의_동의가_유효하면_True():
+    db = _session()
+    child_id = _child(db, _class(db))
+    _consent(db, child_id)
+
+    assert has_consent(db, child_id, FACE) is True
+
+
+def test_원아_한_명이_철회했거나_동의가_없으면_False():
+    db = _session()
+    class_id = _class(db)
+    revoked = _child(db, class_id)
+    _consent(db, revoked, revoked=True)
+    _consent(db, revoked, consent_type="personal_info")
+
+    assert has_consent(db, revoked, FACE) is False
+    assert has_consent(db, _child(db, class_id), FACE) is False
+
+
+def test_원아_한_명이_철회_후_다시_동의하면_True():
+    db = _session()
+    child_id = _child(db, _class(db))
+    _consent(db, child_id, revoked=True)
+    _consent(db, child_id)
+
+    assert has_consent(db, child_id, FACE) is True
