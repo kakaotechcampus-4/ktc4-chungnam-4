@@ -3,7 +3,9 @@ import type {
   DraftDetail,
   DraftStatus,
   DraftSummary,
+  Evidence,
   PublicationResult,
+  Sentence,
 } from "@/types/api-draft/documents";
 import type { MediaUrl } from "@/types/api-draft/media";
 
@@ -11,12 +13,9 @@ import {
   canApprove,
   canReopen,
   didSendPhotos,
-  type DraftSummaryView,
-  type DraftView,
   isNotReady,
   isPublishTarget,
   needsReview,
-  type RosterState,
   isPublished,
   selectedPhotos,
   sentPhotos,
@@ -25,6 +24,7 @@ import {
   toDraftView,
   toPublicationResultView,
 } from "./documents-adapter";
+import type { DraftSummaryView, DraftView, RosterState } from "./documents-view";
 
 const PHOTO: MediaUrl = {
   media_id: fixtureId("media", 41),
@@ -155,6 +155,51 @@ describe("사진", () => {
     expect(selectedPhotos(view)).toEqual([]);
     // 근거 패널이 쓰므로 미디어 자체는 버리지 않습니다.
     expect(view.media).toEqual([PHOTO, voice]);
+  });
+});
+
+describe("문장과 근거", () => {
+  // 서버 객체를 그대로 넘기지 않고 필드를 하나씩 옮깁니다(#124 멘토 리뷰). 서버 응답에 필드가
+  // 늘어도 화면용 타입에는 문서에 있는 필드만 들어가야 서버 변경이 화면까지 새지 않습니다.
+  it("서버가 필드를 더해도 문서에 있는 필드만 옮긴다", () => {
+    const evidence = {
+      evidence_id: "ev-0",
+      source_type: "video_speech",
+      text: "블록 탑을 높이 쌓았어요.",
+      media_id: fixtureId("media", 42),
+      start_ms: 1200,
+      end_ms: 3400,
+      captured_at: "2026-10-06T01:10:00Z",
+      score: 0.92,
+    } as Evidence;
+    const sentence = {
+      sentence_index: 0,
+      text: "블록을 쌓았어요.",
+      evidences: [evidence],
+      model: "gpt",
+    } as Sentence;
+    const media = { ...PHOTO, thumbnail_url: "https://example.com/t.jpg" } as MediaUrl;
+
+    const view = toDraftView(detail({ sentences: [sentence], media: [media] }));
+
+    expect(view.sentences).toEqual([
+      {
+        sentence_index: 0,
+        text: "블록을 쌓았어요.",
+        evidences: [
+          {
+            evidence_id: "ev-0",
+            source_type: "video_speech",
+            text: "블록 탑을 높이 쌓았어요.",
+            media_id: fixtureId("media", 42),
+            start_ms: 1200,
+            end_ms: 3400,
+            captured_at: "2026-10-06T01:10:00Z",
+          },
+        ],
+      },
+    ]);
+    expect(view.media).toEqual([PHOTO]);
   });
 });
 

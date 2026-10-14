@@ -4,124 +4,31 @@ import type {
   DraftDetail,
   DraftStatus,
   DraftSummary,
-  DocType,
   Evidence,
-  EvidenceSourceType,
   PublicationResult,
   Sentence,
 } from "@/types/api-draft/documents";
 import type { MediaUrl } from "@/types/api-draft/media";
 
+import type {
+  ChildDraftView,
+  ClassDraftView,
+  DraftMediaView,
+  DraftState,
+  DraftSummaryView,
+  DraftView,
+  EvidenceView,
+  PublicationResultView,
+  PublicationState,
+  RosterState,
+  SentenceView,
+} from "./documents-view";
+
 // 서버 응답을 화면이 쓰는 모양으로 바꾸는 곳입니다(frontend/CLAUDE.md §데이터, #92 멘토 리뷰).
-// 서버 필드 이름이나 상태값이 API 문서와 다르게 오면 이 파일만 고칩니다. 화면은 서버 타입을 쓰지 않습니다.
+// 서버 필드 이름이나 상태값이 API 문서와 다르게 오면 이 파일만 고칩니다. 화면용 타입은 documents-view.ts에 있습니다.
 
-/**
- * 화면이 초안을 두고 판단하는 것은 **"교사가 지금 승인해도 되는가"** 하나이고,
- * 승인할 수 없는 경우는 교사가 할 일이 달라서 나눕니다(`docs/api/documents.md` §레일·목록 표기).
- *
- * - `review` — 교사가 보고 승인할 수 있습니다
- * - `approved` — 교사가 승인했습니다
- * - `generating` — 아직 만드는 중입니다. 기다리면 됩니다
- * - `unclassified` — 재시도 상한을 넘겨 미분류로 끝났습니다. 교사가 확인해야 합니다
- * - `unknown` — 서버가 보낸 값을 화면이 모릅니다
- *
- * 뒤 셋은 모두 잠급니다. 모르는 값을 `review`로 두면 승인 버튼이 열려 미완성 글이
- * 그대로 나갑니다. 애매하면 잠그는 쪽이 맞습니다(H-1, #96 규칙과 같은 방향) —
- * 이슈 #106 정은 님 지적.
- *
- * `unknown`을 `generating`에 섞지 않는 것은 `frontend/CLAUDE.md` §데이터 규칙입니다.
- * 섞으면 서버가 이상한 값을 보내도 "만드는 중"으로 보여 아무도 알아채지 못합니다.
- */
-export type DraftState = "approved" | "review" | "generating" | "unclassified" | "unknown";
-
-/**
- * 레일 한 줄이 보여 줄 상태. 초안이 아예 없는 원아는 `none`입니다.
- *
- * `published`는 서버 `status`에 없는 값입니다 — `approved`인데 `published_at`이 있는 경우를
- * 레일에서만 따로 부릅니다. 건별 실패와 게시 제외가 생기면서 한 날짜에 나간 아이와 안 나간
- * 아이가 섞이게 돼, 둘을 "검토 완료"로 함께 보여 주면 교사가 누가 나갔는지 알 수 없습니다
- * (#88 전제가 바뀜, `docs/api/documents.md` §레일·목록 표기).
- */
-export type RosterState = DraftState | "none" | "published";
-
-// 필드 이름은 docs/api/를 그대로 씁니다 — 값만 화면용으로 바꿉니다(auth의 `account_type`과
-// 같은 방식, #107 리뷰 송유진 님). 이름까지 바꾸면 문서를 보고 코드를 찾을 수 없습니다.
-
-export interface DraftSummaryView {
-  draft_id: string;
-  status: DraftState;
-  version: number;
-  published_at: string | null;
-  preview: string;
-}
-
-/** GET /classes/{class_id}/drafts 한 줄 */
-export interface ClassDraftView {
-  child_id: string;
-  parent_note: DraftSummaryView | null;
-  /**
-   * 그날의 관찰일지 초안. 이 화면은 알림장만 다루지만 문서에 있는 응답 필드라 버리지 않습니다
-   * (#107 리뷰 송유진 님). 쓰는 화면이 생기면 그때 adapter를 고치지 않아도 됩니다.
-   */
-  observation_log: DraftSummaryView | null;
-  /**
-   * 초안 없이 미분류로 끝난 사유. 아니면 `null`입니다.
-   * 서버는 `{ reason }` 객체로 주는데 화면이 쓸 것이 사유뿐이라 문자열로 폅니다.
-   * 지금 화면은 "초안 없음"으로만 다루지만, 사유를 보여 줄 수도 있어 값을 버리지 않습니다.
-   */
-  unclassified: string | null;
-}
-
-/** GET /children/{child_id}/drafts 한 줄(알림장 목록·상세의 날짜 이동) */
-export interface ChildDraftView extends DraftSummaryView {
-  record_date: string;
-}
-
-/** GET /drafts/{draft_id} — 초안 본문과 근거 */
-export interface DraftView {
-  draft_id: string;
-  child_id: string;
-  /** 알림장인지 관찰일지인지. 이 화면은 안 쓰지만 문서에 있는 응답 필드라 버리지 않습니다. */
-  doc_type: DocType;
-  record_date: string;
-  status: DraftState;
-  version: number;
-  title: string | null;
-  sentences: Sentence[];
-  /** 교사가 고른 미디어의 id. 어느 것이 사진인지는 `selectedPhotos`가 가립니다. */
-  selected_media_ids: string[];
-  /** 선택 미디어와 근거 미디어 전부. 근거 패널이 씁니다. */
-  media: MediaUrl[];
-  published_at: string | null;
-  /** 게시할 때 사진을 함께 보냈는지. 게시 전에는 `null`입니다. */
-  include_photos: boolean | null;
-}
-
-/**
- * 게시 한 건의 결과. **서버 타입을 참조하지 않고 따로 선언합니다** — `PublicationResult`를
- * 참조해 두면 서버 인터페이스가 바뀔 때 화면 코드까지 그대로 끌려갑니다(#124 멘토 리뷰).
- * adapter는 그 연결을 끊는 자리입니다.
- *
- * `unknown`은 서버 값에 없습니다. 모르는 값을 성공·실패 어느 쪽으로도 읽지 않으려고
- * 둡니다 — 지금 화면은 `isPublished`가 false인 것을 모두 실패로 묶지만, 나중에 실패 건에
- * "다시 게시"를 붙이면 모르는 결과까지 다시 보내게 됩니다(#125 리뷰 송유진 님).
- */
-export type PublicationState = "published" | "failed" | "unknown";
-
-/** POST /publications 한 건의 결과 */
-export interface PublicationResultView {
-  draft_id: string;
-  child_id: string | null;
-  /** 건별 결과. 화면은 `isPublished`로 봅니다. */
-  status: PublicationState;
-  /** 게시된 알림장의 id. 실패했으면 `null`입니다. 학부모 화면이 이 id로 본문을 엽니다. */
-  parent_note_id: string | null;
-  /** 실패했을 때 서버가 준 사유 코드 */
-  error_code: string | null;
-}
-
-// 서버가 모르는 상태를 보내면 값만 남깁니다(H-4: 이름·연락처는 찍지 않음). 긴 문자열은 앞 32자만.
-// 모르면 잠급니다 — 열어 두면 교사가 승인해 미완성 글이 나갈 수 있습니다(H-1).
+// 서버가 모르는 상태값을 보내면 값만 남기고 "unknown"으로 둡니다(H-4: 이름·연락처는 찍지 않음).
+// 긴 문자열은 앞 32자만 찍습니다. 초안 상태와 게시 결과가 함께 씁니다.
 function warnUnknownStatus(label: string, value: unknown): "unknown" {
   console.warn(label, typeof value === "string" ? value.slice(0, 32) : typeof value);
   return "unknown";
@@ -176,6 +83,37 @@ export function toChildDraftView(raw: ChildDraftItem): ChildDraftView {
   return { ...toDraftSummaryView(raw), record_date: raw.record_date };
 }
 
+// 문장·근거·미디어도 필드를 하나씩 옮깁니다(#124 멘토 리뷰). 지금은 값이 서버와 같지만,
+// 서버 객체를 그대로 넘기면 서버가 필드를 바꿀 때 근거 패널까지 함께 바뀝니다.
+function toEvidenceView(raw: Evidence): EvidenceView {
+  return {
+    evidence_id: raw.evidence_id,
+    source_type: raw.source_type,
+    text: raw.text,
+    media_id: raw.media_id,
+    start_ms: raw.start_ms,
+    end_ms: raw.end_ms,
+    captured_at: raw.captured_at,
+  };
+}
+
+function toSentenceView(raw: Sentence): SentenceView {
+  return {
+    sentence_index: raw.sentence_index,
+    text: raw.text,
+    evidences: raw.evidences.map(toEvidenceView),
+  };
+}
+
+function toDraftMediaView(raw: MediaUrl): DraftMediaView {
+  return {
+    media_id: raw.media_id,
+    type: raw.type,
+    url: raw.url,
+    url_expires_at: raw.url_expires_at,
+  };
+}
+
 export function toDraftView(raw: DraftDetail): DraftView {
   return {
     draft_id: raw.draft_id,
@@ -185,9 +123,9 @@ export function toDraftView(raw: DraftDetail): DraftView {
     status: toDraftState(raw.status),
     version: raw.version,
     title: raw.title,
-    sentences: raw.sentences,
+    sentences: raw.sentences.map(toSentenceView),
     selected_media_ids: raw.selected_media_ids,
-    media: raw.media,
+    media: raw.media.map(toDraftMediaView),
     published_at: raw.published_at,
     include_photos: raw.include_photos,
   };
@@ -230,11 +168,11 @@ export function toPublicationResultView(raw: PublicationResult): PublicationResu
  * 필드가 아니라 함수로 두는 것은 `media`와 `selected_media_ids`에서 계산되는 값이라
  * 서버 응답에 없는 필드를 adapter가 만들어 내지 않게 하려는 것입니다(#107 리뷰 송유진 님).
  */
-export function selectedPhotos(draft: DraftView | undefined): MediaUrl[] {
+export function selectedPhotos(draft: DraftView | undefined): DraftMediaView[] {
   if (draft === undefined) return [];
   return draft.selected_media_ids
     .map((id) => draft.media.find((media) => media.media_id === id))
-    .filter((media): media is MediaUrl => media !== undefined && media.type === "photo");
+    .filter((media): media is DraftMediaView => media !== undefined && media.type === "photo");
 }
 
 /**
@@ -242,7 +180,7 @@ export function selectedPhotos(draft: DraftView | undefined): MediaUrl[] {
  * `true`일 때만 돌려줍니다 — `null`(게시 전 캐시가 남은 경우)에 보여 주면 사진을 빼고
  * 게시했는데도 교사에게는 사진이 보입니다(#89 리뷰).
  */
-export function sentPhotos(draft: DraftView | undefined): MediaUrl[] {
+export function sentPhotos(draft: DraftView | undefined): DraftMediaView[] {
   return draft?.include_photos === true ? selectedPhotos(draft) : [];
 }
 
@@ -324,7 +262,3 @@ export function isNotReady(row: PublishRow): boolean {
 export function isUnpublishedDraft(row: PublishRow): boolean {
   return row.note !== null && row.note.published_at === null;
 }
-
-// 문장과 근거는 서버 모양을 그대로 씁니다. 화면이 보여 줄 값과 같고, 바꾸면 근거 id 연결이
-// 끊어질 뿐입니다. 화면이 서버 타입 파일을 직접 import하지 않도록 여기서 다시 내보냅니다.
-export type { DocType, Evidence, EvidenceSourceType, Sentence };
