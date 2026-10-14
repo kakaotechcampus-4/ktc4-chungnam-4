@@ -124,7 +124,6 @@ def decrypt_embedding(embedding_enc: bytes, key_ref: str) -> list[float]:
 #
 # 반·원아 접근과 동의는 organization이 판정합니다 (#105). face는 그 테이블을 직접 조회하지
 # 않고 organization 함수를 부릅니다 — 동의 규칙이 바뀌어도 한 곳만 고치면 됩니다 (H-2, H-3).
-
 #
 # `center_id`는 로그인 교사의 어린이집입니다. 가입 코드로 소속을 확정하기 전에는 None이고,
 # 그대로 넘기면 반·원아의 center_id와 같을 수 없어 organization 판정이 403으로 막습니다.
