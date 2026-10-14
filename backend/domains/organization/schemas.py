@@ -1,7 +1,7 @@
 """organization 요청·응답 스키마 (docs/api/organization.md §상세 작성 엔드포인트).
 
-ORM 모델을 그대로 응답하지 않고 필요한 필드만 옮깁니다 — 원아 생년월일·학부모 정보가
-교사 화면 응답에 섞이지 않게 합니다 (backend/CLAUDE.md §스키마와 예외, H-2).
+ORM 모델을 그대로 응답하지 않고 화면에 필요한 필드만 옮깁니다 — 명단에 원아 생년월일·
+학부모 정보가 섞이지 않게 합니다 (backend/CLAUDE.md §스키마와 예외).
 """
 
 from __future__ import annotations

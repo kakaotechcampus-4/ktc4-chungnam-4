@@ -175,20 +175,26 @@ def test_소속이_없는_교사의_명단_요청은_403(client: TestClient, db:
     assert response.json()["error"]["code"] == "CLASS_ACCESS_DENIED"
 
 
-def test_학부모는_반_목록을_볼_수_없다(client: TestClient):
+# 두 경로 모두 CurrentTeacher 의존성이 빠지면 바로 드러나도록 같이 확인합니다.
+_TEACHER_ROUTES = ["/api/v1/classes", f"/api/v1/classes/{uuid.uuid4()}/children"]
+
+
+@pytest.mark.parametrize("path", _TEACHER_ROUTES)
+def test_학부모는_교사용_반_API를_쓸_수_없다(client: TestClient, path: str):
     parent = ParentProfile(
         account_id=uuid.uuid4(), email="parent@example.com", name="학부모A", parent_id=uuid.uuid4()
     )
     app.dependency_overrides[get_current_user] = lambda: parent
 
-    response = client.get("/api/v1/classes")
+    response = client.get(path)
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "ROLE_NOT_ALLOWED"
 
 
-def test_로그인하지_않으면_401(client: TestClient):
-    response = client.get("/api/v1/classes")
+@pytest.mark.parametrize("path", _TEACHER_ROUTES)
+def test_로그인하지_않으면_401(client: TestClient, path: str):
+    response = client.get(path)
 
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "UNAUTHENTICATED"
