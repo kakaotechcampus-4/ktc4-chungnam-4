@@ -7,7 +7,7 @@
 """
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import TypedDict
 
@@ -138,8 +138,9 @@ class TeacherProfile:
     """로그인한 교사. 다른 도메인은 권한 판단에 이 값만 씁니다 (domains/auth/CLAUDE.md)."""
 
     account_id: uuid.UUID
-    email: str
-    name: str
+    # 프로필을 통째로 로그에 남겨도 실명·이메일이 찍히지 않게 repr에서 뺍니다 (H-4).
+    email: str = field(repr=False)
+    name: str = field(repr=False)
     teacher_id: uuid.UUID
     # 가입 코드로 소속을 확정하기 전에는 비어 있습니다 (FR-23, FR-24).
     center_id: uuid.UUID | None
@@ -150,8 +151,8 @@ class ParentProfile:
     """로그인한 학부모."""
 
     account_id: uuid.UUID
-    email: str
-    name: str
+    email: str = field(repr=False)
+    name: str = field(repr=False)
     parent_id: uuid.UUID
 
 

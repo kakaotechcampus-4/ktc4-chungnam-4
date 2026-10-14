@@ -33,7 +33,8 @@ app = FastAPI(
     redoc_url="/redoc" if _docs_public else None,
     openapi_url="/openapi.json" if _docs_public else None,
 )
-app.include_router(auth_router)
+# 베이스 경로(테크스펙 §공통 API 규약)는 여기서 한 번에 붙입니다.
+app.include_router(auth_router, prefix="/api/v1")
 app.include_router(documents_router)
 app.include_router(face_router)
 
