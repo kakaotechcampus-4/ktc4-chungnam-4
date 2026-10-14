@@ -19,7 +19,7 @@ from pathlib import Path
 from tools.contracts import DocType
 from tools.generation.pseudonymize import LlmEvidence
 
-PROMPT_VERSION = "parent_note.v1"
+PROMPT_VERSION = "parent_note.v2"
 
 _EVIDENCE_SLOT = "{{EVIDENCE_LIST}}"
 _FEEDBACK_SLOT = "{{FEEDBACK}}"

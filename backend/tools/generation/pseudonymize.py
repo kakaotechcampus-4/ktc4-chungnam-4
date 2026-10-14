@@ -31,6 +31,9 @@ _PARTICLES = (
     ("과", "와"),
     ("아", "야"),
 )
+_COPULA_POLITE = "이에요"
+# 한글 음절의 종성 번호에서 ㄹ은 8번이다.
+_RIEUL_FINAL_INDEX = 8
 _PARTICLE_PATTERN = re.compile(
     "|".join(sorted({p for pair in _PARTICLES for p in pair}, key=len, reverse=True))
 )
@@ -74,7 +77,8 @@ def pseudonymize_evidence(
     """
     involved = {child_id for item in evidence_by_id.values() for child_id in item.child_ids}
     involved.add(target_child_id)
-    if involved - names_by_child_id.keys():
+    if any(not _has_name(names_by_child_id.get(child_id, ())) for child_id in involved):
+        # 키만 있고 이름이 비어 있어도 호명이 그대로 남으므로 같게 거부한다 (#137 리뷰).
         raise ValueError("근거에 등장한 원아의 이름 목록이 없습니다.")
 
     token_by_child_id = _child_tokens(target_child_id, names_by_child_id.keys())
@@ -132,6 +136,11 @@ def restore_names(text: str, name_by_token: Mapping[str, str]) -> str:
             restored.append(match.group(0))
             continue
         restored.append(name)
+        if text.startswith(_COPULA_POLITE, position):
+            # 서술격 "이에요"는 받침 없는 이름 뒤에서 "예요"가 된다 ("가나예요").
+            restored.append(_COPULA_POLITE if _has_final_consonant(name[-1]) else "예요")
+            position += len(_COPULA_POLITE)
+            continue
         particle = _PARTICLE_PATTERN.match(text, position)
         if particle and not _is_copula(particle.group(0), text, particle.end()):
             restored.append(_fit_particle(particle.group(0), name))
@@ -140,12 +149,19 @@ def restore_names(text: str, name_by_token: Mapping[str, str]) -> str:
     return "".join(restored)
 
 
+def _has_name(names: Sequence[str]) -> bool:
+    return any(name.strip() for name in names)
+
+
 def _is_copula(particle: str, text: str, end: int) -> bool:
     """ "CHILD_A이에요"의 '이'는 조사가 아니라 서술격이다. 뒤에 글자가 이어지면 손대지 않는다."""
     return particle in ("이", "가") and end < len(text) and _is_hangul(text[end])
 
 
 def _fit_particle(particle: str, name: str) -> str:
+    if particle in ("으로", "로"):
+        # ㄹ 받침 뒤에는 받침이 있어도 "로"다 ("하늘로").
+        return "로" if not _has_final_consonant(name[-1]) or _final_is_rieul(name[-1]) else "으로"
     has_final = _has_final_consonant(name[-1])
     for with_final, without_final in _PARTICLES:
         if particle in (with_final, without_final):
@@ -155,6 +171,10 @@ def _fit_particle(particle: str, name: str) -> str:
 
 def _is_hangul(char: str) -> bool:
     return 0 <= ord(char) - 0xAC00 < 11172
+
+
+def _final_is_rieul(char: str) -> bool:
+    return _is_hangul(char) and (ord(char) - 0xAC00) % 28 == _RIEUL_FINAL_INDEX
 
 
 def _has_final_consonant(char: str) -> bool:

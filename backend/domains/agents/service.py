@@ -67,10 +67,13 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
         version = 1
         previous: contracts.DraftDocument | None = None
         issues: list[contracts.VerificationIssue] = []
+        # 인식 결과(사진 분석 LLM 포함)는 재생성마다 다시 만들지 않는다. 루프 안에서 부르면
+        # 재생성 2회에 사진 호출이 최대 3배가 된다 (#137 리뷰, 송유진).
+        inputs = _load_generation_inputs(bundle)
         while True:
             try:
                 generated = _generate_draft(
-                    bundle, draft_id=draft_id, version=version, previous=previous, issues=issues
+                    inputs, draft_id=draft_id, version=version, previous=previous, issues=issues
                 )
             except InsufficientEvidence:
                 # 빈 초안을 정상 결과로 내지 않는다 (ai-data-contract.md "근거 부족").
@@ -243,6 +246,9 @@ class GeneratedDraft:
 def _load_generation_inputs(bundle: EvidenceBundle) -> GenerationInputs:
     """Bundle의 미디어를 근거(EvidenceItem)로 바꾸고 반 원아 이름을 모은다.
 
+    orchestrate_drafts가 재생성 루프 전에 한 번만 부른다 — 사진 분석 LLM이 재생성마다
+    다시 돌지 않게 하기 위함이다 (#137 리뷰).
+
     TODO(eun): 인식 결과 병합(#128, 송유진)이 develop에 들어오면 bundle.media_refs의
       사진 분석·발화 정규화 결과를 합쳐 evidence로 넘긴다. GenerationRequest.class_id도
       그때 Child에서 채운다. merged.status가 응답 오류면 근거 부족(InsufficientEvidence)과
@@ -255,7 +261,7 @@ def _load_generation_inputs(bundle: EvidenceBundle) -> GenerationInputs:
 
 
 def _generate_draft(
-    bundle: EvidenceBundle,
+    inputs: GenerationInputs,
     *,
     draft_id: str,
     version: int,
@@ -267,7 +273,6 @@ def _generate_draft(
     응답 형식이 깨졌으면 DraftResponseError를 올린다. 호출하는 쪽이 7-A 실패로 기록하고
     재생성한다.
     """
-    inputs = _load_generation_inputs(bundle)
     request = inputs.request
     # 프롬프트·검증·저장 모두 builder 결과의 키를 기준으로 한다 (#117 리뷰).
     selected = build_evidence(inputs.evidence, request=request)
@@ -427,9 +432,7 @@ def _verify_and_record(
     ]
 
     if all(result.passed for result in stage_results):
-        prompt = build_critic_prompt(document, evidence_by_id)
-        raw_response = call_claude(prompt)
-        stage_results.append(parse_critic_response(raw_response, document))
+        stage_results.append(_run_critic(document, evidence_by_id))
 
     decision_result = decide(stage_results, regeneration_count, document=document)
 
@@ -516,6 +519,58 @@ def _join_sentences(document: contracts.DraftDocument) -> str:
     sentence_id·순서째로 넘긴다. 그전까지 DraftSaveInput.content가 문자열 하나라 임시로 합친다.
     """
     return "\n".join(sentence.text for sentence in document.sentences)
+
+
+def _run_critic(
+    document: contracts.DraftDocument,
+    evidence_by_id: dict[str, contracts.EvidenceItem],
+) -> contracts.VerificationResult:
+    """Critic에는 서버 근거 ID 대신 E1… 임시 참조를 보내고, 결과를 서버 ID로 되돌린다.
+
+    근거 ID에는 media_id·segment_id가 들어 있어 외부 LLM으로 보내지 않는다
+    (ai-data-contract.md "내부 ID와 LLM 입력", #137 리뷰). 참조 번호는 evidence_by_id 순서라
+    생성 프롬프트의 E1…과 같고, 코드 검증(references·target)은 서버 ID 그대로 한다.
+    코드 검증을 통과한 뒤에만 불리므로 문장의 근거 ID는 모두 evidence_by_id에 있다.
+    """
+    evidence_id_by_ref = {
+        f"E{index}": evidence_id for index, evidence_id in enumerate(evidence_by_id, start=1)
+    }
+    ref_by_evidence_id = {evidence_id: ref for ref, evidence_id in evidence_id_by_ref.items()}
+
+    critic_document = contracts.DraftDocument.model_validate(
+        {
+            **document.model_dump(),
+            "sentences": [
+                {
+                    **sentence.model_dump(),
+                    "evidence_ids": [ref_by_evidence_id[eid] for eid in sentence.evidence_ids],
+                }
+                for sentence in document.sentences
+            ],
+        }
+    )
+    critic_evidence = {
+        ref: contracts.EvidenceItem.model_validate(
+            {**evidence_by_id[evidence_id].model_dump(), "evidence_id": ref}
+        )
+        for ref, evidence_id in evidence_id_by_ref.items()
+    }
+
+    result = parse_critic_response(
+        call_claude(build_critic_prompt(critic_document, critic_evidence)), critic_document
+    )
+    return contracts.VerificationResult.model_validate(
+        {
+            **result.model_dump(),
+            "issues": [
+                {
+                    **issue.model_dump(),
+                    "evidence_ids": [evidence_id_by_ref[ref] for ref in issue.evidence_ids],
+                }
+                for issue in result.issues
+            ],
+        }
+    )
 
 
 def _record_verification_issues(

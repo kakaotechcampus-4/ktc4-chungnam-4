@@ -44,6 +44,12 @@ class FakeSession:
         return False
 
 
+@pytest.fixture(autouse=True)
+def _generation_inputs(monkeypatch) -> None:
+    """orchestrate_drafts가 루프 전에 부르는 입력 적재를 막는다. 필요한 테스트가 다시 덮어쓴다."""
+    monkeypatch.setattr(service, "_load_generation_inputs", lambda bundle: object())
+
+
 def _document(evidence_ids: tuple[str, ...] = ("ev_001",)) -> contracts.DraftDocument:
     return contracts.DraftDocument(
         doc_type=contracts.DocType.OBSERVATION_LOG,
@@ -95,7 +101,7 @@ def _critic_response(*, verdict: str = "pass") -> str:
                 "verdict": verdict,
                 "reason_code": reason_code,
                 "detail": "검토 결과",
-                "evidence_ids": ["ev_001"],
+                "evidence_ids": ["E1"],
             }
         ]
     )
@@ -544,7 +550,11 @@ def _draft_answer(refs: list[str]) -> str:
 
 def _generate(previous=None, issues=(), *, version: int = 1) -> service.GeneratedDraft:
     return service._generate_draft(
-        object(), draft_id="draft-1", version=version, previous=previous, issues=list(issues)
+        service._load_generation_inputs(object()),
+        draft_id="draft-1",
+        version=version,
+        previous=previous,
+        issues=list(issues),
     )
 
 
@@ -730,7 +740,7 @@ def test_생성부터_Critic까지_실명이_LLM에_가지_않는다(monkeypatch
                     "verdict": "pass",
                     "reason_code": "ok",
                     "detail": "근거와 일치",
-                    "evidence_ids": ["ev_001"],
+                    "evidence_ids": ["E1"],
                 }
             ]
         )
@@ -749,3 +759,69 @@ def test_생성부터_Critic까지_실명이_LLM에_가지_않는다(monkeypatch
     assert result.decision == contracts.Decision.PASS
     assert len(prompts) == 2
     assert all("나다" not in prompt and "마바" not in prompt for prompt in prompts)
+    assert all("ev_001" not in prompt for prompt in prompts)
+
+
+def test_Critic에는_서버_근거_ID_대신_임시_참조를_보내고_결과는_서버_ID로_되돌린다(
+    monkeypatch,
+) -> None:
+    prompts: list[str] = []
+    media_scoped = EVIDENCE_CHILD_A.model_copy(
+        update={"evidence_id": "photo:3ed1a000-0000-4000-8000-000000000046:1"}
+    )
+    document = contracts.DraftDocument(
+        doc_type=contracts.DocType.PARENT_NOTE,
+        child_id="child_A",
+        record_date=RECORD_DATE,
+        sentences=[
+            contracts.DraftSentence(
+                sentence_id="s_01", text="탑을 쌓았어요.", evidence_ids=[media_scoped.evidence_id]
+            )
+        ],
+    )
+
+    def _fake_claude(prompt: str) -> str:
+        prompts.append(prompt)
+        return json.dumps(
+            [
+                {
+                    "sentence_id": "s_01",
+                    "verdict": "fail",
+                    "reason_code": "unsupported_claim",
+                    "detail": "E1에 없는 내용",
+                    "evidence_ids": ["E1"],
+                }
+            ],
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(service, "call_claude", _fake_claude)
+
+    result = service._run_critic(document, {media_scoped.evidence_id: media_scoped})
+
+    assert "3ed1a000" not in prompts[0]
+    assert '"evidence_id": "E1"' in prompts[0]
+    assert result.issues[0].evidence_ids == [media_scoped.evidence_id]
+    assert result.draft_id == document.draft_id
+
+
+def test_orchestrate_drafts_인식_결과는_재생성해도_한_번만_만든다(monkeypatch) -> None:
+    loads: list[object] = []
+    decisions = iter([contracts.Decision.REGENERATE, contracts.Decision.PASS])
+
+    def _load(bundle):
+        loads.append(bundle)
+        return object()
+
+    _patch_orchestrate(monkeypatch, lambda inputs, **kwargs: _generated(), [])
+    monkeypatch.setattr(service, "_load_generation_inputs", _load)
+    monkeypatch.setattr(
+        service,
+        "_verify_with_critic_retry",
+        lambda *args: contracts.DecisionResult(decision=next(decisions), reason="t"),
+    )
+    monkeypatch.setattr(service, "_save_passed_draft", lambda *args: None)
+
+    service.orchestrate_drafts(job_id="job-1", child_id="child-1")
+
+    assert len(loads) == 1

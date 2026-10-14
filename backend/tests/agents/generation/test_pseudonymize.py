@@ -101,3 +101,30 @@ def test_반_원아가_26명을_넘어도_토큰이_겹치지_않는다():
 )
 def test_토큰을_호칭으로_되돌리며_조사를_받침에_맞춘다(text, expected):
     assert restore_names(text, {"CHILD_A": "민준", "CHILD_B": "서아"}) == expected
+
+
+@pytest.mark.parametrize("names", [[], ["", "  "]], ids=["빈_목록", "공백만"])
+def test_이름이_비어_있는_원아가_근거에_있으면_보내지_않는다(names):
+    evidence = {"ev-1": _speech("ev-1", "마바랑 놀았어요", ["child-1", "child-2"])}
+
+    with pytest.raises(ValueError):
+        pseudonymize_evidence(
+            evidence,
+            target_child_id="child-1",
+            names_by_child_id={"child-1": ["나다"], "child-2": names},
+        )
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("CHILD_A로 갔어요", "하늘로 갔어요"),
+        ("CHILD_C으로 갔어요", "민준으로 갔어요"),
+        ("CHILD_B이에요", "가나예요"),
+        ("CHILD_C이에요", "민준이에요"),
+    ],
+)
+def test_ㄹ_받침과_서술격_조사도_맞춘다(text, expected):
+    names = {"CHILD_A": "하늘", "CHILD_B": "가나", "CHILD_C": "민준"}
+
+    assert restore_names(text, names) == expected
