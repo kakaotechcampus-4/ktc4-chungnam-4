@@ -257,8 +257,10 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
   - `MEDIA_ASSET_NOT_FOUND` (404) — 없는 `media_id`일 때
   - `CLASS_ACCESS_DENIED` (403) — 담당 반의 미디어가 아닐 때
   - `MEDIA_DELETED` (409) — 이미 파기됐을 때(`storage_tier = deleted`)
-- [확인 필요: 김동건] 서명 URL 만료 시간(예시 5분)을 정해야 합니다. 파생본이 없어서 HEIC·MOV는 사파리가 아닌 브라우저에서 보이지 않을 수 있습니다. 데모 자료를 JPG·MP4로 제한할지도 정해야 합니다.
-- [확인 필요: 한상균] URL 발급을 AccessLog에 남길지, 남긴다면 `target_type`·`action` 값을 무엇으로 할지 정해야 합니다.
+- 만료는 15분입니다(임시 결정(김동건), 하단 §상의 필요 5). 응답에 `Cache-Control: no-store`를 붙입니다.
+- 판정 순서: 반 접근(`CLASS_ACCESS_DENIED`)을 먼저 보고 파기 여부(`MEDIA_DELETED`)를 봅니다. 남의 어린이집 미디어가 파기됐는지 알려 주지 않기 위함입니다.
+- [확인 필요: 김동건] 파생본이 없어서 HEIC·MOV는 사파리가 아닌 브라우저에서 보이지 않을 수 있습니다. 데모 자료를 JPG·MP4로 제한할지 정해야 합니다.
+- 이 엔드포인트는 교사가 media를 직접 부르는 경로라 media가 AccessLog를 남깁니다(#143 리뷰). 값은 `target_type="media_asset"`, `action="reissue_playback_url"`입니다 — 임시 결정(김동건). [확인 필요: 한상균] audit 코드 목록(#32, #74)과 맞는지 확인 부탁드립니다. documents 응답에 담기는 첫 URL의 AccessLog는 documents가 남깁니다.
 
 ### `GET /api/v1/classes/{class_id}/face-embeddings` — 반 동의 원아의 기준 임베딩 캐시(온디바이스 분류용)
 
