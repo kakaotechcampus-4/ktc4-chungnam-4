@@ -1,7 +1,7 @@
 """face 라우터 (docs/api/media-face.md).
 
 경로는 리소스 기준(/classes/{class_id}/face-embeddings, /children/{child_id}/face-embedding)이라
-도메인 prefix를 두지 않습니다.
+도메인 prefix를 두지 않습니다. 베이스 경로 `/api/v1`은 `main.py`가 붙입니다(#130 리뷰).
 판정·조회는 전부 service.py가 하고, 이 파일은 요청을 넘기고 응답 모양으로 바꾸기만 합니다.
 """
 

@@ -36,7 +36,7 @@ app = FastAPI(
 # 베이스 경로(테크스펙 §공통 API 규약)는 여기서 한 번에 붙입니다.
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(documents_router)
-app.include_router(face_router)
+app.include_router(face_router, prefix="/api/v1")
 
 
 @app.exception_handler(AidamError)

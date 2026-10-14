@@ -147,11 +147,11 @@ def _error_code(response) -> str:
 
 
 def _path(class_id: uuid.UUID) -> str:
-    return f"/classes/{class_id}/face-embeddings"
+    return f"/api/v1/classes/{class_id}/face-embeddings"
 
 
 def test_face_라우터가_main_app에_등록된다() -> None:
-    assert ("/classes/{class_id}/face-embeddings", "get") in {
+    assert ("/api/v1/classes/{class_id}/face-embeddings", "get") in {
         (path, method) for path, methods in app.openapi()["paths"].items() for method in methods
     }
 
@@ -191,8 +191,9 @@ def test_응답을_보내기_전에_열람_기록이_커밋된다(
         db.commit()
         class_id = db.get(Child, child_id).class_id
 
-    client.get(_path(class_id))
+    response = client.get(_path(class_id))
 
+    assert response.status_code == 200
     # 요청이 쓴 세션과 다른 세션에서 보여야 커밋된 것입니다.
     with session_factory() as db:
         [log] = db.query(AccessLog).all()
@@ -245,14 +246,14 @@ def test_로그인하지_않으면_401_UNAUTHENTICATED(anonymous_client: TestCli
 
 
 def test_반_id가_UUID가_아니면_422(client: TestClient) -> None:
-    assert client.get("/classes/not-a-uuid/face-embeddings").status_code == 422
+    assert client.get("/api/v1/classes/not-a-uuid/face-embeddings").status_code == 422
 
 
 # ---- 등록·삭제 ----
 
 
 def _register_path(child_id: uuid.UUID) -> str:
-    return f"/children/{child_id}/face-embedding"
+    return f"/api/v1/children/{child_id}/face-embedding"
 
 
 def _register(client: TestClient, child_id: uuid.UUID, model_version: str = "human-1"):
