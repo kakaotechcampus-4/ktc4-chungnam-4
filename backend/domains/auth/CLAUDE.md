@@ -7,14 +7,14 @@
 | 파일 | 내용 |
 | --- | --- |
 | `models.py` | `Account`, `Teacher`, `Parent` |
-| `schemas.py` | 로그인 요청·토큰 응답 |
-| `router.py` | `/auth` 엔드포인트 |
+| `schemas.py` | 로그인 요청·응답, `/me` 응답. 토큰은 본문이 아니라 `Set-Cookie`로만 내려 줍니다 |
+| `router.py` | `POST /api/v1/sessions`, `DELETE /api/v1/sessions/current`, `GET /api/v1/me` (docs/api/auth.md) |
 | `service.py` | 비밀번호 검증, 토큰 발급·검증 |
-| `middleware.py` | 요청에서 현재 사용자 해석 |
+| `middleware.py` | 쿠키에서 현재 사용자 해석. 다른 도메인 라우터는 `CurrentTeacher`·`CurrentParent`를 받습니다 |
 
 ## 규칙
 
-- `Account`가 로그인 주체, `Teacher`/`Parent`가 역할별 프로필. 역할 분기는 `Account`의 role 하나로 판단합니다.
+- `Account`가 로그인 주체, `Teacher`/`Parent`가 역할별 프로필. 역할 분기는 `Account.account_type` 하나로 판단합니다 (`Teacher.role`(담임/원장)과 다른 값입니다).
 - 비밀번호는 해시만 저장합니다. 평문·복호화 가능한 형태로 두지 않습니다.
 - 토큰 시크릿·만료는 `core/config.py`의 `Settings`에서 읽습니다.
 - 교사 가입은 **어린이집 가입 코드(`Center.center_code`) 검증 → 소속 확정** 순서입니다 (FR-23). 코드가 없으면 가입을 막지 말고 어린이집 직접 등록 경로로 보냅니다 (FR-24). `Center` 생성·코드 발급 자체는 organization의 service 함수를 부르고 auth가 직접 만들지 않습니다.
