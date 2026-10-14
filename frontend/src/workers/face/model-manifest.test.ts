@@ -24,18 +24,27 @@ function modelsDir(): string {
   throw new Error("@vladmandic/human의 models 폴더를 찾지 못했습니다.");
 }
 
-describe("얼굴 모델 manifest", () => {
-  it("model_version이 실제 faceres.bin의 SHA-256과 맞는다", () => {
-    const bin = readFileSync(join(modelsDir(), "faceres.bin"));
-    const hash = createHash("sha256").update(bin).digest("hex").slice(0, 12);
+/** 복사하는 파일 전부. 스크립트의 FACE_MODELS × EXTENSIONS와 같아야 합니다. */
+const MODEL_FILES = ["blazeface", "facemesh", "faceres"].flatMap((m) => [`${m}.json`, `${m}.bin`]);
 
-    expect(FACE_MODEL_VERSION).toBe(`human-faceres-${hash}`);
+describe("얼굴 모델 manifest", () => {
+  // faceres 하나로 계산하면 blazeface·facemesh만 바뀔 때 값이 그대로여서, 1년 캐시와
+  // --size-only 업로드에 걸려 옛 파일이 그대로 남습니다(#149 리뷰 송유진 님).
+  it("model_version이 복사하는 파일 전부의 SHA-256과 맞는다", () => {
+    const digest = createHash("sha256");
+    for (const name of [...MODEL_FILES].sort()) {
+      digest.update(name);
+      digest.update(readFileSync(join(modelsDir(), name)));
+    }
+    const hash = digest.digest("hex").slice(0, 12);
+
+    expect(FACE_MODEL_VERSION).toBe(`human-face-${hash}`);
   });
 
   // 주소에도 같은 해시가 들어갑니다. HUMAN 캐시는 파일 이름으로만 모델을 찾아 모델이
   // 바뀌어도 옛 것을 쓰므로, 주소를 통째로 바꿔 브라우저가 새로 받게 합니다.
   it("모델 주소의 해시가 model_version과 같다", () => {
-    const fromVersion = FACE_MODEL_VERSION.replace("human-faceres-", "");
+    const fromVersion = FACE_MODEL_VERSION.replace("human-face-", "");
 
     expect(FACE_MODEL_BASE_PATH).toBe(`/models/${fromVersion}/`);
   });

@@ -29,9 +29,6 @@ const frontendDir = join(dirname(fileURLToPath(import.meta.url)), "..");
  */
 const FACE_MODELS = ["blazeface", "facemesh", "faceres"];
 
-/** 벡터를 만드는 모델. model_version은 이 파일에서 나옵니다. */
-const DESCRIPTOR_MODEL = "faceres";
-
 const HASH_LENGTH = 12;
 
 /** `.json`은 같은 폴더의 `.bin`을 상대 경로로 가리키므로 둘을 함께 옮깁니다. */
@@ -53,11 +50,31 @@ function findModelsDir() {
   );
 }
 
+/**
+ * 복사하는 파일 **전부**의 SHA-256입니다. 하나라도 바뀌면 값이 달라집니다.
+ *
+ * `faceres.bin` 하나로 계산하면 `blazeface`·`facemesh`만 바뀔 때 값이 그대로입니다.
+ * 그러면 두 가지가 터집니다(#149 리뷰 송유진 님).
+ * - 주소가 그대로라 1년 캐시(`immutable`, 인프라 #150)에 걸려 옛 파일을 계속 씁니다.
+ * - 업로드가 `--size-only`라 크기가 같으면 버킷에 새 파일이 아예 올라가지 않습니다.
+ *
+ * 파일 이름도 함께 넣습니다. 내용만 이으면 파일 경계가 사라져, 두 파일의 내용이 서로
+ * 옮겨 가도 같은 값이 나옵니다. 이름 순으로 고정해 순서가 달라지지 않게 합니다.
+ */
+async function hashModelFiles(modelsDir, names) {
+  const digest = createHash("sha256");
+  for (const name of [...names].sort()) {
+    digest.update(name);
+    digest.update(await readFile(join(modelsDir, name)));
+  }
+  return digest.digest("hex").slice(0, HASH_LENGTH);
+}
+
 async function main() {
   const modelsDir = findModelsDir();
 
-  const descriptorBin = await readFile(join(modelsDir, `${DESCRIPTOR_MODEL}.bin`));
-  const hash = createHash("sha256").update(descriptorBin).digest("hex").slice(0, HASH_LENGTH);
+  const fileNames = FACE_MODELS.flatMap((model) => EXTENSIONS.map((ext) => `${model}${ext}`));
+  const hash = await hashModelFiles(modelsDir, fileNames);
 
   const outDir = join(frontendDir, "public", "models", hash);
   // 해시가 바뀌면 옛 폴더가 남습니다. public을 통째로 지우면 favicon·목 워커까지 날아가므로
@@ -65,10 +82,8 @@ async function main() {
   await rm(join(frontendDir, "public", "models"), { recursive: true, force: true });
   await mkdir(outDir, { recursive: true });
 
-  for (const model of FACE_MODELS) {
-    for (const ext of EXTENSIONS) {
-      await cp(join(modelsDir, `${model}${ext}`), join(outDir, `${model}${ext}`));
-    }
+  for (const name of fileNames) {
+    await cp(join(modelsDir, name), join(outDir, name));
   }
 
   await writeManifest(hash);
@@ -93,10 +108,14 @@ async function writeManifest(hash) {
 export const FACE_MODEL_BASE_PATH = "/models/${hash}/";
 
 /**
- * 등록·분류 벡터에 붙이는 이름표(\`model_version\`).
- * \`faceres.bin\`의 SHA-256 hex 앞 ${String(HASH_LENGTH)}자리입니다(이슈 #120).
+ * 등록·분류 벡터에 붙이는 이름표(\`model_version\`). 얼굴 모델 파일 전부의
+ * SHA-256 hex 앞 ${String(HASH_LENGTH)}자리입니다(이슈 #120, #149 리뷰).
+ *
+ * \`faceres\`만으로 짓지 않는 것은 \`facemesh\`가 얼굴을 정렬해 \`faceres\`에 넣을 그림을
+ * 만들기 때문입니다. 정렬이 달라지면 같은 얼굴에서도 벡터가 달라지는데, 이름표가
+ * 그대로면 옛 벡터와 새 벡터를 같은 것으로 보고 비교합니다.
  */
-export const FACE_MODEL_VERSION = "human-${DESCRIPTOR_MODEL}-${hash}";
+export const FACE_MODEL_VERSION = "human-face-${hash}";
 `;
   await writeFile(target, body, "utf8");
 }
