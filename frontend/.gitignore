@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# 얼굴 인식 모델. pnpm models:copy가 node_modules에서 복사합니다(약 9MB).
+# git에 넣지 않는 것은 모델을 바꿀 때마다 9MB가 기록에 영구히 쌓이고,
+# package.json의 버전과 파일이 어긋날 수 있어서입니다.
+public/models/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
