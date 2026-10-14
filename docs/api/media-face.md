@@ -10,7 +10,7 @@
 
 - [x] (막힘) child-links를 전체 교체(PUT)로 할지(PR #13 리뷰 [must]) → 임시 결정(김동건): 전체 교체. 보낸 목록이 최종 상태이고 빠진 원아의 링크는 지웁니다. 반영: 이 파일 `PUT /media/{media_id}/child-links` 절, backend `save_attributions`(브랜치 `feat/be/child-links-full-replace`, PR 전)
 - [ ] (막힘) `llm_allowed` 최종값 계산 주체와 규칙(정은과 함께). 제안: 사진은 "교사 확인 AND ③ 동의", 영상·음성은 교사 확인값 → 하단 §상의 필요 3
-- [ ] (막힘) 영상·음성메모도 child-links로 수동 귀속(정은과 함께). 음성메모 근거가 초안에 들어가기 위한 전제 → 하단 §상의 필요 2
+- [x] (막힘) 영상·음성메모도 child-links로 수동 귀속(정은과 함께). 음성메모 근거가 초안에 들어가기 위한 전제 → 임시 결정(김동건): 영상·음성은 `PUT child-links`로, 발화에 연결한 아이들을 모두 넣음. 사진은 완료 통지에서 귀속까지 저장. 반영: 이 파일 `POST /media`·`PUT child-links` 절
 - [ ] `attributed_at` 추가와, 이를 쓰는 Job의 `MEDIA_NOT_READY` 판정(정은과 함께)
 - [ ] 업로드 한도, 허용 MIME, URL 만료(예시 PUT 15분·GET 5분), 멀티파트 필요 여부
 - [ ] 파생본이 없어 HEIC·MOV가 안 보이는 문제. 데모 자료를 JPG·MP4로 제한할지
@@ -18,7 +18,7 @@
 - [x] 모델 버전 문자열 형식 → 임시 결정(김진하), 이슈 #120 김동건 님 확인: `human-faceres-<faceres.bin SHA-256 hex 앞 12자리>`. 라이브러리 버전을 쓰지 않는 것은 모델 파일이 그대로인데 라이브러리만 올라가도 값이 바뀌어 원아 전원이 재등록 대상이 되기 때문입니다. 해시는 손으로 적지 않고 빌드 때 계산하거나 테스트로 대조하며, 전처리가 라이브러리 코드 쪽이라 `package.json`은 `^` 없이 고정합니다. 반영: 이 문서 §`GET /classes/{class_id}/face-embeddings`·§등록, `frontend/src/workers/face/types.ts`
 - [ ] `load_embedding_cache`가 `model_version`도 돌려주게 할지 — 김동건 님이 로컬에서 고쳐 두셨고 `feat/be/face-media-storage-foundation` PR을 기다립니다(이슈 #120). 머지되면 닫습니다
 - [ ] 서명 함수(`get_signed_urls`, 가칭) 제공과 documents 응답 내장 분담(한상균과 함께) → 하단 §상의 필요 5
-- [ ] develop(PR #13)과 다른 점: 귀속 에러 코드 이름이 `MEDIA_INVALID_ATTRIBUTION_METHOD`(이 문서 `INVALID_ATTRIBUTION_METHOD`, 조건은 같음)이고, documents용 함수 `get_playback_url`은 한 건씩 서명·만료 없는 URL 문자열을 줌. 이 문서에 맞출지 develop에 맞출지(URL 함수는 한상균과 함께)
+- [ ] develop(PR #13)과 다른 점: documents용 함수 `get_playback_url`은 한 건씩 서명·만료 없는 URL 문자열을 줌. 이 문서에 맞출지 develop에 맞출지(URL 함수는 한상균과 함께). 귀속 에러 코드 이름은 이 문서(`INVALID_ATTRIBUTION_METHOD`)에 맞췄고, 같은 원아 중복도 이 문서대로 `DUPLICATE_CHILD_LINK`로 거절함(김동건, 10/07)
 - [ ] 영상·음성 서버 STT를 어디서 시작할지(동기 vs Celery)
 - [x] 발화 구간 조회·수정의 요청·응답 → 임시 결정(김동건): 상세 작성으로 채움. 반영: 이 파일 `GET /media/{media_id}/transcript-segments`·`PATCH /transcript-segments/{segment_id}` 절, FE `types/api-draft/media.ts`·`mocks/handlers/media.ts`. 테크스펙에 없는 필드와 업로드 시점은 하단 §상의 필요 6
 - [x] 얼굴 등록 사진 수 → 임시 결정(김동건): 1~3장. 3장을 강제하지 않고, 다시 등록하면 전체가 바뀐다고 화면에 알림. 반영: 이 파일 `PUT /children/{child_id}/face-embedding` 절, FE 얼굴 정보 등록 화면
@@ -67,37 +67,58 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 }
 ```
 
-- 응답 `200`: 항목 순서는 요청과 같습니다.
+- 요청 한 번에 최대 10개입니다(임시 결정(김동건)). FE는 업로드 큐가 진행되는 대로 10개씩 나눠 요청합니다. 묶음은 요청 횟수를 줄이려는 포장이고 서버는 파일마다 따로 처리하며, 묶음을 기억하지 않습니다.
+- 응답 `200`: **파일마다 결과가 따로 옵니다**(임시 결정(김동건)). 한 파일이 걸려도 요청 전체를 거절하지 않고 나머지는 발급합니다. 항목 순서는 요청과 같습니다.
+  - `status`: `issued`(URL 발급) / `registered`(이미 `MediaAsset`까지 만든 파일. URL 없이 `media_id`만) / `error`(이 파일만 실패. `error`에 공통 에러 모양의 `code`·`message`)
 
 ```json
 {
   "items": [
     {
       "client_photo_id": "1c000000-0000-4000-8000-000000000041",
+      "status": "issued",
       "media_id": null,
-      "upload_url": "https://<bucket>.s3.amazonaws.com/<key>?X-Amz-Expires=900&X-Amz-Signature=…",
+      "upload_url": "https://<bucket>.s3.ap-northeast-2.amazonaws.com/<key>?X-Amz-Expires=3600&X-Amz-Signature=…",
       "upload_headers": { "Content-Type": "image/jpeg" },
-      "upload_url_expires_at": "2026-09-15T06:15:00Z"
+      "upload_url_expires_at": "2026-09-15T07:00:00Z",
+      "error": null
     },
     {
       "client_photo_id": "1c000000-0000-4000-8000-000000000044",
+      "status": "registered",
       "media_id": "3ed1a000-0000-4000-8000-000000000044",
       "upload_url": null,
       "upload_headers": null,
-      "upload_url_expires_at": null
+      "upload_url_expires_at": null,
+      "error": null
+    },
+    {
+      "client_photo_id": "1c000000-0000-4000-8000-000000000045",
+      "status": "error",
+      "media_id": null,
+      "upload_url": null,
+      "upload_headers": null,
+      "upload_url_expires_at": null,
+      "error": { "code": "MEDIA_TYPE_NOT_ALLOWED", "message": "올릴 수 없는 형식의 파일이에요." }
     }
   ]
 }
 ```
 
-- `media_id`가 null이 아니면 이미 등록된 파일입니다. 다시 올리지 않고 귀속 단계로 넘어갑니다. 새로고침 뒤 이어 올릴 때 이 값을 씁니다.
-- PUT 요청에는 `upload_headers`를 그대로 붙여야 서명이 맞습니다.
-- 에러:
-  - `MEDIA_TYPE_NOT_ALLOWED` (400) — 허용 형식(JPG·PNG·HEIC / MP4·MOV / M4A·WAV, Figma 기준)이 아니거나 `type`과 맞지 않을 때. 한 항목이라도 걸리면 요청 전체를 거절하고, 걸린 항목은 `detail.client_photo_ids`에 담습니다.
-  - `UPLOAD_BATCH_TOO_LARGE` (400) — 파일 수나 크기가 상한을 넘을 때
+- `registered`면 다시 올리지 않고 귀속 단계로 넘어갑니다. 새로고침 뒤 이어 올릴 때 이 값을 씁니다.
+- PUT 요청에는 `upload_headers`를 그대로 붙여야 서명이 맞습니다. 서버가 같은 형식의 다른 이름(예: 브라우저마다 다른 MIME)을 대표값 하나로 바꿔 서명하므로, 요청에 보낸 `content_type`이 아니라 이 값을 씁니다.
+- 같은 요청에 같은 `client_photo_id`가 두 번 있으면 두 항목에 같은 결과가 옵니다(URL은 한 번만 서명).
+- 파일별 에러(`status: "error"`, 응답은 `200`):
+  - `MEDIA_TYPE_NOT_ALLOWED` — 허용 형식(JPG·PNG·HEIC / MP4·MOV / M4A·WAV, Figma 기준)이 아니거나 `type`과 맞지 않을 때. 브라우저가 형식을 몰라 `content_type`을 비운 경우도 여기에 걸리므로, FE는 빈 값이면 확장자로 채워 보냅니다.
+  - `UPLOAD_BATCH_TOO_LARGE` — 그 파일이 종류별 크기 상한을 넘을 때
+  - `CLIENT_PHOTO_ID_CONFLICT` — 같은 `client_photo_id`가 다른 반에 이미 있을 때
+- 요청 전체 에러(아무 파일도 발급하지 않음):
+  - `UPLOAD_BATCH_TOO_LARGE` (400) — 파일이 10개를 넘을 때
   - `CLASS_ACCESS_DENIED` (403) — 담당 반이 아닐 때
-  - `CLIENT_PHOTO_ID_CONFLICT` (409) — 같은 `client_photo_id`가 다른 반에 이미 있을 때
-- [확인 필요: 김동건] 요청당 최대 파일 수, 파일당 최대 크기, URL 만료 시간(예시 15분), 82MB급 영상에 멀티파트 업로드가 필요한지 정해야 합니다.
+- URL 만료는 1시간입니다(임시 결정(김동건)). 최악 회선(1MB/s)에서 3GB를 올리는 약 51분을 덮는 값입니다(presigned 스파이크 09/04). 서버 자격증명의 남은 수명이 그보다 짧으면 서버가 그 안으로 줄여 발급하므로, FE는 `upload_url_expires_at`을 기준으로 봅니다.
+- 업로드 URL은 선언한 `content_type`·`size_bytes`를 서명에 넣습니다. 실제 파일과 1바이트라도 다르면 S3가 403(`SignatureDoesNotMatch`)을 줍니다. 403은 다시 시도해도 같으니 URL을 새로 받습니다.
+- 업로드 URL로는 **한 번만** 올릴 수 있습니다. `upload_headers`의 `If-None-Match: *`가 서명에 들어 있어, 이미 파일이 올라간 key에 다시 PUT하면 S3가 412(`PreconditionFailed`)를 줍니다. 서버가 확인을 마친 파일을 같은 URL로 덮어쓰지 못하게 하려는 것입니다(#131 리뷰, H-1·H-2) — 임시 결정(김동건). FE는 412를 받으면 이미 올라간 것이므로 다시 올리지 말고 완료 통지(`POST /api/v1/media`)로 넘어갑니다. 내용을 바꿔 다시 올려야 하면 URL을 새로 받습니다(발급할 때마다 key가 새로 만들어집니다).
+- [확인 필요: 김동건] 파일당 최대 크기, 82MB급 영상에 멀티파트 업로드가 필요한지 정해야 합니다.
 
 ### `POST /api/v1/media` — 업로드 완료 통지(서버가 S3 객체를 확인한 뒤 `MediaAsset` 확정)
 
@@ -108,6 +129,9 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
   - `client_photo_id`·`class_id`·`type`은 URL 발급 때와 같은 값입니다.
   - `captured_at`은 촬영 시각(UTC)으로, EXIF나 파일 메타데이터에서 읽습니다.
   - `model_version`은 사진만 채우고 영상·음성은 null입니다.
+  - **귀속은 종류에 따라 다릅니다**(임시 결정(김동건)).
+    - **사진**: `child_links`·`llm_allowed`가 **필수**입니다. 사진은 교사 확정 뒤에만 올라오므로(H-3) 완료 통지와 귀속을 한 번에 저장합니다. 규칙은 아래 `PUT child-links` 절과 같습니다(전체 교체, 빈 배열이면 미분류).
+    - **영상·음성**: `child_links`·`llm_allowed`를 **보내지 않습니다**(보내면 422). 교사 확인 전에 먼저 올라오기 때문입니다(하단 §상의 필요 6). 귀속과 `llm_allowed`는 서버 전송 단계에서 `PUT child-links`로 저장합니다.
 
 ```json
 {
@@ -115,12 +139,19 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
   "class_id": "c1a50000-0000-4000-8000-000000000001",
   "type": "photo",
   "captured_at": "2026-09-15T01:10:00Z",
-  "model_version": "human-faceres-2c7d2d62b76c"
+  "model_version": "human-faceres-2c7d2d62b76c",
+  "llm_allowed": true,
+  "child_links": [
+    { "child_id": "c41d0000-0000-4000-8000-000000000001", "method": "face_recognition", "confidence_score": 0.92 }
+  ]
 }
 ```
 
-- 서버는 통지 내용을 믿지 않습니다. 서버가 정한 객체 키로 S3 HeadObject를 불러 객체가 있는지, 크기와 타입이 맞는지 확인한 뒤에 행을 만듭니다.
-- 응답 `201`: 새로 확정했을 때입니다. 같은 `client_photo_id`를 다시 보내면 기존 리소스를 `200`으로 돌려줍니다.
+영상·음성 예: `{ "client_photo_id": "1c000000-0000-4000-8000-000000000044", "class_id": "c1a50000-0000-4000-8000-000000000001", "type": "voice_memo", "captured_at": "2026-09-15T01:24:00Z", "model_version": null }`
+
+- 서버는 통지 내용을 믿지 않습니다. 서버가 정한 객체 키로 S3 HeadObject를 불러 객체가 있는지, 크기와 타입이 맞는지 확인한 뒤에 행을 만듭니다. 파일 앞부분이 그 형식인지도 봅니다.
+- 실측 확인, `MediaAsset` 생성, 귀속, `llm_allowed` 저장은 **한 트랜잭션**입니다. 귀속 검사에 걸리면 `MediaAsset`도 만들지 않고, FE는 고쳐서 다시 보냅니다.
+- 응답 `201`: 새로 확정했을 때입니다. 같은 `client_photo_id`를 다시 보내면 기존 리소스를 `200`으로 돌려줍니다. 사진이면 다시 보낸 `child_links`·`llm_allowed`로 **전체 교체**합니다 — 같은 본문이면 결과가 같고, 다르면 마지막에 보낸 것이 최종입니다.
 
 ```json
 {
@@ -130,30 +161,37 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
   "type": "photo",
   "captured_at": "2026-09-15T01:10:00Z",
   "size_bytes": 2841233,
-  "llm_allowed": false,
-  "attributed_at": null
+  "llm_allowed": true,
+  "child_links": [
+    { "child_id": "c41d0000-0000-4000-8000-000000000001", "method": "face_recognition", "confidence_score": 0.92 }
+  ],
+  "attributed_at": "2026-09-15T06:02:10Z"
 }
 ```
 
 - `media_id`는 `LocalPhoto.server_media_id`와 Job 요청의 `media_ids`에 씁니다.
-- 이 응답이 ack입니다. 원본 blob은 이 응답을 받은 뒤에 지웁니다. 귀속 값은 귀속 저장이 끝날 때까지 로컬에 남겨 둡니다.
-- `attributed_at`(제안)은 귀속을 저장하기 전이면 null입니다.
+- 이 응답이 ack입니다. 원본 blob은 이 응답을 받은 뒤에 지웁니다. 영상·음성은 귀속을 저장할 때까지 귀속 값을 로컬에 남겨 둡니다.
+- `attributed_at`(제안)은 **귀속을 저장할 때만** 채웁니다. 사진은 이 응답에서 채워지고, 영상·음성은 `PUT child-links` 전까지 null입니다(`llm_allowed`도 기본값 false). 귀속 전인 영상·음성이 Job에 들어가면 agents가 `MEDIA_NOT_READY`로 거절하므로, 에러 없이 근거에서 빠지는 일이 없습니다.
 - 에러:
   - `MEDIA_UPLOAD_NOT_FOUND` (409) — S3에 객체가 없을 때(업로드 미완료, URL 만료). FE는 URL을 다시 받아 올립니다.
-  - `MEDIA_UPLOAD_MISMATCH` (400) — 실제 타입이나 크기가 선언과 다르거나 상한을 넘을 때
+  - `MEDIA_UPLOAD_MISMATCH` (400) — 실제 타입이나 크기가 선언과 다르거나, 파일 앞부분이 그 형식이 아닐 때. URL을 다시 받아 같은 파일을 올립니다(발급할 때마다 새 경로라 이전 파일과 겹치지 않습니다)
   - `CLASS_ACCESS_DENIED` (403) — 담당 반이 아닐 때
   - `CLIENT_PHOTO_ID_CONFLICT` (409) — 같은 `client_photo_id`가 다른 반에 이미 있을 때
+  - 사진의 귀속 에러 — `INVALID_ATTRIBUTION_METHOD`·`DUPLICATE_CHILD_LINK`·`CHILD_NOT_IN_CLASS` (400), 뜻은 `PUT child-links` 절과 같습니다
+  - 422 — 사진인데 `child_links`·`llm_allowed`가 없거나, 영상·음성인데 있을 때(공통 검증 오류)
 - [확인 필요: 김동건] 영상·음성 업로드가 끝난 뒤 서버 STT를 어디서 시작할지 정해야 합니다(동기 처리 vs Celery).
 
 ### `PUT /api/v1/media/{media_id}/child-links` — 교사가 확정한 귀속과 `llm_allowed`를 한 번에 저장
 
-- 쓰는 화면: 얼굴 분류·결과 확인과 수동 분류/사진에서 정한 값을, 처리 중/서버 전송에서 보냅니다.
+- **주로 영상·음성에 씁니다**(임시 결정(김동건)). 사진은 완료 통지(`POST /media`)에서 귀속까지 저장하므로 보통 부르지 않습니다. 불러도 규칙은 같습니다(전체 교체).
+- 쓰는 화면: 분류 결과·수동 분류/발화에서 정한 값을, 처리 중/서버 전송에서 보냅니다.
 - 요구사항: FR-04, FR-14
 - 권한: 교사 — 미디어가 속한 반이 담당 반일 때만. `child_id`도 같은 반 원아만 받습니다.
 - 요청:
   - `llm_allowed`: 필수이고 기본값이 없습니다. 얼굴 분류 · 결과 확인 화면의 확인 체크에서 옵니다.
   - `child_links[]`: 각 항목은 `child_id`, `method`, `confidence_score`입니다. `confidence_score`는 `face_recognition`일 때만 채우고, `manual`이면 null입니다.
-  - 사진·영상·음성메모 모두 이 엔드포인트로 보냅니다(제안). 영상·음성메모는 `method: "manual"`로 원아를 여러 명 넣을 수 있습니다. 음성메모도 귀속돼 있어야 근거 수집 함수 `collect_media_for_llm(child_id, …)`가 찾아냅니다.
+  - 영상·음성은 `method: "manual"`로, **발화에 연결한 아이들을 모두** 넣습니다(임시 결정(김동건)). 근거 수집 함수 `collect_media_for_llm(child_id, …)`는 파일 귀속으로 원아를 찾으므로, 발화에만 연결하고 파일 귀속을 비우면 그 영상·음성은 어떤 원아의 근거로도 수집되지 않습니다. 발화마다 다른 아이만 고르는 처리는 수집 쪽에서 합니다(media 후속, #103).
+  - `llm_allowed`와 `child_links`는 **둘 다 필수**이고 함께 바뀝니다. 한쪽만 바꾸는 요청은 받지 않습니다 — 귀속은 그대로인데 `llm_allowed`만 바뀌면 빼야 할 사진이 LLM으로 갑니다(PR #13 리뷰).
   - 빈 배열을 보내면 서버에 미분류로 남습니다.
   - 전체 교체 방식입니다(임시 결정(김동건)). 보낸 목록이 최종 상태이고, 목록에 없는 기존 링크는 지웁니다. 같은 본문을 다시 보내도 결과가 같습니다. 검사에 걸리면 기존 링크를 그대로 둡니다.
 
@@ -184,7 +222,7 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 ```
 
 - `llm_allowed`는 서버에 저장된 최종값입니다.
-- `attributed_at`(제안)은 귀속을 한 번이라도 저장하면 채웁니다. 빈 목록이어도 채웁니다. agents는 Job을 만들 때 이 값을 확인합니다.
+- `attributed_at`(제안)은 귀속을 한 번이라도 저장하면 채웁니다(이 절이나 사진의 완료 통지). 빈 목록이어도 채웁니다. agents는 Job을 만들 때 이 값을 확인합니다.
 - 에러:
   - `MEDIA_ASSET_NOT_FOUND` (404) — 없는 `media_id`일 때
   - `INVALID_ATTRIBUTION_METHOD` (400) — `method`가 두 값 밖이거나, `manual`인데 점수가 있거나 `face_recognition`인데 점수가 없을 때
@@ -194,7 +232,7 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 - [확인 필요: 김동건·정은] `llm_allowed` 최종값을 누가 계산할지 정해야 합니다. 제안은 두 가지입니다.
   - 사진: 서버가 "교사 확인 AND 귀속 원아 전원 ③ 동의"로 계산해 저장합니다.
   - 영상·음성메모: 교사 확인값을 그대로 저장합니다.
-- [확인 필요: 김동건·정은] 영상·음성메모도 이 엔드포인트로 수동 귀속하는 위 제안을 채택할지 정해야 합니다.
+- 영상·음성메모도 이 엔드포인트로 귀속합니다 → 임시 결정(김동건), 위 요청 설명.
 
 ### `GET /api/v1/media/{media_id}` — 만료된 근거 미디어의 서명 URL(presigned GET) 재발급
 
@@ -392,9 +430,11 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 
 지금 본문은 파일마다 `POST /media`(ack) → `PUT /media/{media_id}/child-links` 두 번을 부릅니다. 150장이면 URL 발급을 빼고도 300번입니다. 아래처럼 바꾸자고 제안합니다.
 
-- **`POST /media/upload-urls`는 한 번에 10개씩, 결과는 건별로.** 한 건이 틀려도 전체를 거절하지 않고 `items[].status`(`ok` / `error`)와 `items[].code`(예: `MEDIA_TYPE_NOT_ALLOWED`)로 알려 줍니다. 브라우저 사전 형식 검사(#58 정은 제안)는 그대로 하고, 서버도 다시 검사합니다.
-- **완료 통지(`POST /media`)에 `child_links`·`llm_allowed`를 함께 싣고 `PUT /media/{media_id}/child-links`는 없앱니다.** 귀속은 업로드 전 로컬에서 확정되고 서버에서 바뀌지 않습니다(테크스펙 파이프라인 2단계, `UnclassifiedItem`은 서버 도달 뒤 사유만). 전체 교체 규칙(본문 child-links 절)은 완료 통지에 그대로 옮깁니다. 같은 `client_photo_id`를 다시 보내면 기존 `media_id`를 `200`으로 돌려주는 규칙도 그대로입니다.
-- 바뀌면 같이 고칠 곳: 정은 님 `SendStep`(서버 전송), 송유진 님 media 목(`mocks/handlers/media.ts`), 테크스펙 흐름 표 C의 "마지막 **귀속 저장**이 끝나면 `POST /jobs`" → "마지막 **완료 통지(ack)**를 받으면"(#61), agents.md `MEDIA_NOT_READY`의 `attributed_at` 조건.
+- ~~**`POST /media/upload-urls`는 한 번에 10개씩, 결과는 건별로.**~~ → 본문 반영(임시 결정(김동건)). `status` 값은 `issued`/`registered`/`error`로 바꿨습니다.
+  - 원래 제안: 한 건이 틀려도 전체를 거절하지 않고 `items[].status`(`ok` / `error`)와 `items[].code`(예: `MEDIA_TYPE_NOT_ALLOWED`)로 알려 줍니다. 브라우저 사전 형식 검사(#58 정은 제안)는 그대로 하고, 서버도 다시 검사합니다.
+- ~~**완료 통지(`POST /media`)에 `child_links`·`llm_allowed`를 함께 싣고 `PUT /media/{media_id}/child-links`는 없앱니다.**~~ → 본문 반영(임시 결정(김동건))하되 **바꿔서**: 사진만 합치고, 영상·음성은 `PUT child-links`를 그대로 씁니다. §6 흐름에서 영상·음성은 교사 확인 전에 먼저 올라와 완료 통지 때 귀속을 알 수 없기 때문입니다. 흐름 표 C의 "마지막 귀속 저장 뒤 `POST /jobs`"는 그대로 맞습니다.
+  - 원래 제안: 귀속은 업로드 전 로컬에서 확정되고 서버에서 바뀌지 않습니다(테크스펙 파이프라인 2단계, `UnclassifiedItem`은 서버 도달 뒤 사유만). 전체 교체 규칙(본문 child-links 절)은 완료 통지에 그대로 옮깁니다. 같은 `client_photo_id`를 다시 보내면 기존 `media_id`를 `200`으로 돌려주는 규칙도 그대로입니다.
+- 바뀌면 같이 고칠 곳: 정은 님 `SendStep`(사진은 완료 통지에 귀속을 실음)·`clip-upload.ts`(영상·음성 완료 통지에 귀속을 싣지 않음), 송유진 님 media 목(`mocks/handlers/media.ts`), FE `types/api-draft/media.ts`·`media-adapter.ts`. 테크스펙 흐름 표 C의 "마지막 귀속 저장 뒤 `POST /jobs`"와 agents.md `MEDIA_NOT_READY`의 `attributed_at` 조건은 사진만 합친 위 결정에서도 그대로 맞습니다.
 
 ### 2. 영상·음성메모 귀속 (정은과 함께, 테크스펙 변경 필요)
 
