@@ -155,7 +155,7 @@ class VerificationResult(Base):
     draft_id = Column(UUID(as_uuid=True), nullable=False)
     # PR #7의 VerificationCheckType 7종 채택: missing_evidence_ref, invalid_evidence_ref,
     # plan_as_observed_fact, wrong_child_evidence, wrong_date_evidence, critic_content,
-    # critic_response_error
+    # critic_response_error. 생성 응답 형식 오류 draft_response_error를 더해 8종.
     check_type = Column(String, nullable=False)
     sentence_index = Column(Integer, nullable=True)  # 영역스타일 검사는 문서 전체라 null
     # PR #7의 passed: bool과 맞춤
