@@ -116,6 +116,13 @@ class MediaUploadNotFound(AidamError):
     status_code = 409
 
 
+class MediaDeleted(AidamError):
+    """보관 기간이 끝나 파기된 미디어입니다. 파일이 없어 다시 보여 줄 수 없습니다."""
+
+    code = "MEDIA_DELETED"
+    status_code = 409
+
+
 class DuplicateChildLink(AidamError):
     """같은 원아가 귀속 목록에 두 번 있습니다. FE 버그를 숨기지 않으려고 거절합니다."""
 

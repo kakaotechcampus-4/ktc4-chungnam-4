@@ -25,12 +25,14 @@ from core.exceptions import (
     DuplicateChildLink,
     InvalidAttributionMethod,
     MediaAssetNotFound,
+    MediaDeleted,
     MediaTypeNotAllowed,
     MediaUploadMismatch,
     MediaUploadNotFound,
     StorageNotConfigured,
     UploadBatchTooLarge,
 )
+from domains.audit import service as audit
 from domains.media.models import MediaAsset, MediaChildLink, MediaUpload, TranscriptSegment
 from domains.organization.service import (
     ensure_children_in_class,
@@ -442,6 +444,43 @@ def get_signed_urls(db: Session, media_ids: Sequence[UUID]) -> list[SignedMediaU
     return signed
 
 
+# 감사 로그 코드. audit 담당과 코드 목록을 맞추는 중이라(#32, #74) 값은 여기 한곳에만 둡니다.
+# TODO(donggeon): target_type·action 값은 임시 결정(김동건). 한상균 님 확인 대기(media-face.md)
+_AUDIT_TARGET_TYPE = "media_asset"
+_AUDIT_ACTION_REISSUE_URL = "reissue_playback_url"
+
+
+def reissue_signed_url(
+    db: Session, *, media_id: UUID, teacher_id: UUID, center_id: UUID | None
+) -> tuple[MediaAsset, SignedMediaUrl]:
+    """교사 화면에서 만료된 근거 미디어의 서명 URL을 다시 받습니다 (FR-07, `GET /media/{id}`).
+
+    교사가 media 엔드포인트를 직접 부르는 경로라 판정과 열람 기록을 여기서 합니다(#143 리뷰).
+    documents 응답에 담기는 첫 URL은 documents가 판정·기록합니다.
+
+    - 없는 미디어: `MediaAssetNotFound`(404)
+    - 다른 어린이집 반의 미디어: `ClassAccessDenied`(403) — `center_id`가 None(소속 확정 전)이어도 막힘
+    - 파기된 미디어: `MediaDeleted`(409). 판정을 먼저 해서 남의 미디어가 파기됐는지 알려 주지 않습니다
+    - 열람 기록(AccessLog)은 flush만 합니다. **라우터가 커밋한 뒤에 URL을 돌려줘야 합니다**(NFR-05)
+    """
+    asset = db.get(MediaAsset, media_id)
+    if asset is None:
+        raise MediaAssetNotFound("파일을 찾을 수 없어요.")
+    ensure_class_access(db, asset.class_id, center_id)
+    if asset.storage_tier == "deleted":
+        raise MediaDeleted("보관 기간이 끝나 삭제된 파일이에요.")
+    [signed] = get_signed_urls(db, [media_id])
+    audit.record_access(
+        db,
+        actor_type="teacher",
+        actor_id=teacher_id,
+        target_type=_AUDIT_TARGET_TYPE,
+        target_id=media_id,
+        action=_AUDIT_ACTION_REISSUE_URL,
+    )
+    return asset, signed
+
+
 def head_uploaded_object(key: str) -> StoredObject | None:
     """완료 통지를 믿지 않고 S3에 직접 물어봅니다. 객체가 없으면 None.
 
@@ -642,11 +681,40 @@ class UploadRequestItem:
 
 @dataclass(frozen=True)
 class UploadUrlResult:
-    """묶음 요청 안의 파일 하나에 대한 결과. 성공이면 `issued`, 실패면 `error`가 찹니다."""
+    """묶음 요청 안의 파일 하나에 대한 결과. 성공이면 `issued`, 실패면 `error`가 찹니다.
+
+    아래 속성들은 응답(`items[]`)의 필드와 이름이 같아 라우터가 그대로 옮깁니다.
+    """
 
     client_photo_id: UUID
     issued: IssuedUpload | None
     error: AidamError | None
+
+    @property
+    def status(self) -> str:
+        if self.error is not None:
+            return "error"
+        return "registered" if self.media_id is not None else "issued"
+
+    @property
+    def media_id(self) -> UUID | None:
+        return self.issued.media_id if self.issued is not None else None
+
+    @property
+    def _upload(self) -> PresignedUpload | None:
+        return self.issued.upload if self.issued is not None else None
+
+    @property
+    def upload_url(self) -> str | None:
+        return self._upload.url if self._upload is not None else None
+
+    @property
+    def upload_headers(self) -> dict[str, str] | None:
+        return self._upload.headers if self._upload is not None else None
+
+    @property
+    def upload_url_expires_at(self) -> datetime | None:
+        return self._upload.expires_at if self._upload is not None else None
 
 
 # 파일 하나만 실패시키고 나머지는 계속 발급하는 예외. 모두 DB에 쓰기 전에 올라옵니다.
