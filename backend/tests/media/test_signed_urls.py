@@ -90,13 +90,13 @@ def test_요청_순서대로_서울_리전_호스트로_서명한다(db: Session
     assert "X-Amz-Signature" in _query(signed[0].url)
 
 
-def test_기본_유효기간은_1시간이고_만료_시각을_함께_준다(db: Session) -> None:
+def test_기본_유효기간은_15분이고_만료_시각을_함께_준다(db: Session) -> None:
     before = datetime.now(UTC)
 
     [item] = service.get_signed_urls(db, [_asset(db).id])
 
-    assert _query(item.url)["X-Amz-Expires"] == "3600"
-    assert 3599 <= (item.url_expires_at - before).total_seconds() <= 3601
+    assert _query(item.url)["X-Amz-Expires"] == "900"
+    assert 899 <= (item.url_expires_at - before).total_seconds() <= 901
 
 
 def test_자격증명이_먼저_끝나면_그_안으로_줄인다(
