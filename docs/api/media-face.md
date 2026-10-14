@@ -17,8 +17,8 @@
 - [ ] `error.detail`을 object로 허용할지(develop `AidamError.detail`은 지금 str)
 - [x] 모델 버전 문자열 형식 → 임시 결정(김진하), 이슈 #120 김동건 님 확인: `human-faceres-<faceres.bin SHA-256 hex 앞 12자리>`. 라이브러리 버전을 쓰지 않는 것은 모델 파일이 그대로인데 라이브러리만 올라가도 값이 바뀌어 원아 전원이 재등록 대상이 되기 때문입니다. 해시는 손으로 적지 않고 빌드 때 계산하거나 테스트로 대조하며, 전처리가 라이브러리 코드 쪽이라 `package.json`은 `^` 없이 고정합니다. 반영: 이 문서 §`GET /classes/{class_id}/face-embeddings`·§등록, `frontend/src/workers/face/types.ts`
 - [ ] `load_embedding_cache`가 `model_version`도 돌려주게 할지 — 김동건 님이 로컬에서 고쳐 두셨고 `feat/be/face-media-storage-foundation` PR을 기다립니다(이슈 #120). 머지되면 닫습니다
-- [x] 서명 함수(`get_signed_urls`) 제공 → 임시 결정(김동건): `get_signed_urls(db, media_ids) -> list[SignedMediaUrl]`(`{media_id, type, url, url_expires_at}`), 재생 URL 만료 15분(`S3_PLAYBACK_URL_EXPIRES_SECONDS`). 승인·접근 판정과 AccessLog는 부르는 쪽(documents)이 합니다. 반영: 하단 §상의 필요 5. documents 응답에 담는 일은 한상균 님 몫으로 남습니다
-- [ ] develop(PR #13)과 다른 점: 귀속 에러 코드 이름이 `MEDIA_INVALID_ATTRIBUTION_METHOD`(이 문서 `INVALID_ATTRIBUTION_METHOD`, 조건은 같음)이고, documents용 함수 `get_playback_url`은 한 건씩 서명·만료 없는 URL 문자열을 줌 → 에러 코드는 #132에서 이 문서 값으로, `get_playback_url`은 `get_signed_urls`로 바꿈. 두 PR이 머지되면 닫습니다
+- [ ] 서명 함수(`get_signed_urls`, 가칭) 제공과 documents 응답 내장 분담(한상균과 함께) → 하단 §상의 필요 5
+- [ ] develop(PR #13)과 다른 점: 귀속 에러 코드 이름이 `MEDIA_INVALID_ATTRIBUTION_METHOD`(이 문서 `INVALID_ATTRIBUTION_METHOD`, 조건은 같음)이고, documents용 함수 `get_playback_url`은 한 건씩 서명·만료 없는 URL 문자열을 줌. 이 문서에 맞출지 develop에 맞출지(URL 함수는 한상균과 함께)
 - [ ] 영상·음성 서버 STT를 어디서 시작할지(동기 vs Celery)
 - [x] 발화 구간 조회·수정의 요청·응답 → 임시 결정(김동건): 상세 작성으로 채움. 반영: 이 파일 `GET /media/{media_id}/transcript-segments`·`PATCH /transcript-segments/{segment_id}` 절, FE `types/api-draft/media.ts`·`mocks/handlers/media.ts`. 테크스펙에 없는 필드와 업로드 시점은 하단 §상의 필요 6
 - [x] 얼굴 등록 사진 수 → 임시 결정(김동건): 1~3장. 3장을 강제하지 않고, 다시 등록하면 전체가 바뀐다고 화면에 알림. 반영: 이 파일 `PUT /children/{child_id}/face-embedding` 절, FE 얼굴 정보 등록 화면
@@ -230,7 +230,7 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
   "media_id": "3ed1a000-0000-4000-8000-000000000044",
   "type": "voice_memo",
   "captured_at": "2026-09-15T01:24:00Z",
-  "url": "https://<bucket>.s3.ap-northeast-2.amazonaws.com/<key>?X-Amz-Expires=900&X-Amz-Signature=…",
+  "url": "https://<bucket>.s3.amazonaws.com/<key>?X-Amz-Expires=300&X-Amz-Signature=…",
   "url_expires_at": "2026-09-15T07:05:00Z"
 }
 ```
@@ -438,11 +438,8 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 
 ### 5. 재생 URL 서명 함수 (한상균과 함께)
 
-- documents용 `get_playback_url`(한 건씩, 서명·만료 없음)을 **`get_signed_urls(db, media_ids)`로 바꿨습니다**(임시 결정(김동건)). 비공개 S3에서는 서명 없는 URL을 쓸 수 없습니다(스파이크 버킷에서 서명 없이 GET하면 403 확인). #32에서 `get_playback_url`을 안내했으므로 한상균 님께 다시 알립니다.
-  - 반환: `SignedMediaUrl`(`media_id`, `type`, `url`, `url_expires_at`) 목록, 요청 순서대로. 같은 id는 한 번만, 파기된 미디어(`storage_tier == deleted`)는 뺍니다. 모르는 id가 섞이면 `MEDIA_ASSET_NOT_FOUND`
-  - 파생본(`proxy_url`)이 있으면 그것에, 없으면 원본에 서명합니다
-  - **승인·원아 접근 판정과 열람 기록(AccessLog)은 부르는 쪽이 합니다.** media는 누가 왜 보는지 모르므로, documents의 단일 공개 게이트(H-1)를 통과한 뒤 부릅니다
-- 만료: 재생 URL은 15분(`S3_PLAYBACK_URL_EXPIRES_SECONDS`, 임시 결정(김동건)). 서명 URL은 링크만 있으면 누구나 열 수 있어서, 학부모가 링크를 다른 사람에게 보내도 오래 열리지 않게 짧게 둡니다. 영상을 15분 넘게 열어 두면 이어 보기(Range 요청)가 끊길 수 있으니, FE는 `url_expires_at`이 지나면 `GET /api/v1/media/{media_id}`(교사) 또는 documents 응답을 다시 받아 새 URL로 바꿉니다. 서버 자격증명의 남은 수명이 더 짧으면 그 안으로 줄여 발급합니다.
+- documents용 `get_playback_url`(한 건씩, 서명·만료 없음)을 `get_signed_urls(media_ids)`로 바꾸고 `{media_id, type, url, url_expires_at}`를 돌려주자고 제안합니다. 비공개 S3에서는 서명 없는 URL을 쓸 수 없습니다. #32에서 `get_playback_url`을 안내했으므로 바뀌면 다시 알립니다.
+- 만료: 업로드 PUT은 짧게, 재생 GET은 길게. 영상은 재생 중 Range 요청을 계속 보내므로 만료가 짧으면 중간에 끊깁니다. 값은 미정입니다.
 
 ### 6. 분류 확인 전에 영상·음성 먼저 올리기와 발화 확인 (송유진 #83 리뷰 흐름, 테크스펙 변경 필요)
 

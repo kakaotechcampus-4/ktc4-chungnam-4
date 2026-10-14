@@ -12,6 +12,7 @@ from core.exceptions import InvalidAttributionMethod, MediaAssetNotFound
 from domains.media.models import MediaAsset, MediaChildLink
 from domains.media.service import (
     Attribution,
+    get_playback_url,
     save_attributions,
 )
 
@@ -182,6 +183,17 @@ def test_없는_미디어에는_귀속할_수_없다(db: Session) -> None:
         save_attributions(
             db, uuid.uuid4(), [Attribution(uuid.uuid4(), "manual")], llm_allowed=False
         )
+
+
+def test_파생본이_없으면_원본_주소를_돌려준다(db: Session, asset: MediaAsset) -> None:
+    assert get_playback_url(db, asset.id) == "s3://bucket/key"
+
+
+def test_파생본이_있으면_그것을_우선한다(db: Session, asset: MediaAsset) -> None:
+    asset.proxy_url = "s3://bucket/key.mp4"
+    db.commit()
+
+    assert get_playback_url(db, asset.id) == "s3://bucket/key.mp4"
 
 
 def test_미디어를_못_찾으면_404_코드로_올라간다() -> None:
