@@ -19,7 +19,7 @@
   - `consent_type` 코드 → 확정(이한나, #38): `personal_info`·`activity_media`·`face_feature`. 반영: 테크스펙 데이터 모델 ②, `organization/models.py`, §② 화면용으로 채운 엔드포인트의 `ChildDetail`. ConsentRecord.status 값(`agreed`/`revoked`)은 모델에 있으나 API 노출 여부는 아직 미정
 - [ ] 09-22 결정(PR #39) 반영: 학부모가 원아별 초대 링크로 가입하며 직접 동의함(FR-28, 교사의 동의 등록 FR-01은 폐기). 동의 확인 모달의 `POST /api/v1/children/{child_id}/consents`를 초대 수락으로 옮길지, 철회(FR-22)를 학부모도 할지(엄태은과 함께)
 - [ ] develop(PR #14)의 학부모 알림장 API는 `child_id` 없이 로그인한 학부모 기준이라, W3 자녀 칩 전환과 `access_expired` 자녀의 `CHILD_ACCESS_EXPIRED` 차단을 어떻게 할지(한상균과 함께)
-- [ ] `organization/CLAUDE.md`의 `/organization` 표기 수정
+- [x] `organization/CLAUDE.md`의 `/organization` 표기 수정 → 수정(이한나, #146)
 - [ ] 학부모 초대 링크의 만료 기한(7일 제안)과 보호자 여러 명이 한 링크를 쓸지(엄태은·송유진과 함께)
 - [ ] 교사 정보 입력의 가입 완료: 문서는 `POST /accounts`(auth)로 이메일 가입과 합쳐 보냄. FE는 #65와 맞추기 전까지 임시 경로 `PUT /teachers/me/profile`(`{ "name", "center_id" }`)을 목으로 씀(엄태은·송유진과 함께)
 - [ ] 원아 개인 페이지의 이번 달 기록 수·누리과정 5영역별 수(documents). FE는 정해지기 전까지 임시 경로 `GET /children/{child_id}/overview`를 목으로 씀. 응답은 §② 화면용으로 채운 엔드포인트의 `ChildOverview`(김진하·한상균과 함께)
@@ -36,8 +36,8 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
   - 교사 공통 헤더와 부제의 "· 햇살반": 오늘의 기록·빈 상태를 비롯한 상세 작성 범위의 교사 화면 전체
   - 로그인 직후 들어갈 반을 고를 때
 - 요구사항: FR-25
-- 권한: 교사 — 같은 어린이집(center)의 반 전체. 담당교사 개념은 폐지됐습니다(팀 결정, FR-25). 반 이름순입니다
-- 요청: 파라미터 없음. 반 이름 가나다순입니다(제안).
+- 권한: 교사 — 같은 어린이집(center)의 반 전체. 담당교사 개념은 팀 회의에서 폐지됐습니다(`backend/domains/organization/CLAUDE.md`). 테크스펙 FR-25·A-6·공통 에러 코드 표의 "담당" 문구는 아직 고치기 전입니다
+- 요청: 파라미터 없음. 반 이름 가나다순입니다.
 - 응답 `200`:
 
 ```json
@@ -56,7 +56,8 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 ```
 
 - `center_name`(제안)은 헤더에 쓰려고 `Center.name`을 붙인 값입니다.
-- 교사의 소속 어린이집이 아직 없으면(`center_id`가 null) `items: []`입니다. FE는 이 경우 온보딩으로 보냅니다. 온보딩 API는 경로만 정했습니다.
+- 교사의 소속 어린이집이 아직 없으면(`center_id`가 null) `items: []`입니다. 소속은 있는데 반이 아직 없는 어린이집도 `items: []`이므로, FE는 두 경우를 `GET /me`의 `center_id`로 구분합니다 — null이면 가입 코드 입력, 있으면 반 만들기·고르기(FR-25). 온보딩 API는 경로만 정했습니다.
+- 구현됨(#146): 서버는 위 기본 필드만 돌려줍니다. §② `ClassSummary`의 확장 필드(`age_band`·`child_count`·`is_favorite`·`needs_record_today`)는 아직 없습니다.
 - 에러: 공통 에러만
 - `age_group` 값 형식 → 임시 결정(이한나): 표시용 문자열로 두고, 교육과정은 새 필드 `age_band`로 고릅니다. 이 응답에 더하는 필드는 아래 §② 화면용으로 채운 엔드포인트의 `ClassSummary`에 있습니다.
 - 담당교사 개념 폐지로 원장·담임 구분 없이 같은 어린이집 교사는 모든 반을 봅니다.
@@ -91,6 +92,7 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 - ③ 미동의 원아도 명단에 넣습니다. 업로드와 수동 분류를 막지 않습니다(H-3).
 - 동의, 얼굴 등록, 보호자 연결 상태는 상세 작성 범위의 화면 17개 어디에도 나오지 않아 뺐습니다. 이 필드들을 더한 확장 응답은 아래 §② 화면용으로 채운 엔드포인트의 `ClassChild`에 있습니다. LLM 제외 대상과 얼굴 대조 대상은 서버가 `get_consented_children`으로 판정합니다.
 - 이니셜은 FE가 이름에서 만듭니다.
+- 구현됨(#146): 서버는 위 기본 필드(`child_id`·`class_id`·`name`)만 돌려줍니다. §② `ClassChild`의 확장 필드(동의·얼굴 등록·보호자 연결)는 아직 없습니다.
 - 에러:
   - `CLASS_ACCESS_DENIED` (403) — 다른 어린이집의 반이거나 교사의 소속이 아직 없음
   - `CLASS_NOT_FOUND` (404) — 없는 반
@@ -164,16 +166,15 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 ```
 
 - `age_band`: `infant`(만 0~2세, 표준보육과정) / `preschool`(만 3~5세, 누리과정). 에이전트는 이 코드로 교육과정을 고르고, `age_group`은 표시에만 씁니다.
-- `child_count`, `is_favorite`(교사별), `needs_record_today`는 반 선택 카드에 씁니다. 위 상세 작성 `GET /classes` 응답에도 같은 필드를 더합니다(확장).
+- `child_count`, `is_favorite`(교사별), `needs_record_today`는 반 선택 카드에 씁니다. 위 상세 작성 `GET /classes` 응답에도 같은 필드를 더합니다(확장). 서버에는 아직 없습니다(#146은 기본 필드만).
 
-`ClassChild` — `GET /classes/{class_id}/children` 항목(확장). 상세 작성 필드(`child_id`·`class_id`·`name`)에 아래를 더합니다.
+`ClassChild` — `GET /classes/{class_id}/children` 항목(확장). 상세 작성 필드(`child_id`·`class_id`·`name`)에 아래를 더합니다. 서버에는 아직 없습니다(#146은 기본 필드만).
 
 ```json
 {
   "child_id": "c41d0000-0000-4000-8000-000000000004",
   "class_id": "c1a50000-0000-4000-8000-000000000001",
   "name": "최지우",
-  "birth_date": "2021-12-25",
   "age_group": "만 4세",
   "consent_agreed_count": 3,
   "consent_total": 3,
@@ -191,6 +192,7 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 
 ```json
 {
+  "birth_date": "2021-12-25",
   "class_name": "햇살반",
   "consents": [
     { "consent_type": "personal_info", "agreed": true },
@@ -204,6 +206,7 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 }
 ```
 
+- `birth_date`는 원아 수정 폼에서만 쓰므로 명단(`ClassChild`)이 아니라 여기에 둡니다 → 임시 결정(이한나, #146 리뷰). 명단 응답에는 필요한 필드만 옮깁니다(`backend/CLAUDE.md` §스키마와 예외).
 - `month_record_count`·`today_note_sent`는 documents 데이터입니다. 어느 도메인이 채울지는 위 체크리스트에 있습니다.
 
 `EducationPlan` — 교육 계획 목록 항목과 단건
