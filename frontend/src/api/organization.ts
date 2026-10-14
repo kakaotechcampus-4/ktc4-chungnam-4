@@ -15,12 +15,6 @@ import type {
 } from "@/types/api-draft/organization";
 
 import {
-  type CenterCreateInput,
-  type ChildInput,
-  type ClassCreateInput,
-  type EducationPlanInput,
-  type PlanTypeView,
-  type TeacherProfileInput,
   toCenterCreateBody,
   toCenterSummaryView,
   toChildBody,
@@ -35,31 +29,39 @@ import {
   toMyChildView,
   toTeacherProfileBody,
 } from "./organization-adapter";
+import type {
+  CenterCreateInput,
+  ChildInput,
+  ClassCreateInput,
+  EducationPlanInput,
+  PlanTypeView,
+  TeacherProfileInput,
+} from "./organization-view";
 
 // 화면은 서버 타입 대신 여기서 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
-export {
-  type AgeBandView,
-  type CenterCreateInput,
-  type CenterSummaryView,
-  type ChildDetailView,
-  type ChildInput,
-  type ChildInviteView,
-  type ChildNoteSummaryView,
-  type ChildOverviewView,
-  type ClassChildView,
-  type ClassCreateInput,
-  type ClassSummaryView,
-  type ConsentItemView,
-  type ConsentTypeView,
-  type EducationPlanInput,
-  type EducationPlanView,
-  type FaceStatusView,
-  type MyChildView,
-  type NuriDomainView,
-  type PlanTypeView,
-  type TeacherProfileInput,
-  type WeekdayView,
-} from "./organization-adapter";
+export type {
+  AgeBandView,
+  CenterCreateInput,
+  CenterSummaryView,
+  ChildDetailView,
+  ChildInput,
+  ChildInviteView,
+  ChildNoteSummaryView,
+  ChildOverviewView,
+  ClassChildView,
+  ClassCreateInput,
+  ClassSummaryView,
+  ConsentItemView,
+  ConsentTypeView,
+  EducationPlanInput,
+  EducationPlanView,
+  FaceStatusView,
+  MyChildView,
+  NuriDomainView,
+  PlanTypeView,
+  TeacherProfileInput,
+  WeekdayView,
+} from "./organization-view";
 
 // 반·원아·교육 계획 요청과 query key는 이 파일에서만 만듭니다(frontend/CLAUDE.md §데이터).
 // 목록은 작아서 next_cursor가 항상 null이라 items만 캐시에 둡니다.

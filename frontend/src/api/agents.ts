@@ -6,24 +6,23 @@ import type { ListResponse } from "@/types/api-draft/common";
 
 import {
   isJobFinished,
-  type JobCreateInput,
-  type TeacherEvidenceInput,
   toJobCreateBody,
   toJobView,
   toTeacherEvidenceBody,
   toTeacherEvidenceView,
 } from "./agents-adapter";
+import type { JobCreateInput, TeacherEvidenceInput } from "./agents-view";
 
 // 화면은 agents 서버 타입 대신 여기서 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
-export {
-  isJobFinished,
-  type JobChildView,
-  type JobCreateInput,
-  type JobStatusView,
-  type JobView,
-  type TeacherEvidenceInput,
-  type TeacherEvidenceView,
-} from "./agents-adapter";
+export { isJobFinished } from "./agents-adapter";
+export type {
+  JobChildView,
+  JobCreateInput,
+  JobStatusView,
+  JobView,
+  TeacherEvidenceInput,
+  TeacherEvidenceView,
+} from "./agents-view";
 
 // 초안 생성 작업(Job) 요청과 query key는 이 파일에서만 만듭니다(frontend/CLAUDE.md §데이터).
 // 서버 전송이 끝나면 createJob을 한 번 부르고(#60 B안), jobQueryOptions로 끝날 때까지 폴링합니다.

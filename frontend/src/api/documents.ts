@@ -5,7 +5,6 @@ import type { ListResponse } from "@/types/api-draft/common";
 import type {
   ChildDraftItem,
   ClassDraftItem,
-  DocType,
   DraftApproveRequest,
   DraftCreateRequest,
   DraftDetail,
@@ -23,33 +22,37 @@ import {
   toDraftView,
   toPublicationResultView,
 } from "./documents-adapter";
+import type { DocTypeView } from "./documents-view";
 
 // 화면은 서버 타입 대신 여기서 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
 export {
   canApprove,
   canReopen,
   didSendPhotos,
-  type ChildDraftView,
-  type ClassDraftView,
-  type DocType,
-  type DraftState,
-  type DraftSummaryView,
-  type DraftView,
-  type Evidence,
-  type EvidenceSourceType,
   isNotReady,
   isPublished,
   isPublishTarget,
   isUnpublishedDraft,
   needsReview,
-  type PublicationResultView,
-  type PublicationState,
-  type RosterState,
   toRosterState,
   selectedPhotos,
-  type Sentence,
   sentPhotos,
 } from "./documents-adapter";
+export type {
+  ChildDraftView,
+  ClassDraftView,
+  DocTypeView,
+  DraftMediaView,
+  DraftState,
+  DraftSummaryView,
+  DraftView,
+  EvidenceSourceTypeView,
+  EvidenceView,
+  PublicationResultView,
+  PublicationState,
+  RosterState,
+  SentenceView,
+} from "./documents-view";
 
 // 초안·게시·학부모 알림장 요청과 query key는 이 파일에서만 만듭니다(frontend/CLAUDE.md §데이터).
 // 교사용(/drafts)과 학부모용(/parent-notes)은 경로와 스키마가 다릅니다. 학부모 응답에는 상태·버전·근거가 없습니다.
@@ -63,7 +66,7 @@ export const documentsKeys = {
    * `published`까지 넣습니다 — 빼면 "게시된 것만"과 "전부"가 같은 캐시를 써서,
    * 미게시 초안을 받아 온 화면을 본 뒤에는 게시본 목록에 그 초안이 섞입니다(H-1).
    */
-  childDrafts: (childId: string, docType: DocType, published: boolean) =>
+  childDrafts: (childId: string, docType: DocTypeView, published: boolean) =>
     ["children", childId, "drafts", docType, published] as const,
   draft: (draftId: string) => ["drafts", draftId] as const,
   parentNotes: (childId: string) => ["children", childId, "parent-notes"] as const,
@@ -99,7 +102,7 @@ export function publishedParentNotesQueryOptions(classId: string) {
 }
 
 /** 교사용: 한 원아의 문서 목록(record_date 최신순). 알림장 상세의 ‹ › 날짜 이동에 씁니다. */
-export function childDraftsQueryOptions(childId: string, docType: DocType, published = false) {
+export function childDraftsQueryOptions(childId: string, docType: DocTypeView, published = false) {
   return queryOptions({
     queryKey: documentsKeys.childDrafts(childId, docType, published),
     queryFn: async ({ signal }) =>
