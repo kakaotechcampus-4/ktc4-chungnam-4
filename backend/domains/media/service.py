@@ -279,7 +279,7 @@ def _s3_client(region: str) -> BaseClient:
 def _bucket() -> str:
     bucket = get_settings().s3_bucket
     if not bucket:
-        raise StorageNotConfigured("파일 저장소 설정이 없어 업로드할 수 없어요.")
+        raise StorageNotConfigured("파일 저장소 설정이 없어요.")
     return bucket
 
 
@@ -292,7 +292,8 @@ def _credential_seconds_left(region: str) -> int | None:
     """
     credentials = _s3_session(region).get_credentials()
     if credentials is None:
-        raise StorageNotConfigured("파일 저장소에 접근할 수 없어 업로드할 수 없어요.")
+        # 업로드·재생 서명이 함께 쓰므로 문구에 용도를 넣지 않습니다.
+        raise StorageNotConfigured("파일 저장소에 접근할 수 없어요.")
     credentials.get_frozen_credentials()
     expiry = getattr(credentials, "_expiry_time", None)
     if expiry is None:
@@ -415,14 +416,12 @@ def get_signed_urls(db: Session, media_ids: Sequence[UUID]) -> list[SignedMediaU
         asset = assets[media_id]
         if asset.storage_tier == "deleted":
             continue
-        try:
-            url = client.generate_presigned_url(
-                "get_object",
-                Params={"Bucket": bucket, "Key": asset.proxy_url or asset.storage_url},
-                ExpiresIn=expires_in,
-            )
-        except NoCredentialsError as error:
-            raise StorageNotConfigured("파일 저장소에 접근할 수 없어 보여 줄 수 없어요.") from error
+        # 자격증명이 없으면 위 `_credential_seconds_left`가 먼저 StorageNotConfigured를 올립니다.
+        url = client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket, "Key": asset.proxy_url or asset.storage_url},
+            ExpiresIn=expires_in,
+        )
         signed.append(
             SignedMediaUrl(media_id=media_id, type=asset.type, url=url, url_expires_at=expires_at)
         )
