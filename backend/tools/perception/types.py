@@ -97,7 +97,8 @@ class DropReason(StrEnum):
     AMBIGUOUS_ACTOR = "ambiguous_actor"  # 사진의 아이 수와 관찰 scope가 맞지 않음
     NO_VISIBLE_OBSERVATION = "no_visible_observation"  # 사진에서 쓸 관찰이 없다고 응답함
     PHOTO_NOT_ANSWERED = "photo_not_answered"  # 사진 분석 응답에 그 사진이 빠짐
-    # 재시도 뒤에도 그 사진의 분석이 실패함(응답 형식 위반·본문 없음·재시도 대상 호출 예외)
+    # 재시도 뒤에도 그 사진의 응답이 형식을 어기거나 본문이 없음. 호출 예외는 사진 단위에서 잡지
+    # 않고 Celery 재시도가 맡아 이 사유로 오지 않는다.
     PHOTO_RESPONSE_ERROR = "photo_response_error"
 
 

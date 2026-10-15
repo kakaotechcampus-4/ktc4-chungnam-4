@@ -6,10 +6,13 @@
     raw = ...  # LLM 호출은 domains/agents/llm.py
     result = parse_single_photo_analysis(raw, photo=photo, ...)
 
-RESPONSE_ERROR인 사진은 service가 정한 횟수만큼 다시 부른다. 재시도를 마친 결과를
-merge_perception_results로 발화 결과와 합친다. 호출이 재시도 대상 예외로 끝나 응답이 없는 사진도
-photos에서 빼지 않고 parse_single_photo_analysis(None, photo=photo, ...)의 결과로 넘긴다. 빼면
-사진이 모두 실패했을 때 EMPTY가 나와 근거가 없는 경우와 구분되지 않는다.
+사진 단위 재시도는 RESPONSE_ERROR(응답 형식 오류·본문 없음)만 맡는다. service가 정한 횟수만큼
+다시 부르고, 재시도를 마친 결과를 merge_perception_results로 발화 결과와 합친다. 재시도 뒤에도
+RESPONSE_ERROR인 사진은 photos에서 빼지 않고 그 결과 그대로 넘긴다. 빼면 사진이 모두 실패했을 때
+EMPTY가 나와 근거가 없는 경우와 구분되지 않고, failed_photo_ids에도 나오지 않아 교사가 모른다.
+
+호출 예외는 사진 단위에서 잡지 않는다. 재시도 대상 예외는 Celery task 재시도가 맡으므로 사진
+단위에서도 다시 부르면 같은 실패를 두 곳에서 다시 부르게 된다 (테크스펙 §오류 복구).
 """
 
 from __future__ import annotations
