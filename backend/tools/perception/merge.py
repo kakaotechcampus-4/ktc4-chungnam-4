@@ -41,6 +41,8 @@ def merge_perception_results(
     남은 근거가 하나도 없는데 응답 오류로 버린 사진이 있으면 EMPTY가 아니라 RESPONSE_ERROR를
     돌려준다. 정상적으로 근거가 없는 경우와 응답 오류로 근거를 얻지 못한 경우를 상태로 구분하기
     위해서다. 이 RESPONSE_ERROR는 재시도를 마친 뒤의 결과라 service는 다시 부르지 않는다.
+    근거가 남으면 사진이 모두 실패해도 OK다. status는 초안을 만들지, 어떤 사유로 미분류함에
+    보낼지만 정한다. 뺀 사진은 failed_photo_ids로 꺼내 교사에게 보여 준다.
 
     순서는 발화 근거 다음 사진 근거(촬영 시각·media_id 순)로 고정해, 입력 순서와 관계없이
     같은 결과를 낸다. 다음은 호출 오류로 ValueError를 낸다: 발화 결과가 RESPONSE_ERROR,
@@ -83,6 +85,18 @@ def merge_perception_results(
     merged = PerceptionResult(status=status, items=items, dropped=dropped)
     evidence_by_id(merged)  # 같은 evidence_id가 두 번 나오면 여기서 ValueError
     return merged
+
+
+def failed_photo_ids(result: PerceptionResult) -> list[str]:
+    """합친 결과에서 분석하지 못해 근거에서 뺀 사진의 media_id를 촬영 시각 순으로 돌려준다.
+
+    status가 OK여도 비어 있지 않을 수 있다. service는 이 목록을 초안과 함께 남겨 초안 검토에서
+    교사에게 보여 준다 (테크스펙 §화면별 필요 데이터 > 초안 검토). 분석은 됐지만 쓸 관찰이 없던
+    사진(NO_VISIBLE_OBSERVATION·AMBIGUOUS_ACTOR)은 정상 결과라 넣지 않는다.
+    """
+    return [
+        drop.source_id for drop in result.dropped if drop.reason == DropReason.PHOTO_RESPONSE_ERROR
+    ]
 
 
 def evidence_by_id(result: PerceptionResult) -> dict[str, EvidenceItem]:

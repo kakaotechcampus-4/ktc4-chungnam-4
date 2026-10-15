@@ -113,7 +113,9 @@ class Dropped(ContractModel):
 
 
 class PerceptionStatus(StrEnum):
-    OK = "ok"  # items 1개 이상
+    # items 1개 이상. 합친 결과에서는 응답 오류로 뺀 사진이 있어도 OK라, 뺀 사진은
+    # merge.failed_photo_ids로 따로 꺼낸다.
+    OK = "ok"
     EMPTY = "empty"  # 정상 처리했지만 쓸 근거가 없음
     # 사진 분석 응답이 JSON·스키마 위반이거나 본문이 없음. 재시도는 service가 판단한다. 합친
     # 결과에서는 남은 근거가 없고, 재시도 뒤에도 응답 오류로 뺀 사진이 하나 이상 있다는 뜻이다.
