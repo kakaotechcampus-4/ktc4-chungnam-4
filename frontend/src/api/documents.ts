@@ -34,7 +34,7 @@ export {
   isPublishTarget,
   isUnpublishedDraft,
   needsReview,
-  toRosterState,
+  toRosterStatusView,
   selectedPhotos,
   sentPhotos,
 } from "./documents-adapter";
@@ -43,14 +43,14 @@ export type {
   ClassDraftView,
   DocTypeView,
   DraftMediaView,
-  DraftState,
+  DraftStatusView,
   DraftSummaryView,
   DraftView,
   EvidenceSourceTypeView,
   EvidenceView,
   PublicationResultView,
-  PublicationState,
-  RosterState,
+  PublicationStatusView,
+  RosterStatusView,
   SentenceView,
 } from "./documents-view";
 

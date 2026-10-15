@@ -1,6 +1,6 @@
 import { CheckIcon } from "lucide-react";
 
-import type { DraftSummaryView, RosterState } from "@/api/documents";
+import type { DraftSummaryView, RosterStatusView } from "@/api/documents";
 import { cn } from "@/lib/utils";
 import type { ClassChildView } from "@/api/organization";
 
@@ -12,13 +12,13 @@ export interface RosterRow {
   child: ClassChildView;
   /** 그날의 알림장 초안. 없으면 자료가 없어 초안이 만들어지지 않은 것입니다. */
   note: DraftSummaryView | null;
-  status: RosterState;
+  status: RosterStatusView;
 }
 
 // 한 날짜에 나간 아이와 안 나간 아이가 섞입니다 — 게시가 건별로 실패하거나 교사가 일부를
 // 빼기 때문입니다(#108). 둘을 "검토 완료"로 함께 보여 주면 교사가 누가 나갔는지 모른 채
 // 나머지를 올리게 됩니다. docs/api/documents.md §레일·목록 표기.
-const STATE_LABEL_MAP: Record<RosterState, string> = {
+const STATE_LABEL_MAP: Record<RosterStatusView, string> = {
   published: "게시됨",
   approved: "검토 완료",
   review: "검토 필요",
@@ -32,7 +32,7 @@ const STATE_LABEL_MAP: Record<RosterState, string> = {
 };
 
 /** 교사가 손을 뗀 줄만 체크로 표시합니다(H-1: 승인 전은 검토 대기). */
-function isDone(status: RosterState) {
+function isDone(status: RosterStatusView) {
   return status === "approved" || status === "published";
 }
 

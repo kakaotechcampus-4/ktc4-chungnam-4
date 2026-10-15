@@ -9,7 +9,7 @@ import {
   canApprove,
   canReopen,
   type PublicationResultView,
-  toRosterState,
+  toRosterStatusView,
   classDraftsQueryOptions,
   createDraft,
   documentsKeys,
@@ -139,7 +139,7 @@ export function DraftReviewPage() {
   const draftItems = draftsQuery.data ?? [];
   const rows: RosterRow[] = children.map((child) => {
     const item = draftItems.find((draft) => draft.child_id === child.child_id);
-    return { child, note: item?.parent_note ?? null, status: toRosterState(item) };
+    return { child, note: item?.parent_note ?? null, status: toRosterStatusView(item) };
   });
 
   const selectedChildId = childId ?? rows[0]?.child.child_id ?? "";

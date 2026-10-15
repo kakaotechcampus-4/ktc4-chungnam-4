@@ -14,13 +14,13 @@ import type {
   ChildDraftView,
   ClassDraftView,
   DraftMediaView,
-  DraftState,
+  DraftStatusView,
   DraftSummaryView,
   DraftView,
   EvidenceView,
   PublicationResultView,
-  PublicationState,
-  RosterState,
+  PublicationStatusView,
+  RosterStatusView,
   SentenceView,
 } from "./documents-view";
 
@@ -43,7 +43,7 @@ function warnUnknownStatus(label: string, value: unknown): "unknown" {
  * `unclassified`도 잠급니다(#107 리뷰 정은 님). 초안이 이미 있으면 직접 작성이 409에
  * 걸려서, 교사가 할 수 있는 것은 사진을 더 넣고 다시 만드는 것뿐입니다.
  */
-export function toDraftState(value: DraftStatus): DraftState {
+export function toDraftStatusView(value: DraftStatus): DraftStatusView {
   switch (value) {
     case "approved":
       return "approved";
@@ -63,7 +63,7 @@ export function toDraftState(value: DraftStatus): DraftState {
 function toDraftSummaryView(raw: DraftSummary): DraftSummaryView {
   return {
     draft_id: raw.draft_id,
-    status: toDraftState(raw.status),
+    status: toDraftStatusView(raw.status),
     version: raw.version,
     published_at: raw.published_at,
     preview: raw.preview,
@@ -120,7 +120,7 @@ export function toDraftView(raw: DraftDetail): DraftView {
     child_id: raw.child_id,
     doc_type: raw.doc_type,
     record_date: raw.record_date,
-    status: toDraftState(raw.status),
+    status: toDraftStatusView(raw.status),
     version: raw.version,
     title: raw.title,
     sentences: raw.sentences.map(toSentenceView),
@@ -132,13 +132,13 @@ export function toDraftView(raw: DraftDetail): DraftView {
 }
 
 /**
- * 서버 값을 화면 값으로 옮깁니다. 지금은 글자가 같지만 `toDraftState`처럼 하나씩 집습니다 —
+ * 서버 값을 화면 값으로 옮깁니다. 지금은 글자가 같지만 `toDraftStatusView`처럼 하나씩 집습니다 —
  * 서버에 값이 늘면 `default`에서 컴파일 에러가 나 모르고 지나칠 수 없습니다.
  * 모르는 값은 `unknown`입니다. `failed`는 서버가 "실패했다"고 알려 준 결과인데, 모르는
  * 값은 실패인지도 알 수 없습니다 — 서버에 없는 값을 adapter가 지어내지 않습니다
  * (`frontend/CLAUDE.md` §데이터, #125 리뷰 송유진 님).
  */
-function toPublicationState(value: PublicationResult["status"]): PublicationState {
+function toPublicationStatusView(value: PublicationResult["status"]): PublicationStatusView {
   switch (value) {
     case "published":
       return "published";
@@ -155,7 +155,7 @@ export function toPublicationResultView(raw: PublicationResult): PublicationResu
   return {
     draft_id: raw.draft_id,
     child_id: raw.child_id,
-    status: toPublicationState(raw.status),
+    status: toPublicationStatusView(raw.status),
     parent_note_id: raw.parent_note_id,
     error_code: raw.error_code,
   };
@@ -198,13 +198,13 @@ export function isPublished(result: PublicationResultView): boolean {
 }
 
 /** 교사가 승인할 수 있는 초안인지. 받기 전(undefined)이면 false입니다. */
-export function canApprove(draft: { status: DraftState } | null | undefined): boolean {
+export function canApprove(draft: { status: DraftStatusView } | null | undefined): boolean {
   return draft?.status === "review";
 }
 
 /** 승인을 되돌릴 수 있는지. 게시한 뒤에는 회수가 따로 필요합니다(H-1). */
 export function canReopen(
-  draft: { status: DraftState; published_at: string | null } | null | undefined,
+  draft: { status: DraftStatusView; published_at: string | null } | null | undefined,
 ): boolean {
   return draft?.status === "approved" && draft.published_at === null;
 }
@@ -216,7 +216,7 @@ export function canReopen(
 
 /** 레일 한 줄에서 게시 판정에 필요한 것만. 화면의 `RosterRow`가 이 모양을 만족합니다. */
 interface PublishRow {
-  status: RosterState;
+  status: RosterStatusView;
   note: DraftSummaryView | null;
 }
 
@@ -234,7 +234,7 @@ export function isPublishTarget(row: PublishRow): boolean {
  * 레일 한 줄이 보여 줄 상태를 고릅니다. 게시한 초안은 서버가 `approved`로 그대로 두므로
  * `published_at`까지 봐야 나간 아이를 가려낼 수 있습니다.
  */
-export function toRosterState(item: ClassDraftView | undefined): RosterState {
+export function toRosterStatusView(item: ClassDraftView | undefined): RosterStatusView {
   const note = item?.parent_note;
   if (note === undefined || note === null) return "none";
   return note.published_at === null ? note.status : "published";
