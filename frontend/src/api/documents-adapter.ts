@@ -234,7 +234,7 @@ export function isPublishTarget(row: PublishRow): boolean {
  * 레일 한 줄이 보여 줄 상태를 고릅니다. 게시한 초안은 서버가 `approved`로 그대로 두므로
  * `published_at`까지 봐야 나간 아이를 가려낼 수 있습니다.
  */
-export function toRosterStatusView(item: ClassDraftView | undefined): RosterStatusView {
+export function pickRosterStatus(item: ClassDraftView | undefined): RosterStatusView {
   const note = item?.parent_note;
   if (note === undefined || note === null) return "none";
   return note.published_at === null ? note.status : "published";

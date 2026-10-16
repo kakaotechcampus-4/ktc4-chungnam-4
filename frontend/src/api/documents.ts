@@ -34,7 +34,7 @@ export {
   isPublishTarget,
   isUnpublishedDraft,
   needsReview,
-  toRosterStatusView,
+  pickRosterStatus,
   selectedPhotos,
   sentPhotos,
 } from "./documents-adapter";
