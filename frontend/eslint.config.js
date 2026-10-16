@@ -138,6 +138,16 @@ export default defineConfig([
         { paths: [CN_IMPORT], patterns: [MOCKS_IMPORT, VIEW_SERVER_IMPORT, VIEW_API_IMPORT] },
       ],
       "no-restricted-syntax": ["error", MOCKS_DYNAMIC_IMPORT, SERVER_IMPORT_TYPE],
+      // 화면용 타입 이름은 View로, 요청 본문은 Input으로 끝나야 서버 타입과 헷갈리지 않습니다(#153 멘토 리뷰).
+      "@typescript-eslint/naming-convention": [
+        "error",
+        {
+          selector: ["interface", "typeAlias"],
+          modifiers: ["exported"],
+          format: ["PascalCase"],
+          suffix: ["View", "Input"],
+        },
+      ],
     },
   },
   {
