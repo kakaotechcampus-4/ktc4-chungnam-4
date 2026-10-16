@@ -39,7 +39,8 @@
   - 서버 타입(`types/api-draft/`)은 `api/`·`mocks/`·테스트에서만 씁니다. 화면에서 import하면 ESLint 에러입니다. 화면은 `@/api/<도메인>`이 내보내는 화면용 타입(`XxxView`)과 판정 함수(`isTeacher` 등)를 쓰고, `-view`·`-adapter` 파일을 직접 import하지 않습니다.
   - 화면용 타입은 `api/<도메인>-view.ts`에 둡니다(#124 멘토 리뷰). **이 파일은 서버 타입을 import하지 않습니다**(ESLint 에러). 화면용 타입이 서버 타입을 참조하면(`X["status"]`, 재내보내기) 서버가 바뀔 때 화면까지 끌려가서, adapter가 연결을 끊는 의미가 없어집니다. 다른 도메인의 화면용 타입은 `./<도메인>-view`에서 가져옵니다.
     - 새로 만드는 도메인도 처음부터 화면용 타입을 `-view.ts`에 둡니다. 이 규칙과 아래 adapter 규칙은 ESLint가 `src/api/`의 모든 도메인에 겁니다.
-    - 이 파일이 내보내는 타입 이름은 `View`로, 요청 본문은 `Input`으로 끝납니다(ESLint 에러). 서버 타입과 짝이 있으면 서버 이름 뒤에 붙입니다(`DraftStatus` → `DraftStatusView`, `UploadUrlsRequest` → `UploadUrlsInput`). 이름만 보고 서버 타입인지 화면용 타입인지 알 수 있게 하려는 것입니다(#153 멘토 리뷰).
+    - 이 파일이 내보내는 타입 이름은 `View`로, 요청 본문은 `Input`으로 끝납니다(ESLint 에러). 이름만 보고 서버 타입인지 화면용 타입인지 알 수 있게 하려는 것입니다(#153 멘토 리뷰).
+      - 새 이름은 짝이 되는 서버 타입 이름에서 `Request`·`Response`·`Detail` 같은 서버 쪽 꼬리를 떼고 접미사를 붙입니다(`DraftStatus` → `DraftStatusView`, `UploadUrlsResponse` → `UploadUrlsView`, `UploadUrlsRequest` → `UploadUrlsInput`). `UploadUrlsRequestInput`처럼 꼬리를 남기지 않습니다.
   - `<도메인>-adapter.ts`에는 순수 함수만 둡니다. 서버 → 화면은 `toXxxView`, 화면 → 서버 요청 본문은 `toXxxBody`, 판정은 `isXxx`입니다. React 훅과 요청 호출은 넣지 않습니다. adapter는 타입을 내보내거나 다시 내보내지 않고(ESLint 에러, adapter 안에서만 쓰는 보조 타입은 둘 수 있음), `api/<도메인>.ts`는 화면용 타입을 `./<도메인>-view`에서만 다시 내보냅니다.
   - 화면용 타입의 필드 이름은 `docs/api/`를 따릅니다. 서버 타입을 `Pick`·`extends`·`...raw`로 이어 쓰지 않고 필드를 하나씩 옮깁니다. 서버가 바뀌면 adapter에서 타입 에러가 나게 하려는 것입니다.
     - 화면용 타입끼리는 `extends`로 공통 필드를 묶어도 됩니다(`TeacherMeView extends MeBaseView`). 공통 필드가 늘 때 한 곳만 고치게 하려는 것입니다(#124 멘토 리뷰).
