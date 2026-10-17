@@ -1,13 +1,14 @@
 from celery import Task
-from celery.exceptions import SoftTimeLimitExceeded
 
 from celery_app import celery_app
 from domains.agents import service
 from domains.agents.llm import RETRYABLE_LLM_ERRORS
 
-# 재시도 대상: LLM 호출 실패와 타임아웃 (테크스펙 예외 처리 표). 코드 오류는 다시 돌려도
-# 같으므로 재시도하지 않고 바로 실패로 끝낸다.
-RETRYABLE_ERRORS = (*RETRYABLE_LLM_ERRORS, SoftTimeLimitExceeded)
+# 재시도 대상: LLM 호출 실패와 개별 요청 타임아웃(APITimeoutError) (테크스펙 예외 처리 표).
+# 코드 오류는 다시 돌려도 같으므로 재시도하지 않고 바로 실패로 끝낸다.
+# 180초 작업 제한(SoftTimeLimitExceeded)도 뺀다 — 시간 제한을 넘긴 파이프라인을 처음부터 두 번
+# 더 돌리면 최대 약 9분이 걸리고 앞서 성공한 LLM 호출도 반복된다 (#102 리뷰, 엄태은).
+RETRYABLE_ERRORS = RETRYABLE_LLM_ERRORS
 
 
 def _job_id(args: tuple, kwargs: dict) -> str:

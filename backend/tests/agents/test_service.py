@@ -464,14 +464,23 @@ def test_record_job_retry_늦게_도착해도_끝난_상태를_되돌리지_않�
     assert job.status == final_status.value
 
 
-def test_mark_job_failed_Job을_FAILED로_남긴다(monkeypatch) -> None:
-    job = _fake_job(status=JobStatus.RUNNING.value)
-    monkeypatch.setattr(service, "SessionLocal", FakeSession)
+def test_mark_job_failed_Job을_FAILED로_남기되_SUCCEEDED는_덮어쓰지_않는다(monkeypatch) -> None:
+    """성공 뒤에 늦게 온 실패 훅이 succeeded를 failed로 바꾸면 안 된다 (#102 리뷰).
+    읽고 쓰는 사이에 끼어들지 못하게 조건을 UPDATE 한 문장에 건다."""
+    job = _fake_job(id=uuid.uuid4(), status=JobStatus.RUNNING.value)
+    session = FakeSession()
+    monkeypatch.setattr(service, "SessionLocal", lambda: session)
     monkeypatch.setattr(service, "_get_job", lambda session, job_id: job)
 
     service.mark_job_failed("job-1")
 
-    assert job.status == JobStatus.FAILED.value
+    [statement] = session.executed
+    set_columns = {column.key: value.value for column, value in statement._values.items()}  # type: ignore[attr-defined]
+    assert set_columns == {"status": JobStatus.FAILED.value}
+    compiled = statement.compile()
+    assert "jobs.status !=" in str(compiled)
+    assert JobStatus.SUCCEEDED.value in compiled.params.values()
+    assert session.committed
 
 
 def test_orchestrate_drafts_재생성은_같은_draft_id의_다음_버전이고_걸린_문제를_넘긴다(

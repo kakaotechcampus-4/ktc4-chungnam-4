@@ -165,12 +165,21 @@ def record_job_retry(job_id: str) -> None:
 def mark_job_failed(job_id: str) -> None:
     """재시도를 다 쓰거나 재시도 대상이 아닌 오류로 끝났을 때 부른다.
 
+    이미 SUCCEEDED로 커밋된 Job은 덮어쓰지 않는다. 시간 제한이 커밋 직후에 터지는 것처럼
+    성공 뒤에 실패 훅이 오는 경우가 있다 (#102 리뷰, 엄태은). 읽고 쓰는 사이에 상태가
+    바뀌지 않게 조건을 UPDATE 한 문장에 건다.
+
     TODO(eun): docs/api/agents.md의 error_code·failed_stage를 채울 컬럼이 Job에 없다.
     agents 모델 후속 마이그레이션에서 추가한 뒤 여기서 함께 남긴다.
     """
     with SessionLocal() as session:
         job = _get_job(session, job_id)
-        _set_job_status(session, job, JobStatus.FAILED)
+        session.execute(
+            update(Job)
+            .where(Job.id == job.id, Job.status != JobStatus.SUCCEEDED.value)
+            .values(status=JobStatus.FAILED.value)
+        )
+        session.commit()
 
 
 def _set_job_status(session: Session, job: Job, status: JobStatus) -> None:

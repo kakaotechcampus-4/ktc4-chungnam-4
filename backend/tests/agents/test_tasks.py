@@ -21,12 +21,16 @@ def test_LLM_호출_실패와_타임아웃만_재시도한다() -> None:
     assert _retries_on(openai.APIConnectionError)
     assert _retries_on(openai.RateLimitError)
     assert _retries_on(openai.InternalServerError)
-    assert _retries_on(SoftTimeLimitExceeded)
     # 다시 돌려도 같은 오류는 재시도하지 않고 바로 실패로 끝낸다.
     assert not _retries_on(openai.AuthenticationError)
     assert not _retries_on(openai.BadRequestError)
     assert not _retries_on(NotImplementedError)
     assert not _retries_on(ValueError)
+
+
+def test_작업_시간_제한은_재시도하지_않는다() -> None:
+    """시간 제한을 넘긴 파이프라인을 처음부터 다시 돌리면 최대 약 9분이 걸린다 (#102 리뷰)."""
+    assert not _retries_on(SoftTimeLimitExceeded)
 
 
 def test_재시도_상한은_2회다() -> None:
