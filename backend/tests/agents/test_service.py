@@ -739,7 +739,7 @@ def test_생성부터_Critic까지_실명이_LLM에_가지_않는다(monkeypatch
         return json.dumps(
             [
                 {
-                    "sentence_id": "s_01",
+                    "sentence_id": "s1",
                     "verdict": "pass",
                     "reason_code": "ok",
                     "detail": "근거와 일치",
@@ -778,7 +778,7 @@ def test_Critic에는_서버_근거_ID_대신_임시_참조를_보내고_결과�
         record_date=RECORD_DATE,
         sentences=[
             contracts.DraftSentence(
-                sentence_id="s_01", text="탑을 쌓았어요.", evidence_ids=[media_scoped.evidence_id]
+                sentence_id="s1", text="탑을 쌓았어요.", evidence_ids=[media_scoped.evidence_id]
             )
         ],
     )
@@ -788,7 +788,7 @@ def test_Critic에는_서버_근거_ID_대신_임시_참조를_보내고_결과�
         return json.dumps(
             [
                 {
-                    "sentence_id": "s_01",
+                    "sentence_id": "s1",
                     "verdict": "fail",
                     "reason_code": "unsupported_claim",
                     "detail": "E1에 없는 내용",

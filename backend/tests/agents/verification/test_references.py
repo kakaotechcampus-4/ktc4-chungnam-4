@@ -13,9 +13,7 @@ def _document(sentences: list[DraftSentence]) -> DraftDocument:
 
 
 def test_근거_참조가_없으면_실패한다():
-    document = _document(
-        [DraftSentence(sentence_id="s_01", text="아무 근거 없음", evidence_ids=[])]
-    )
+    document = _document([DraftSentence(sentence_id="s1", text="아무 근거 없음", evidence_ids=[])])
 
     issues = validate_references(document, EVIDENCE_BY_ID)
 
@@ -24,7 +22,7 @@ def test_근거_참조가_없으면_실패한다():
 
 def test_존재하지_않는_근거를_참조하면_실패한다():
     document = _document(
-        [DraftSentence(sentence_id="s_01", text="지어낸 근거", evidence_ids=["ev_999"])]
+        [DraftSentence(sentence_id="s1", text="지어낸 근거", evidence_ids=["ev_999"])]
     )
 
     issues = validate_references(document, EVIDENCE_BY_ID)
@@ -35,7 +33,7 @@ def test_존재하지_않는_근거를_참조하면_실패한다():
 
 def test_활동계획만_참조하면_실제_관찰로_처리하지_않는다():
     document = _document(
-        [DraftSentence(sentence_id="s_01", text="색종이 접기를 했다", evidence_ids=["ev_006"])]
+        [DraftSentence(sentence_id="s1", text="색종이 접기를 했다", evidence_ids=["ev_006"])]
     )
 
     issues = validate_references(document, EVIDENCE_BY_ID)
@@ -45,7 +43,7 @@ def test_활동계획만_참조하면_실제_관찰로_처리하지_않는다():
 
 def test_정상_근거_참조는_통과한다():
     document = _document(
-        [DraftSentence(sentence_id="s_01", text="탑을 만들었다", evidence_ids=["ev_001"])]
+        [DraftSentence(sentence_id="s1", text="탑을 만들었다", evidence_ids=["ev_001"])]
     )
 
     issues = validate_references(document, EVIDENCE_BY_ID)
