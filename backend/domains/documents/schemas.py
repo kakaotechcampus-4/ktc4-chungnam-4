@@ -41,6 +41,23 @@ class DraftSaveInput(BaseModel):
     evidence_bundle_id: UUID | None = None
 
 
+class DraftVersionInfo(BaseModel):
+    """get_draft_version() 결과. agents가 재생성으로 저장할지 건너뛸지 정하는 데 쓴다 (#75 5번).
+
+    - version: 잠금용 DraftDocument.version. 재생성이면 save_draft(expected_version=...)에
+      그대로 넘긴다. AI 회차(ai_version)와 다르다.
+    - has_teacher_edits: 교사가 이 초안을 한 번이라도 수정·승인·회수했는지. true면 AI 결과로
+      덮어쓰지 않는다 (#75 6-1).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    draft_id: UUID
+    version: int
+    status: DraftStatus
+    has_teacher_edits: bool
+
+
 # ---- 교사용 ----
 
 

@@ -81,18 +81,20 @@ WHERE에 넣는다 — rowcount가 곧 판단 결과다.
 from __future__ import annotations
 
 import uuid
+from datetime import date
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import Exists, exists, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.exceptions import DraftVersionConflict
-from domains.documents.models import DraftDocument, DraftStatus
+from domains.documents.models import DocType, DraftDocument, DraftStatus, RevisionLog
 from domains.documents.schemas import (
     ApproveResponse,
     DraftDetailResponse,
     DraftSaveInput,
+    DraftVersionInfo,
     ParentLetterDetailResponse,
     ParentLetterListResponse,
     PublishItem,
@@ -102,6 +104,49 @@ from domains.documents.schemas import (
 
 # 자동 생성 결과로 덮어쓰지 않는 상태. 승인·회수된 문서는 교사가 확정한 내용이다.
 _AI_LOCKED_STATUSES = (DraftStatus.APPROVED.value, DraftStatus.REVOKED.value)
+
+
+def get_draft_version(
+    db: Session, *, child_id: UUID, doc_type: DocType, record_date: date
+) -> DraftVersionInfo | None:
+    """agents가 재생성으로 저장하기 전에 기존 초안의 버전을 읽는다 (#75 5번).
+
+    같은 원아·문서 종류·날짜의 초안이 없으면 None이다 — 최초 저장으로 보내면 된다.
+    agents는 status가 approved·revoked이거나 has_teacher_edits면 재생성을 건너뛰고, 그 밖에는
+    돌려받은 draft_id·version으로 save_draft(expected_version=version)를 부른다 (#75 5번 표).
+
+    읽은 값은 판단용이다. 읽은 뒤 교사가 수정하면 save_draft의 버전 검사가 저장을 막는다.
+    """
+    row = db.execute(
+        select(
+            DraftDocument.id,
+            DraftDocument.version,
+            DraftDocument.status,
+            _has_teacher_edits().label("has_teacher_edits"),
+        ).where(
+            DraftDocument.child_id == child_id,
+            DraftDocument.doc_type == doc_type.value,
+            DraftDocument.record_date == record_date,
+        )
+    ).one_or_none()
+    if row is None:
+        return None
+    return DraftVersionInfo(
+        draft_id=row.id,
+        version=row.version,
+        status=DraftStatus(row.status),
+        has_teacher_edits=row.has_teacher_edits,
+    )
+
+
+def _has_teacher_edits() -> Exists:
+    """교사가 이 초안에 한 번이라도 손댔는가 (#75 6-1, 임시 결정(정은)).
+
+    교사의 수정·승인·회수는 모두 RevisionLog에 남으므로(documents/CLAUDE.md) 그 행이
+    있는지로 본다. 문장 수정·추가, 승인했다가 되돌린 문서까지 한 번에 잡힌다.
+    DraftDocument를 조회하는 문장 안에서 상관 서브쿼리로 쓴다.
+    """
+    return exists().where(RevisionLog.draft_id == DraftDocument.id)
 
 
 def save_draft(db: Session, data: DraftSaveInput, *, expected_version: int | None) -> DraftDocument:
