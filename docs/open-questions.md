@@ -9,6 +9,7 @@
 - [ ] `.editorconfig` + pre-commit 훅 도입 여부
 - [x] ~~Ruff가 아직 설치·설정되지 않음~~ — 09/21 `requirements-dev.in`에 추가하고 `backend/ruff.toml` 생성. 줄 길이는 `backend/CLAUDE.md` §코드 스타일의 100자를 따릅니다. 절차는 `backend/README.md` §린트와 포맷
 - [ ] 에러 응답의 세부 필드명 — `detail` vs `details` vs 생략
+- [ ] **[rule] 트랜잭션 커밋 위치** (제안, 김동건 10/13 — 팀 논의 전) — 지금 규칙은 "커밋·롤백은 서비스가 결정"(`backend/CLAUDE.md`)인데, 코드는 agents(서비스가 커밋)와 face·media(서비스는 flush, 라우터가 커밋)로 섞여 있고 documents는 아직 정하지 않았습니다. **서비스는 flush만, 커밋은 라우터가 명시적으로** 하자는 제안입니다. 이유: 동의 철회처럼 여러 도메인을 한 트랜잭션으로 묶어야 하고(FR-22), 열람 기록을 커밋한 뒤에만 응답해야 하는 경로가 있습니다(NFR-05). 커밋 누락 대책으로 쓰기 라우터 테스트는 다른 세션에서 저장을 확인합니다. 관련: #130 리뷰
 
 ## B. 구조 · 인프라
 
