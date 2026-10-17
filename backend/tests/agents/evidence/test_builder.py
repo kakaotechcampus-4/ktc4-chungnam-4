@@ -28,7 +28,7 @@ from tools.verification.references import validate_references
 def make_request(evidence_ids: list[str]) -> GenerationRequest:
     return GenerationRequest(
         request_id="request_001",
-        class_id="class_001",
+        class_id="class01",
         child_id="child_A",
         record_date=RECORD_DATE,
         evidence_ids=evidence_ids,

@@ -167,7 +167,9 @@ def test_verify_and_record_코드_검증이_실패하면_critic을_부르지_않
     issue_rows = [obj for obj in session.added if isinstance(obj, service.VerificationResultRow)]
     assert len(issue_rows) == 1
     assert issue_rows[0].check_type == contracts.VerificationCheckType.INVALID_EVIDENCE_REF.value
-    assert issue_rows[0].sentence_index == 0
+    # 순번이 아니라 sentence_id와 검증한 초안 버전으로 남긴다 (#75, #91).
+    assert issue_rows[0].sentence_id == "s1"
+    assert issue_rows[0].doc_version == document.version
 
     sentence_rows = [obj for obj in session.added if isinstance(obj, service.SentenceEvidenceRow)]
     assert sentence_rows == []  # 실패한 시도는 근거를 남기지 않는다
@@ -423,6 +425,7 @@ def test_save_passed_draft_agents의_draft_id로_저장하고_근거와_함께_�
     sentence_rows = [obj for obj in session.added if isinstance(obj, service.SentenceEvidenceRow)]
     assert len(sentence_rows) == 1
     assert sentence_rows[0].draft_id == document.draft_id
+    assert sentence_rows[0].sentence_id == "s1"
     assert sentence_rows[0].evidence_id == "ev_001"
     assert sentence_rows[0].source_media_id == EVIDENCE_CHILD_A.media_id
     assert sentence_rows[0].source_timestamp == EVIDENCE_CHILD_A.start_ms / 1000
@@ -695,8 +698,8 @@ def test_orchestrate_drafts_생성_응답_형식_오류는_기록하고_재생�
     assert [version for version, _ in calls] == [1, 2]
     assert calls[1][1][0].check_type == contracts.VerificationCheckType.DRAFT_RESPONSE_ERROR
     rows = [row for row in session.added if isinstance(row, service.VerificationResultRow)]
-    assert [(row.check_type, row.sentence_index) for row in rows] == [
-        ("draft_response_error", None)
+    assert [(row.check_type, row.sentence_id, row.doc_version) for row in rows] == [
+        ("draft_response_error", None, 1)
     ]
     logs = [row for row in session.added if isinstance(row, service.DraftDecisionLog)]
     assert [(log.decision, log.doc_version) for log in logs] == [("regenerate", 1)]
@@ -736,7 +739,7 @@ def test_생성부터_Critic까지_실명이_LLM에_가지_않는다(monkeypatch
         return json.dumps(
             [
                 {
-                    "sentence_id": "s_01",
+                    "sentence_id": "s1",
                     "verdict": "pass",
                     "reason_code": "ok",
                     "detail": "근거와 일치",
@@ -775,7 +778,7 @@ def test_Critic에는_서버_근거_ID_대신_임시_참조를_보내고_결과�
         record_date=RECORD_DATE,
         sentences=[
             contracts.DraftSentence(
-                sentence_id="s_01", text="탑을 쌓았어요.", evidence_ids=[media_scoped.evidence_id]
+                sentence_id="s1", text="탑을 쌓았어요.", evidence_ids=[media_scoped.evidence_id]
             )
         ],
     )
@@ -785,7 +788,7 @@ def test_Critic에는_서버_근거_ID_대신_임시_참조를_보내고_결과�
         return json.dumps(
             [
                 {
-                    "sentence_id": "s_01",
+                    "sentence_id": "s1",
                     "verdict": "fail",
                     "reason_code": "unsupported_claim",
                     "detail": "E1에 없는 내용",

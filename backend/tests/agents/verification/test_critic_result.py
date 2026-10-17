@@ -11,8 +11,8 @@ def _document() -> DraftDocument:
         child_id="child_A",
         record_date=RECORD_DATE,
         sentences=[
-            DraftSentence(sentence_id="s_01", text="탑을 만들었다", evidence_ids=["ev_001"]),
-            DraftSentence(sentence_id="s_02", text="양보했다", evidence_ids=["ev_001"]),
+            DraftSentence(sentence_id="s1", text="탑을 만들었다", evidence_ids=["ev_001"]),
+            DraftSentence(sentence_id="s2", text="양보했다", evidence_ids=["ev_001"]),
         ],
     )
 
@@ -21,14 +21,14 @@ def test_모든_문장이_pass면_전체_통과한다():
     raw = json.dumps(
         [
             {
-                "sentence_id": "s_01",
+                "sentence_id": "s1",
                 "verdict": "pass",
                 "reason_code": "ok",
                 "detail": "근거 확인",
                 "evidence_ids": ["ev_001"],
             },
             {
-                "sentence_id": "s_02",
+                "sentence_id": "s2",
                 "verdict": "pass",
                 "reason_code": "ok",
                 "detail": "근거 확인",
@@ -47,14 +47,14 @@ def test_문장_하나가_fail이면_전체_실패하고_사유를_담는다():
     raw = json.dumps(
         [
             {
-                "sentence_id": "s_01",
+                "sentence_id": "s1",
                 "verdict": "pass",
                 "reason_code": "ok",
                 "detail": "근거 확인",
                 "evidence_ids": ["ev_001"],
             },
             {
-                "sentence_id": "s_02",
+                "sentence_id": "s2",
                 "verdict": "fail",
                 "reason_code": "unsupported_claim",
                 "detail": "근거에 양보 행동이 없습니다.",
@@ -67,7 +67,7 @@ def test_문장_하나가_fail이면_전체_실패하고_사유를_담는다():
 
     assert result.passed is False
     assert result.issues[0].check_type == VerificationCheckType.CRITIC_CONTENT
-    assert result.issues[0].sentence_id == "s_02"
+    assert result.issues[0].sentence_id == "s2"
 
 
 def test_JSON이_아니면_응답_오류로_처리한다():
@@ -78,7 +78,7 @@ def test_JSON이_아니면_응답_오류로_처리한다():
 
 
 def test_배열이_아니면_응답_오류로_처리한다():
-    raw = json.dumps({"sentence_id": "s_01", "verdict": "pass"})
+    raw = json.dumps({"sentence_id": "s1", "verdict": "pass"})
 
     result = parse_critic_response(raw, _document())
 
@@ -88,9 +88,9 @@ def test_배열이_아니면_응답_오류로_처리한다():
 def test_존재하지_않는_문장을_판정하면_응답_오류로_처리한다():
     raw = json.dumps(
         [
-            {"sentence_id": "s_01", "verdict": "pass"},
-            {"sentence_id": "s_02", "verdict": "pass"},
-            {"sentence_id": "s_99", "verdict": "pass"},
+            {"sentence_id": "s1", "verdict": "pass"},
+            {"sentence_id": "s2", "verdict": "pass"},
+            {"sentence_id": "s99", "verdict": "pass"},
         ]
     )
 
@@ -102,8 +102,8 @@ def test_존재하지_않는_문장을_판정하면_응답_오류로_처리한�
 def test_verdict_값이_이상하면_응답_오류로_처리한다():
     raw = json.dumps(
         [
-            {"sentence_id": "s_01", "verdict": "maybe"},
-            {"sentence_id": "s_02", "verdict": "pass"},
+            {"sentence_id": "s1", "verdict": "maybe"},
+            {"sentence_id": "s2", "verdict": "pass"},
         ]
     )
 
@@ -113,7 +113,7 @@ def test_verdict_값이_이상하면_응답_오류로_처리한다():
 
 
 def test_판정하지_않은_문장이_있으면_응답_오류로_처리한다():
-    raw = json.dumps([{"sentence_id": "s_01", "verdict": "pass"}])
+    raw = json.dumps([{"sentence_id": "s1", "verdict": "pass"}])
 
     result = parse_critic_response(raw, _document())
 
@@ -136,7 +136,7 @@ import pytest
 )
 def test_잘못된_필드가_예외없이_응답오류가_된다(change):
     entry = {
-        "sentence_id": "s_01",
+        "sentence_id": "s1",
         "verdict": "pass",
         "reason_code": "ok",
         "detail": "근거 확인",
@@ -149,7 +149,7 @@ def test_잘못된_필드가_예외없이_응답오류가_된다(change):
 
 def test_중복_판정은_오류():
     entry = {
-        "sentence_id": "s_01",
+        "sentence_id": "s1",
         "verdict": "pass",
         "reason_code": "ok",
         "detail": "근거 확인",

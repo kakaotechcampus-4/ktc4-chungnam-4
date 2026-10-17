@@ -342,8 +342,9 @@ def _record_draft_response_error(
     session.add(
         VerificationResultRow(
             draft_id=draft_id,
+            doc_version=version,
             check_type=issue.check_type.value,
-            sentence_index=None,
+            sentence_id=None,
             result=False,
             detail=issue.reason,
             checked_at=checked_at,
@@ -584,18 +585,14 @@ def _record_verification_issues(
     개별 검사 실패 사유만 남긴다 — PR #7의 VerificationCheckType 7종이 전부
     실패 사유라, 통과한 개별 검사 하나하나를 나타낼 값이 없기 때문이다.
     """
-    sentence_index_by_id = {
-        sentence.sentence_id: index for index, sentence in enumerate(document.sentences)
-    }
     for stage_result in stage_results:
         for issue in stage_result.issues:
             session.add(
                 VerificationResultRow(
                     draft_id=document.draft_id,
+                    doc_version=document.version,
                     check_type=issue.check_type.value,
-                    sentence_index=(
-                        sentence_index_by_id.get(issue.sentence_id) if issue.sentence_id else None
-                    ),
+                    sentence_id=issue.sentence_id,
                     result=False,
                     detail=issue.reason,
                     checked_at=datetime.now(UTC),
@@ -610,9 +607,9 @@ def _record_sentence_evidence(
 ) -> None:
     """통과한 초안의 문장별 근거를 남긴다 (FR-07).
 
-    문장 하나가 근거를 여러 개 참조하면 (draft_id, sentence_index)가 같은 행을 여러 개
+    문장 하나가 근거를 여러 개 참조하면 (draft_id, sentence_id)가 같은 행을 여러 개
     만든다 (정은-한상균 합의 9/16). evidence_id를 함께 저장해 같은 문장에 같은 근거가
-    중복으로 안 들어가게 (draft_id, sentence_index, evidence_id) unique 제약을 건다
+    중복으로 안 들어가게 (draft_id, sentence_id, evidence_id) unique 제약을 건다
     (models.py SentenceEvidence — ai-data-contract.md "근거 ID·버전 연결과 유일성
     규칙", 정은-한상균 합의 09/22).
 
@@ -623,13 +620,13 @@ def _record_sentence_evidence(
     클릭 시 원본 영상 3초 재생"(테크스펙 SentenceEvidence)에서 재생 시작 지점으로 쓸
     것이라 판단했다. 정확한 변환·표시 방식이 스펙에 없어 팀 확인이 필요하다.
     """
-    for index, sentence in enumerate(document.sentences):
+    for sentence in document.sentences:
         for evidence_id in sentence.evidence_ids:
             evidence = evidence_by_id[evidence_id]
             session.add(
                 SentenceEvidenceRow(
                     draft_id=document.draft_id,
-                    sentence_index=index,
+                    sentence_id=sentence.sentence_id,
                     evidence_id=evidence_id,
                     source_media_id=evidence.media_id,
                     source_timestamp=(

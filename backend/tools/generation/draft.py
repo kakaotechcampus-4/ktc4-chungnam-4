@@ -50,7 +50,7 @@ def parse_draft_response(
 ) -> DraftDocument:
     """응답을 검증하고 E1… 참조를 서버 evidence_id로 되돌린다.
 
-    sentence_id는 LLM에게 받지 않고 순서대로 s_01…을 붙인다 — 재생성마다 같은 규칙이라
+    sentence_id는 LLM에게 받지 않고 순서대로 s1, s2…를 붙인다 — 재생성마다 같은 규칙이라
     문장 ID가 응답 내용에 흔들리지 않는다.
     """
     if not raw_response:
@@ -73,7 +73,7 @@ def parse_draft_response(
             raise DraftResponseError("한 문장에 같은 근거 참조가 중복됐습니다.")
         sentences.append(
             DraftSentence(
-                sentence_id=f"s_{index:02d}",
+                sentence_id=f"s{index}",
                 text=sentence.text,
                 evidence_ids=[evidence_id_by_ref[ref] for ref in sentence.evidence_refs],
             )
