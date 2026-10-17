@@ -16,7 +16,7 @@ child_id·이름이 들어갈 필드가 없고(extra 금지), ref는 P<번호> �
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from functools import cache
 from pathlib import Path
 from typing import Self
@@ -24,6 +24,8 @@ from typing import Self
 from pydantic import ConfigDict, Field, model_validator
 
 from tools.contracts import ContractModel, NonEmpty
+from tools.perception.photo import assign_photo_refs
+from tools.perception.types import PhotoInput
 
 PROMPT_VERSION = "photo_analysis.v2.1"
 
@@ -85,3 +87,24 @@ def build_photo_analysis_prompt(images: Sequence[PhotoPromptImage]) -> PhotoAnal
     # 본문의 JSON 예시에 중괄호가 있어 str.format 대신 자리표시자만 바꾼다.
     instructions = _load_template().replace(_PHOTO_LIST_SLOT, photo_list)
     return PhotoAnalysisPrompt(version=PROMPT_VERSION, instructions=instructions, images=checked)
+
+
+def photo_prompt_images(photos_by_ref: Mapping[str, PhotoInput]) -> list[PhotoPromptImage]:
+    """assign_photo_refs 결과를 프롬프트 사진 목록으로 바꾼다.
+
+    참조와 아이 수만 옮기고 media_id·child_id는 옮기지 않는다 (H-2). 아이 수는 파서가 scope를
+    판정할 때 쓰는 것과 같은 PhotoInput.child_ids의 길이다. 참조 순서는 조립할 때 검증한다.
+    """
+    return [
+        PhotoPromptImage(ref=ref, child_count=len(photo.child_ids))
+        for ref, photo in photos_by_ref.items()
+    ]
+
+
+def build_single_photo_prompt(photo: PhotoInput) -> PhotoAnalysisPrompt:
+    """사진 한 장을 분석하는 프롬프트를 만든다 (사진은 1장씩 호출한다).
+
+    대상 원아와 무관하게 사진과 아이 수만으로 정해진다. service는 이 프롬프트로 받은 응답을
+    같은 photo와 함께 parse_single_photo_analysis에 넘긴다.
+    """
+    return build_photo_analysis_prompt(photo_prompt_images(assign_photo_refs([photo])))

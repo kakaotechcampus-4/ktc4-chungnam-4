@@ -1,14 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { Navigate, Outlet } from "react-router";
 
-import { type AccountRole, meQueryOptions } from "@/api/auth";
+import { type AccountTypeView, meQueryOptions } from "@/api/auth";
 import { loginNoticeState } from "@/features/auth/login-notice";
 
 import { isUnauthenticated } from "./auth-errors";
 import { StandaloneForbidden } from "./StandaloneForbidden";
 
 interface RequireRoleProps {
-  role: AccountRole;
+  role: AccountTypeView;
 }
 
 // 영역(교사 /t, 학부모 /p) 입구의 가드입니다. /me의 account_type으로 판단합니다.
