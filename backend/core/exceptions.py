@@ -78,6 +78,24 @@ class JwtSecretNotConfigured(AidamError):
     status_code = 500
 
 
+class Unauthenticated(AidamError):
+    """로그인 쿠키가 없거나, 토큰이 무효이거나, 계정이 사라졌습니다.
+
+    세 경우를 구분하지 않습니다. FE는 이 코드를 받으면 로그인 화면으로 보냅니다
+    (테크스펙 §공통 API 규약 공통 에러 코드).
+    """
+
+    code = "UNAUTHENTICATED"
+    status_code = 401
+
+
+class RoleNotAllowed(AidamError):
+    """교사 경로에 학부모가(또는 반대로) 들어왔습니다."""
+
+    code = "ROLE_NOT_ALLOWED"
+    status_code = 403
+
+
 class ClassNotFound(AidamError):
     """없는 반에 접근하려 한 경우."""
 

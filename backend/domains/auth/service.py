@@ -7,6 +7,7 @@
 """
 
 import uuid
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import TypedDict
 
@@ -16,8 +17,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from core.config import get_settings
-from core.exceptions import InvalidCredentials, InvalidToken, JwtSecretNotConfigured
-from domains.auth.models import Account, AccountType
+from core.exceptions import (
+    InvalidCredentials,
+    InvalidToken,
+    JwtSecretNotConfigured,
+    Unauthenticated,
+)
+from domains.auth.models import Account, AccountType, Parent, Teacher
 
 _ALGORITHM = "HS256"
 
@@ -125,3 +131,60 @@ def authenticate(db: Session, email: str, password: str) -> Account:
     if not verify_password(password, account.password_hash):
         raise InvalidCredentials("이메일 또는 비밀번호가 올바르지 않습니다.")
     return account
+
+
+@dataclass(frozen=True)
+class TeacherProfile:
+    """로그인한 교사. 다른 도메인은 권한 판단에 이 값만 씁니다 (domains/auth/CLAUDE.md)."""
+
+    account_id: uuid.UUID
+    # 프로필을 통째로 로그에 남겨도 실명·이메일이 찍히지 않게 repr에서 뺍니다 (H-4).
+    email: str = field(repr=False)
+    name: str = field(repr=False)
+    teacher_id: uuid.UUID
+    # 가입 코드로 소속을 확정하기 전에는 비어 있습니다 (FR-23, FR-24).
+    center_id: uuid.UUID | None
+
+
+@dataclass(frozen=True)
+class ParentProfile:
+    """로그인한 학부모."""
+
+    account_id: uuid.UUID
+    email: str = field(repr=False)
+    name: str = field(repr=False)
+    parent_id: uuid.UUID
+
+
+def get_profile(db: Session, token: TokenPayload) -> TeacherProfile | ParentProfile:
+    """검증한 토큰의 계정과 역할별 프로필을 읽습니다 (FR-13).
+
+    토큰이 유효해도 계정이나 프로필이 없으면(탈퇴·데이터 정리) 로그인하지 않은 것으로
+    봅니다. 토큰의 역할과 DB의 역할이 다를 때도 같습니다 — 토큰 발급 뒤 역할이 바뀐
+    경우 옛 역할로 접근하게 두지 않습니다.
+    """
+    account = db.get(Account, token["account_id"])
+    if account is None or account.account_type != token["account_type"]:
+        raise Unauthenticated("로그인이 필요합니다.")
+
+    if account.account_type == AccountType.TEACHER:
+        teacher = db.scalar(select(Teacher).where(Teacher.account_id == account.id))
+        if teacher is None:
+            raise Unauthenticated("로그인이 필요합니다.")
+        return TeacherProfile(
+            account_id=account.id,
+            email=account.email,
+            name=teacher.name,
+            teacher_id=teacher.id,
+            center_id=teacher.center_id,
+        )
+
+    parent = db.scalar(select(Parent).where(Parent.account_id == account.id))
+    if parent is None:
+        raise Unauthenticated("로그인이 필요합니다.")
+    return ParentProfile(
+        account_id=account.id,
+        email=account.email,
+        name=parent.name,
+        parent_id=parent.id,
+    )

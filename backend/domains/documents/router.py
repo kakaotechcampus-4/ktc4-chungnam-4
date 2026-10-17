@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from core.database import get_db
+from domains.auth.middleware import CurrentParent, CurrentTeacher
 from domains.documents import service
 from domains.documents.schemas import (
     ApproveRequest,
@@ -30,13 +31,12 @@ from domains.documents.schemas import (
 router = APIRouter(tags=["documents"])
 
 
-# TODO(엄태은): auth 도메인 인증 미들웨어가 준비되면 실제 의존성으로 교체한다.
-def get_current_teacher_id() -> UUID:
-    raise NotImplementedError("TODO: auth 도메인 인증 의존성 연결 필요")
+def get_current_teacher_id(teacher: CurrentTeacher) -> UUID:
+    return teacher.teacher_id
 
 
-def get_current_parent_id() -> UUID:
-    raise NotImplementedError("TODO: auth 도메인 인증 의존성 연결 필요")
+def get_current_parent_id(parent: CurrentParent) -> UUID:
+    return parent.parent_id
 
 
 @router.get("/drafts/{draft_id}", response_model=DraftDetailResponse)
