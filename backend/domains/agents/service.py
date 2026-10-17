@@ -342,8 +342,9 @@ def _record_draft_response_error(
     session.add(
         VerificationResultRow(
             draft_id=draft_id,
+            doc_version=version,
             check_type=issue.check_type.value,
-            sentence_index=None,
+            sentence_id=None,
             result=False,
             detail=issue.reason,
             checked_at=checked_at,

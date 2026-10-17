@@ -698,8 +698,8 @@ def test_orchestrate_drafts_생성_응답_형식_오류는_기록하고_재생�
     assert [version for version, _ in calls] == [1, 2]
     assert calls[1][1][0].check_type == contracts.VerificationCheckType.DRAFT_RESPONSE_ERROR
     rows = [row for row in session.added if isinstance(row, service.VerificationResultRow)]
-    assert [(row.check_type, row.sentence_index) for row in rows] == [
-        ("draft_response_error", None)
+    assert [(row.check_type, row.sentence_id, row.doc_version) for row in rows] == [
+        ("draft_response_error", None, 1)
     ]
     logs = [row for row in session.added if isinstance(row, service.DraftDecisionLog)]
     assert [(log.decision, log.doc_version) for log in logs] == [("regenerate", 1)]
