@@ -12,6 +12,7 @@ from core.database import engine, get_db
 from core.exceptions import AidamError
 from domains.auth.router import router as auth_router
 from domains.documents.router import router as documents_router
+from domains.face.router import router as face_router
 from domains.media.router import router as media_router
 
 
@@ -37,6 +38,7 @@ app = FastAPI(
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(documents_router)
 app.include_router(media_router, prefix="/api/v1")
+app.include_router(face_router, prefix="/api/v1")
 
 
 @app.exception_handler(AidamError)

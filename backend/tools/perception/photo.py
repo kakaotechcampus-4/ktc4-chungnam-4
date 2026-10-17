@@ -119,6 +119,23 @@ def parse_photo_analysis(
     return PerceptionResult(status=status, items=items, dropped=dropped)
 
 
+def parse_single_photo_analysis(
+    raw: str | None, *, photo: PhotoInput, target_child_id: str, record_date: date
+) -> PerceptionResult:
+    """build_single_photo_prompt로 분석한 사진 한 장의 응답을 근거로 바꾼다.
+
+    service는 조립과 파싱에 같은 photo를 넘긴다. 사진 한 장 프롬프트는 아이 수가 같으면
+    사진마다 똑같아서, 이미지와 결과의 짝은 이 photo로만 맞출 수 있다. 규칙은
+    parse_photo_analysis와 같다.
+    """
+    return parse_photo_analysis(
+        raw,
+        photos_by_ref=assign_photo_refs([photo]),
+        target_child_id=target_child_id,
+        record_date=record_date,
+    )
+
+
 def _parse_answers(raw: str | None, *, refs: Sequence[str]) -> dict[str, _PhotoAnswer] | None:
     """응답을 참조별 답으로 바꾼다. 형식을 어기면 None.
 

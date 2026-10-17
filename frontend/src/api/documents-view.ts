@@ -19,7 +19,7 @@
  * `unknown`을 `generating`에 섞지 않는 것은 `frontend/CLAUDE.md` §데이터 규칙입니다.
  * 섞으면 서버가 이상한 값을 보내도 "만드는 중"으로 보여 아무도 알아채지 못합니다.
  */
-export type DraftState = "approved" | "review" | "generating" | "unclassified" | "unknown";
+export type DraftStatusView = "approved" | "review" | "generating" | "unclassified" | "unknown";
 
 /**
  * 레일 한 줄이 보여 줄 상태. 초안이 아예 없는 원아는 `none`입니다.
@@ -29,14 +29,14 @@ export type DraftState = "approved" | "review" | "generating" | "unclassified" |
  * 아이가 섞이게 돼, 둘을 "검토 완료"로 함께 보여 주면 교사가 누가 나갔는지 알 수 없습니다
  * (#88 전제가 바뀜, `docs/api/documents.md` §레일·목록 표기).
  */
-export type RosterState = DraftState | "none" | "published";
+export type RosterStatusView = DraftStatusView | "none" | "published";
 
 // 필드 이름은 docs/api/를 그대로 씁니다 — 값만 화면용으로 바꿉니다(auth의 `account_type`과
 // 같은 방식, #107 리뷰 송유진 님). 이름까지 바꾸면 문서를 보고 코드를 찾을 수 없습니다.
 
 export interface DraftSummaryView {
   draft_id: string;
-  status: DraftState;
+  status: DraftStatusView;
   version: number;
   published_at: string | null;
   preview: string;
@@ -109,7 +109,7 @@ export interface DraftView {
   /** 알림장인지 관찰일지인지. 이 화면은 안 쓰지만 문서에 있는 응답 필드라 버리지 않습니다. */
   doc_type: DocTypeView;
   record_date: string;
-  status: DraftState;
+  status: DraftStatusView;
   version: number;
   title: string | null;
   sentences: SentenceView[];
@@ -131,14 +131,14 @@ export interface DraftView {
  * 둡니다 — 지금 화면은 `isPublished`가 false인 것을 모두 실패로 묶지만, 나중에 실패 건에
  * "다시 게시"를 붙이면 모르는 결과까지 다시 보내게 됩니다(#125 리뷰 송유진 님).
  */
-export type PublicationState = "published" | "failed" | "unknown";
+export type PublicationStatusView = "published" | "failed" | "unknown";
 
 /** POST /publications 한 건의 결과 */
 export interface PublicationResultView {
   draft_id: string;
   child_id: string | null;
   /** 건별 결과. 화면은 `isPublished`로 봅니다. */
-  status: PublicationState;
+  status: PublicationStatusView;
   /** 게시된 알림장의 id. 실패했으면 `null`입니다. 학부모 화면이 이 id로 본문을 엽니다. */
   parent_note_id: string | null;
   /** 실패했을 때 서버가 준 사유 코드 */
