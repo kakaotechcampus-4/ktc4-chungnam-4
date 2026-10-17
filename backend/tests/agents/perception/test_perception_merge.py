@@ -24,7 +24,7 @@ from tests.agents.fixtures.perception import (
     response,
     segment,
 )
-from tools.perception.merge import evidence_by_id, merge_perception_results
+from tools.perception.merge import evidence_by_id, failed_photo_ids, merge_perception_results
 from tools.perception.photo import (
     assign_photo_refs,
     parse_photo_analysis,
@@ -137,6 +137,27 @@ def test_사진이_모두_실패해도_발화_근거가_남으면_OK다() -> Non
             Dropped(source_id=PHOTO_A_ID, reason=DropReason.PHOTO_RESPONSE_ERROR),
         ],
     )
+    # 상태만으로는 정상 초안과 구분되지 않으므로 뺀 사진을 촬영 시각 순으로 꺼내 교사에게 보여 준다.
+    assert failed_photo_ids(result) == [PHOTO_B_ID, PHOTO_A_ID]
+
+
+def test_분석은_됐지만_쓸_관찰이_없는_사진은_뺀_사진_목록에_넣지_않는다() -> None:
+    shared = photo(media_id=PHOTO_B_ID, links=(link(CHILD_A_ID), link(CHILD_B_ID)))
+    photos = [
+        (PHOTO_A, _analyze_one(PHOTO_A, response(answer("P1", reason=REASON)))),
+        (shared, _analyze_one(shared, response(answer("P1", (TEXT, "individual"))))),
+        (PHOTO_C, _analyze_one(PHOTO_C, None)),
+    ]
+
+    result = _merge(_transcript(segment(excluded=True)), photos)
+
+    assert {drop.reason for drop in result.dropped} == {
+        DropReason.EXCLUDED_BY_TEACHER,
+        DropReason.NO_VISIBLE_OBSERVATION,
+        DropReason.AMBIGUOUS_ACTOR,
+        DropReason.PHOTO_RESPONSE_ERROR,
+    }
+    assert failed_photo_ids(result) == [PHOTO_C_ID]
 
 
 def test_사진이_모두_실패하고_발화도_없으면_EMPTY가_아니라_RESPONSE_ERROR다() -> None:
