@@ -9,12 +9,19 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from core.database import SessionLocal
 from core.exceptions import DraftVersionConflict
 from domains.agents.llm import call_claude
-from domains.agents.models import DraftDecisionLog, EvidenceBundle, GenerationJob, Job
+from domains.agents.models import (
+    DraftDecisionLog,
+    EvidenceBundle,
+    GenerationJob,
+    Job,
+    JobStatus,
+)
 from domains.agents.models import SentenceEvidence as SentenceEvidenceRow
 from domains.agents.models import VerificationResult as VerificationResultRow
 from domains.documents import service as documents
@@ -52,8 +59,14 @@ DAILY_DOC_TYPE = contracts.DocType.PARENT_NOTE
 
 
 def orchestrate_drafts(job_id: str, child_id: str) -> None:
+    """원아 한 명의 초안을 만든다. 초안 저장이나 미분류로 끝나면 Job을 SUCCEEDED로 둔다.
+
+    예외는 잡지 않고 올린다 — 재시도와 최종 실패 표시는 tasks.py의 Celery 설정이
+    record_job_retry / mark_job_failed로 처리한다.
+    """
     with SessionLocal() as session:
         job = _get_job(session, job_id)
+        _set_job_status(session, job, JobStatus.RUNNING)
         bundle = _collect_evidence(session, child_id, job.target_date)
 
         # 재생성 상한은 tools/verification/decision.py의 decide()가 판정한다
@@ -112,6 +125,7 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
                     _restore_names(generated),
                     generated.source_evidence_by_id,
                 )
+                _commit_job_succeeded(session, job)
                 return
             if decision_result.decision == contracts.Decision.NEEDS_TEACHER_REVIEW:
                 break
@@ -121,6 +135,56 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
             version += 1
 
         _send_to_unclassified(session, job_id, child_id)
+        _commit_job_succeeded(session, job)
+
+
+def _commit_job_succeeded(session: Session, job: Job) -> None:
+    """초안·근거(또는 미분류 기록)와 성공 상태를 한 번에 커밋한다.
+
+    미분류도 예외가 아니라 정상 종료다 (docs/api/agents.md 상태값). 따로 커밋하면 초안은
+    저장됐는데 상태 커밋만 실패해 Job이 FAILED로 끝날 수 있다 (#102 리뷰, 엄태은).
+    """
+    job.status = JobStatus.SUCCEEDED.value
+    session.commit()
+
+
+def record_job_retry(job_id: str) -> None:
+    """Celery가 재시도를 걸 때 부른다. 횟수만 올리고 상태는 건드리지 않는다.
+
+    Celery는 다음 시도를 먼저 보낸 뒤 이 훅을 부르므로, 훅이 도착할 때 다음 시도가 이미
+    끝났을 수 있다. 여기서 상태를 쓰면 succeeded·failed가 running으로 되돌아간다
+    (#102 리뷰, 엄태은). RUNNING은 다음 시도가 시작할 때 orchestrate_drafts가 둔다.
+    횟수는 읽고 쓰는 사이에 다른 갱신이 끼지 않게 UPDATE 한 문장으로 올린다.
+    """
+    with SessionLocal() as session:
+        job = _get_job(session, job_id)
+        session.execute(update(Job).where(Job.id == job.id).values(retry_count=Job.retry_count + 1))
+        session.commit()
+
+
+def mark_job_failed(job_id: str) -> None:
+    """재시도를 다 쓰거나 재시도 대상이 아닌 오류로 끝났을 때 부른다.
+
+    이미 SUCCEEDED로 커밋된 Job은 덮어쓰지 않는다. 시간 제한이 커밋 직후에 터지는 것처럼
+    성공 뒤에 실패 훅이 오는 경우가 있다 (#102 리뷰, 엄태은). 읽고 쓰는 사이에 상태가
+    바뀌지 않게 조건을 UPDATE 한 문장에 건다.
+
+    TODO(eun): docs/api/agents.md의 error_code·failed_stage를 채울 컬럼이 Job에 없다.
+    agents 모델 후속 마이그레이션에서 추가한 뒤 여기서 함께 남긴다.
+    """
+    with SessionLocal() as session:
+        job = _get_job(session, job_id)
+        session.execute(
+            update(Job)
+            .where(Job.id == job.id, Job.status != JobStatus.SUCCEEDED.value)
+            .values(status=JobStatus.FAILED.value)
+        )
+        session.commit()
+
+
+def _set_job_status(session: Session, job: Job, status: JobStatus) -> None:
+    job.status = status.value
+    session.commit()
 
 
 def _verify_with_critic_retry(
@@ -462,7 +526,8 @@ def _save_passed_draft(
 ) -> None:
     """PASS한 초안을 documents에 저장하고, 문장별 근거를 같은 트랜잭션에 남긴다 (FR-05, FR-07).
 
-    본문 저장과 근거 저장을 한 번에 커밋한다. 저장이 충돌하면 근거까지 되돌려서,
+    커밋은 하지 않는다 — orchestrate_drafts가 Job 성공 상태와 함께 한 번에 커밋한다
+    (#102 리뷰). 저장이 충돌하면 근거까지 되돌려서,
     저장되지 않은 draft_id나 반영되지 않은 AI 초안을 가리키는 근거가 남지 않게 한다
     (#75 3번). 검증 기록은 _verify_and_record가 이미 커밋해서 되돌려지지 않는다.
 
@@ -487,7 +552,6 @@ def _save_passed_draft(
         #   문서는 충돌로 거부되고 그대로 남는다.
         documents.save_draft(session, data, expected_version=None)
         _record_sentence_evidence(session, document, evidence_by_id)
-        session.commit()
     except DraftVersionConflict:
         session.rollback()
         # 검증 PASS 기록은 남았는데 문서가 없는 이유를 나중에 추적하려고 남긴다 (#90).
