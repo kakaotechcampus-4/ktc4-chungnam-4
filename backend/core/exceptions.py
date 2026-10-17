@@ -48,7 +48,7 @@ class MediaAssetNotFound(AidamError):
 class InvalidAttributionMethod(AidamError):
     """`method`가 허용된 값이 아닌 경우."""
 
-    code = "MEDIA_INVALID_ATTRIBUTION_METHOD"
+    code = "INVALID_ATTRIBUTION_METHOD"
     status_code = 400
 
 
@@ -86,6 +86,68 @@ class JwtSecretNotConfigured(AidamError):
 
     code = "JWT_SECRET_NOT_CONFIGURED"
     status_code = 500
+
+
+class StorageNotConfigured(AidamError):
+    """S3 버킷 설정(`S3_BUCKET`)이나 AWS 자격증명이 없어 업로드 URL을 만들 수 없습니다."""
+
+    code = "STORAGE_NOT_CONFIGURED"
+    status_code = 500
+
+
+class ClientPhotoIdConflict(AidamError):
+    """같은 `client_photo_id`가 다른 반의 업로드로 이미 쓰였습니다 (docs/api/media-face.md)."""
+
+    code = "CLIENT_PHOTO_ID_CONFLICT"
+    status_code = 409
+
+
+class MediaTypeNotAllowed(AidamError):
+    """허용하지 않은 형식이거나 `type`(photo/video/voice_memo)과 맞지 않는 형식입니다."""
+
+    code = "MEDIA_TYPE_NOT_ALLOWED"
+    status_code = 400
+
+
+class UploadBatchTooLarge(AidamError):
+    """한 요청의 파일 수나 파일 하나의 크기가 상한을 넘었습니다 (docs/api/media-face.md)."""
+
+    code = "UPLOAD_BATCH_TOO_LARGE"
+    status_code = 400
+
+
+class MediaUploadNotFound(AidamError):
+    """완료 통지를 받았지만 S3에 객체가 없거나, 서버가 URL을 내준 적이 없는 파일입니다.
+
+    업로드가 덜 끝났거나 URL이 만료된 경우입니다. FE는 URL을 다시 받아 올립니다.
+    """
+
+    code = "MEDIA_UPLOAD_NOT_FOUND"
+    status_code = 409
+
+
+class MediaDeleted(AidamError):
+    """보관 기간이 끝나 파기된 미디어입니다. 파일이 없어 다시 보여 줄 수 없습니다."""
+
+    code = "MEDIA_DELETED"
+    status_code = 409
+
+
+class DuplicateChildLink(AidamError):
+    """같은 원아가 귀속 목록에 두 번 있습니다. FE 버그를 숨기지 않으려고 거절합니다."""
+
+    code = "DUPLICATE_CHILD_LINK"
+    status_code = 400
+
+
+class MediaUploadMismatch(AidamError):
+    """S3에 올라간 파일의 크기·형식·앞부분이 URL을 받을 때 선언한 것과 다릅니다.
+
+    URL을 다시 받아 같은 파일을 올리면 됩니다(발급할 때마다 새 경로라 이전 파일과 겹치지 않습니다).
+    """
+
+    code = "MEDIA_UPLOAD_MISMATCH"
+    status_code = 400
 
 
 class Unauthenticated(AidamError):
