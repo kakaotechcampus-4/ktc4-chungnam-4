@@ -7,6 +7,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     String,
     UniqueConstraint,
 )
@@ -46,11 +47,47 @@ class MediaAsset(Base):
     # 교사가 검수에서 확정해야 true가 됩니다 — 값이 없거나 애매하면 제외되는 쪽으로 실패시키려고
     # NOT NULL + default false로 둡니다. 절대 default를 true로 바꾸지 마세요.
     llm_allowed = Column(Boolean, nullable=False, default=False, server_default="false")
+    # 귀속(MediaChildLink·llm_allowed)을 저장한 시각. 귀속을 저장할 때만 채웁니다 — 사진은 완료 통지,
+    # 영상·음성은 나중의 귀속 저장. null이면 "아직 귀속 전"이라 Job이 거절합니다(MEDIA_NOT_READY).
+    # 없으면 귀속 전 영상·음성이 "교사가 LLM에서 뺀 것"과 똑같이 보여 근거에서 조용히 빠집니다.
+    # TODO(donggeon): 팀 논의 전 제안(docs/open-questions.md §C, 10/07). 마이그레이션은 리드 일괄
+    attributed_at = Column(DateTime(timezone=True), nullable=True)
 
     # 원본에서 만든 파생본. 스프린트 1에서는 변환을 하지 않아 비어 있습니다.
     proxy_url = Column(String, nullable=True)  # 재생용 H.264 사본
     thumbnail_url = Column(String, nullable=True)  # 목록용 정지 이미지
     derivative_state = Column(String, nullable=True)  # pending / ready / failed
+
+
+class MediaUpload(Base):
+    """브라우저에 업로드 URL을 내준 기록 (파일당 1행, 테크스펙 데이터 모델 ③).
+
+    업로드는 파일마다 따로 오고 서버는 묶음을 모릅니다. "URL은 받았는데 완료 통지가
+    없는" 파일을 찾을 근거가 이 기록뿐입니다(고아 객체 추적). 묶음 상태는 두지 않습니다.
+    """
+
+    __tablename__ = "media_uploads"
+    # 만료가 지난 issued를 찾는 주기 작업이 이 순서로 조회합니다
+    __table_args__ = (Index("ix_media_uploads_state_url_expires_at", "state", "url_expires_at"),)
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # 같은 파일의 URL을 다시 받으면 새 행 없이 갱신합니다
+    client_photo_id = Column(UUID(as_uuid=True), nullable=False, unique=True)
+    # TODO(donggeon): organization.Class·Teacher 생성 후 ForeignKey 연결 (MediaAsset과 같음)
+    class_id = Column(UUID(as_uuid=True), nullable=False)
+    teacher_id = Column(UUID(as_uuid=True), nullable=False)
+    type = Column(String, nullable=False)  # photo / video / voice_memo
+    content_type = Column(String, nullable=False)
+    # 서명에 넣어 강제한 크기. 완료 확인 때 actual_size_bytes와 비교합니다
+    declared_size_bytes = Column(BigInteger, nullable=False)
+    storage_key = Column(String, nullable=False)  # 서버가 id만으로 만든 S3 경로
+    # issued / confirmed / mismatch / abandoned
+    state = Column(String, nullable=False, default="issued")
+    issued_at = Column(DateTime(timezone=True), nullable=False)
+    url_expires_at = Column(DateTime(timezone=True), nullable=False)
+    actual_size_bytes = Column(BigInteger, nullable=True)  # S3 HeadObject로 잰 실제 크기
+    verified_at = Column(DateTime(timezone=True), nullable=True)
+    media_id = Column(UUID(as_uuid=True), ForeignKey("media_assets.id"), nullable=True)
 
 
 class MediaChildLink(Base):

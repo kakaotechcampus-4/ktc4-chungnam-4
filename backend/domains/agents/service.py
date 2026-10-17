@@ -4,6 +4,8 @@ tasks.py는 이 모듈의 orchestrate_drafts만 호출합니다 (CLAUDE.md: task
 """
 
 import logging
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -18,10 +20,14 @@ from domains.agents.models import VerificationResult as VerificationResultRow
 from domains.documents import service as documents
 from domains.documents.schemas import DraftSaveInput
 from domains.media import service as media_service
+from prompts.generation.draft import DraftFeedback, build_draft_prompt
 from prompts.verification.critic import build_critic_prompt
 from tools import contracts
+from tools.evidence.builder import build_evidence
+from tools.generation.draft import DraftResponseError, parse_draft_response
+from tools.generation.pseudonymize import pseudonymize_evidence, restore_names
 from tools.verification.critic_result import parse_critic_response
-from tools.verification.decision import decide
+from tools.verification.decision import MAX_REGENERATIONS, decide
 from tools.verification.references import validate_references
 from tools.verification.target import validate_target
 
@@ -40,11 +46,9 @@ DRAFT_SAVE_CONFLICT = "draft_save_conflict"
 # 골랐다. TODO(eun): 정확한 상한과 고르는 기준(지금은 하루 전체에서 고르게)은 확정 예정이다.
 MAX_PHOTOS_PER_CHILD = 5
 
-GeneratedDraft = tuple[
-    contracts.DraftDocument,
-    dict[str, contracts.EvidenceItem],
-    contracts.GenerationRequest,
-]
+# 매일 도는 Job이 만드는 문서. 관찰일지는 주기·양식이 원마다 달라 생성 조건이 정해진 뒤
+# 따로 붙인다 (#115, open-questions 32번).
+DAILY_DOC_TYPE = contracts.DocType.PARENT_NOTE
 
 
 def orchestrate_drafts(job_id: str, child_id: str) -> None:
@@ -56,24 +60,65 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
         # (MAX_REGENERATIONS). 여기서 별도로 횟수를 세지 않고, decide()가
         # NEEDS_TEACHER_REVIEW를 낼 때까지 regeneration_count를 그대로 늘려서 넘긴다.
         regeneration_count = 0
-        previous_draft_id: str | None = None
+        # 재생성은 같은 초안의 새 버전이다 (documents DraftDocument 설계).
+        # TODO(eun): 같은 원아·종류·날짜 문서가 이미 있으면 get_draft_version(#140)으로
+        #   draft_id·버전을 이어받는다 (#133 리뷰). 지금은 Job마다 새 초안으로 시작한다.
+        draft_id = str(uuid4())
+        version = 1
+        previous: contracts.DraftDocument | None = None
+        issues: list[contracts.VerificationIssue] = []
+        # 인식 결과(사진 분석 LLM 포함)는 재생성마다 다시 만들지 않는다. 루프 안에서 부르면
+        # 재생성 2회에 사진 호출이 최대 3배가 된다 (#137 리뷰, 송유진).
+        inputs = _load_generation_inputs(bundle)
         while True:
-            document, evidence_by_id, request = _generate_draft(
-                bundle, previous_draft_id=previous_draft_id
-            )
-            previous_draft_id = document.draft_id
+            try:
+                generated = _generate_draft(
+                    inputs, draft_id=draft_id, version=version, previous=previous, issues=issues
+                )
+            except InsufficientEvidence:
+                # 빈 초안을 정상 결과로 내지 않는다 (ai-data-contract.md "근거 부족").
+                break
+            except DraftResponseError as error:
+                # 7-A 출력형식 실패. Critic 없이 재생성하고, 상한을 넘으면 미분류함으로
+                # 보낸다 — Job 예외로 끝내지 않는다 (agents CLAUDE.md, #137 리뷰).
+                issue = contracts.VerificationIssue(
+                    check_type=contracts.VerificationCheckType.DRAFT_RESPONSE_ERROR,
+                    reason=str(error),
+                )
+                decision = _record_draft_response_error(
+                    session, draft_id, version, issue, regeneration_count
+                )
+                if decision == contracts.Decision.NEEDS_TEACHER_REVIEW:
+                    break
+                issues = [issue]
+                regeneration_count += 1
+                version += 1
+                continue
+            previous = generated.document
 
             decision_result = _verify_with_critic_retry(
-                session, document, evidence_by_id, request, regeneration_count
+                session,
+                generated.document,
+                generated.masked_evidence_by_id,
+                generated.request,
+                regeneration_count,
             )
 
             if decision_result.decision == contracts.Decision.PASS:
-                _save_passed_draft(session, job, bundle, document, evidence_by_id)
+                _save_passed_draft(
+                    session,
+                    job,
+                    bundle,
+                    _restore_names(generated),
+                    generated.source_evidence_by_id,
+                )
                 return
             if decision_result.decision == contracts.Decision.NEEDS_TEACHER_REVIEW:
                 break
-            # 남은 경우는 REGENERATE뿐이다 — 초안을 다시 만든다.
+            # 남은 경우는 REGENERATE뿐이다 — 걸린 문제를 넘겨 초안을 다시 만든다.
+            issues = decision_result.issues
             regeneration_count += 1
+            version += 1
 
         _send_to_unclassified(session, job_id, child_id)
 
@@ -166,18 +211,184 @@ def _cap_photos(media: list[media_service.MediaEvidence]) -> list[media_service.
     return [item for i, item in enumerate(media) if item.type != "photo" or i in kept]
 
 
-def _generate_draft(bundle: EvidenceBundle, *, previous_draft_id: str | None) -> GeneratedDraft:
-    # TODO(AI 리드): tools/, prompts/가 준비되면 근거 기반 프롬프트 구성과 call_claude
-    # 호출을 여기서 수행합니다. 반환하는 세 값 중 evidence_by_id는 실제 생성에 사용한
-    # EvidenceItem 풀(검증 단계가 문장의 evidence_ids를 그대로 다시 조회하는 데 씀)이고,
-    # GenerationRequest.class_id는 organization.Child 연결 전까지는 채울 수 없습니다 —
-    # _collect_evidence가 실제로 구현될 때 함께 정해야 합니다.
-    #
-    # previous_draft_id: 재생성 호출이면(2번째 시도부터) 이전 시도의 document.draft_id가
-    # 넘어옵니다. 새 DraftDocument의 draft_id로 그대로 재사용하세요 — 재생성은 같은
-    # 초안의 새 버전(version 증가)이지 새 초안이 아닙니다 (documents 도메인
-    # DraftDocument 설계와 일치). 첫 시도는 None이므로 새로 발급합니다.
-    raise NotImplementedError("tools/, prompts/ 완료 후 연결 예정")
+class InsufficientEvidence(Exception):
+    """생성에 쓸 관찰 근거가 없다. 미분류함으로 보낸다."""
+
+
+@dataclass(frozen=True)
+class GenerationInputs:
+    """초안 생성에 필요한, 서버 안에만 있는 값."""
+
+    request: contracts.GenerationRequest
+    # 동의·귀속 필터(H-2)를 이미 거친 근거 후보. 실명 호명이 본문에 남아 있을 수 있다.
+    evidence: list[contracts.EvidenceItem]
+    # **반 원아 전체**의 원아 ID → 본문에서 토큰으로 바꿀 이름들. 근거에 귀속되지 않은 원아도
+    # 발화에서 불릴 수 있다 (#137 리뷰). 첫 값은 저장 전 본문에 되돌려 넣는 호칭이다.
+    # LLM에 보내지 않는다.
+    names_by_child_id: dict[str, list[str]]
+
+
+@dataclass(frozen=True)
+class GeneratedDraft:
+    """생성 한 번의 결과. 검증에는 토큰 사본을, 저장에는 원본을 쓴다 (#137 리뷰)."""
+
+    # 본문이 CHILD_A류 토큰 그대로인 초안. 검증(Critic)에 그대로 넘긴다.
+    document: contracts.DraftDocument
+    # 실명을 토큰으로 바꾼 근거 사본. LLM으로 가는 검증에만 쓴다 (H-2).
+    masked_evidence_by_id: dict[str, contracts.EvidenceItem]
+    # 원본 근거. 교사 근거 패널(SentenceEvidence.source_text, FR-07)에 저장한다.
+    source_evidence_by_id: dict[str, contracts.EvidenceItem]
+    request: contracts.GenerationRequest
+    # CHILD_A → 호칭. 서버 안에만 둔다.
+    name_by_token: dict[str, str]
+
+
+def _load_generation_inputs(bundle: EvidenceBundle) -> GenerationInputs:
+    """Bundle의 미디어를 근거(EvidenceItem)로 바꾸고 반 원아 이름을 모은다.
+
+    orchestrate_drafts가 재생성 루프 전에 한 번만 부른다 — 사진 분석 LLM이 재생성마다
+    다시 돌지 않게 하기 위함이다 (#137 리뷰).
+
+    TODO(eun): 인식 결과 병합(#128, 송유진)이 develop에 들어오면 bundle.media_refs의
+      사진 분석·발화 정규화 결과를 합쳐 evidence로 넘긴다. GenerationRequest.class_id도
+      그때 Child에서 채운다. merged.status가 응답 오류면 근거 부족(InsufficientEvidence)과
+      구분해 다룬다 — 둘 다 items가 비어 같은 길로 떨어지면 #128에서 나눈 상태가 사라진다.
+    TODO(이한나): 반 원아 전체의 이름 목록(호칭·성명·이름)을 주는 organization 함수가
+      필요하다. 이름 없이 보내면 발화 속 호명이 LLM에 그대로 가므로(H-2) 비워 두고
+      진행하지 않는다 — tools/generation/pseudonymize.py가 이름이 빠진 원아를 거부한다.
+    """
+    raise NotImplementedError("인식 결과 병합(#128)과 원아 이름 조회 연결 후 동작합니다.")
+
+
+def _generate_draft(
+    inputs: GenerationInputs,
+    *,
+    draft_id: str,
+    version: int,
+    previous: contracts.DraftDocument | None,
+    issues: Sequence[contracts.VerificationIssue],
+) -> GeneratedDraft:
+    """근거 선별 → 비식별화 → 프롬프트 → LLM → DraftDocument (파이프라인 6단계, FR-05·FR-07).
+
+    응답 형식이 깨졌으면 DraftResponseError를 올린다. 호출하는 쪽이 7-A 실패로 기록하고
+    재생성한다.
+    """
+    request = inputs.request
+    # 프롬프트·검증·저장 모두 builder 결과의 키를 기준으로 한다 (#117 리뷰).
+    selected = build_evidence(inputs.evidence, request=request)
+    if not any(
+        item.source_type != contracts.SourceType.ACTIVITY_PLAN for item in selected.values()
+    ):
+        # 활동계획만 남으면 모든 문장이 PLAN_AS_OBSERVED_FACT로 걸려 재생성 상한까지
+        # 돌기만 한다. 관찰 근거가 없는 것과 같게 본다 (#117 리뷰).
+        raise InsufficientEvidence
+
+    masked = pseudonymize_evidence(
+        selected,
+        target_child_id=request.child_id,
+        names_by_child_id=inputs.names_by_child_id,
+    )
+    prompt = build_draft_prompt(
+        DAILY_DOC_TYPE, masked.llm_items, _to_feedback(issues, previous=previous)
+    )
+    document = parse_draft_response(
+        call_claude(prompt),
+        evidence_id_by_ref=masked.evidence_id_by_ref,
+        doc_type=DAILY_DOC_TYPE,
+        child_id=request.child_id,
+        record_date=request.record_date,
+        draft_id=draft_id,
+        version=version,
+    )
+    return GeneratedDraft(
+        document=document,
+        masked_evidence_by_id=masked.evidence_by_id,
+        source_evidence_by_id=selected,
+        request=request,
+        name_by_token={
+            token: inputs.names_by_child_id[child_id][0]
+            for token, child_id in masked.child_id_by_token.items()
+            if inputs.names_by_child_id[child_id]
+        },
+    )
+
+
+def _restore_names(generated: GeneratedDraft) -> contracts.DraftDocument:
+    """통과한 초안의 토큰을 호칭으로 되돌린다. 저장 직전에만 부른다 — 검증은 토큰으로 한다."""
+    data = generated.document.model_dump()
+    for sentence in data["sentences"]:
+        sentence["text"] = restore_names(sentence["text"], generated.name_by_token)
+    return contracts.DraftDocument.model_validate(data)
+
+
+def _record_draft_response_error(
+    session: Session,
+    draft_id: str,
+    version: int,
+    issue: contracts.VerificationIssue,
+    regeneration_count: int,
+) -> contracts.Decision:
+    """생성 응답 형식 오류를 문서 전체 사유로 남기고 다음 행동을 정한다 (#141).
+
+    응답을 초안으로 읽지 못해 decide()를 거칠 수 없으므로, 재생성 상한만 같은 값
+    (MAX_REGENERATIONS)으로 판정한다.
+    """
+    decision = (
+        contracts.Decision.NEEDS_TEACHER_REVIEW
+        if regeneration_count >= MAX_REGENERATIONS
+        else contracts.Decision.REGENERATE
+    )
+    checked_at = datetime.now(UTC)
+    session.add(
+        VerificationResultRow(
+            draft_id=draft_id,
+            check_type=issue.check_type.value,
+            sentence_index=None,
+            result=False,
+            detail=issue.reason,
+            checked_at=checked_at,
+        )
+    )
+    session.add(
+        DraftDecisionLog(
+            draft_id=draft_id,
+            doc_version=version,
+            decision=decision.value,
+            reason=issue.reason,
+            regeneration_count=regeneration_count,
+            critic_retry_count=0,
+            checked_at=checked_at,
+        )
+    )
+    session.commit()
+    return decision
+
+
+def _to_feedback(
+    issues: Sequence[contracts.VerificationIssue],
+    *,
+    previous: contracts.DraftDocument | None,
+) -> list[DraftFeedback]:
+    """검증 문제를 LLM에 보낼 피드백으로 바꾼다.
+
+    서버 ID(근거 ID)는 싣지 않는다. 코드 검증 사유에는 근거 ID가 섞여 있어 문제 종류만
+    넘기고, Critic 사유는 토큰으로 된 입력에서 나온 문장이라 그대로 넘긴다.
+    """
+    text_by_sentence_id = (
+        {sentence.sentence_id: sentence.text for sentence in previous.sentences} if previous else {}
+    )
+    return [
+        DraftFeedback(
+            problem=issue.check_type.value,
+            sentence=text_by_sentence_id.get(issue.sentence_id) if issue.sentence_id else None,
+            detail=(
+                issue.reason
+                if issue.check_type == contracts.VerificationCheckType.CRITIC_CONTENT
+                else None
+            ),
+        )
+        for issue in issues
+    ]
 
 
 def _verify_and_record(
@@ -221,9 +432,7 @@ def _verify_and_record(
     ]
 
     if all(result.passed for result in stage_results):
-        prompt = build_critic_prompt(document, evidence_by_id)
-        raw_response = call_claude(prompt)
-        stage_results.append(parse_critic_response(raw_response, document))
+        stage_results.append(_run_critic(document, evidence_by_id))
 
     decision_result = decide(stage_results, regeneration_count, document=document)
 
@@ -310,6 +519,58 @@ def _join_sentences(document: contracts.DraftDocument) -> str:
     sentence_id·순서째로 넘긴다. 그전까지 DraftSaveInput.content가 문자열 하나라 임시로 합친다.
     """
     return "\n".join(sentence.text for sentence in document.sentences)
+
+
+def _run_critic(
+    document: contracts.DraftDocument,
+    evidence_by_id: dict[str, contracts.EvidenceItem],
+) -> contracts.VerificationResult:
+    """Critic에는 서버 근거 ID 대신 E1… 임시 참조를 보내고, 결과를 서버 ID로 되돌린다.
+
+    근거 ID에는 media_id·segment_id가 들어 있어 외부 LLM으로 보내지 않는다
+    (ai-data-contract.md "내부 ID와 LLM 입력", #137 리뷰). 참조 번호는 evidence_by_id 순서라
+    생성 프롬프트의 E1…과 같고, 코드 검증(references·target)은 서버 ID 그대로 한다.
+    코드 검증을 통과한 뒤에만 불리므로 문장의 근거 ID는 모두 evidence_by_id에 있다.
+    """
+    evidence_id_by_ref = {
+        f"E{index}": evidence_id for index, evidence_id in enumerate(evidence_by_id, start=1)
+    }
+    ref_by_evidence_id = {evidence_id: ref for ref, evidence_id in evidence_id_by_ref.items()}
+
+    critic_document = contracts.DraftDocument.model_validate(
+        {
+            **document.model_dump(),
+            "sentences": [
+                {
+                    **sentence.model_dump(),
+                    "evidence_ids": [ref_by_evidence_id[eid] for eid in sentence.evidence_ids],
+                }
+                for sentence in document.sentences
+            ],
+        }
+    )
+    critic_evidence = {
+        ref: contracts.EvidenceItem.model_validate(
+            {**evidence_by_id[evidence_id].model_dump(), "evidence_id": ref}
+        )
+        for ref, evidence_id in evidence_id_by_ref.items()
+    }
+
+    result = parse_critic_response(
+        call_claude(build_critic_prompt(critic_document, critic_evidence)), critic_document
+    )
+    return contracts.VerificationResult.model_validate(
+        {
+            **result.model_dump(),
+            "issues": [
+                {
+                    **issue.model_dump(),
+                    "evidence_ids": [evidence_id_by_ref[ref] for ref in issue.evidence_ids],
+                }
+                for issue in result.issues
+            ],
+        }
+    )
 
 
 def _record_verification_issues(

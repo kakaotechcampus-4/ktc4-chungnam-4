@@ -158,7 +158,7 @@ class VerificationResult(Base):
     doc_version = Column(Integer, nullable=False)
     # PR #7의 VerificationCheckType 7종 채택: missing_evidence_ref, invalid_evidence_ref,
     # plan_as_observed_fact, wrong_child_evidence, wrong_date_evidence, critic_content,
-    # critic_response_error
+    # critic_response_error. 생성 응답 형식 오류 draft_response_error를 더해 8종.
     check_type = Column(String, nullable=False)
     # 문장은 (draft_id, doc_version, sentence_id)로 구분한다 — 재생성 사이에 sentence_id가
     # 재사용될 수 있다 (#91). 영역스타일 검사는 문서 전체라 null

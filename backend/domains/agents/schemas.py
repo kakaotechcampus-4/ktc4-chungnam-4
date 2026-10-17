@@ -28,6 +28,7 @@ class SentenceEvidenceResponse(BaseModel):
 
 
 VerificationCheckType = Literal[
+    "draft_response_error",
     "missing_evidence_ref",
     "invalid_evidence_ref",
     "plan_as_observed_fact",

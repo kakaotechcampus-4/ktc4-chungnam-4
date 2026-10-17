@@ -27,6 +27,7 @@
 
 | 값 | 검사 위치 | 의미 |
 | --- | --- | --- |
+| `draft_response_error` | 생성 응답 파싱(`tools/generation/draft.py`, #137) | 생성 응답이 약속한 형식이 아님(빈 응답·JSON 아님·주지 않은 근거 참조 등). 문서 전체 대상이라 `sentence_id`가 없음 |
 | `missing_evidence_ref` | `references.py` | 문장에 근거 참조가 없음 |
 | `invalid_evidence_ref` | `references.py` | 제공되지 않은 근거ID를 참조함 |
 | `plan_as_observed_fact` | `references.py` | 활동계획 근거만으로 실제 관찰처럼 서술함 |
@@ -36,6 +37,8 @@
 | `critic_response_error` | `critic_result.py` | Critic 응답 형식 오류(JSON 아님·문장 누락·존재하지 않는 대상 언급 등) — **통과로 처리하지 않는다** |
 
 `critic_response_error`는 내용 실패와 구분해서 다룬다. 이 오류는 외부 API 재시도 정책(백엔드 담당)의 대상이며, `decision.py`의 재생성 횟수 카운트에 포함하지 않는 것을 제안한다 — `retry_critic`으로 반환한다. 백엔드는 별도 상한을 둔 재검사를 수행하고 소진 시 교사 확인으로 전환한다.
+
+`draft_response_error`는 테크스펙 7-A의 '출력형식' 검사다. 응답을 `DraftDocument`로 읽지 못한 경우라 근거·대상 검사와 `decide()`를 거치지 않는다 — `decide()`는 현재 초안과 근거·대상 검사 결과가 있어야 판정한다. 7-A 실패이므로 Critic 없이 바로 재생성하고, `domains/agents/service.py`가 이 사유를 문서 전체 대상으로 기록한다. 재생성 횟수에는 다른 7-A 실패처럼 포함하고, 상한(`decision.py`의 `MAX_REGENERATIONS`)을 넘으면 미분류함으로 보내는 것을 제안한다(#137 리뷰).
 
 ## 아직 팀과 맞춰야 할 것
 
