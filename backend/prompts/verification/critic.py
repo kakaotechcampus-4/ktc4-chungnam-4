@@ -37,7 +37,7 @@ fail은 ok 이외의 reason_code를 사용하라. detail은 빈 문자열을 허
 각 문장마다 다음 형식의 JSON 객체 하나씩, 전체를 JSON 배열로만 응답하라. 다른 텍스트를 \
 덧붙이지 마라.
 
-{"sentence_id": "s_01", "verdict": "pass" 또는 "fail", "reason_code": "ok" 또는 \
+{"sentence_id": "s1", "verdict": "pass" 또는 "fail", "reason_code": "ok" 또는 \
 "unsupported_claim"/"assumed_emotion_or_intent"/"wrong_child_mixed"/\
 "overgeneralized_group_evidence"/"teacher_note_as_child_speech"/"plan_as_fact", \
 "detail": "판정 이유 한두 문장", "evidence_ids": ["검토에 사용한 근거 id"]}
