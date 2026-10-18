@@ -153,6 +153,9 @@ class VerificationCheckType(StrEnum):
     """검증 실패 사유 종류. 여기 없는 값은 쓰지 않는다 (자유 문자열 금지 — 이번 스프린트
     데이터 계약 확정 항목)."""
 
+    # 테크스펙 7-A 출력형식. 응답을 초안으로 읽지 못해 decide()를 거치지 않는다
+    # (docs/ai-data-contract.md §검증 항목).
+    DRAFT_RESPONSE_ERROR = "draft_response_error"
     MISSING_EVIDENCE_REF = "missing_evidence_ref"
     INVALID_EVIDENCE_REF = "invalid_evidence_ref"
     WRONG_CHILD_EVIDENCE = "wrong_child_evidence"

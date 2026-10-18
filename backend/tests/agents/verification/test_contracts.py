@@ -1,6 +1,9 @@
+from typing import get_args
+
 import pytest
 from pydantic import ValidationError
 
+from domains.agents.schemas import VerificationCheckType as ResponseCheckType
 from tests.agents.fixtures.evidence import (
     EVIDENCE_ACTIVITY_PLAN,
     EVIDENCE_CHILD_A,
@@ -11,6 +14,8 @@ from tools.contracts import (
     DraftDocument,
     DraftSentence,
     EvidenceItem,
+    VerificationCheckType,
+    VerificationIssue,
     VerificationResult,
 )
 
@@ -74,6 +79,22 @@ def test_모순된_검증결과_거부(passed, issues):
             passed=passed,
             issues=issues,
         )
+
+
+def test_생성_응답_형식_오류는_문장_없이_문서_전체_사유로_남긴다():
+    # 응답을 초안으로 읽지 못해 가리킬 문장이 없다 (테크스펙 7-A 출력형식).
+    issue = VerificationIssue(
+        check_type="draft_response_error",
+        reason="초안 생성 응답이 약속한 JSON 형식이 아닙니다.",
+    )
+
+    assert issue.check_type == VerificationCheckType.DRAFT_RESPONSE_ERROR
+    assert issue.sentence_id is None
+
+
+def test_agents_응답의_check_type은_계약의_검증_항목과_같다():
+    # 계약에만 값을 더하면 그 값이 저장된 행을 응답으로 바꿀 때 검증 오류가 난다.
+    assert set(get_args(ResponseCheckType)) == {check.value for check in VerificationCheckType}
 
 
 @pytest.mark.parametrize("changes", [{"start_ms": 1000}, {"end_ms": 1000}, {"start_ms": 0}])
