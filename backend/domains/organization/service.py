@@ -10,19 +10,21 @@ face·media·agents는 organization 테이블(Child·ConsentRecord 등)을 직�
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from uuid import UUID
 
 from sqlalchemy import ColumnElement, Exists, select
 from sqlalchemy.orm import Session
 
 from core.exceptions import (
+    CenterNotFound,
     ChildAccessDenied,
     ChildNotFound,
     ChildNotInClass,
     ClassAccessDenied,
     ClassNotFound,
 )
-from domains.organization.models import Child, ConsentRecord, Klass
+from domains.organization.models import Center, Child, ConsentRecord, Klass
 
 # Child.status 값 — 재원 원아만 동의 판정 대상입니다 (졸업·퇴소 제외).
 CHILD_STATUS_ENROLLED = "enrolled"
@@ -140,3 +142,30 @@ def has_consent(db: Session, child_id: UUID, consent_type: str) -> bool:
     `False`일 때 어떻게 거절할지는 호출하는 쪽이 정합니다(face: `FACE_CONSENT_REQUIRED`).
     """
     return bool(db.scalar(select(_valid_consent_exists(child_id, consent_type))))
+
+
+@dataclass(frozen=True)
+class CenterSummary:
+    """가입 코드로 찾은 어린이집. auth는 `center_id`를 교사 소속으로 저장하고,
+    가입 화면은 `name`으로 "OO어린이집이 맞나요?"를 보여 줍니다."""
+
+    center_id: UUID
+    name: str
+
+
+def find_center_by_code(db: Session, center_code: str) -> CenterSummary:
+    """가입 코드(`Center.center_code`, UNIQUE)로 어린이집을 찾습니다 (FR-23).
+
+    교사 회원가입에서 auth가 부릅니다 — auth는 Center 테이블을 직접 조회하지 않습니다
+    (organization/CLAUDE.md: 코드 조회는 이 함수 하나로 모읍니다).
+    코드 형식(자릿수·대소문자)이 아직 정해지지 않아 입력값을 바꾸지 않고 그대로 비교합니다.
+    TODO(이한나): 코드 형식이 정해지면 정규화(공백 제거·대소문자 통일) 여부를 정합니다.
+
+    - 일치하는 어린이집이 없음: `CenterNotFound` (404 `CENTER_NOT_FOUND`)
+    """
+    row = db.execute(
+        select(Center.id, Center.name).where(Center.center_code == center_code)
+    ).one_or_none()
+    if row is None:
+        raise CenterNotFound("가입 코드와 일치하는 어린이집이 없습니다.")
+    return CenterSummary(center_id=row.id, name=row.name)
