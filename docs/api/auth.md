@@ -9,7 +9,7 @@
 (막힘)은 정해져야 FE 목(MSW)과 BE schemas를 만들 수 있는 항목입니다. 막히면 작업하는 사람이 정하고 진행합니다. 정한 값은 같은 PR에서 이 파일에 반영하고, 항목을 `[x]`로 바꾼 뒤 `임시 결정(이름)`과 반영한 곳을 적습니다([README](README.md) §이 문서를 읽는 법). 담당의 답은 이슈 #58 댓글이나 이 파일을 고치는 PR로 받습니다.
 
 - [x] (막힘) 인증 방식: 세션 쿠키 vs JWT → **JWT를 HttpOnly 쿠키로** 주고받고, BE가 상태 변경 요청의 `Origin`을 확인해 CSRF를 막습니다. 로그인 응답 본문에 토큰 필드를 두지 않고, 토큰은 브라우저 쿠키에만 있습니다(임시 결정(송유진), 멘토 승인(#124 리뷰, 2026-10-07), 이슈 #118). 반영: 이 파일 §이 도메인의 규칙의 '인증', 테크스펙 §공통 API 규약·§기술스택
-- [x] (막힘) 로그인 쿠키 이름(`__Host-` 접두사를 쓸지), `SameSite`(`Strict`/`Lax`), `Max-Age`(토큰 만료와 맞출지). → **`__Host-aidam_session`, `SameSite=Lax`, `Max-Age`는 토큰 만료(`JWT_EXPIRE_HOURS`)와 같게** (임시 결정(엄태은)). `Strict`는 초대·메신저 링크로 들어올 때 로그인이 풀린 것처럼 보여서 뺐습니다. 반영: `backend/domains/auth/middleware.py`. BE 로그인·로그아웃 라우터가 이 값을 씁니다. 참고(MDN `Set-Cookie` 호환성 표, 10/08 확인): `SameSite`를 빼면 Safari는 `Lax`로 두지 않으므로 값을 꼭 적습니다. `__Host-`는 Safari 13부터 되지만 `__Host-Http-`는 Safari가 지원하지 않습니다. Safari는 `Secure` 쿠키를 `http://localhost`로 보내지 않아서, 로컬 개발(`http://localhost:5173`)에서 Safari로는 로그인이 유지되지 않습니다(Chrome·Firefox는 localhost 예외로 보냄)
+- [x] (막힘) 로그인 쿠키 이름(`__Host-` 접두사를 쓸지), `SameSite`(`Strict`/`Lax`), `Max-Age`(토큰 만료와 맞출지). → **`__Host-aidam_session`, `SameSite=Lax`, `Max-Age`는 토큰 만료(`JWT_EXPIRE_HOURS`)와 같게** (임시 결정(엄태은)). `Lax`는 다른 사이트의 POST·fetch에 쿠키를 붙이지 않고, `Strict`와 달라지는 것은 다른 사이트에서 들어오는 GET 이동뿐입니다. 상태를 바꾸는 GET API가 없어 `Lax`로 충분합니다(#136 리뷰, 송유진). 반영: `backend/domains/auth/middleware.py`. BE 로그인·로그아웃 라우터가 이 값을 씁니다. 참고(MDN `Set-Cookie` 호환성 표, 10/08 확인): `SameSite`를 빼면 Safari는 `Lax`로 두지 않으므로 값을 꼭 적습니다. `__Host-`는 Safari 13부터 되지만 `__Host-Http-`는 Safari가 지원하지 않습니다. Safari는 `Secure` 쿠키를 `http://localhost`로 보내지 않아서, 로컬 개발(`http://localhost:5173`)에서 Safari로는 로그인이 유지되지 않습니다(Chrome·Firefox는 localhost 예외로 보냄)
 - [ ] refresh 토큰을 둘지. 지금 코드는 접근 토큰 하나입니다(`JWT_EXPIRE_HOURS`, 기본 24시간)
 - [x] (막힘) 경로 채택: `POST /sessions` · `DELETE /sessions/current` · `GET /me`. 대안은 `/auth/login`, `/accounts/me` → 제안 경로 채택 (임시 결정(엄태은)). 반영: `backend/domains/auth/router.py`
 - [x] (막힘) 역할 필드 이름: `account_type`(제안) vs `role` → `account_type` (임시 결정(엄태은), 데이터 모델과 같음). 반영: `backend/domains/auth/schemas.py`
@@ -38,7 +38,7 @@ auth의 상세 작성 엔드포인트는 3개입니다. 교사·학부모 공용
 | 항목 | 방식 |
 |---|---|
 | 로그인 응답 | 본문은 지금 그대로(`account_id`·`account_type`). 토큰은 본문이 아니라 `Set-Cookie`로만 내려 줍니다 |
-| 쿠키 속성 | `HttpOnly`·`Secure`. `Path=/`, `Domain` 없음(CloudFront 주소에만 붙음)은 제안입니다. 이름·`SameSite`·`Max-Age`는 미정(위 체크리스트) |
+| 쿠키 속성 | 이름 `__Host-aidam_session`, `HttpOnly`·`Secure`·`SameSite=Lax`, `Path=/`, `Domain` 없음(CloudFront 주소에만 붙음), `Max-Age`는 토큰 만료(`JWT_EXPIRE_HOURS`)와 같음 (임시 결정(엄태은), 위 체크리스트) |
 | 이후 요청 | 브라우저가 쿠키를 자동으로 붙입니다. `Authorization` 헤더를 쓰지 않고, FE는 토큰을 읽거나 저장하지 않습니다 |
 | 로그아웃 | 같은 이름·`Path`로 쿠키를 만료시키는 `Set-Cookie`. 서버 무효화는 미정 |
 | CSRF | BE가 상태를 바꾸는 요청의 `Origin`을 확인합니다. 규칙의 원본은 테크스펙 §공통 API 규약의 CSRF 행이고, 거부 상태·코드와 `Origin`이 없을 때의 처리는 `docs/open-questions.md` §D에서 정합니다 |
@@ -109,6 +109,8 @@ auth의 상세 작성 엔드포인트는 3개입니다. 교사·학부모 공용
   "center_id": "0c000000-0000-4000-8000-000000000001"
 }
 ```
+
+- `center_id`는 가입은 했지만 아직 어린이집 가입 코드로 소속을 확정하지 않은 교사일 때만 `null`입니다(FR-23·FR-24). 소속 여부는 이 값으로 판단합니다 — 소속이 있어도 반이 아직 없으면 `GET /api/v1/classes`가 빈 목록이라, 빈 목록만으로는 두 경우를 구분할 수 없습니다(#146 리뷰).
 
 학부모:
 

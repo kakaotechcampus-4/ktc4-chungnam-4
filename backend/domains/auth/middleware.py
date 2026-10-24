@@ -32,8 +32,10 @@ def set_session_cookie(response: Response, token: str) -> None:
         path="/",
         secure=True,
         httponly=True,
-        # Strict면 학부모 초대 링크·메신저 링크로 들어올 때 로그인이 풀린 것처럼 보입니다.
-        # Lax는 다른 사이트의 POST에는 쿠키를 붙이지 않아 CSRF 1차 방어가 됩니다.
+        # Lax는 다른 사이트에서 오는 POST·fetch에 쿠키를 붙이지 않아 CSRF 1차 방어가 됩니다.
+        # Strict와 달라지는 것은 다른 사이트에서 들어오는 GET 이동뿐인데, 상태를 바꾸는 GET
+        # API가 없어 Lax로 충분합니다. (SPA라 첫 HTML은 S3에서 오므로 Strict여도 로그인이
+        # 풀려 보이지는 않습니다. #136 리뷰, 송유진)
         samesite="lax",
     )
 
