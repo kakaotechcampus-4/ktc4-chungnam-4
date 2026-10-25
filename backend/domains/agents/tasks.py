@@ -1,3 +1,6 @@
+from collections.abc import Sequence
+from uuid import UUID
+
 from celery import Task
 
 from celery_app import celery_app
@@ -38,3 +41,13 @@ class _DraftTask(Task):
 )
 def generate_drafts(self, job_id: str, child_id: str) -> None:
     service.orchestrate_drafts(job_id, child_id)
+
+
+def enqueue_generate_drafts(child_jobs: Sequence[tuple[UUID, UUID]]) -> None:
+    """원아별 Job을 큐에 넣는다. worker가 Job 행을 읽으므로 커밋한 뒤에 부른다.
+
+    TODO(eun): 브로커 장애로 넣기가 실패하면 Job이 pending으로 남아 같은 반·날짜가
+      JOB_ALREADY_RUNNING에 막힌다. 실패 처리(POST /jobs/{job_id}/retry 등)는 정해지면 붙인다.
+    """
+    for job_id, child_id in child_jobs:
+        generate_drafts.delay(job_id=str(job_id), child_id=str(child_id))
