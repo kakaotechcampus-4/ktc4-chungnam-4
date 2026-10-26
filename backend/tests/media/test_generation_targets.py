@@ -73,6 +73,13 @@ def test_귀속_저장이_끝난_이_반_이_날짜의_미디어만_준비된_�
     assert unready == [not_attributed, other_class, next_day, unknown]
 
 
+def test_파기된_미디어는_준비되지_않은_것으로_본다(db: Session) -> None:
+    ready = add_media(db, DOYUN)
+    deleted = add_media(db, DOYUN, storage_tier="deleted")
+
+    assert service.find_unready_media(db, CLASS_ID, DAY, [ready, deleted]) == [deleted]
+
+
 def test_그_날짜에_귀속된_자료가_있는_원아를_한_번씩_돌려준다(db: Session) -> None:
     add_media(db, DOYUN, YERIN)
     add_media(db, DOYUN)

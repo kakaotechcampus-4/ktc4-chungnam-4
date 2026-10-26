@@ -244,8 +244,8 @@ def find_unready_media(
 ) -> list[UUID]:
     """초안 생성 작업을 시작하기 전에, 보낸 미디어 중 아직 쓸 수 없는 것을 돌려줍니다.
 
-    완료 통지 전(행 없음)이거나, 귀속 저장 전(`attributed_at` null)이거나, 이 반·날짜(KST)의
-    자료가 아니면 걸립니다 (docs/api/agents.md `MEDIA_NOT_READY`). 보낸 순서를 지킵니다.
+    완료 통지 전(행 없음)이거나, 귀속 저장 전(`attributed_at` null)이거나, 파기됐거나, 이 반·날짜
+    (KST)의 자료가 아니면 걸립니다 (docs/api/agents.md `MEDIA_NOT_READY`). 보낸 순서를 지킵니다.
     """
     start, end = _kst_day_range(target_date)
     ready = set(
@@ -253,6 +253,7 @@ def find_unready_media(
             select(MediaAsset.id).where(
                 MediaAsset.id.in_(media_ids),
                 MediaAsset.class_id == class_id,
+                MediaAsset.storage_tier != "deleted",
                 MediaAsset.captured_at >= start,
                 MediaAsset.captured_at < end,
                 MediaAsset.attributed_at.is_not(None),
