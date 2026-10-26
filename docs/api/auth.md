@@ -24,7 +24,7 @@
 
 ## 이 도메인의 규칙
 
-auth의 상세 작성 엔드포인트는 3개입니다. 교사·학부모 공용 로그인, 로그아웃, 현재 계정 정보입니다. 가입과 초대 API는 경로만 정했으므로 데모 계정은 시드 데이터로 넣습니다. `backend/`에서 `python -m scripts.seed_demo_accounts --teacher-email … --teacher-name … [--center-id …] [--parent-email … --parent-name …]`로 만들고, 비밀번호는 `DEMO_TEACHER_PASSWORD`·`DEMO_PARENT_PASSWORD` 환경변수나 입력 프롬프트로 받습니다. 이미 있는 이메일은 건너뜁니다. 서버에서는 `docker compose exec api python -m scripts.seed_demo_accounts …`입니다.
+auth의 상세 작성 엔드포인트는 3개입니다. 교사·학부모 공용 로그인, 로그아웃, 현재 계정 정보입니다. 가입과 초대 API는 경로만 정했으므로 데모 계정은 시드 데이터로 넣습니다. `backend/`에서 `python -m scripts.seed_demo_accounts --teacher-email … --teacher-name … [--center-id …] [--parent-email … --parent-name …]`로 만들고, 비밀번호는 `DEMO_TEACHER_PASSWORD`·`DEMO_PARENT_PASSWORD` 환경변수나 입력 프롬프트로 받습니다. 이미 있는 이메일은 건너뜁니다(나중에 `--center-id`를 주어도 소속이 바뀌지 않습니다). 서버에서는 `docker compose exec -e DEMO_TEACHER_PASSWORD -e DEMO_PARENT_PASSWORD api python -m scripts.seed_demo_accounts …`입니다 — `docker compose exec`는 호스트 환경변수를 넘기지 않아 `-e`가 없으면 입력 프롬프트로 갑니다. `--center-id`는 형식만 검사하므로 **이미 있는 어린이집의 ID**를 넘깁니다. 어린이집을 만드는 API가 아직 없어, 없는 ID를 넣으면 계정은 만들어지지만 반 목록이 비어 보입니다.
 
 **인증**
 
