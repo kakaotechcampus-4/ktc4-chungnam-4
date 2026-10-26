@@ -184,8 +184,11 @@ def _update_generated_draft(
             DraftDocument.version == expected_version,
             DraftDocument.status.notin_(_AI_LOCKED_STATUSES),
             # 교사가 한 번이라도 손댄 문서는 AI 결과로 덮어쓰지 않는다 (#75 6-1). 교사의
-            # 수정·승인은 모두 RevisionLog에 남는다(documents/CLAUDE.md). 판단을 이 UPDATE에
-            # 넣어, 확인한 뒤 갱신하기 전에 교사 수정이 끼어들 틈을 두지 않는다.
+            # 수정·승인은 모두 RevisionLog에 남는다(documents/CLAUDE.md). 동시 요청은 이
+            # 서브쿼리가 아니라 위 version 비교가 막는다 — READ COMMITTED에서 행 락을 기다린
+            # 뒤 WHERE를 다시 볼 때 다른 테이블(RevisionLog)은 처음 스냅샷으로 평가되지만,
+            # 교사 수정·승인은 RevisionLog 기록과 version 증가를 한 트랜잭션에서 하므로
+            # version이 달라져 있다.
             ~exists().where(RevisionLog.draft_id == DraftDocument.id),
         )
         .values(
@@ -236,7 +239,8 @@ def update_draft(
     # TODO(한상균): 버전 비교+갱신은 모듈 docstring의 원자적 UPDATE 패턴으로 (조회 후
     #   별도 비교 금지). rowcount==0이면 충돌(409). 통과 시 RevisionLog에
     #   action=edit, edit_method=manual, before_content(수정 전)·after_content(수정 후)
-    #   를 함께 남긴다(테크스펙 RevisionLog ERD).
+    #   를 함께 남긴다(테크스펙 RevisionLog ERD). RevisionLog 기록과 version 증가는 한
+    #   트랜잭션에서 한다 — save_draft()의 재생성 거부가 version 비교에 기댄다.
     raise NotImplementedError("초안 수정 처리 구현 예정")
 
 
@@ -252,7 +256,8 @@ def approve_draft(
     #   원자적 UPDATE 패턴으로. 승인 차단 조건 확정 필요 — D(정은) 담당
     #   VerificationResult가 passed가 아니면 승인 거부할지, UnclassifiedItem
     #   (ref_type="draft_document")으로 갈지 협의 후 구현. 통과 시 RevisionLog에
-    #   action=approve를 남긴다(before/after_content는 비워도 된다).
+    #   action=approve를 남긴다(before/after_content는 비워도 된다). RevisionLog 기록과
+    #   version 증가는 한 트랜잭션에서 한다 — save_draft()의 재생성 거부가 version 비교에 기댄다.
     raise NotImplementedError("초안 승인 처리 구현 예정")
 
 
