@@ -81,7 +81,7 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 
 - 초안 `status`
   - 흐름은 `draft`(생성·검증 중) → `verified`(교사 검토 대기) → `approved`입니다. 재시도 상한을 넘기면 `unclassified`가 됩니다.
-  - PR #14의 `in_review`·`revoked`는 상세 작성 범위의 화면에서 쓰지 않아 뺐습니다.
+  - PR #14의 `in_review`는 `verified`로 바꿨습니다. `revoked`는 게시 모델이 정해질 때까지 그대로 둡니다(위 §막힘 상태값 항목).
 - 게시(학부모 노출)
   - 게시해도 `status`는 그대로입니다. 게시 여부는 `published_at`으로 나타냅니다. PR #14 `DocumentPublication`의 활성 회차에 해당합니다.
   - 학부모 응답은 모두 단일 게이트 함수를 거칩니다(H-1). 이 함수는 네 가지를 한 번에 검사합니다: `status == approved`, 활성 게시가 있음, 학부모–원아 관계, NFR-03 열람 기간.
