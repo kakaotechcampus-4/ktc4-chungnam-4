@@ -14,6 +14,7 @@ from domains.auth.router import router as auth_router
 from domains.documents.router import router as documents_router
 from domains.face.router import router as face_router
 from domains.media.router import router as media_router
+from domains.organization.router import router as organization_router
 
 
 @asynccontextmanager
@@ -37,6 +38,7 @@ app = FastAPI(
 # 베이스 경로(테크스펙 §공통 API 규약)는 여기서 한 번에 붙입니다.
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(documents_router)
+app.include_router(organization_router, prefix="/api/v1")
 app.include_router(media_router, prefix="/api/v1")
 app.include_router(face_router, prefix="/api/v1")
 
