@@ -10,7 +10,7 @@ export type MediaTypeView = "photo" | "video" | "voice_memo";
 export type AttributionMethodView = "face_recognition" | "manual";
 
 /** 업로드 URL을 받을 파일 한 건 */
-export interface UploadUrlInputItem {
+export interface UploadUrlItemInput {
   /** 클라이언트가 만든 UUID. 사진은 LocalPhoto.photo_id, 영상·음성은 화면이 새로 만듭니다. */
   client_photo_id: string;
   type: MediaTypeView;
@@ -20,7 +20,7 @@ export interface UploadUrlInputItem {
 
 export interface UploadUrlsInput {
   class_id: string;
-  items: UploadUrlInputItem[];
+  items: UploadUrlItemInput[];
 }
 
 /** 받은 업로드 URL 한 건. 순서는 요청과 같습니다. */
