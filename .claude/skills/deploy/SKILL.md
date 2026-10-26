@@ -29,3 +29,12 @@ description: 배포하거나 CI 워크플로를 만들·고칠 때 사용. "배�
 
 - 키·URL·비밀번호를 워크플로 파일에 박지 않습니다. GitHub Secrets를 쓰고, `.env.example`에는 **키 이름과 설명만** 둡니다 (루트 §환경변수).
 - 키가 커밋됐으면 되돌리는 것으로 끝내지 말고 **즉시 폐기·재발급**합니다.
+
+### 서버 `.env`에 키 넣기
+
+`.env.example`에 키가 생기면 **그 PR을 머지하기 전에** 서버 `.env`에도 넣습니다 (루트 §환경변수, 10/17 #151 배포 실패). `backend/scripts/deploy.sh`가 `.env.example`과 키 목록을 대조해, 빠진 키가 있으면 빌드 전에 멈춥니다.
+
+1. 카테캠 포털 → 팀 계정 → 서울 리전 → EC2 → 연결 → **Session Manager**로 접속합니다.
+2. `sudo -iu ubuntu`로 배포 사용자로 바꾼 뒤 **`/opt/aidam/backend.env`** 를 고칩니다. 앱 폴더의 `/opt/aidam/app/backend/.env`는 배포 때마다 이 파일로 덮어써지므로 고치지 않습니다.
+3. 이미 배포가 실패했다면 Actions → **Deploy to EC2** → Run workflow로 다시 돌립니다.
+4. 채널에 **추가한 키 이름만** 남깁니다. 서버 파일은 변경 이력이 남지 않습니다. 값은 적지 않습니다.

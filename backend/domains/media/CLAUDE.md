@@ -6,7 +6,7 @@ S3 업로드용 URL을 내주고 그 결과 메타데이터만 DB에 기록합�
 
 | 파일 | 내용 |
 | --- | --- |
-| `models.py` | `MediaAsset`, `MediaChildLink`, `TranscriptSegment` |
+| `models.py` | `MediaAsset`, `MediaUpload`(업로드 URL 발급 기록), `MediaChildLink`, `TranscriptSegment` |
 | `schemas.py` | presigned URL 요청·응답, 업로드 완료 통지 |
 | `router.py` | presigned URL 발급, 업로드 완료 통지 API |
 | `service.py` | presigned URL 발급 + 완료 통지 시 메타데이터 저장 |

@@ -18,7 +18,7 @@ def 테스트용_키(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_암호화한_임베딩은_원래_벡터로_복호화된다() -> None:
-    vector = [0.1, -0.25, 0.5] * 170 + [0.0, 1.0]  # 512차원
+    vector = [0.1, -0.25, 0.5] * 341 + [1.0]  # 1024차원(HUMAN faceres, #120)
     embedding_enc, key_ref = encrypt_embedding(vector)
 
     restored = decrypt_embedding(embedding_enc, key_ref)

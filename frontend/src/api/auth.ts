@@ -9,9 +9,9 @@ import type { LoginInput } from "./auth-view";
 // 화면은 서버 타입 대신 여기서 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
 export { isTeacher } from "./auth-adapter";
 export type {
-  AccountRole,
+  AccountTypeView,
   LoginInput,
-  MeRole,
+  MeAccountTypeView,
   MeView,
   ParentMeView,
   SessionView,

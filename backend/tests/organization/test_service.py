@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from core.base import Base
 from core.exceptions import (
+    CenterNotFound,
     ChildAccessDenied,
     ChildNotFound,
     ChildNotInClass,
@@ -15,9 +16,11 @@ from core.exceptions import (
 )
 from domains.organization.models import Center, Child, ConsentRecord, Klass
 from domains.organization.service import (
+    CenterSummary,
     ensure_child_access,
     ensure_children_in_class,
     ensure_class_access,
+    find_center_by_code,
     get_consented_children,
     has_consent,
 )
@@ -283,3 +286,32 @@ def test_원아_한_명이_철회_후_다시_동의하면_True():
     _consent(db, child_id)
 
     assert has_consent(db, child_id, FACE) is True
+
+
+def test_가입_코드로_어린이집을_찾는다():
+    db = _session()
+    center = Center(center_code="SUN1234", name="햇살어린이집", contract_status="active")
+    db.add(center)
+    db.add(Center(center_code="MOON5678", name="달님어린이집", contract_status="trial"))
+    db.flush()
+
+    assert find_center_by_code(db, "SUN1234") == CenterSummary(
+        center_id=center.id, name="햇살어린이집"
+    )
+
+
+def test_없는_가입_코드는_CENTER_NOT_FOUND():
+    db = _session()
+    _center(db)
+
+    with pytest.raises(CenterNotFound):
+        find_center_by_code(db, "NOPE0000")
+
+
+def test_가입_코드는_정확히_일치해야_찾는다():
+    db = _session()
+    db.add(Center(center_code="SUN1234", name="햇살어린이집", contract_status="active"))
+    db.flush()
+
+    with pytest.raises(CenterNotFound):
+        find_center_by_code(db, "SUN123")

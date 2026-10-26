@@ -1,6 +1,6 @@
 """LLM 근거용 미디어 조회 (#34, H-2).
 
-organization 동의 판정 함수(#31)는 아직 없어 목으로 대체합니다.
+③ 동의는 organization 판정 함수(`get_consented_children`, #105)가 실제 행으로 판단합니다.
 """
 
 import uuid
@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from core.base import Base
 from domains.media import service
 from domains.media.models import MediaAsset, MediaChildLink, TranscriptSegment
+from domains.organization.models import Center, Child, ConsentRecord, Klass
 
 CLASS_ID = uuid.uuid4()
 DOYUN = uuid.uuid4()
@@ -31,15 +32,53 @@ def db() -> Session:
             MediaAsset.__table__,
             MediaChildLink.__table__,
             TranscriptSegment.__table__,
+            Center.__table__,
+            Klass.__table__,
+            Child.__table__,
+            ConsentRecord.__table__,
         ],
     )
     with Session(engine) as session:
+        # 같은 반 원아 둘. 도윤은 ③ 동의, 예린은 동의 행이 없습니다(미동의).
+        center = Center(center_code="sunshine", name="햇살어린이집", contract_status="trial")
+        session.add(center)
+        session.flush()
+        session.add(
+            Klass(
+                id=CLASS_ID,
+                center_id=center.id,
+                teacher_id=uuid.uuid4(),
+                name="해바라기반",
+                age_group="만 4세",
+            )
+        )
+        for child_id in (DOYUN, YERIN):
+            session.add(
+                Child(
+                    id=child_id,
+                    class_id=CLASS_ID,
+                    name="합성원아",
+                    birth_date=date(2021, 5, 1),
+                    status="enrolled",
+                    enrolled_at=date(2025, 3, 1),
+                )
+            )
+        add_consent(session, DOYUN)
+        session.commit()
         yield session
 
 
-@pytest.fixture(autouse=True)
-def 동의(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(service, "_consented_child_ids", lambda db, class_id: [DOYUN])
+def add_consent(db: Session, child_id: uuid.UUID, *, revoked: bool = False) -> None:
+    db.add(
+        ConsentRecord(
+            child_id=child_id,
+            parent_id=uuid.uuid4(),
+            consent_type="face_feature",
+            status="revoked" if revoked else "agreed",
+            agreed_at=MORNING,
+            revoked_at=MORNING if revoked else None,
+        )
+    )
 
 
 def add_media(
@@ -102,14 +141,13 @@ def test_미동의_원아가_함께_귀속된_사진과_영상은_뺀다(db: Ses
     assert ids(service.collect_media_for_llm(db, DOYUN, DAY)) == [alone.id, voice.id]
 
 
-def test_동의_판정을_못_하면_통과시키지_않고_멈춘다(
-    db: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.undo()
+def test_동의를_철회하면_저장된_llm_allowed와_상관없이_뺀다(db: Session) -> None:
+    """철회 처리가 중간에 실패해 llm_allowed가 남아 있어도 수집 때 다시 막습니다 (H-2)."""
     add_media(db, [DOYUN])
+    db.query(ConsentRecord).filter_by(child_id=DOYUN).delete()
+    add_consent(db, DOYUN, revoked=True)
 
-    with pytest.raises(NotImplementedError):
-        service.collect_media_for_llm(db, DOYUN, DAY)
+    assert service.collect_media_for_llm(db, DOYUN, DAY) == []
 
 
 def test_영상_음성은_STT_구간을_시간순으로_함께_싣는다(db: Session) -> None:
@@ -170,10 +208,10 @@ def test_구간_시작_시각이_없으면_맨_뒤로_보낸다(db: Session) -> 
 def test_없으면_빈_리스트이고_동의_판정도_부르지_않는다(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def 불리면_안_됨(db: Session, class_id: uuid.UUID) -> list[uuid.UUID]:
+    def 불리면_안_됨(db: Session, class_id: uuid.UUID, consent_type: str) -> list[uuid.UUID]:
         raise AssertionError("대상이 없으면 동의 판정을 부르지 않습니다")
 
-    monkeypatch.setattr(service, "_consented_child_ids", 불리면_안_됨)
+    monkeypatch.setattr(service, "get_consented_children", 불리면_안_됨)
 
     assert service.collect_media_for_llm(db, DOYUN, DAY) == []
 
