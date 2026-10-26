@@ -4,6 +4,7 @@ import os
 os.environ.setdefault("POSTGRES_PASSWORD", "test-only-password")
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-only-key")
 
+import httpx
 import openai
 import pytest
 from celery.exceptions import SoftTimeLimitExceeded
@@ -31,6 +32,66 @@ def test_LLM_호출_실패와_타임아웃만_재시도한다() -> None:
 def test_작업_시간_제한은_재시도하지_않는다() -> None:
     """시간 제한을 넘긴 파이프라인을 처음부터 다시 돌리면 최대 약 9분이 걸린다 (#102 리뷰)."""
     assert not _retries_on(SoftTimeLimitExceeded)
+
+
+def _connection_error() -> openai.APIConnectionError:
+    return openai.APIConnectionError(request=httpx.Request("POST", "http://llm.invalid/v1"))
+
+
+def _run_failing_task(monkeypatch, error: Exception) -> tuple[object, list[str], list[str]]:
+    """service가 error를 올릴 때 task를 재시도까지 그대로 돌린다(eager)."""
+    retried: list[str] = []
+    failed: list[str] = []
+    monkeypatch.setattr(tasks.service, "record_job_retry", retried.append)
+    monkeypatch.setattr(tasks.service, "mark_job_failed", failed.append)
+
+    def _orchestrate(job_id: str, child_id: str) -> None:
+        raise error
+
+    monkeypatch.setattr(tasks.service, "orchestrate_drafts", _orchestrate)
+    result = tasks.generate_drafts.apply(args=("job-1", "child-1"))
+    return result.result, retried, failed
+
+
+def test_LLM_호출_도중_걸린_작업_시간_제한은_SDK가_연결_오류로_감싼다(monkeypatch) -> None:
+    """generate_drafts가 감싼 예외를 되돌리는 이유. SDK가 바뀌어 감싸지 않게 되면 알려 준다."""
+    from domains.agents import llm
+
+    def _time_limit(request: httpx.Request) -> httpx.Response:
+        raise SoftTimeLimitExceeded()  # 응답을 기다리는 동안 Celery가 작업 제한을 올리는 자리
+
+    real_openai = llm.OpenAI
+
+    def _openai(**kwargs) -> openai.OpenAI:
+        kwargs["base_url"] = "http://llm.invalid/v1"
+        transport = httpx.MockTransport(_time_limit)
+        return real_openai(**kwargs, http_client=httpx.Client(transport=transport))
+
+    monkeypatch.setattr(llm, "OpenAI", _openai)
+
+    with pytest.raises(openai.APIConnectionError) as caught:
+        llm.call_claude("CHILD_A")
+
+    assert isinstance(caught.value.__cause__, SoftTimeLimitExceeded)
+
+
+def test_SDK가_감싼_작업_시간_제한도_재시도하지_않는다(monkeypatch) -> None:
+    wrapped = _connection_error()
+    wrapped.__cause__ = SoftTimeLimitExceeded()
+
+    error, retried, failed = _run_failing_task(monkeypatch, wrapped)
+
+    assert isinstance(error, SoftTimeLimitExceeded)
+    assert retried == []
+    assert failed == ["job-1"]
+
+
+def test_연결_오류는_상한까지_재시도한다(monkeypatch) -> None:
+    # 결과의 예외는 Celery가 다시 만든 것이라 타입 대신 재시도·실패 기록으로 확인한다.
+    _, retried, failed = _run_failing_task(monkeypatch, _connection_error())
+
+    assert retried == ["job-1", "job-1"]
+    assert failed == ["job-1"]
 
 
 def test_재시도_상한은_2회다() -> None:
