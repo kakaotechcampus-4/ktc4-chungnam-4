@@ -63,7 +63,7 @@ echo "== 4/5 index.html 업로드 (마지막) =="
 # 새 자산이 다 올라간 뒤에 바꿔야, 받는 순간 없는 파일을 가리키는 index.html이 생기지 않습니다.
 aws s3 cp "$DIST_DIR/index.html" "s3://$FE_BUCKET/index.html" \
     --cache-control "$REVALIDATE" --content-type "text/html; charset=utf-8" --no-progress
-# 여기서부터 새 화면이 공개됩니다. 배포 워크플로(별도 PR)는 이 표시를 보고 뒤 단계가 실패해도 배포 태그를 남깁니다.
+# 여기서부터 새 화면이 공개됩니다. 배포 워크플로(deploy-frontend.yml)는 이 표시를 보고 뒤 단계가 실패해도 배포 태그를 남깁니다.
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
     echo "published=true" >> "$GITHUB_OUTPUT"
 fi
