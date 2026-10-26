@@ -6,7 +6,7 @@ teachers.center_id는 모델대로 FK 없이 둡니다 — 가입 코드로 소�
 있습니다 (FR-23·FR-24, domains/auth/models.py).
 
 Revision ID: 9bebc130fae0
-Revises: e1822c9dc830
+Revises: 21171b2bd658
 Create Date: 2026-10-14 16:23:13.834236
 """
 
@@ -17,7 +17,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "9bebc130fae0"
-down_revision: str | Sequence[str] | None = "e1822c9dc830"
+down_revision: str | Sequence[str] | None = "21171b2bd658"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
