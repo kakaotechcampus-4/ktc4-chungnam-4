@@ -1,9 +1,9 @@
 import { X } from "lucide-react";
 
-import type { Evidence, EvidenceSourceType, Sentence } from "@/api/documents";
+import type { EvidenceSourceTypeView, EvidenceView, SentenceView } from "@/api/documents";
 import { formatMediaTime, formatTime } from "@/lib/datetime";
 
-const SOURCE_LABEL_MAP: Record<EvidenceSourceType, string> = {
+const SOURCE_LABEL_MAP: Record<EvidenceSourceTypeView, string> = {
   photo_observation: "사진 관찰",
   video_speech: "영상 발화",
   video_scene: "영상 장면",
@@ -11,7 +11,7 @@ const SOURCE_LABEL_MAP: Record<EvidenceSourceType, string> = {
   activity_plan: "활동 계획",
 };
 
-function EvidenceCard({ evidence }: { evidence: Evidence }) {
+function EvidenceCard({ evidence }: { evidence: EvidenceView }) {
   // 영상·음성 근거만 재생 위치가 있습니다. 사진·활동계획은 시간 구간이 없습니다(tools/contracts 규칙).
   const playAt =
     evidence.start_ms === null ? null : `▶  ${formatMediaTime(evidence.start_ms / 1000)}`;
@@ -31,7 +31,7 @@ function EvidenceCard({ evidence }: { evidence: Evidence }) {
 
 interface EvidencePanelProps {
   /** 교사가 고른 문장. 고르기 전이면 null. 근거가 있는 문장만 고를 수 있습니다. */
-  sentence: Sentence | null;
+  sentence: SentenceView | null;
   onClose: () => void;
 }
 

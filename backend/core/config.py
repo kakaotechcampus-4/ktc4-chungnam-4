@@ -31,13 +31,35 @@ class Settings(BaseSettings):
     face_embedding_key: SecretStr | None = None
     face_embedding_key_ref: str = "local-dev-1"  # FaceEmbedding.key_ref에 저장되는 키 식별자
 
+    # 미디어 원본을 두는 S3 버킷 (FR-15). 파일은 브라우저가 presigned URL로 직접 올리고
+    # 서버를 지나지 않습니다. 버킷이 없어도 앱은 뜨고 업로드만 실패합니다(face_embedding_key와 같은 방식).
+    # 자격증명은 여기 두지 않습니다 — 캠퍼스 AWS는 IAM 액세스 키 발급이 막혀 있어(#29),
+    # 서버는 EC2 인스턴스 롤, 로컬은 `aws sso login`으로 받은 기본 자격증명을 boto3가 찾아 씁니다.
+    s3_bucket: str | None = None
+    s3_region: str = "ap-northeast-2"
+    # 업로드 URL 유효기간. 최악 회선(1MB/s)에서 3GB를 올리는 약 51분을 덮습니다
+    # (presigned 스파이크 §6, docs/api/media-face.md 임시 결정(김동건)). 자격증명 잔여 수명보다
+    # 길게 요청하면 발급은 되지만 그 시점에 조용히 죽으므로 발급할 때 잘라냅니다.
+    s3_upload_url_expires_seconds: int = Field(default=3600, gt=0)
+    # 재생 URL. 링크만 있으면 누구나 열 수 있어 짧게 둡니다. 만료되면 FE가 재발급받습니다
+    s3_playback_url_expires_seconds: int = Field(default=900, gt=0)
+    # 업로드 상한. 정상 파일은 막지 않고 뒷단(STT·사진 분석)이 받을 수 있는 크기 사이에서 정했습니다.
+    # TODO(donggeon): 외부 STT의 파일 크기 제한을 확인하면 음성 상한을 그 안으로 맞춥니다.
+    upload_max_files_per_request: int = Field(default=10, gt=0)  # FE도 10장씩 나눠 요청
+    upload_max_photo_bytes: int = Field(default=30 * 1024 * 1024, gt=0)  # 고해상도 사진까지
+    upload_max_video_bytes: int = Field(default=300 * 1024 * 1024, gt=0)  # 1080p 2~5분, 4K 1분 안팎
+    upload_max_voice_memo_bytes: int = Field(default=100 * 1024 * 1024, gt=0)  # WAV 10분
+
     # TODO(태은): AI 기능 배포 전에는 키 누락을 차단하도록 필수값 검증을 추가합니다.
     # Redis·worker 연습은 AI 호출 없이 실행하므로 현재는 빈 값을 허용합니다.
     anthropic_api_key: SecretStr = SecretStr("")
-    # 기수·팀별로 게이트웨이 주소가 달라 default를 비워둠 — 반드시 .env에서 설정
+    # agents(초안 생성·Critic)용 게이트웨이. 기수·팀별 주소라 반드시 .env에서 설정합니다.
     llm_gateway_base_url: str = ""
-    # 게이트웨이의 모델 ID 형식(제공자/모델명)을 그대로 사용
+    # 테크스펙의 에이전트 모델(Claude Sonnet 계열).
     anthropic_model: str = "anthropic/claude-sonnet-5"
+    # 사진 분석용 게이트웨이는 agents와 분리합니다 (09/23 결정, #98).
+    vision_gateway_base_url: str = ""
+    vision_model: str = "glm-5.3-flash"
 
     # 로그인 토큰 서명 키. 없으면 앱은 뜨지만 로그인만 실패합니다 — 다른 도메인
     # 개발이 키 때문에 막히지 않게 하기 위함입니다 (face_embedding_key와 같은 방식).
