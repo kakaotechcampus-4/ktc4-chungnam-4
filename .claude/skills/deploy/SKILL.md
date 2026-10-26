@@ -11,7 +11,7 @@ description: 배포하거나 CI 워크플로를 만들·고칠 때 사용. "배�
 
 **CI에서 무엇까지 막을지(린트/타입체크/테스트/빌드)는 아직 미정**입니다 — `docs/open-questions.md` §B에 열려 있습니다. 상상해서 채우지 말고, 필요하면 거기에 질문으로 올리세요.
 
-워크플로 추가·수정은 공용 영역이라 **BE 리드(엄태은)가 리뷰어**입니다 (`.github/CODEOWNERS`).
+워크플로 추가·수정은 공용 영역이라 **BE 리드(엄태은)가 리뷰어**입니다. `.github/workflows/`와 `infra/`를 고친 PR에는 엄태은·송유진이 리뷰어로 자동 지정됩니다(`assign-part-reviewers.yml`). 파트 리뷰어를 CODEOWNERS에 넣지 않는 이유는 그 워크플로 파일 머리말에 있습니다(`main` 룰셋에서 승인까지 강제됨).
 
 ## 배포는 한 번에 하지 않습니다
 
@@ -24,6 +24,26 @@ description: 배포하거나 CI 워크플로를 만들·고칠 때 사용. "배�
 3. 확인이 끝나야 다음 단계를 올린다
 
 확인에 실패하면 다음 단계로 넘어가지 말고 **되돌리거나 그 단계를 고칩니다.**
+
+## FE 배포 (CloudFront + S3)
+
+화면(S3)과 API(EC2)를 CloudFront 주소 하나로 내보냅니다(이슈 #118, 송유진 결정·멘토 승인). 자원 설정의 원본은 `infra/frontend/aidam-fe.yaml`, 절차와 캐시 규칙은 `infra/frontend/README.md`입니다.
+
+| 대상 | 이름 |
+|---|---|
+| CloudFormation 스택 · S3 버킷 | `aidam-fe` (서울) |
+| FE 배포 역할 | `aidam-fe-deploy` |
+| 워크플로 | `deploy-frontend.yml` (Actions 이름 "Deploy frontend") |
+| GitHub environment | `frontend` (배포 브랜치 develop만) |
+| 배포 태그 | `fe-deploy-YYYYMMDD-HHMM` (BE는 `deploy-*`) |
+| GitHub 설정 | variables `FE_BUCKET`·`FE_DOMAIN`, secret `FE_DEPLOY_ROLE_ARN` |
+
+- develop에 `frontend/`가 바뀐 커밋이 들어오면 워크플로가 빌드해 올리고 스모크를 돌립니다. 템플릿만 바꾼 PR은 change set으로 적용합니다(README).
+- 되돌리기(NFR-15): Actions → Deploy frontend → Run workflow를 **develop에서** 돌리고 `rollback_tag`에 되돌릴 태그를 넣습니다.
+- FE 배포 역할은 environment `frontend`를 쓰는 job만 받습니다(NFR-14). **다른 워크플로에 `environment: frontend`를 붙이지 않습니다.** 붙이면 그 워크플로도 FE 버킷을 쓸 수 있게 됩니다.
+- **CloudFront·버킷·역할을 콘솔에서 고치지 않습니다.** 템플릿을 고치는 PR → change set → 적용 순서입니다.
+- **`/api/*` 캐시를 켜지 않고, 배포 전체의 오류 페이지(403·404 → `index.html`)를 걸지 않습니다.** 원아 정보가 담긴 응답이 엣지에 남거나, `/api`의 403·404 JSON이 `index.html`로 바뀝니다.
+- 계정 ID·역할 ARN은 문서·워크플로에 적지 않습니다(공개 저장소).
 
 ## 비밀값
 

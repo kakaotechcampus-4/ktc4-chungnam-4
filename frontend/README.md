@@ -31,6 +31,13 @@ pnpm test src/pages/landing          # 한 폴더만
 
 PR을 올리면 CI(`.github/workflows/ci.yml`의 `frontend` job)가 같은 검사를 다시 돌려요. 실패한 채로는 머지하지 않으니, PR 전에 로컬에서 먼저 통과시켜 주세요.
 
+## 배포
+
+- 주소는 https://d4kl98c6dogl6.cloudfront.net 이에요. 화면과 API(`/api/*`)가 같은 주소라 로그인 쿠키가 그대로 붙어요.
+- `develop`에 `frontend/`가 바뀐 PR이 머지되면 자동으로 배포돼요. 결과는 Actions 탭의 **Deploy frontend**에서 봐요.
+- 배포 빌드에는 목(MSW)이 없어요. 배포 주소는 실제 백엔드를 불러요.
+- 되돌리기와 설정은 `/deploy` 스킬(`.claude/skills/deploy/SKILL.md` §FE 배포)과 `infra/frontend/README.md`에 있어요.
+
 ## 폴더 구조
 
 `(예정)`은 아직 코드가 없다는 뜻이에요. 만드는 PR에서 표시를 지웁니다.
