@@ -235,6 +235,32 @@ def test_재생성은_이전_문장을_남기지_않고_모두_바꿔_넣는다(
     assert db.query(DraftSentence).count() == 1
 
 
+def test_DRAFT_상태_문서를_재생성하면_VERIFIED로_올린다():
+    # 검증을 통과해 저장되는 순간이 곧 교사 검토 대기다. 재생성도 같은 상태로 올린다 (#106).
+    db = _session()
+    first = _saved(db)
+    db.execute(
+        update(DraftDocument)
+        .where(DraftDocument.id == first.id)
+        .values(status=DraftStatus.DRAFT.value)
+    )
+    db.commit()
+
+    draft = save_draft(
+        db,
+        _input(
+            draft_id=first.id,
+            child_id=first.child_id,
+            sentences=_sentences("재생성한 내용"),
+            ai_version=2,
+        ),
+        expected_version=1,
+    )
+    db.commit()
+
+    assert draft.status == DraftStatus.VERIFIED.value
+
+
 @pytest.mark.parametrize(
     "field, value",
     [
