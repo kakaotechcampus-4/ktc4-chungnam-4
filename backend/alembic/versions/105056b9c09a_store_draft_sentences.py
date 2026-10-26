@@ -57,8 +57,12 @@ def upgrade() -> None:
     )
     op.drop_column("draft_documents", "content")
 
-    # 검증을 통과한 초안은 verified(교사 검토 대기)다 (#75·#106). in_review는 더 쓰지 않는다.
-    op.execute("UPDATE draft_documents SET status = 'verified' WHERE status = 'in_review'")
+    # 검증을 통과한 초안은 verified(교사 검토 대기)다 (#75·#106). 이전 save_draft()는 통과한
+    # 초안을 draft로 저장했고 in_review는 쓰는 곳이 없었다. 이제 draft는 "생성 중"이라
+    # 화면이 잠그므로, 둘 다 옮기지 않으면 기존 초안이 승인 버튼 없이 잠긴다 (#139 리뷰).
+    op.execute(
+        "UPDATE draft_documents SET status = 'verified' WHERE status IN ('draft', 'in_review')"
+    )
 
     op.add_column("revision_logs", sa.Column("target_sentence_id", sa.String(), nullable=True))
     op.execute(
@@ -84,7 +88,8 @@ def downgrade() -> None:
     )
     op.drop_column("revision_logs", "target_sentence_id")
 
-    op.execute("UPDATE draft_documents SET status = 'in_review' WHERE status = 'verified'")
+    # 이전 save_draft()가 통과한 초안에 쓰던 값으로 되돌린다.
+    op.execute("UPDATE draft_documents SET status = 'draft' WHERE status = 'verified'")
 
     # 행이 있어도 NOT NULL 컬럼을 추가할 수 있게 잠시 기본값을 두고, 문장을 합친 뒤 뗀다.
     op.add_column(
