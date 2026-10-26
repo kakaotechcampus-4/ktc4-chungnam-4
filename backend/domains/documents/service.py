@@ -83,7 +83,7 @@ from __future__ import annotations
 import uuid
 from uuid import UUID
 
-from sqlalchemy import delete, exists, select, update
+from sqlalchemy import ColumnElement, delete, exists, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -183,13 +183,12 @@ def _update_generated_draft(
             DraftDocument.record_date == data.record_date,
             DraftDocument.version == expected_version,
             DraftDocument.status.notin_(_AI_LOCKED_STATUSES),
-            # 교사가 한 번이라도 손댄 문서는 AI 결과로 덮어쓰지 않는다 (#75 6-1). 교사의
-            # 수정·승인은 모두 RevisionLog에 남는다(documents/CLAUDE.md). 동시 요청은 이
-            # 서브쿼리가 아니라 위 version 비교가 막는다 — READ COMMITTED에서 행 락을 기다린
-            # 뒤 WHERE를 다시 볼 때 다른 테이블(RevisionLog)은 처음 스냅샷으로 평가되지만,
-            # 교사 수정·승인은 RevisionLog 기록과 version 증가를 한 트랜잭션에서 하므로
-            # version이 달라져 있다.
-            ~exists().where(RevisionLog.draft_id == DraftDocument.id),
+            # 교사가 한 번이라도 손댄 문서는 AI 결과로 덮어쓰지 않는다 (#75 6-1). 동시 요청은
+            # 이 서브쿼리가 아니라 위 version 비교가 막는다 — READ COMMITTED에서 행 락을
+            # 기다린 뒤 WHERE를 다시 볼 때 다른 테이블(RevisionLog·DraftSentence)은 처음
+            # 스냅샷으로 평가되지만, 교사 수정·승인은 RevisionLog 기록과 version 증가를 한
+            # 트랜잭션에서 하므로 version이 달라져 있다.
+            ~_has_teacher_edits(),
         )
         .values(
             status=DraftStatus.VERIFIED.value,
@@ -209,6 +208,23 @@ def _update_generated_draft(
     db.add_all(_sentence_rows(data.draft_id, data))
     db.flush()
     return db.get(DraftDocument, data.draft_id, populate_existing=True)
+
+
+def _has_teacher_edits() -> ColumnElement[bool]:
+    """교사가 이 초안에 한 번이라도 손댔는가 (#75 6-1, 임시 결정(정은)).
+
+    교사의 수정·승인·회수는 모두 RevisionLog에 남는다(documents/CLAUDE.md). 교사가 직접 쓴
+    초안은 생성이라 RevisionLog가 없어서, 교사가 쓴 문장(서버가 붙인 `t…`)이 있는지도 본다
+    (#139 리뷰). AI 문장 ID는 tools/generation/draft.py가 `s…`로 붙인다. DraftDocument를
+    조회·갱신하는 문장 안에서 상관 서브쿼리로 쓴다.
+    """
+    return or_(
+        exists().where(RevisionLog.draft_id == DraftDocument.id),
+        exists().where(
+            DraftSentence.draft_id == DraftDocument.id,
+            DraftSentence.sentence_id.startswith("t"),
+        ),
+    )
 
 
 def _sentence_rows(draft_id: UUID, data: DraftSaveInput) -> list[DraftSentence]:

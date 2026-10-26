@@ -355,6 +355,29 @@ def test_교사가_손댄_문서는_버전이_같아도_재생성_결과로_덮�
     assert row.ai_version == 1
 
 
+def test_교사가_쓴_문장이_있으면_수정_이력이_없어도_재생성_결과로_덮어쓰지_않는다():
+    # 직접 작성 초안은 생성이라 RevisionLog가 없고 t… 문장만 있다 (#139 리뷰, 임시 결정(정은)).
+    db = _session()
+    first = _saved(db, sentences=[DraftSentenceInput(sentence_id="t1", text="교사가 쓴 문장")])
+
+    with pytest.raises(DraftVersionConflict):
+        save_draft(
+            db,
+            _input(
+                draft_id=first.id,
+                child_id=first.child_id,
+                sentences=_sentences("늦게 도착한 AI 결과"),
+                ai_version=2,
+            ),
+            expected_version=1,
+        )
+
+    db.commit()
+    row = db.get(DraftDocument, first.id, populate_existing=True)
+    assert _stored_sentences(db, first.id) == [("t1", 0, "교사가 쓴 문장")]
+    assert row.version == 1
+
+
 def test_다른_문서의_수정_이력은_재생성을_막지_않는다():
     db = _session()
     first = _saved(db)
