@@ -20,7 +20,9 @@ class FaceEmbedding(Base):
     # 평문 벡터를 로그·예외 메시지에 남기지 않습니다. 식별이 필요하면 id만 씁니다 (H-4)
     embedding_enc = Column(LargeBinary, nullable=False)
     key_ref = Column(String, nullable=False)  # KMS/시크릿 매니저의 키 참조. 키 자체가 아닙니다
-    model_version = Column(String, nullable=False)  # ArcFace 버전. 모델 교체 시 재등록 판단 근거
+    model_version = Column(
+        String, nullable=False
+    )  # 벡터를 만든 모델 파일 식별값(#120). 모델 교체 시 재등록 판단 근거
     registered_at = Column(DateTime(timezone=True), nullable=False)  # UTC 저장
     updated_at = Column(DateTime(timezone=True), nullable=True)  # 재등록 시 갱신
 
