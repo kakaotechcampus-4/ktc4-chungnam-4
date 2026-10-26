@@ -249,3 +249,10 @@ class JobNotFound(AidamError):
 
     code = "JOB_NOT_FOUND"
     status_code = 404
+
+
+class CenterNotFound(AidamError):
+    """가입 코드와 일치하는 어린이집이 없는 경우 (FR-23)."""
+
+    code = "CENTER_NOT_FOUND"
+    status_code = 404
