@@ -1,4 +1,5 @@
 import os
+import uuid
 
 # Test collection must not depend on a developer's .env or running PostgreSQL.
 os.environ.setdefault("POSTGRES_PASSWORD", "test-only-password")
@@ -130,3 +131,26 @@ def test_재시도하면_횟수를_남기고_최종_실패하면_FAILED로_남�
 
     assert retried == ["job-1"]
     assert failed == ["job-2"]
+
+
+def test_큐_넣기가_실패하면_못_넣은_Job을_failed로_바꾸고_예외를_올린다(monkeypatch) -> None:
+    """pending으로 남으면 그 반·날짜가 JOB_ALREADY_RUNNING에 영구히 막힌다 (#161 리뷰)."""
+    first, second, third = (uuid.uuid4() for _ in range(3))
+    child_jobs = [(first, uuid.uuid4()), (second, uuid.uuid4()), (third, uuid.uuid4())]
+    sent: list[str] = []
+    failed: list[str] = []
+
+    def fake_delay(job_id: str, child_id: str) -> None:
+        if job_id == str(second):
+            raise ConnectionError("broker down")
+        sent.append(job_id)
+
+    monkeypatch.setattr(tasks.generate_drafts, "delay", fake_delay)
+    monkeypatch.setattr(tasks.service, "mark_job_failed", failed.append)
+
+    with pytest.raises(ConnectionError):
+        tasks.enqueue_generate_drafts(child_jobs)
+
+    # 이미 넣은 첫 Job은 worker가 처리하므로 건드리지 않는다.
+    assert sent == [str(first)]
+    assert failed == [str(second), str(third)]

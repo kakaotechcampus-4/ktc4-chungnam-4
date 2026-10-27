@@ -4,6 +4,7 @@ import { File as NodeFile } from "node:buffer";
 import { http, HttpResponse } from "msw";
 
 import { isPhoto, useUploadQueue } from "@/features/upload-queue/upload-queue-store";
+import { readDb } from "@/mocks/db";
 import { fixtureId } from "@/mocks/fixtures/ids";
 import { apiPath, errorResponse } from "@/mocks/http";
 import { server } from "@/mocks/server";
@@ -121,27 +122,31 @@ describe("ProcessingPage", () => {
     server.events.removeListener("request:start", record);
 
     const writes = requests.filter((request) => request.method !== "GET");
-    const linksPath = writes.find((request) => request.path.endsWith("/child-links"))?.path ?? "";
-    const mediaId = /\/media\/([^/]+)\/child-links$/.exec(linksPath)?.[1];
-    expect(mediaId).toBeDefined();
+    // 사진은 완료 통지에 귀속을 함께 싣고 child-links는 부르지 않습니다(API 문서 §media).
     expect(writes.map((request) => `${request.method} ${request.path}`)).toEqual([
       "POST /api/v1/media/upload-urls",
       `PUT /uploads/${confirmed!.client_id}`,
       "POST /api/v1/media",
-      `PUT /api/v1/media/${mediaId}/child-links`,
       `POST /api/v1/classes/${fixtureId("class", 1)}/jobs`,
     ]);
     expect(writes[0]?.body).toMatchObject({
       items: [{ client_photo_id: confirmed!.client_id, type: "photo" }],
     });
-    expect(writes[3]?.body).toEqual({
+    expect(writes[2]?.body).toMatchObject({
+      client_photo_id: confirmed!.client_id,
+      type: "photo",
       llm_allowed: true,
       child_links: [
         { child_id: fixtureId("child", 1), method: "face_recognition", confidence_score: 0.9 },
         { child_id: fixtureId("child", 2), method: "manual", confidence_score: null },
       ],
     });
-    expect(writes[4]?.body).toMatchObject({ media_ids: [mediaId] });
+    // Job에는 방금 ack로 등록된 그 사진의 media_id가 실립니다.
+    const registered = Object.values(readDb().media).find(
+      (media) => media.client_photo_id === confirmed!.client_id,
+    );
+    expect(registered).toBeDefined();
+    expect(writes[3]?.body).toMatchObject({ media_ids: [registered!.media_id] });
     expect(useUploadQueue.getState().items).toEqual([]);
   });
 

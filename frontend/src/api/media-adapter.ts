@@ -69,6 +69,7 @@ export function toMediaCompleteBody(input: MediaCompleteInput): MediaCompleteReq
     type: input.type,
     captured_at: input.captured_at,
     model_version: input.model_version,
+    ...(input.attribution ? toChildLinksBody(input.attribution) : {}),
   };
 }
 
@@ -81,6 +82,7 @@ export function toMediaAssetView(raw: MediaAsset): MediaAssetView {
     captured_at: raw.captured_at,
     size_bytes: raw.size_bytes,
     llm_allowed: raw.llm_allowed,
+    child_links: raw.child_links.map(toChildLinkView),
     attributed_at: raw.attributed_at,
   };
 }

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated
 from uuid import UUID
 
@@ -15,9 +16,11 @@ from sqlalchemy.orm import Session
 from core.database import get_db
 from domains.auth.middleware import CurrentParent, CurrentTeacher
 from domains.documents import service
+from domains.documents.models import DocType
 from domains.documents.schemas import (
     ApproveRequest,
     ApproveResponse,
+    ClassDraftListResponse,
     DraftDetailResponse,
     DraftUpdateRequest,
     ParentLetterDetailResponse,
@@ -37,6 +40,25 @@ def get_current_teacher_id(teacher: CurrentTeacher) -> UUID:
 
 def get_current_parent_id(parent: CurrentParent) -> UUID:
     return parent.parent_id
+
+
+@router.get("/classes/{class_id}/drafts", response_model=ClassDraftListResponse)
+def list_class_drafts(
+    class_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    teacher: CurrentTeacher,
+    record_date: date | None = None,
+    doc_type: DocType | None = None,
+    published: bool = False,
+) -> ClassDraftListResponse:
+    return service.list_class_drafts(
+        db,
+        class_id=class_id,
+        center_id=teacher.center_id,
+        record_date=record_date,
+        doc_type=doc_type,
+        published=published,
+    )
 
 
 @router.get("/drafts/{draft_id}", response_model=DraftDetailResponse)
@@ -80,8 +102,8 @@ def approve_draft(
     )
 
 
-@router.post("/letters/publish", response_model=PublishResponse)
-def publish_letters(
+@router.post("/publications", response_model=PublishResponse)
+def create_publications(
     body: PublishRequest,
     db: Annotated[Session, Depends(get_db)],
     teacher_id: Annotated[UUID, Depends(get_current_teacher_id)],
@@ -106,18 +128,19 @@ def revoke_letter(
     )
 
 
-@router.get("/parent/letters", response_model=ParentLetterListResponse)
-def list_parent_letters(
+@router.get("/children/{child_id}/parent-notes", response_model=ParentLetterListResponse)
+def list_parent_notes(
+    child_id: UUID,
     db: Annotated[Session, Depends(get_db)],
     parent_id: Annotated[UUID, Depends(get_current_parent_id)],
 ) -> ParentLetterListResponse:
-    return service.list_letters_for_parent(db, parent_id=parent_id)
+    return service.list_letters_for_parent(db, child_id=child_id, parent_id=parent_id)
 
 
-@router.get("/parent/letters/{letter_id}", response_model=ParentLetterDetailResponse)
-def get_parent_letter(
-    letter_id: UUID,
+@router.get("/parent-notes/{parent_note_id}", response_model=ParentLetterDetailResponse)
+def get_parent_note(
+    parent_note_id: UUID,
     db: Annotated[Session, Depends(get_db)],
     parent_id: Annotated[UUID, Depends(get_current_parent_id)],
 ) -> ParentLetterDetailResponse:
-    return service.get_letter_for_parent(db, letter_id=letter_id, parent_id=parent_id)
+    return service.get_letter_for_parent(db, letter_id=parent_note_id, parent_id=parent_id)

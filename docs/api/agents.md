@@ -10,8 +10,8 @@
 
 - [x] (막힘) `job_id` 단위: 반·날짜 부모 레코드를 새로 둘지, `Job`을 확장할지 → 결정(09/27, #61): 부모 레코드 `GenerationJob`을 새로 두고 원아별 `Job`에 `generation_job_id`를 둠. 반영: 테크스펙 데이터 모델 ④·ERD
 - [x] (막힘) Job 트리거: FE의 `POST /jobs`(제안) vs media의 `.delay()`(김동건과 함께) → 결정(09/27, #61): 마지막 귀속 저장이 끝나면 FE가 `POST /api/v1/classes/{class_id}/jobs`를 한 번 부름. media 완료 통지는 `.delay()`를 부르지 않음. 반영: 테크스펙 흐름 표 C
-- [ ] 근거 범위(날짜 전체 vs `media_ids`), STT 미완료 시 409로 막을지 `transcribing`에서 기다릴지(김동건과 함께)
-- [ ] 반 전체 `status` 규칙, 진행률 계산식, `stage` 4값
+- [x] 근거 범위(날짜 전체 vs `media_ids`), STT 미완료 시 409로 막을지 `transcribing`에서 기다릴지(김동건과 함께) → 임시 결정(정은): 근거는 본문대로 날짜 전체로 모으고, `media_ids`는 준비 확인에만 씀. STT 미완료 확인은 STT 호출(#142)이 생기면 붙임 — 지금은 막지도 기다리지도 않음. 반영: `agents/service.py` `start_generation_job`
+- [x] 반 전체 `status` 규칙, 진행률 계산식, `stage` 4값 → 임시 결정(정은): `status`는 본문 상태값 표대로(모두 대기면 `pending`, 안 끝난 원아가 있으면 `running`, 실패 1명 이상이면 `failed`). Job에 단계 컬럼이 없어 `stage`는 항상 `null`, `progress.percent`는 끝난 원아 비율(끝난 원아 ÷ 전체 × 100, 버림)로 셈. 단계 컬럼이 생기면 본문 계산식으로 바꿈. 반영: `agents/service.py` `_job_status`
 - [ ] 미분류 사유 코드, 검증 실패로 미분류된 초안의 노출과 근거 저장(한상균과 함께)
 - [ ] `SentenceEvidence` 조인 경로(`source_type`·`end_ms`·`captured_at` 없음), `source_text`가 비식별 토큰으로 저장되는지
 - [ ] `evidence_id`를 불투명 문자열로 둘지, UUID로 바꿀지
@@ -106,6 +106,8 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 - [확인 필요: 정은·김동건] Job은 이 FE 호출로 시작하기로 정했습니다(09/27, #61). 함께 정할 것 두 가지가 남았습니다(#60).
   - 근거 범위: 그 날짜 전체로 할지, `media_ids`로 한정할지
   - STT가 안 끝났을 때: 409로 막을지, `transcribing` 단계에서 기다릴지
+
+> **구현 상태** (임시 결정(정은)): 두 엔드포인트 모두 구현됐습니다. Job에 저장할 컬럼이 없어 원아별 `stage`·`outcome`·`unclassified_reason`·`failed_stage`·`error_code`는 항상 `null`, `drafts`는 빈 배열입니다. 반 전체 `stage`·`failed_stage`·`error_code`도 `null`입니다. 컬럼이 생기면 채웁니다(`mark_job_failed` TODO).
 
 ### `GET /api/v1/jobs/{job_id}` — 초안 생성 작업의 진행 상태와 원아별 결과 조회(폴링)
 

@@ -1,3 +1,6 @@
+from typing import Any
+
+
 class AidamError(Exception):
     """도메인 예외의 공통 조상.
 
@@ -8,7 +11,8 @@ class AidamError(Exception):
     code = "INTERNAL_ERROR"
     status_code = 500
 
-    def __init__(self, message: str, detail: str | None = None) -> None:
+    # detail은 문자열 설명이거나, FE가 이어서 쓸 값(예: `{"job_id": ...}`)을 담은 객체입니다.
+    def __init__(self, message: str, detail: str | dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.message = message
         self.detail = detail
@@ -206,8 +210,57 @@ class ChildNotInClass(AidamError):
     status_code = 400
 
 
+class InvalidRecordDate(AidamError):
+    """초안 생성 날짜가 오늘(KST)보다 뒤입니다 (docs/api/agents.md)."""
+
+    code = "INVALID_RECORD_DATE"
+    status_code = 400
+
+
+class MediaNotReady(AidamError):
+    """보낸 미디어 중 완료 통지·귀속 저장 전이거나 이 반·날짜의 자료가 아닌 것이 있습니다.
+
+    해당 ID는 `detail.media_ids`에 담습니다 (docs/api/agents.md `MEDIA_NOT_READY`).
+    """
+
+    code = "MEDIA_NOT_READY"
+    status_code = 409
+
+
+class NoTargetChildren(AidamError):
+    """그 날짜에 귀속된 자료가 있는 원아가 없어 초안을 만들 대상이 없습니다."""
+
+    code = "NO_TARGET_CHILDREN"
+    status_code = 409
+
+
+class JobAlreadyRunning(AidamError):
+    """같은 반·날짜에 진행 중인 초안 생성 작업이 있습니다.
+
+    FE는 `detail.job_id`로 그 작업을 이어서 폴링합니다 (docs/api/agents.md).
+    """
+
+    code = "JOB_ALREADY_RUNNING"
+    status_code = 409
+
+
+class JobNotFound(AidamError):
+    """없는 초안 생성 작업을 조회했습니다."""
+
+    code = "JOB_NOT_FOUND"
+    status_code = 404
+
+
 class CenterNotFound(AidamError):
     """가입 코드와 일치하는 어린이집이 없는 경우 (FR-23)."""
 
     code = "CENTER_NOT_FOUND"
     status_code = 404
+
+
+class RequestValidationFailed(AidamError):
+    """요청 값의 조합이 맞지 않습니다. 필드 하나의 형식 오류는 Pydantic이 422로 막고,
+    이 예외는 서비스가 판단하는 조합 조건에 씁니다 (테크스펙 §공통 API 규약 VALIDATION_ERROR)."""
+
+    code = "VALIDATION_ERROR"
+    status_code = 422

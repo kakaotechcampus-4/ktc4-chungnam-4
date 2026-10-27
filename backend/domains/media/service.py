@@ -239,6 +239,53 @@ def collect_media_for_llm(db: Session, child_id: UUID, target_date: date) -> lis
     return evidence
 
 
+def find_unready_media(
+    db: Session, class_id: UUID, target_date: date, media_ids: Sequence[UUID]
+) -> list[UUID]:
+    """초안 생성 작업을 시작하기 전에, 보낸 미디어 중 아직 쓸 수 없는 것을 돌려줍니다.
+
+    완료 통지 전(행 없음)이거나, 귀속 저장 전(`attributed_at` null)이거나, 파기됐거나, 이 반·날짜
+    (KST)의 자료가 아니면 걸립니다 (docs/api/agents.md `MEDIA_NOT_READY`). 보낸 순서를 지킵니다.
+    """
+    start, end = _kst_day_range(target_date)
+    ready = set(
+        db.scalars(
+            select(MediaAsset.id).where(
+                MediaAsset.id.in_(media_ids),
+                MediaAsset.class_id == class_id,
+                MediaAsset.storage_tier != "deleted",
+                MediaAsset.captured_at >= start,
+                MediaAsset.captured_at < end,
+                MediaAsset.attributed_at.is_not(None),
+            )
+        )
+    )
+    return [media_id for media_id in media_ids if media_id not in ready]
+
+
+def get_attributed_children(db: Session, class_id: UUID, target_date: date) -> list[UUID]:
+    """그 반·날짜(KST)에 귀속된 자료가 하나라도 있는 원아 (초안 생성 대상, docs/api/agents.md).
+
+    ③ 미동의 원아도 빼지 않습니다. 그 원아가 귀속된 사진은 `collect_media_for_llm`이 LLM
+    근거에서 뺍니다(H-2·H-3). 파기된 미디어의 귀속은 세지 않습니다.
+    """
+    start, end = _kst_day_range(target_date)
+    return list(
+        db.scalars(
+            select(MediaChildLink.child_id)
+            .join(MediaAsset, MediaAsset.id == MediaChildLink.media_id)
+            .where(
+                MediaAsset.class_id == class_id,
+                MediaAsset.storage_tier != "deleted",
+                MediaAsset.captured_at >= start,
+                MediaAsset.captured_at < end,
+            )
+            .distinct()
+            .order_by(MediaChildLink.child_id)
+        )
+    )
+
+
 # ---------------------------------------------------------------------------
 # S3 presigned URL (FR-15)
 # ---------------------------------------------------------------------------

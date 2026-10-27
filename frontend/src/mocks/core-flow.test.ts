@@ -4,6 +4,7 @@ import { createJob, isJobFinished, jobQueryOptions, type JobView } from "@/api/a
 import {
   approveDraft,
   classDraftsQueryOptions,
+  createDraft,
   draftQueryOptions,
   parentNoteQueryOptions,
   parentNotesQueryOptions,
@@ -11,6 +12,7 @@ import {
   publishParentNotes,
 } from "@/api/documents";
 import {
+  type ChildLinksInput,
   completeUpload,
   faceEmbeddingsQueryOptions,
   requestUploadUrls,
@@ -54,7 +56,7 @@ function useScenario(name: string) {
   window.history.replaceState(null, "", `/?mock=${name}`);
 }
 
-async function uploadPhoto(n: number) {
+async function uploadPhoto(n: number, attribution: ChildLinksInput) {
   const clientPhotoId = fixtureId("clientPhoto", n);
   const { items } = await requestUploadUrls({
     class_id: CLASS_ID,
@@ -71,6 +73,7 @@ async function uploadPhoto(n: number) {
     type: "photo",
     captured_at: `${kstToday()}T01:00:00Z`,
     model_version: "buffalo_l-1.0",
+    attribution,
   });
 }
 
@@ -87,20 +90,13 @@ describe("핵심 흐름 목", () => {
     const client = queryClient();
     const today = kstToday();
 
-    // 1. 업로드 → 귀속 저장. 귀속 전 llm_allowed는 false이고, ③ 미동의 원아의 사진은 교사가 체크해도 false입니다.
-    const doyunPhoto = await uploadPhoto(900);
-    const yerinPhoto = await uploadPhoto(901);
-    expect(doyunPhoto).toMatchObject({ llm_allowed: false, attributed_at: null });
-    const doyunLinks = await saveChildLinks(doyunPhoto.media_id, {
-      llm_allowed: true,
-      child_links: [manual(DOYUN)],
-    });
-    const yerinLinks = await saveChildLinks(yerinPhoto.media_id, {
-      llm_allowed: true,
-      child_links: [manual(YERIN)],
-    });
-    expect(doyunLinks.llm_allowed).toBe(true);
-    expect(yerinLinks.llm_allowed).toBe(false);
+    // 1. 업로드(사진은 완료 통지에 귀속 포함). ③ 미동의 원아의 사진은 교사가 체크해도 llm_allowed가 false입니다.
+    const doyunPhoto = await uploadPhoto(900, { llm_allowed: true, child_links: [manual(DOYUN)] });
+    const yerinPhoto = await uploadPhoto(901, { llm_allowed: true, child_links: [manual(YERIN)] });
+    // 서버처럼 교사 값을 그대로 저장합니다. ③ 미동의 원아 사진은 근거를 모을 때 빠집니다(H-2).
+    expect(doyunPhoto).toMatchObject({ llm_allowed: true, child_links: [manual(DOYUN)] });
+    expect(doyunPhoto.attributed_at).not.toBeNull();
+    expect(yerinPhoto.llm_allowed).toBe(true);
 
     // 2. Job → 폴링. 근거가 있는 원아만 초안이 생기고, 근거가 없으면 미분류로 끝납니다.
     const started = await createJob(CLASS_ID, {
@@ -130,7 +126,7 @@ describe("핵심 흐름 목", () => {
     );
     const note = await client.fetchQuery(draftQueryOptions(noteId));
     // api/documents.ts가 화면용 모양으로 바꿔 줍니다. 검증을 마친 verified만 "review"이고,
-    // 만드는 중·미분류·모르는 값은 잠깁니다(#107 리뷰).
+    // 만드는 중·회수·모르는 값은 잠깁니다(#107 리뷰, #106).
     expect(note.status).toBe("review");
     expect(note.sentences[0]?.text).toMatch(/^도윤이는 /);
     expect(note.sentences.flatMap((s) => s.evidences.map((e) => e.media_id))).toEqual([
@@ -138,9 +134,13 @@ describe("핵심 흐름 목", () => {
     ]);
     const edited = await patchDraft(noteId, {
       expected_version: note.version,
-      sentences: [{ sentence_index: 0, text: "도윤이는 블록을 높이 쌓았어요." }],
+      sentences: [
+        { sentence_id: note.sentences[0]!.sentence_id, text: "도윤이는 블록을 높이 쌓았어요." },
+      ],
     });
     expect(edited.version).toBe(note.version + 1);
+    // 고친 문장은 교사가 쓴 글이라 근거를 끊고 '수정됨'으로 표시합니다.
+    expect(edited.sentences[0]).toMatchObject({ is_edited_by_teacher: true, evidences: [] });
 
     // 4. 승인만으로는 학부모에게 보이지 않고, 게시해야 보입니다(H-1).
     const approved = await approveDraft(noteId, {
@@ -278,7 +278,7 @@ describe("목의 판정 규칙", () => {
     await expect(
       patchDraft(verified, {
         expected_version: 0,
-        sentences: [{ sentence_index: 0, text: "수정" }],
+        sentences: [{ sentence_id: "s1", text: "수정" }],
       }),
     ).rejects.toMatchObject({ status: 409, code: "DRAFT_VERSION_CONFLICT" });
     await expect(
@@ -345,17 +345,40 @@ describe("목의 판정 규칙", () => {
   });
 
   it("귀속을 저장하지 않은 자료로는 초안 생성을 시작할 수 없다", async () => {
-    const photo = await uploadPhoto(910);
+    // 사진은 완료 통지에 귀속이 들어가므로, 귀속 전 상태가 될 수 있는 것은 영상·음성입니다.
+    const clientPhotoId = fixtureId("clientPhoto", 910);
+    const [item] = (
+      await requestUploadUrls({
+        class_id: CLASS_ID,
+        items: [
+          {
+            client_photo_id: clientPhotoId,
+            type: "voice_memo",
+            content_type: "audio/mp4",
+            size_bytes: 3,
+          },
+        ],
+      })
+    ).items;
+    if (!item) throw new Error("업로드 URL이 오지 않았습니다.");
+    await uploadFile(item, FILE_BYTES);
+    const voice = await completeUpload({
+      client_photo_id: clientPhotoId,
+      class_id: CLASS_ID,
+      type: "voice_memo",
+      captured_at: `${kstToday()}T01:00:00Z`,
+      model_version: null,
+    });
     await expect(
       createJob(CLASS_ID, {
         request_id: fixtureId("request", 910),
         record_date: kstToday(),
-        media_ids: [photo.media_id],
+        media_ids: [voice.media_id],
       }),
     ).rejects.toMatchObject({
       status: 409,
       code: "MEDIA_NOT_READY",
-      detail: { media_ids: [photo.media_id] },
+      detail: { media_ids: [voice.media_id] },
     });
   });
 
@@ -379,6 +402,7 @@ describe("목의 판정 규칙", () => {
         type: "photo",
         captured_at: `${kstToday()}T01:00:00Z`,
         model_version: null,
+        attribution: { llm_allowed: true, child_links: [manual(DOYUN)] },
       }),
     ).rejects.toMatchObject({ status: 409, code: "MEDIA_UPLOAD_NOT_FOUND" });
     await expect(
@@ -431,6 +455,7 @@ describe("목의 판정 규칙", () => {
       type: "photo" as const,
       captured_at: `${kstToday()}T01:00:00Z`,
       model_version: null,
+      attribution: { llm_allowed: true, child_links: [manual(DOYUN)] },
     };
     const registered = await completeUpload(complete);
     // 응답을 못 받고 다시 보내도 같은 파일이고, URL을 다시 청하면 media_id가 와서 올리지 않습니다.
@@ -439,6 +464,72 @@ describe("목의 판정 규칙", () => {
       media_id: registered.media_id,
       upload_url: null,
     });
+  });
+
+  it("사진은 완료 통지에 귀속이 필요하고, 영상·음성은 귀속을 child-links로 따로 저장한다", async () => {
+    const upload = async (n: number, type: "photo" | "voice_memo") => {
+      const clientPhotoId = fixtureId("clientPhoto", n);
+      const [item] = (
+        await requestUploadUrls({
+          class_id: CLASS_ID,
+          items: [
+            {
+              client_photo_id: clientPhotoId,
+              type,
+              content_type: type === "photo" ? "image/jpeg" : "audio/mp4",
+              size_bytes: 3,
+            },
+          ],
+        })
+      ).items;
+      if (!item) throw new Error("업로드 URL이 오지 않았습니다.");
+      await uploadFile(item, FILE_BYTES);
+      return {
+        client_photo_id: clientPhotoId,
+        class_id: CLASS_ID,
+        type,
+        captured_at: `${kstToday()}T01:00:00Z`,
+        model_version: null,
+      };
+    };
+    const attribution = { llm_allowed: true, child_links: [manual(DOYUN)] };
+
+    const photo = await upload(950, "photo");
+    await expect(completeUpload(photo)).rejects.toMatchObject({ status: 422 });
+    const voice = await upload(951, "voice_memo");
+    await expect(completeUpload({ ...voice, attribution })).rejects.toMatchObject({ status: 422 });
+
+    const registered = await completeUpload(voice);
+    expect(registered).toMatchObject({ llm_allowed: false, attributed_at: null });
+    expect((await saveChildLinks(registered.media_id, attribution)).llm_allowed).toBe(true);
+  });
+
+  it("등록된 사진에 다른 귀속으로 완료 통지를 다시 보내면 귀속을 전체 교체한다", async () => {
+    const first = await uploadPhoto(960, { llm_allowed: true, child_links: [manual(DOYUN)] });
+    const again = await completeUpload({
+      client_photo_id: fixtureId("clientPhoto", 960),
+      class_id: CLASS_ID,
+      type: "photo",
+      captured_at: `${kstToday()}T01:00:00Z`,
+      model_version: "buffalo_l-1.0",
+      attribution: { llm_allowed: false, child_links: [manual(YERIN)] },
+    });
+    expect(again.media_id).toBe(first.media_id);
+    expect(again).toMatchObject({ llm_allowed: false, child_links: [manual(YERIN)] });
+  });
+
+  it("업로드 URL은 서버 상한(10개)에 맞춰 나눠 받고 요청 순서대로 합친다", async () => {
+    const ids = Array.from({ length: 11 }, (_, i) => fixtureId("clientPhoto", 970 + i));
+    const { items } = await requestUploadUrls({
+      class_id: CLASS_ID,
+      items: ids.map((id) => ({
+        client_photo_id: id,
+        type: "photo" as const,
+        content_type: "image/jpeg",
+        size_bytes: 3,
+      })),
+    });
+    expect(items.map((item) => item.client_photo_id)).toEqual(ids);
   });
 
   it("얼굴 임베딩은 ③ 동의 원아만 준다", async () => {
@@ -450,8 +541,7 @@ describe("목의 판정 규칙", () => {
 
   it("생성이 실패하면 그 원아와 작업이 failed로 끝난다", async () => {
     useScenario("agents.job-fails");
-    const photo = await uploadPhoto(940);
-    await saveChildLinks(photo.media_id, { llm_allowed: true, child_links: [manual(DOYUN)] });
+    const photo = await uploadPhoto(940, { llm_allowed: true, child_links: [manual(DOYUN)] });
     const started = await createJob(CLASS_ID, {
       request_id: fixtureId("request", 940),
       record_date: kstToday(),
@@ -464,5 +554,60 @@ describe("목의 판정 규칙", () => {
       error_code: "LLM_TIMEOUT",
     });
     expect(job.children[0]).toMatchObject({ status: "failed", drafts: [] });
+  });
+});
+
+// 문장 ID는 초안 안에서만 유일한 문자열입니다(AI 문장 s1…, 교사가 쓴 문장 t1…, #139). 서버와 같은 규칙인지 봅니다.
+describe("문장 ID", () => {
+  const VERIFIED = fixtureId("draft", 12); // version 1
+
+  it("초안에 없는 문장 ID로 고치면 400 INVALID_SENTENCE_ID다", async () => {
+    for (const sentenceId of ["s99", "0"]) {
+      await expect(
+        patchDraft(VERIFIED, {
+          expected_version: 1,
+          sentences: [{ sentence_id: sentenceId, text: "수정" }],
+        }),
+      ).rejects.toMatchObject({ status: 400, code: "INVALID_SENTENCE_ID" });
+    }
+  });
+
+  it("새로 쓴 문장은 t 번호 최댓값 다음 ID를 받고, 고친 문장만 수정됨이 된다", async () => {
+    const first = await patchDraft(VERIFIED, {
+      expected_version: 1,
+      added_sentences: [{ text: "하나" }],
+    });
+    const second = await patchDraft(VERIFIED, {
+      expected_version: first.version,
+      added_sentences: [{ text: "둘" }, { text: "셋" }],
+    });
+    const added = second.sentences.slice(-3);
+    expect(added.map((sentence) => sentence.sentence_id)).toEqual(["t1", "t2", "t3"]);
+    expect(added.every((sentence) => !sentence.is_edited_by_teacher)).toBe(true);
+
+    const aiSentence = second.sentences[0]!;
+    const edited = await patchDraft(VERIFIED, {
+      expected_version: second.version,
+      sentences: [{ sentence_id: "t1", text: "하나를 고쳤어요" }],
+    });
+    expect(edited.sentences.find((sentence) => sentence.sentence_id === "t1")).toMatchObject({
+      text: "하나를 고쳤어요",
+      is_edited_by_teacher: true,
+    });
+    // 고치지 않은 AI 문장은 근거와 표시가 그대로입니다.
+    expect(edited.sentences[0]).toEqual(aiSentence);
+  });
+
+  it("자료 없이 직접 쓴 초안은 t1부터 ID를 받는다", async () => {
+    const created = await createDraft(HAJUN, {
+      record_date: shiftDate(kstToday(), -30),
+      doc_type: "parent_note",
+      title: null,
+      sentences: [{ text: "첫 문장" }, { text: "둘째 문장" }],
+    });
+    expect(created.sentences).toEqual([
+      { sentence_id: "t1", text: "첫 문장", is_edited_by_teacher: false, evidences: [] },
+      { sentence_id: "t2", text: "둘째 문장", is_edited_by_teacher: false, evidences: [] },
+    ]);
   });
 });
