@@ -47,6 +47,10 @@ export interface MediaCompleteRequest {
   captured_at: string;
   /** 사진만 채우고 영상·음성은 null */
   model_version: string | null;
+  /** 사진은 필수, 영상·음성은 보내지 않습니다(보내면 422). 규칙은 PUT child-links와 같습니다. */
+  llm_allowed?: boolean;
+  /** 사진은 필수(전체 교체, 빈 배열이면 미분류), 영상·음성은 보내지 않습니다. */
+  child_links?: ChildLink[];
 }
 
 /** POST /media 응답(ack). 201은 새로 확정, 같은 client_photo_id를 다시 보내면 기존 것을 200 */

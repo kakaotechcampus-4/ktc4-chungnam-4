@@ -54,7 +54,8 @@ export type {
 } from "./media-view";
 
 // 업로드·재생 URL·얼굴 임베딩 요청과 query key는 이 파일에서만 만듭니다(frontend/CLAUDE.md §데이터).
-// 업로드 순서(API 문서 §media): requestUploadUrls → uploadFile → completeUpload → saveChildLinks.
+// 업로드 순서(API 문서 §media): requestUploadUrls → uploadFile → completeUpload.
+// 사진은 completeUpload에 귀속을 함께 싣고, 영상·음성만 그 뒤에 saveChildLinks로 귀속을 저장합니다.
 // 실패한 파일은 같은 순서를 다시 밟습니다. URL을 새로 받고, 이미 완료 통지된 파일은 media_id가 와서 건너뜁니다.
 export const mediaKeys = {
   detail: (mediaId: string) => ["media", mediaId] as const,

@@ -69,6 +69,7 @@ export function toMediaCompleteBody(input: MediaCompleteInput): MediaCompleteReq
     type: input.type,
     captured_at: input.captured_at,
     model_version: input.model_version,
+    ...(input.attribution ? toChildLinksBody(input.attribution) : {}),
   };
 }
 

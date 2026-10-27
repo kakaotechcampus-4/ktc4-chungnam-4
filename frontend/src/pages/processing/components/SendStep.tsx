@@ -45,7 +45,8 @@ function capturedAt(file: File) {
 }
 
 /**
- * upload-urls로 한 번에 주소를 받고, 파일마다 PUT → 완료 통지(ack) → 귀속 저장을 반복합니다(API 문서 §media).
+ * upload-urls로 한 번에 주소를 받고, 파일마다 PUT → 완료 통지(ack)를 반복합니다(API 문서 §media).
+ * 사진은 완료 통지에 귀속을 함께 실어 한 번에 저장하고, 영상·음성은 ack 뒤에 귀속을 따로 저장합니다.
  * "14 / 21개"의 분자는 받은 ack 수입니다. 마지막 귀속 저장이 끝나면 초안 생성으로 넘어갑니다(#60).
  */
 export function SendStep({ onDone, onCancel }: SendStepProps) {
@@ -71,10 +72,12 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
         const issued = items[index];
         if (!issued) throw new Error("업로드 URL 응답의 항목 수가 요청과 다릅니다.");
         setUploadState(item.client_id, "전송중");
-        // media_id가 이미 있으면 등록이 끝난 파일이라 PUT과 ack를 건너뜁니다.
+        // media_id가 이미 있으면 등록이 끝난 파일이라 PUT을 건너뜁니다.
         let mediaId = issued.media_id;
-        if (mediaId === null) {
-          await uploadFile(issued, item.file);
+        if (mediaId === null) await uploadFile(issued, item.file);
+        // 사진은 등록된 파일이어도 완료 통지를 다시 보냅니다. 같은 client_photo_id면 서버가 기존 media_id를
+        // 돌려주고 귀속을 전체 교체하므로, 귀속을 저장하지 못하고 끊긴 사진도 여기서 이어집니다.
+        if (mediaId === null || isPhoto(item)) {
           mediaId = (
             await completeUpload({
               client_photo_id: item.client_id,
@@ -82,13 +85,14 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
               type: item.kind,
               captured_at: capturedAt(item.file),
               model_version: isPhoto(item) ? item.model_version : null,
+              attribution: isPhoto(item) ? childLinksBody(item) : undefined,
             })
           ).media_id;
         }
         // ack를 받았으니 upload_state를 확인됨으로 둡니다. 원본 삭제는 큐를 비울 때 함께 합니다.
         setUploadState(item.client_id, "확인됨", mediaId);
         setAcked(index + 1);
-        await saveChildLinks(mediaId, childLinksBody(item));
+        if (!isPhoto(item)) await saveChildLinks(mediaId, childLinksBody(item));
       }
     },
     onSuccess: onDone,

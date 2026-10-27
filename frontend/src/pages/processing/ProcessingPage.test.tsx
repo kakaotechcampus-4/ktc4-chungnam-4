@@ -121,27 +121,27 @@ describe("ProcessingPage", () => {
     server.events.removeListener("request:start", record);
 
     const writes = requests.filter((request) => request.method !== "GET");
-    const linksPath = writes.find((request) => request.path.endsWith("/child-links"))?.path ?? "";
-    const mediaId = /\/media\/([^/]+)\/child-links$/.exec(linksPath)?.[1];
-    expect(mediaId).toBeDefined();
+    // 사진은 완료 통지에 귀속을 함께 싣고 child-links는 부르지 않습니다(API 문서 §media).
     expect(writes.map((request) => `${request.method} ${request.path}`)).toEqual([
       "POST /api/v1/media/upload-urls",
       `PUT /uploads/${confirmed!.client_id}`,
       "POST /api/v1/media",
-      `PUT /api/v1/media/${mediaId}/child-links`,
       `POST /api/v1/classes/${fixtureId("class", 1)}/jobs`,
     ]);
     expect(writes[0]?.body).toMatchObject({
       items: [{ client_photo_id: confirmed!.client_id, type: "photo" }],
     });
-    expect(writes[3]?.body).toEqual({
+    expect(writes[2]?.body).toMatchObject({
+      client_photo_id: confirmed!.client_id,
+      type: "photo",
       llm_allowed: true,
       child_links: [
         { child_id: fixtureId("child", 1), method: "face_recognition", confidence_score: 0.9 },
         { child_id: fixtureId("child", 2), method: "manual", confidence_score: null },
       ],
     });
-    expect(writes[4]?.body).toMatchObject({ media_ids: [mediaId] });
+    const mediaId = (writes[3]?.body as { media_ids?: string[] } | undefined)?.media_ids?.[0];
+    expect(mediaId).toBeDefined();
     expect(useUploadQueue.getState().items).toEqual([]);
   });
 
