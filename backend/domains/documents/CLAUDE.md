@@ -30,6 +30,6 @@
 
 ## 다른 도메인과의 관계
 
-- `agents`: 초안 생성 결과 수신
+- `agents`: 초안 생성 결과 수신(`save_draft`). 재생성 전에는 `get_draft_version`으로 기존 초안의 버전·상태·교사 수정 여부를 읽습니다(#75)
 - `organization`: `Child`, 학부모–원아 관계로 열람 권한 판단
 - `audit`: 열람 로그
