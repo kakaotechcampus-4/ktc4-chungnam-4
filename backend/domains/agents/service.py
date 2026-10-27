@@ -6,14 +6,22 @@ tasks.py는 이 모듈의 orchestrate_drafts만 호출합니다 (CLAUDE.md: task
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from core.database import SessionLocal
-from core.exceptions import DraftVersionConflict
+from core.exceptions import (
+    DraftVersionConflict,
+    InvalidRecordDate,
+    JobAlreadyRunning,
+    JobNotFound,
+    MediaNotReady,
+    NoTargetChildren,
+)
 from domains.agents.llm import call_claude
 from domains.agents.models import (
     DraftDecisionLog,
@@ -27,6 +35,7 @@ from domains.agents.models import VerificationResult as VerificationResultRow
 from domains.documents import service as documents
 from domains.documents.schemas import DraftSaveInput, DraftSentenceInput
 from domains.media import service as media_service
+from domains.organization.service import ensure_class_access
 from prompts.generation.draft import DraftFeedback, build_draft_prompt
 from prompts.verification.critic import build_critic_prompt
 from tools import contracts
@@ -56,6 +65,232 @@ MAX_PHOTOS_PER_CHILD = 5
 # 매일 도는 Job이 만드는 문서. 관찰일지는 주기·양식이 원마다 달라 생성 조건이 정해진 뒤
 # 따로 붙인다 (#115, open-questions 32번).
 DAILY_DOC_TYPE = contracts.DocType.PARENT_NOTE
+
+# record_date는 KST 기준 하루다 (docs/api/agents.md).
+_KST = ZoneInfo("Asia/Seoul")
+_UNFINISHED_STATUSES = frozenset({JobStatus.PENDING, JobStatus.RUNNING})
+# worker가 죽어 running으로 남은 Job이 그 반·날짜를 영구히 막지 않게, 이 시간 넘게 갱신이 없는
+# Job은 진행 중으로 보지 않는다. task 최대 소요(180초 × 3회)에 여유 60초를 더했다 (#161 리뷰, 엄태은).
+_STALE_JOB_AFTER = timedelta(seconds=180 * 3 + 60)
+
+
+# ---------------------------------------------------------------------------
+# 초안 생성 작업 시작·조회 (POST /classes/{class_id}/jobs, GET /jobs/{job_id})
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ChildJobStatus:
+    child_id: UUID
+    status: JobStatus
+
+
+@dataclass(frozen=True)
+class GenerationJobStatus:
+    """반·날짜 작업 1건의 상태. 반 전체 값은 저장하지 않고 원아별 Job에서 계산한다 (#61)."""
+
+    generation_job: GenerationJob
+    status: JobStatus
+    percent: int
+    finished_children: int
+    children: list[ChildJobStatus]
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class StartedGenerationJob:
+    status: GenerationJobStatus
+    # 커밋한 뒤 Celery에 넣을 (Job id, child_id). 같은 request_id로 다시 부르면 비어 있다.
+    to_enqueue: list[tuple[UUID, UUID]]
+
+
+def start_generation_job(
+    db: Session,
+    *,
+    class_id: UUID,
+    record_date: date,
+    request_id: UUID,
+    media_ids: Sequence[UUID],
+    teacher_id: UUID,
+    center_id: UUID | None,
+) -> StartedGenerationJob:
+    """서버 전송을 마친 반·날짜의 초안 생성 작업을 만든다 (FR-05, FR-06, FR-26).
+
+    대상 원아는 그 날짜에 귀속된 자료가 있는 원아 전원이다. ③ 미동의 원아도 빼지 않고,
+    그 원아가 귀속된 사진만 근거 수집에서 빠진다(H-2·H-3). 커밋과 큐 넣기는 호출자가 한다.
+    """
+    ensure_class_access(db, class_id, center_id)
+    existing = db.scalar(select(GenerationJob).where(GenerationJob.request_id == str(request_id)))
+    if existing is not None:
+        # request_id가 작업을 가리키므로, 경로의 반과 다르면 그 작업의 반으로 다시 확인한다.
+        ensure_class_access(db, existing.class_id, center_id)
+        return StartedGenerationJob(status=_job_status(db, existing), to_enqueue=[])
+
+    if record_date > datetime.now(_KST).date():
+        raise InvalidRecordDate("오늘보다 뒤 날짜의 초안은 만들 수 없습니다.")
+    running_id = db.scalar(
+        select(GenerationJob.id)
+        .join(Job, Job.generation_job_id == GenerationJob.id)
+        .where(
+            GenerationJob.class_id == class_id,
+            GenerationJob.record_date == record_date,
+            Job.status.in_([status.value for status in _UNFINISHED_STATUSES]),
+            Job.updated_at >= datetime.now(UTC) - _STALE_JOB_AFTER,
+        )
+        .limit(1)
+    )
+    if running_id is not None:
+        raise JobAlreadyRunning(
+            "같은 날짜의 초안을 이미 만들고 있습니다.", detail={"job_id": str(running_id)}
+        )
+    unready = media_service.find_unready_media(db, class_id, record_date, media_ids)
+    if unready:
+        raise MediaNotReady(
+            "아직 서버 전송이 끝나지 않은 자료가 있습니다.",
+            detail={"media_ids": [str(media_id) for media_id in unready]},
+        )
+    child_ids = media_service.get_attributed_children(db, class_id, record_date)
+    if not child_ids:
+        raise NoTargetChildren("이 날짜에 원아에게 연결된 자료가 없습니다.")
+
+    generation_job = GenerationJob(
+        class_id=class_id,
+        record_date=record_date,
+        request_id=str(request_id),
+        requested_by_teacher_id=teacher_id,
+    )
+    db.add(generation_job)
+    db.flush()
+    # 근거 수집이 이 값을 KST 날짜로 읽는다(collect_media_for_llm). 그 날 0시(KST)로 둔다.
+    target_date = datetime.combine(record_date, time.min, tzinfo=_KST)
+    jobs = [
+        Job(generation_job_id=generation_job.id, child_id=child_id, target_date=target_date)
+        for child_id in child_ids
+    ]
+    db.add_all(jobs)
+    db.flush()
+    return StartedGenerationJob(
+        status=_job_status(db, generation_job),
+        to_enqueue=[(job.id, job.child_id) for job in jobs],
+    )
+
+
+def get_generation_job(db: Session, *, job_id: UUID, center_id: UUID | None) -> GenerationJobStatus:
+    """폴링용 작업 상태. 작업이 속한 반의 center 소속 교사만 본다 (FR-06)."""
+    generation_job = db.get(GenerationJob, job_id)
+    if generation_job is None:
+        raise JobNotFound("초안 생성 작업을 찾을 수 없습니다.")
+    ensure_class_access(db, generation_job.class_id, center_id)
+    return _job_status(db, generation_job)
+
+
+def _job_status(db: Session, generation_job: GenerationJob) -> GenerationJobStatus:
+    jobs = db.scalars(
+        select(Job).where(Job.generation_job_id == generation_job.id).order_by(Job.child_id)
+    ).all()
+    children = [ChildJobStatus(child_id=job.child_id, status=JobStatus(job.status)) for job in jobs]
+    finished = sum(child.status not in _UNFINISHED_STATUSES for child in children)
+    # TODO(eun): 문서의 진행률은 원아별로 끝낸 단계 수로 세지만 Job에 단계 컬럼이 없다.
+    #   지금은 끝난 원아 비율로 센다 (docs/api/agents.md 임시 결정(정은)).
+    percent = finished * 100 // len(children) if children else 0
+    return GenerationJobStatus(
+        generation_job=generation_job,
+        status=_overall_status(children),
+        percent=percent,
+        finished_children=finished,
+        children=children,
+        # 원아별 Job이 바뀌어도 부모 행은 갱신되지 않으므로 가장 늦은 시각을 쓴다.
+        updated_at=max([generation_job.updated_at, *(job.updated_at for job in jobs)]),
+    )
+
+
+def _overall_status(children: Sequence[ChildJobStatus]) -> JobStatus:
+    """반 전체 상태 (docs/api/agents.md 상태값).
+
+    모두 대기면 pending, 안 끝난 원아가 있으면 running, 모두 끝났는데 실패가 1명 이상이면
+    failed(나머지 원아 초안은 검토할 수 있음), 그 밖에는 succeeded.
+    """
+    statuses = {child.status for child in children}
+    if statuses <= {JobStatus.PENDING}:
+        return JobStatus.PENDING
+    if statuses & _UNFINISHED_STATUSES:
+        return JobStatus.RUNNING
+    if JobStatus.FAILED in statuses:
+        return JobStatus.FAILED
+    return JobStatus.SUCCEEDED
+
+
+# ---------------------------------------------------------------------------
+# 문장별 근거 조회 (documents의 교사용 초안 상세가 부른다)
+# ---------------------------------------------------------------------------
+
+# 근거 행에 출처 종류를 저장하지 않아 미디어 종류로 정한다. 영상은 발화만 근거로 쓰므로
+# (테크스펙 §요청사항 2) video_speech다. 미디어가 없으면 활동계획이다.
+_SOURCE_TYPE_BY_MEDIA_TYPE = {
+    "photo": contracts.SourceType.PHOTO_OBSERVATION,
+    "voice_memo": contracts.SourceType.TEACHER_VOICE_MEMO,
+    "video": contracts.SourceType.VIDEO_SPEECH,
+}
+
+
+@dataclass(frozen=True)
+class SentenceEvidenceView:
+    """문장 하나를 뒷받침하는 근거 (docs/api/documents.md §GET /drafts/{draft_id} evidences[]).
+
+    text는 비식별화 전 원문이라 실명이 있을 수 있다. 검수 권한이 있는 교사 화면에만 싣고
+    LLM·로그로 보내지 않는다 (H-1, H-2, H-4).
+    """
+
+    evidence_id: str
+    source_type: str
+    text: str
+    media_id: UUID | None
+    start_ms: int | None
+    end_ms: int | None
+    captured_at: datetime | None
+
+
+def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[SentenceEvidenceView]]:
+    """초안의 문장별 근거를 sentence_id로 묶어 돌려준다 (FR-07).
+
+    권한 판정과 열람 기록은 부르는 쪽(documents)이 한다. 근거가 없는 문장은 키가 없다 — 교사가
+    고친 문장의 근거를 비우는 것도 documents가 정한다 (documents.md §PATCH).
+
+    임시 결정(정은): 근거 행에 출처 종류·끝 시각을 저장하지 않아서 source_type은 미디어 종류로
+    정하고 end_ms는 null이다. 영상 속 교사 관찰 발화는 생성 때 teacher_voice_memo였어도
+    여기서는 video_speech로 보인다. TODO(eun): 영상 근거를 쓰기 시작하면 SentenceEvidence에
+    source_type·end_ms를 저장한다(테크스펙 먼저).
+    """
+    rows = db.scalars(
+        select(SentenceEvidenceRow)
+        .where(SentenceEvidenceRow.draft_id == draft_id)
+        .order_by(SentenceEvidenceRow.sentence_id, SentenceEvidenceRow.evidence_id)
+    ).all()
+    media = media_service.get_media_meta(
+        db, [row.source_media_id for row in rows if row.source_media_id is not None]
+    )
+    result: dict[str, list[SentenceEvidenceView]] = {}
+    for row in rows:
+        meta = media.get(row.source_media_id) if row.source_media_id is not None else None
+        source_type = (
+            _SOURCE_TYPE_BY_MEDIA_TYPE[meta.type]
+            if meta is not None
+            else contracts.SourceType.ACTIVITY_PLAN
+        )
+        result.setdefault(row.sentence_id, []).append(
+            SentenceEvidenceView(
+                evidence_id=row.evidence_id,
+                source_type=source_type.value,
+                text=row.source_text,
+                media_id=row.source_media_id,
+                start_ms=(
+                    round(row.source_timestamp * 1000) if row.source_timestamp is not None else None
+                ),
+                end_ms=None,
+                captured_at=meta.captured_at if meta is not None else None,
+            )
+        )
+    return result
 
 
 def orchestrate_drafts(job_id: str, child_id: str) -> None:

@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | `models.py` | `GenerationJob`(반·날짜 요청), `Job`(원아별), `EvidenceBundle`, `SentenceEvidence`, `VerificationResult`, `DraftDecisionLog` | 완료 (`check_type`/`result` 값 도메인은 PR #7 계약과 맞춤) |
 | `schemas.py` | 파이프라인 요청·응답 | 완료 (`context_lookup` 구조만 미정 — organization/media 확정 후) |
-| `router.py` | 직접 API가 필요한 경우만 (예: 수동 재생성 요청) | 보류 — API 목록 확정 회의 전까지 손대지 않음 |
+| `router.py` | 초안 생성 작업 시작·폴링 (`POST /classes/{class_id}/jobs`, `GET /jobs/{job_id}`) | 완료 — 판정·조회는 `service.start_generation_job`·`get_generation_job`, 커밋 뒤 `tasks.enqueue_generate_drafts`로 큐에 넣음. 단계·결과·실패 사유 필드는 컬럼이 없어 `null`(docs/api/agents.md 임시 결정) |
 | `service.py` | 근거수집 → 초안생성 → Critic 검증 오케스트레이션 | 부분 구현. `orchestrate_drafts`는 `decide()`(pass/regenerate/retry_critic/needs_teacher_review) 4종 판정에 맞춰 재생성·Critic 재시도 루프를 돈다. `_verify_and_record`는 references→target→critic→decide 실제 파이프라인으로 동작. `_collect_evidence`는 `media.collect_media_for_llm`으로 받은 미디어를 `EvidenceBundle`로 저장(사진 상한 `MAX_PHOTOS_PER_CHILD`, `context_lookup`은 빈 고정 키). `_generate_draft`는 근거 선별(`tools/evidence`) → 비식별화·생성 응답 파싱(`tools/generation`) → 알림장 프롬프트(`prompts/generation`)로 동작. 입력을 만드는 `_load_generation_inputs`(인식 결과 병합 #128, 원아 이름 조회)만 미연결이라 `NotImplementedError` |
 | `llm.py` | LLM 직접 호출 | 완료 (카테캠 Elice AI Cloud 게이트웨이 경유, `openai` SDK + 커스텀 `base_url`. Anthropic 공식 API 아님) |
 | `tasks.py` | Celery 파이프라인 실행 | 완료 — `service.orchestrate_drafts` 호출 |
@@ -27,7 +27,7 @@
 - 에이전트 출력은 자유 텍스트로 받지 않고 **구조화된 JSON**으로 받아 Pydantic으로 검증합니다. 파싱 실패는 재시도 대상.
 - **규칙으로 되는 건 LLM에 맡기지 않습니다.** 동의 확인·귀속 판정·비식별화·노출은 전부 코드입니다 (테크스펙 책임 분담 표).
 - 초안 근거는 **영상·음성 발화가 1차, 사진은 맥락 보강**입니다 (NFR-08, NFR-09). 문장별 근거로 교사에게 보여주는 것은 영상 시각 + 원문 발화입니다 (FR-07).
-  <!-- 영상 중간 프레임을 근거로 쓸지는 미정. docs/open-questions.md 참고 -->
+  영상은 발화만 근거로 쓰고 장면(중간 프레임)은 LLM 근거로 쓰지 않습니다(팀 회의 결정, 테크스펙 §요청사항 2). 그래서 영상 근거의 `source_type`은 `video_speech`뿐입니다.
 - 초안을 넘길 때 **작성 교사를 `author_teacher_id`로 함께 넘깁니다** (FR-26). 교사 이름은 문서 렌더링 단계에서 documents가 붙이므로, **프롬프트·LLM 입력에는 교사 실명을 넣지 않습니다** (H-2). 문체 반영은 `TeacherPersona`로만 합니다.
 - `tasks.py`는 호출만 하고 로직을 갖지 않습니다. 오케스트레이션은 `service.py`에.
 - 재시도 상한을 넘기면 예외로 터뜨리지 말고 documents의 미분류함으로 떨어뜨립니다.

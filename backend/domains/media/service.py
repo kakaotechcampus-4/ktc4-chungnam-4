@@ -239,6 +239,53 @@ def collect_media_for_llm(db: Session, child_id: UUID, target_date: date) -> lis
     return evidence
 
 
+def find_unready_media(
+    db: Session, class_id: UUID, target_date: date, media_ids: Sequence[UUID]
+) -> list[UUID]:
+    """초안 생성 작업을 시작하기 전에, 보낸 미디어 중 아직 쓸 수 없는 것을 돌려줍니다.
+
+    완료 통지 전(행 없음)이거나, 귀속 저장 전(`attributed_at` null)이거나, 파기됐거나, 이 반·날짜
+    (KST)의 자료가 아니면 걸립니다 (docs/api/agents.md `MEDIA_NOT_READY`). 보낸 순서를 지킵니다.
+    """
+    start, end = _kst_day_range(target_date)
+    ready = set(
+        db.scalars(
+            select(MediaAsset.id).where(
+                MediaAsset.id.in_(media_ids),
+                MediaAsset.class_id == class_id,
+                MediaAsset.storage_tier != "deleted",
+                MediaAsset.captured_at >= start,
+                MediaAsset.captured_at < end,
+                MediaAsset.attributed_at.is_not(None),
+            )
+        )
+    )
+    return [media_id for media_id in media_ids if media_id not in ready]
+
+
+def get_attributed_children(db: Session, class_id: UUID, target_date: date) -> list[UUID]:
+    """그 반·날짜(KST)에 귀속된 자료가 하나라도 있는 원아 (초안 생성 대상, docs/api/agents.md).
+
+    ③ 미동의 원아도 빼지 않습니다. 그 원아가 귀속된 사진은 `collect_media_for_llm`이 LLM
+    근거에서 뺍니다(H-2·H-3). 파기된 미디어의 귀속은 세지 않습니다.
+    """
+    start, end = _kst_day_range(target_date)
+    return list(
+        db.scalars(
+            select(MediaChildLink.child_id)
+            .join(MediaAsset, MediaAsset.id == MediaChildLink.media_id)
+            .where(
+                MediaAsset.class_id == class_id,
+                MediaAsset.storage_tier != "deleted",
+                MediaAsset.captured_at >= start,
+                MediaAsset.captured_at < end,
+            )
+            .distinct()
+            .order_by(MediaChildLink.child_id)
+        )
+    )
+
+
 # ---------------------------------------------------------------------------
 # S3 presigned URL (FR-15)
 # ---------------------------------------------------------------------------
@@ -382,6 +429,39 @@ def presign_upload(key: str, content_type: str, size_bytes: int) -> PresignedUpl
         headers={"Content-Type": content_type, "If-None-Match": "*"},
         expires_at=datetime.now(UTC) + timedelta(seconds=expires_in),
     )
+
+
+@dataclass(frozen=True)
+class MediaMeta:
+    """근거 표시에 필요한 미디어 속성. 파일 위치(`storage_url`)는 싣지 않습니다."""
+
+    media_id: UUID
+    type: str
+    captured_at: datetime
+
+
+def get_media_meta(db: Session, media_ids: Sequence[UUID]) -> dict[UUID, MediaMeta]:
+    """미디어 종류와 촬영 시각을 id로 찾아 줍니다 (FR-07).
+
+    agents가 초안 문장의 근거를 교사 화면 모양으로 바꿀 때 `MediaAsset`을 직접 조회하지 않도록
+    제공합니다. 서명 URL은 만들지 않습니다 — 재생 URL이 필요하면 `get_signed_urls`를 씁니다.
+    파기된 미디어도 돌려줍니다(근거 기록은 남고, 파일만 열리지 않습니다). 모르는 id가 섞이면
+    `MediaAssetNotFound`입니다. 부르는 쪽의 버그를 숨기지 않습니다.
+    """
+    unique_ids = list(dict.fromkeys(media_ids))
+    if not unique_ids:
+        return {}
+    rows = db.execute(
+        select(MediaAsset.id, MediaAsset.type, MediaAsset.captured_at).where(
+            MediaAsset.id.in_(unique_ids)
+        )
+    ).all()
+    if len(rows) != len(unique_ids):
+        raise MediaAssetNotFound("파일을 찾을 수 없어요.")
+    return {
+        row.id: MediaMeta(media_id=row.id, type=row.type, captured_at=row.captured_at)
+        for row in rows
+    }
 
 
 @dataclass(frozen=True)

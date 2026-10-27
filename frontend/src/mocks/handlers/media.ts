@@ -36,12 +36,14 @@ import { requireTeacher, requireTeacherOfClass } from "../guards";
 import { apiPath, errorResponse, listResponse, validationError } from "../http";
 import { isMockScenario } from "../scenario";
 
-// API 문서 §media·face 목입니다. 업로드는 URL 발급 → S3 PUT → 완료 통지 → 귀속 저장 순서로 이어지고,
+// API 문서 §media·face 목입니다. 업로드는 URL 발급 → S3 PUT → 완료 통지(사진은 귀속 포함) 순서로 이어지고,
+// 영상·음성은 완료 통지 뒤에 귀속을 따로 저장합니다.
 // 실패한 파일은 같은 순서를 다시 밟습니다(URL을 새로 받음). 상태는 mocks/db.ts에 남습니다.
 // 시나리오: media.s3-put-fails(S3 PUT이 연결 오류), media.embeddings-empty(얼굴 임베딩 없음 → 모두 수동 분류),
 //         media.stt-fails(서버 STT 실패 → 발화 없음)
 
 const MEDIA_TYPES: readonly MediaType[] = ["photo", "video", "voice_memo"];
+const UPLOAD_URLS_BATCH_SIZE = 10;
 const ATTRIBUTION_METHODS = ["face_recognition", "manual"];
 const SPEAKERS: readonly (TranscriptSpeaker | null)[] = [
   "child",
@@ -64,6 +66,7 @@ function toMediaAsset(media: MediaRecord): MediaAsset {
     captured_at: media.captured_at,
     size_bytes: media.size_bytes,
     llm_allowed: media.llm_allowed,
+    child_links: media.child_links,
     attributed_at: media.attributed_at,
   };
 }
@@ -72,14 +75,25 @@ function findByClientPhotoId(media: Record<string, MediaRecord>, clientPhotoId: 
   return Object.values(media).find((m) => m.client_photo_id === clientPhotoId);
 }
 
+/** 귀속 형식 오류(400). 완료 통지와 child-links가 같은 규칙을 씁니다. */
+function invalidLinksResponse(links: ChildLink[]) {
+  if (!links.every(isValidLink)) {
+    return errorResponse(400, "INVALID_ATTRIBUTION_METHOD", "귀속 방법이 올바르지 않아요.");
+  }
+  if (new Set(links.map((link) => link.child_id)).size !== links.length) {
+    return errorResponse(400, "DUPLICATE_CHILD_LINK", "같은 원아가 두 번 들어 있어요.");
+  }
+  return null;
+}
+
 /**
- * (제안, API 문서 §media) llm_allowed 최종값. 사진은 "교사 확인 AND 귀속 원아 전원 ③ 동의",
- * 영상·음성메모는 교사 확인값을 그대로 저장합니다. ③ 미동의 원아가 귀속된 사진은 LLM 근거에서 빠집니다(H-2).
+ * (제안) 전체 교체: 보낸 목록이 최종 상태입니다. llm_allowed는 서버처럼 교사가 보낸 값을 그대로 저장합니다.
+ * ③ 미동의 원아 사진을 LLM 근거에서 빼는 것(H-2)은 근거를 모을 때 합니다(목은 handlers/agents.ts).
  */
-function finalLlmAllowed(type: MediaType, teacherChecked: boolean, links: ChildLink[]) {
-  if (!teacherChecked) return false;
-  if (type !== "photo") return true;
-  return links.every((link) => FACE_CONSENTED_CHILD_IDS.has(link.child_id));
+function saveLinks(media: MediaRecord, teacherChecked: boolean, links: ChildLink[]) {
+  media.child_links = links;
+  media.llm_allowed = teacherChecked;
+  media.attributed_at = nowIso();
 }
 
 function isValidLink(link: ChildLink) {
@@ -96,6 +110,14 @@ export const handlers = [
     if (denied) return denied;
     const items = body.items ?? [];
     if (items.length === 0) return validationError("body.items", "파일이 하나 이상 있어야 합니다");
+    // 서버처럼 한 번에 10개까지만 받습니다(API 문서 §media, 임시 결정(김동건)). FE가 나눠 보내는지 확인하려는 것입니다.
+    if (items.length > UPLOAD_URLS_BATCH_SIZE) {
+      return errorResponse(
+        400,
+        "UPLOAD_BATCH_TOO_LARGE",
+        "한 번에 올릴 수 있는 파일 수를 넘었어요.",
+      );
+    }
 
     // 한 항목이라도 형식이 틀리면 요청 전체를 거절합니다(API 문서).
     const rejected = items
@@ -168,11 +190,34 @@ export const handlers = [
       return validationError("body", "client_photo_id와 type이 필요합니다");
     }
     const clientPhotoId = body.client_photo_id;
+    // 사진은 교사 확정 뒤에만 올라오므로 귀속을 함께 받고, 영상·음성은 받지 않습니다(API 문서 §media).
+    const isPhotoBody = body.type === "photo";
+    const hasAttribution = body.llm_allowed !== undefined || body.child_links !== undefined;
+    if (
+      isPhotoBody &&
+      (typeof body.llm_allowed !== "boolean" || !Array.isArray(body.child_links))
+    ) {
+      return validationError("body", "사진은 llm_allowed와 child_links가 필요합니다");
+    }
+    if (!isPhotoBody && hasAttribution) {
+      return validationError("body", "영상·음성은 귀속을 child-links로 저장합니다");
+    }
+    const links = body.child_links ?? [];
+    const linkError = invalidLinksResponse(links);
+    if (linkError) return linkError;
+    const teacherChecked = body.llm_allowed ?? false;
 
     const outcome = updateDb((db) => {
+      if (isPhotoBody && !links.every((link) => CLASS_CHILD_IDS.has(link.child_id))) {
+        return { error: "not-in-class" } as const;
+      }
       // 같은 client_photo_id를 다시 보내면 기존 것을 200으로 줍니다(응답을 못 받고 재전송한 경우).
+      // 사진이면 다시 보낸 귀속으로 전체 교체합니다.
       const registered = findByClientPhotoId(db.media, clientPhotoId);
-      if (registered) return { status: 200, media: registered } as const;
+      if (registered) {
+        if (isPhotoBody) saveLinks(registered, teacherChecked, links);
+        return { status: 200, media: registered } as const;
+      }
 
       const upload = db.uploads[clientPhotoId];
       if (!upload?.uploaded) return { error: "not-uploaded" } as const;
@@ -192,11 +237,15 @@ export const handlers = [
         child_links: [],
         image: db.seq % SAMPLE_IMAGE_COUNT,
       };
+      if (isPhotoBody) saveLinks(media, teacherChecked, links);
       db.media[mediaId] = media;
       return { status: 201, media } as const;
     });
 
     if ("error" in outcome) {
+      if (outcome.error === "not-in-class") {
+        return errorResponse(400, "CHILD_NOT_IN_CLASS", "이 반의 원아가 아니에요.");
+      }
       return outcome.error === "not-uploaded"
         ? errorResponse(
             409,
@@ -216,12 +265,8 @@ export const handlers = [
       return validationError("body", "llm_allowed와 child_links가 필요합니다");
     }
     const links = body.child_links;
-    if (!links.every(isValidLink)) {
-      return errorResponse(400, "INVALID_ATTRIBUTION_METHOD", "귀속 방법이 올바르지 않아요.");
-    }
-    if (new Set(links.map((link) => link.child_id)).size !== links.length) {
-      return errorResponse(400, "DUPLICATE_CHILD_LINK", "같은 원아가 두 번 들어 있어요.");
-    }
+    const linkError = invalidLinksResponse(links);
+    if (linkError) return linkError;
     const teacherChecked = body.llm_allowed;
 
     const outcome = updateDb((db) => {
@@ -231,10 +276,7 @@ export const handlers = [
       if (!links.every((link) => CLASS_CHILD_IDS.has(link.child_id))) {
         return { error: "not-in-class" } as const;
       }
-      // (제안) 전체 교체: 보낸 목록이 최종 상태입니다.
-      media.child_links = links;
-      media.llm_allowed = finalLlmAllowed(media.type, teacherChecked, links);
-      media.attributed_at = nowIso();
+      saveLinks(media, teacherChecked, links);
       return { media } as const;
     });
 

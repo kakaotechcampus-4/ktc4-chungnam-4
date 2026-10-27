@@ -525,9 +525,9 @@ celery -A celery_app:celery_app worker --loglevel=INFO --concurrency=1
 - API와 worker는 같은 Dockerfile의 코드를 사용하지만, 실행 명령과 프로세스가 다릅니다.
 - worker는 Redis의 healthcheck 통과 후 시작합니다. 연습에 DB가 필요하지 않아 postgres는 의존하지 않습니다.
 
-Celery 앱은 `scripts.celery_smoke`만 등록합니다. 비어 있는 실제 AI 작업이 성공으로 처리되는 것을
-피하기 위해 `domains.agents.tasks`는 아직 등록하지 않습니다. D의 작업 구현 후 include 목록에
-추가하는 연결 작업을 함께 진행하면 됩니다.
+Celery 앱은 `scripts.celery_smoke`와 `domains.agents.tasks`를 등록합니다. 초안 생성 API가 task를
+이름으로 보내므로 worker가 등록하지 않으면 Job이 pending으로 남아 그 반·날짜가 막힙니다. 입력 조립이
+아직 연결되지 않은 동안에는 `_load_generation_inputs`의 `NotImplementedError`로 Job이 failed로 끝납니다.
 
 `task_track_started=True`는 STARTED 상태를 저장합니다. 메시지·결과는 JSON만 사용합니다.
 Celery 시간대는 Asia/Seoul, UTC 처리는 활성화합니다. worker는 작업을 과도하게 미리 가져오지 않도록
