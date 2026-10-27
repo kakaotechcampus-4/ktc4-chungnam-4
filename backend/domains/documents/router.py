@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated
 from uuid import UUID
 
@@ -15,9 +16,11 @@ from sqlalchemy.orm import Session
 from core.database import get_db
 from domains.auth.middleware import CurrentParent, CurrentTeacher
 from domains.documents import service
+from domains.documents.models import DocType
 from domains.documents.schemas import (
     ApproveRequest,
     ApproveResponse,
+    ClassDraftListResponse,
     DraftDetailResponse,
     DraftUpdateRequest,
     ParentLetterDetailResponse,
@@ -37,6 +40,25 @@ def get_current_teacher_id(teacher: CurrentTeacher) -> UUID:
 
 def get_current_parent_id(parent: CurrentParent) -> UUID:
     return parent.parent_id
+
+
+@router.get("/classes/{class_id}/drafts", response_model=ClassDraftListResponse)
+def list_class_drafts(
+    class_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    teacher: CurrentTeacher,
+    record_date: date | None = None,
+    doc_type: DocType | None = None,
+    published: bool = False,
+) -> ClassDraftListResponse:
+    return service.list_class_drafts(
+        db,
+        class_id=class_id,
+        center_id=teacher.center_id,
+        record_date=record_date,
+        doc_type=doc_type,
+        published=published,
+    )
 
 
 @router.get("/drafts/{draft_id}", response_model=DraftDetailResponse)

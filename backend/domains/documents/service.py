@@ -81,27 +81,43 @@ WHERE에 넣는다 — rowcount가 곧 판단 결과다.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
+from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, delete, exists, or_, select, update
+from sqlalchemy import ColumnElement, Subquery, delete, exists, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from core.exceptions import DraftVersionConflict
-from domains.documents.models import DraftDocument, DraftSentence, DraftStatus, RevisionLog
+from core.exceptions import DraftVersionConflict, RequestValidationFailed
+from domains.documents.models import (
+    DocType,
+    DocumentPublication,
+    DraftDocument,
+    DraftSentence,
+    DraftStatus,
+    RevisionLog,
+)
 from domains.documents.schemas import (
     ApproveResponse,
+    ClassDraftItem,
+    ClassDraftListResponse,
     DraftDetailResponse,
     DraftSaveInput,
+    DraftSummary,
     ParentLetterDetailResponse,
     ParentLetterListResponse,
     PublishItem,
     PublishResponse,
     RevokeResponse,
 )
+from domains.organization import service as organization_service
 
 # 자동 생성 결과로 덮어쓰지 않는 상태. 승인·회수된 문서는 교사가 확정한 내용이다.
 _AI_LOCKED_STATUSES = (DraftStatus.APPROVED.value, DraftStatus.REVOKED.value)
+
+# 반·날짜 목록의 미리보기 길이 (docs/api/documents.md §GET /classes/{class_id}/drafts, 제안).
+_PREVIEW_MAX_CHARS = 100
 
 
 def save_draft(db: Session, data: DraftSaveInput, *, expected_version: int | None) -> DraftDocument:
@@ -237,6 +253,117 @@ def _sentence_rows(draft_id: UUID, data: DraftSaveInput) -> list[DraftSentence]:
         )
         for position, sentence in enumerate(data.sentences)
     ]
+
+
+def list_class_drafts(
+    db: Session,
+    *,
+    class_id: UUID,
+    center_id: UUID | None,
+    record_date: date | None,
+    doc_type: DocType | None,
+    published: bool,
+) -> ClassDraftListResponse:
+    """반·날짜별 원아 초안 상태 목록 (FR-06, FR-16, docs/api/documents.md).
+
+    - 접근 검사와 재원 원아 명단은 organization이 맡는다. 같은 어린이집 교사면 모든 반을
+      본다 (FR-25). 검수 권한이 있는 교사라 승인 전 초안의 미리보기도 싣는다 (H-1).
+    - 그날 초안이 있는 원아만 명단 순서대로 담는다. "자료 없음" 행은 FE가 명단과 비교해 만든다.
+    - published=True면 활성 게시 회차가 있는 문서만 담는다. 이때 record_date가 없으면
+      원아·문서 종류마다 가장 최근 게시본 1건만 담는다 (임시 결정(김진하)).
+    """
+    if record_date is None and not published:
+        raise RequestValidationFailed("record_date는 published=true일 때만 생략할 수 있습니다.")
+    roster = organization_service.list_class_children(db, class_id, center_id)
+    child_ids = [child.child_id for child in roster.items]
+    if not child_ids:
+        return ClassDraftListResponse(items=[])
+
+    active = _active_publications()
+    stmt = (
+        select(DraftDocument, active.c.published_at)
+        .outerjoin(active, active.c.draft_id == DraftDocument.id)
+        .where(DraftDocument.child_id.in_(child_ids))
+        .order_by(DraftDocument.record_date.desc())
+    )
+    if record_date is not None:
+        stmt = stmt.where(DraftDocument.record_date == record_date)
+    if doc_type is not None:
+        stmt = stmt.where(DraftDocument.doc_type == doc_type.value)
+    if published:
+        stmt = stmt.where(active.c.published_at.is_not(None))
+
+    # 날짜 최신순이라 원아·문서 종류마다 처음 나온 행이 가장 최근 문서다. 날짜를 정하면
+    # (child_id, doc_type, record_date)가 UNIQUE라 원래 한 건씩이다.
+    latest: dict[tuple[UUID, str], tuple[DraftDocument, datetime | None]] = {}
+    for draft, published_at in db.execute(stmt).tuples():
+        latest.setdefault((draft.child_id, draft.doc_type), (draft, published_at))
+    previews = _previews(db, [draft.id for draft, _ in latest.values()])
+
+    documents_by_child: dict[UUID, dict[str, DraftSummary]] = {}
+    for (child_id, draft_doc_type), (draft, published_at) in latest.items():
+        documents_by_child.setdefault(child_id, {})[draft_doc_type] = DraftSummary(
+            draft_id=draft.id,
+            status=DraftStatus(draft.status),
+            version=draft.version,
+            published_at=published_at,
+            preview=previews.get(draft.id, ""),
+        )
+    return ClassDraftListResponse(
+        items=[
+            ClassDraftItem(child_id=child_id, **documents_by_child[child_id])
+            for child_id in child_ids
+            if child_id in documents_by_child
+        ]
+    )
+
+
+def _active_publications() -> Subquery:
+    """초안별 활성 게시 회차(회수되지 않은 회차)의 게시 시각.
+
+    활성 회차가 여럿 남아 있어도 가장 최근 것만 본다 — 재게시는 새 회차만 활성으로
+    취급한다 (DocumentPublication).
+    """
+    return (
+        select(
+            DocumentPublication.draft_id,
+            func.max(DocumentPublication.published_at).label("published_at"),
+        )
+        .where(DocumentPublication.revoked_at.is_(None))
+        .group_by(DocumentPublication.draft_id)
+        .subquery()
+    )
+
+
+def _previews(db: Session, draft_ids: Sequence[UUID]) -> dict[UUID, str]:
+    if not draft_ids:
+        return {}
+    rows = db.execute(
+        select(DraftSentence.draft_id, DraftSentence.text)
+        .where(DraftSentence.draft_id.in_(draft_ids))
+        .order_by(DraftSentence.draft_id, DraftSentence.position)
+    )
+    sentences_by_draft: dict[UUID, list[str]] = {}
+    for draft_id, text in rows.tuples():
+        sentences_by_draft.setdefault(draft_id, []).append(text)
+    return {draft_id: _preview(texts) for draft_id, texts in sentences_by_draft.items()}
+
+
+def _preview(sentences: Sequence[str]) -> str:
+    """앞 문장부터 이어 붙여 100자를 넘기기 직전까지 쓴다. 문장 중간에서 자르지 않는다.
+
+    첫 문장부터 100자를 넘으면 그 문장만 100자에서 자른다 — 빈 미리보기를 내지 않으려는
+    것이다 (임시 결정(한상균), docs/api/documents.md의 preview는 제안 상태).
+    """
+    preview = ""
+    for sentence in sentences:
+        candidate = f"{preview} {sentence}" if preview else sentence
+        if len(candidate) > _PREVIEW_MAX_CHARS:
+            break
+        preview = candidate
+    if preview or not sentences:
+        return preview
+    return sentences[0][:_PREVIEW_MAX_CHARS]
 
 
 def get_draft_for_teacher(db: Session, *, draft_id: UUID, teacher_id: UUID) -> DraftDetailResponse:

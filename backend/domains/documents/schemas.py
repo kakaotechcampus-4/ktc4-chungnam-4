@@ -64,6 +64,39 @@ class DraftSaveInput(BaseModel):
 # ---- 교사용 ----
 
 
+class DraftSummary(BaseModel):
+    """반·날짜 목록의 문서 한 건. 본문 대신 앞부분 미리보기만 싣는다."""
+
+    draft_id: UUID
+    status: DraftStatus
+    version: int
+    # 활성 게시 회차의 게시 시각. 게시 전이면 null이다 (승인·게시 분리).
+    published_at: datetime | None
+    preview: str
+
+
+class UnclassifiedSummary(BaseModel):
+    reason: str
+
+
+class ClassDraftItem(BaseModel):
+    """원아 한 명의 그날 문서. 원아 이름은 싣지 않는다 — FE가 organization 명단과 합친다."""
+
+    child_id: UUID
+    observation_log: DraftSummary | None = None
+    parent_note: DraftSummary | None = None
+    # TODO(한상균): 초안 없이 미분류로 끝난 원아의 사유. agents가 미분류를 기록하고
+    #   (_send_to_unclassified) 원아·날짜로 찾을 길이 생기면 채운다. 그전까지 항상 null.
+    unclassified: UnclassifiedSummary | None = None
+
+
+class ClassDraftListResponse(BaseModel):
+    """GET /api/v1/classes/{class_id}/drafts. 반 단위라 페이지를 나누지 않는다."""
+
+    items: list[ClassDraftItem]
+    next_cursor: str | None = None
+
+
 class DraftDetailResponse(BaseModel):
     """교사 초안 상세 조회 응답. 미승인 상태 본문도 포함한다 (H-1 — 검수 권한 교사 한정)."""
 
