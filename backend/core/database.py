@@ -9,6 +9,8 @@ engine = create_engine(
     get_settings().database_url,
     pool_pre_ping=True,
     connect_args={"connect_timeout": 3},
+    # DB 오류 메시지에 SQL 바인딩 값(이메일·이름 등)이 실려 stdout 로그에 찍히지 않게 합니다 (H-4).
+    hide_parameters=True,
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
