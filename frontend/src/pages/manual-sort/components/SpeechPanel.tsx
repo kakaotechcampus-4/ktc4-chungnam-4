@@ -18,7 +18,8 @@ interface SpeechPanelProps {
   entry: QueueSegment;
   text: string;
   onTextChange: (text: string) => void;
-  speaker: TranscriptSpeakerView;
+  /** 아직 고르지 않았으면 null. 고르기 전에는 아이에게 연결할 수 없습니다. */
+  speaker: TranscriptSpeakerView | null;
   onSpeakerChange: (speaker: TranscriptSpeakerView) => void;
 }
 
@@ -80,6 +81,9 @@ export function SpeechPanel({
             </label>
           ))}
         </div>
+        {speaker ? null : (
+          <p className="text-label text-ink-muted">화자를 먼저 골라야 아이에게 연결할 수 있어요.</p>
+        )}
       </fieldset>
       {segment.excluded ? (
         <p className="text-body text-ink-muted">제외한 발화예요. 아이를 고르면 다시 포함돼요.</p>

@@ -376,12 +376,37 @@ describe("수동 분류 · 발화", () => {
     ]);
   });
 
+  it("화자를 고르기 전에는 아이에게 연결할 수 없다", async () => {
+    // 화자가 근거 종류를 정하므로 기본값으로 저장하지 않습니다 — 교사 말이 아이 말로 저장되는 것을 막습니다.
+    const patched = capture("PATCH", (url) => url.includes("/transcript-segments/"));
+    seedQueue();
+    const user = userEvent.setup();
+    renderAt("/t/today/manual-sort?tab=speech");
+
+    await screen.findByText("“내가 더 높이 쌓아 볼게!”");
+    for (const name of ["아이의 말", "교사의 관찰", "함께 한 말"]) {
+      expect(screen.getByRole("radio", { name })).not.toBeChecked();
+    }
+    expect(screen.getByText("화자를 먼저 골라야 아이에게 연결할 수 있어요.")).toBeVisible();
+    await user.click(await screen.findByRole("checkbox", { name: "김도윤" }));
+    expect(screen.getByRole("button", { name: "선택한 아이에게 연결" })).toBeDisabled();
+
+    await user.click(screen.getByRole("radio", { name: "교사의 관찰" }));
+    await user.click(screen.getByRole("button", { name: "선택한 아이에게 연결" }));
+
+    expect(await screen.findByText("처리 1 / 4개")).toBeVisible();
+    expect(patched).toEqual([
+      { child_ids: [DOYUN], speaker: "teacher_observation", excluded: false },
+    ]);
+  });
+
   it("발화를 다 처리하면 분류 결과로 돌아가고, 연결한 발화는 아이 카드에 센다", async () => {
     seedQueue();
     const user = userEvent.setup();
     const { router } = renderAt("/t/today/manual-sort?tab=speech");
 
     await screen.findByText("“내가 더 높이 쌓아 볼게!”");
+    await user.click(screen.getByRole("radio", { name: "아이의 말" }));
     await user.click(await screen.findByRole("checkbox", { name: "이하준" }));
     await user.click(screen.getByRole("button", { name: "선택한 아이에게 연결" }));
     // 저장 → 다음 발화로 이동을 세 번 거쳐서, 전체 테스트가 함께 돌 때는 기본 대기(1초)를 넘길 수 있습니다.
@@ -427,6 +452,7 @@ describe("아이별 하루 확인", () => {
     const user = userEvent.setup();
     renderAt("/t/today/manual-sort?tab=speech");
     await screen.findByText("“내가 더 높이 쌓아 볼게!”");
+    await user.click(screen.getByRole("radio", { name: "아이의 말" }));
     await user.click(await screen.findByRole("checkbox", { name: "김도윤" }));
     await user.click(screen.getByRole("button", { name: "선택한 아이에게 연결" }));
     await screen.findByText("처리 1 / 4개");

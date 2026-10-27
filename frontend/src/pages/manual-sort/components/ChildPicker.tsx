@@ -11,10 +11,18 @@ interface ChildPickerProps {
   /** 확실한 아이는 선택된 채로 보여 주고 애매한 아이만 교사가 고르게 합니다(frontend/CLAUDE.md 다인원 귀속). */
   initialSelected: readonly string[];
   onConnect: (childIds: string[]) => void;
+  /** 아이를 골라도 연결을 막을 때. 발화 탭은 화자를 고르기 전까지 막습니다. */
+  isConnectBlocked?: boolean;
 }
 
 // 수동 분류 오른쪽의 아이 귀속 패널입니다. 여러 아이를 고를 수 있습니다.
-export function ChildPicker({ title, childList, initialSelected, onConnect }: ChildPickerProps) {
+export function ChildPicker({
+  title,
+  childList,
+  initialSelected,
+  onConnect,
+  isConnectBlocked = false,
+}: ChildPickerProps) {
   const titleId = useId();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set(initialSelected));
@@ -64,7 +72,7 @@ export function ChildPicker({ title, childList, initialSelected, onConnect }: Ch
       <p className="text-label text-ink-muted">선택 {selected.size}명 · 여러 아이 선택 가능</p>
       <Button
         className="mt-auto w-full"
-        disabled={selected.size === 0}
+        disabled={selected.size === 0 || isConnectBlocked}
         onClick={() => onConnect([...selected])}
       >
         선택한 아이에게 연결

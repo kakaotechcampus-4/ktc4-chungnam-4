@@ -86,7 +86,9 @@ export function SpeechSortView({ renderTabs }: SpeechSortViewProps) {
   const { segment } = current;
   const draft = drafts[segment.segment_id] ?? {};
   const text = draft.text ?? segment.text;
-  const speaker = draft.speaker ?? segment.speaker ?? "child";
+  // 기본값을 두지 않습니다. 화자가 근거 종류(아이 말 / 교사 진술)를 정해서, 안 고른 교사 말이
+  // 아이 말로 저장되면 초안에 아이가 한 말처럼 인용될 수 있습니다(테크스펙 TranscriptSegment).
+  const speaker = draft.speaker ?? segment.speaker;
 
   function setDraft(change: { text?: string; speaker?: TranscriptSpeakerView }) {
     setDrafts((prev) => ({
@@ -139,9 +141,10 @@ export function SpeechSortView({ renderTabs }: SpeechSortViewProps) {
           title="발화가 해당하는 아이"
           childList={children}
           initialSelected={segment.child_ids}
-          onConnect={(childIds) =>
-            save({ child_ids: childIds, speaker, excluded: false, ...edited })
-          }
+          onConnect={(childIds) => {
+            if (speaker) save({ child_ids: childIds, speaker, excluded: false, ...edited });
+          }}
+          isConnectBlocked={!speaker}
         />
       </div>
 
