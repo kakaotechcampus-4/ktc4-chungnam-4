@@ -6,7 +6,7 @@ tasks.py는 이 모듈의 orchestrate_drafts만 호출합니다 (CLAUDE.md: task
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
@@ -69,6 +69,9 @@ DAILY_DOC_TYPE = contracts.DocType.PARENT_NOTE
 # record_date는 KST 기준 하루다 (docs/api/agents.md).
 _KST = ZoneInfo("Asia/Seoul")
 _UNFINISHED_STATUSES = frozenset({JobStatus.PENDING, JobStatus.RUNNING})
+# worker가 죽어 running으로 남은 Job이 그 반·날짜를 영구히 막지 않게, 이 시간 넘게 갱신이 없는
+# Job은 진행 중으로 보지 않는다. task 최대 소요(180초 × 3회)에 여유 60초를 더했다 (#161 리뷰, 엄태은).
+_STALE_JOB_AFTER = timedelta(seconds=180 * 3 + 60)
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +135,7 @@ def start_generation_job(
             GenerationJob.class_id == class_id,
             GenerationJob.record_date == record_date,
             Job.status.in_([status.value for status in _UNFINISHED_STATUSES]),
+            Job.updated_at >= datetime.now(UTC) - _STALE_JOB_AFTER,
         )
         .limit(1)
     )
