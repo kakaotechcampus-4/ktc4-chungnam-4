@@ -32,13 +32,13 @@ function isGenerating(item: ClassDraftView) {
 }
 
 /**
- * 교사가 확인해야 하는 원아인지. 초안 없이 미분류로 끝났거나, 초안이 미분류·모르는 상태입니다.
+ * 교사가 확인해야 하는 원아인지. 초안 없이 미분류로 끝났거나, 초안이 회수·모르는 상태입니다.
  * 모르는 상태를 빈 카드로 떨어뜨리면 초안이 있는데도 자료를 다시 올리게 됩니다.
  * 초안 검토 화면은 두 상태를 잠가 보여 주므로 승인되지 않습니다(H-1).
  */
 function needsCheck(item: ClassDraftView) {
   const status = item.parent_note?.status;
-  return item.unclassified !== null || status === "unclassified" || status === "unknown";
+  return item.unclassified !== null || status === "revoked" || status === "unknown";
 }
 
 /** 오늘 기록 상태에 따라 카드에 무엇을 보일지 */
