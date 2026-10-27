@@ -80,8 +80,9 @@ WHERE에 넣는다 — rowcount가 곧 판단 결과다.
 
 from __future__ import annotations
 
+import re
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime
 from uuid import UUID
 
@@ -91,11 +92,14 @@ from sqlalchemy.orm import Session
 
 from core.exceptions import (
     AidamError,
+    DraftAlreadyApproved,
     DraftAlreadyPublished,
     DraftNotApprovable,
     DraftNotApproved,
     DraftNotFound,
+    DraftNotReady,
     DraftVersionConflict,
+    InvalidSentenceId,
     RequestValidationFailed,
 )
 from domains.documents.models import (
@@ -104,6 +108,7 @@ from domains.documents.models import (
     DraftDocument,
     DraftSentence,
     DraftStatus,
+    EditMethod,
     RevisionAction,
     RevisionLog,
 )
@@ -114,6 +119,7 @@ from domains.documents.schemas import (
     DraftSaveInput,
     DraftSentenceView,
     DraftSummary,
+    DraftUpdateRequest,
     DraftVersionInfo,
     ParentLetterDetailResponse,
     ParentLetterListResponse,
@@ -125,6 +131,9 @@ from domains.organization import service as organization_service
 
 # 자동 생성 결과로 덮어쓰지 않는 상태. 승인·회수된 문서는 교사가 확정한 내용이다.
 _AI_LOCKED_STATUSES = (DraftStatus.APPROVED.value, DraftStatus.REVOKED.value)
+
+# 교사가 쓴 문장의 서버 발급 ID (t1, t2…, 임시 결정(정은), #75).
+_TEACHER_SENTENCE_ID = re.compile(r"t(\d+)")
 
 # 반·날짜 목록의 미리보기 길이 (docs/api/documents.md §GET /classes/{class_id}/drafts, 제안).
 _PREVIEW_MAX_CHARS = 100
@@ -424,17 +433,94 @@ def update_draft(
     *,
     draft_id: UUID,
     teacher_id: UUID,
-    content: str,
-    expected_version: int,
+    center_id: UUID | None,
+    request: DraftUpdateRequest,
 ) -> DraftDetailResponse:
-    # TODO(한상균): 버전 비교+갱신은 모듈 docstring의 원자적 UPDATE 패턴으로 (조회 후
-    #   별도 비교 금지). rowcount==0이면 충돌(409). 통과 시 RevisionLog에
-    #   action=edit, edit_method=manual, before_content(수정 전)·after_content(수정 후)
-    #   를 함께 남긴다(테크스펙 RevisionLog ERD). RevisionLog 기록과 version 증가는 한
-    #   트랜잭션에서 한다 — save_draft()의 재생성 거부가 version 비교에 기댄다. RevisionLog를
-    #   빠뜨리면 get_draft_version·재생성 거부가 교사가 손댄 문서를 알아보지 못한다
-    #   (_has_teacher_edits, #140 리뷰).
-    raise NotImplementedError("초안 수정 처리 구현 예정")
+    """교사가 초안 문장을 직접 고치거나 새 문장을 덧붙인다 (FR-17).
+
+    - 검토 대기(verified)인 초안만 고친다. 승인 뒤에 고치려면 reopen을 먼저 한다.
+    - 고친 문장은 is_edited_by_teacher=True가 된다. 교사가 쓴 t… 문장도 고치면 True다
+      (임시 결정(한상균), #139). 근거 행은 DB에 남기고 교사 응답에서만 비운다 (#75).
+      글자가 그대로인 문장은 고친 것으로 보지 않는다.
+    - 새 문장은 맨 뒤에 붙이고 서버가 t1, t2…를 붙인다 — 그 문서 t 번호 최댓값 + 1
+      (임시 결정(정은), #75). 새 문장은 is_edited_by_teacher=False다.
+    - 고친 문장·새 문장마다 RevisionLog(edit, manual)를 남긴다. 버전 증가와 한 트랜잭션이라
+      재생성 거부가 이 문서를 교사가 손댄 문서로 알아본다 (_has_teacher_edits).
+    """
+    if request.selected_media_ids is not None:
+        raise RequestValidationFailed("사진 선택 저장은 아직 지원하지 않습니다.")
+    _draft_for_teacher(db, draft_id, center_id)
+    _claim_version(
+        db,
+        draft_id,
+        expected_version=request.expected_version,
+        from_status=DraftStatus.VERIFIED,
+        wrong_status=_not_editable,
+        values={},
+    )
+    # 버전 UPDATE가 이 초안 행을 잡고 있어, 아래에서 읽고 쓰는 동안 다른 수정이 끼지 않는다.
+    sentences = {
+        sentence.sentence_id: sentence
+        for sentence in db.scalars(select(DraftSentence).where(DraftSentence.draft_id == draft_id))
+    }
+    if any(edit.sentence_id not in sentences for edit in request.sentences):
+        db.rollback()
+        raise InvalidSentenceId("이 초안에 없는 문장입니다.")
+
+    logs = []
+    for edit in request.sentences:
+        sentence = sentences[edit.sentence_id]
+        if sentence.text == edit.text:
+            continue
+        logs.append(_edit_log(draft_id, teacher_id, sentence.sentence_id, sentence.text, edit.text))
+        sentence.text = edit.text
+        sentence.is_edited_by_teacher = True
+    next_number = _next_teacher_sentence_number(sentences)
+    next_position = max((sentence.position for sentence in sentences.values()), default=-1) + 1
+    for offset, added in enumerate(request.added_sentences):
+        sentence_id = f"t{next_number + offset}"
+        db.add(
+            DraftSentence(
+                draft_id=draft_id,
+                sentence_id=sentence_id,
+                position=next_position + offset,
+                text=added.text,
+                is_edited_by_teacher=False,
+            )
+        )
+        logs.append(_edit_log(draft_id, teacher_id, sentence_id, None, added.text))
+    db.add_all(logs)
+    db.commit()
+    return _teacher_detail(db, draft_id)
+
+
+def _not_editable(status: str) -> AidamError:
+    if status == DraftStatus.DRAFT.value:
+        return DraftNotReady("초안을 만드는 중입니다. 다 만들어진 뒤에 고칠 수 있습니다.")
+    return DraftAlreadyApproved("승인된 초안입니다. 승인을 되돌린 뒤에 고칠 수 있습니다.")
+
+
+def _next_teacher_sentence_number(sentences: dict[str, DraftSentence]) -> int:
+    numbers = [
+        int(match.group(1))
+        for sentence_id in sentences
+        if (match := _TEACHER_SENTENCE_ID.fullmatch(sentence_id))
+    ]
+    return max(numbers, default=0) + 1
+
+
+def _edit_log(
+    draft_id: UUID, teacher_id: UUID, sentence_id: str, before: str | None, after: str
+) -> RevisionLog:
+    return RevisionLog(
+        draft_id=draft_id,
+        editor_id=teacher_id,
+        action=RevisionAction.EDIT.value,
+        edit_method=EditMethod.MANUAL.value,
+        target_sentence_id=sentence_id,
+        before_content=before,
+        after_content=after,
+    )
 
 
 def approve_draft(
@@ -462,7 +548,7 @@ def approve_draft(
         from_status=DraftStatus.VERIFIED,
         to_status=DraftStatus.APPROVED,
         action=RevisionAction.APPROVE,
-        wrong_status=DraftNotApprovable("검토 대기 중인 초안만 승인할 수 있습니다."),
+        wrong_status=lambda _: DraftNotApprovable("검토 대기 중인 초안만 승인할 수 있습니다."),
     )
     return _teacher_detail(db, draft_id)
 
@@ -488,7 +574,7 @@ def reopen_draft(
         from_status=DraftStatus.APPROVED,
         to_status=DraftStatus.VERIFIED,
         action=RevisionAction.REOPEN,
-        wrong_status=DraftNotApproved("승인된 초안만 되돌릴 수 있습니다."),
+        wrong_status=lambda _: DraftNotApproved("승인된 초안만 되돌릴 수 있습니다."),
         unless_exists=(
             exists().where(
                 DocumentPublication.draft_id == DraftDocument.id,
@@ -521,15 +607,44 @@ def _change_status(
     from_status: DraftStatus,
     to_status: DraftStatus,
     action: RevisionAction,
-    wrong_status: AidamError,
+    wrong_status: Callable[[str], AidamError],
     unless_exists: tuple[Exists, AidamError] | None = None,
 ) -> None:
     """초안 상태를 바꾸는 유일한 곳 (documents/CLAUDE.md "상태 전이는 한 함수에서만").
 
-    비교와 갱신을 UPDATE 한 문장으로 묶고(모듈 docstring), 같은 트랜잭션에서 RevisionLog를
-    남긴 뒤 커밋한다. 둘이 함께여야 재생성 거부·get_draft_version이 교사가 손댄 문서를
-    알아본다(_has_teacher_edits). 실패하면 이유를 다시 읽어 알맞은 409로 바꾼다 — 읽기만
-    하므로 판단과 쓰기가 갈라지지 않는다.
+    버전 검사와 상태 갱신을 _claim_version의 UPDATE 한 문장으로 하고, 같은 트랜잭션에서
+    RevisionLog를 남긴 뒤 커밋한다. 둘이 함께여야 재생성 거부·get_draft_version이 교사가
+    손댄 문서를 알아본다(_has_teacher_edits).
+    """
+    approved_at = datetime.now(UTC) if to_status == DraftStatus.APPROVED else None
+    _claim_version(
+        db,
+        draft_id,
+        expected_version=expected_version,
+        from_status=from_status,
+        wrong_status=wrong_status,
+        values={"status": to_status.value, "approved_at": approved_at},
+        unless_exists=unless_exists,
+    )
+    db.add(RevisionLog(draft_id=draft_id, editor_id=teacher_id, action=action.value))
+    db.commit()
+
+
+def _claim_version(
+    db: Session,
+    draft_id: UUID,
+    *,
+    expected_version: int,
+    from_status: DraftStatus,
+    wrong_status: Callable[[str], AidamError],
+    values: dict[str, object],
+    unless_exists: tuple[Exists, AidamError] | None = None,
+) -> None:
+    """버전·상태가 그대로일 때만 version을 1 올리고 values를 쓴다. 커밋하지 않는다.
+
+    비교와 갱신을 UPDATE 한 문장으로 묶는다(모듈 docstring). 실패하면 이유를 다시 읽어 알맞은
+    예외로 바꾼다 — 읽기만 하므로 판단과 쓰기가 갈라지지 않는다. 성공하면 이 행을 커밋까지
+    잡고 있어, 호출한 쪽의 나머지 쓰기와 다른 수정이 섞이지 않는다.
     """
     conditions = [
         DraftDocument.id == draft_id,
@@ -538,25 +653,21 @@ def _change_status(
     ]
     if unless_exists is not None:
         conditions.append(~unless_exists[0])
-    approved_at = datetime.now(UTC) if to_status == DraftStatus.APPROVED else None
     result = db.execute(
         update(DraftDocument)
         .where(*conditions)
-        .values(status=to_status.value, approved_at=approved_at, version=DraftDocument.version + 1)
+        .values(**values, version=DraftDocument.version + 1)
         .execution_options(synchronize_session=False)
     )
-    if result.rowcount == 0:
-        db.rollback()
-        current = db.get(DraftDocument, draft_id, populate_existing=True)
-        if current.version != expected_version:
-            raise DraftVersionConflict(
-                "그 사이 초안이 바뀌었습니다. 새로 불러온 뒤 다시 해 주세요."
-            )
-        if current.status != from_status.value or unless_exists is None:
-            raise wrong_status
-        raise unless_exists[1]
-    db.add(RevisionLog(draft_id=draft_id, editor_id=teacher_id, action=action.value))
-    db.commit()
+    if result.rowcount:
+        return
+    db.rollback()
+    current = db.get(DraftDocument, draft_id, populate_existing=True)
+    if current.version != expected_version:
+        raise DraftVersionConflict("그 사이 초안이 바뀌었습니다. 새로 불러온 뒤 다시 해 주세요.")
+    if current.status != from_status.value or unless_exists is None:
+        raise wrong_status(current.status)
+    raise unless_exists[1]
 
 
 def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:

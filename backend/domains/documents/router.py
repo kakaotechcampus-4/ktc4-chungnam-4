@@ -75,14 +75,14 @@ def update_draft(
     draft_id: UUID,
     body: DraftUpdateRequest,
     db: Annotated[Session, Depends(get_db)],
-    teacher_id: Annotated[UUID, Depends(get_current_teacher_id)],
+    teacher: CurrentTeacher,
 ) -> DraftDetailResponse:
     return service.update_draft(
         db,
         draft_id=draft_id,
-        teacher_id=teacher_id,
-        content=body.content,
-        expected_version=body.expected_version,
+        teacher_id=teacher.teacher_id,
+        center_id=teacher.center_id,
+        request=body,
     )
 
 

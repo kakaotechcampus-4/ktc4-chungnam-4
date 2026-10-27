@@ -91,6 +91,27 @@ class DraftAlreadyPublished(AidamError):
     status_code = 409
 
 
+class DraftNotReady(AidamError):
+    """생성·검증 중(`draft`)인 초안을 고치려 한 경우."""
+
+    code = "DRAFT_NOT_READY"
+    status_code = 409
+
+
+class DraftAlreadyApproved(AidamError):
+    """승인(또는 게시)된 초안을 고치려 한 경우. 승인을 먼저 되돌린다(reopen)."""
+
+    code = "DRAFT_ALREADY_APPROVED"
+    status_code = 409
+
+
+class InvalidSentenceId(AidamError):
+    """그 초안에 없는 문장을 고치려 한 경우."""
+
+    code = "INVALID_SENTENCE_ID"
+    status_code = 400
+
+
 class InvalidCredentials(AidamError):
     """이메일이 없거나 비밀번호가 틀렸습니다.
 
