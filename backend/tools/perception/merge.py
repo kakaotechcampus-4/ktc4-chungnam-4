@@ -96,6 +96,9 @@ def failed_photo_ids(result: PerceptionResult) -> list[str]:
     status가 OK여도 비어 있지 않을 수 있다. service는 이 목록을 초안과 함께 남겨 초안 검토에서
     교사에게 보여 준다 (테크스펙 §화면별 필요 데이터 > 초안 검토). 분석은 됐지만 쓸 관찰이 없던
     사진(NO_VISIBLE_OBSERVATION·AMBIGUOUS_ACTOR)은 정상 결과라 넣지 않는다.
+
+    사진을 한 장씩 분석한 결과(parse_single_photo_analysis)를 합친다는 전제다. 한 장 응답에서는
+    빠진 답이 RESPONSE_ERROR가 되므로, 여러 장 응답에서만 나오는 PHOTO_NOT_ANSWERED는 세지 않는다.
     """
     return [
         drop.source_id for drop in result.dropped if drop.reason == DropReason.PHOTO_RESPONSE_ERROR
