@@ -50,10 +50,17 @@ Parameters:
     Type: String
     Default: "repo:kakaotechcampus-4@287968646/ktc4-chungnam-4@1340154929"
     Description: OIDC sub prefix (sub_claim_prefix from the repo OIDC customization API).
+  # 역할을 받는 GitHub environment입니다. job에 environment가 걸리면 OIDC sub가 ref가 아니라
+  # <접두사>:environment:<이름>이 됩니다. 어느 브랜치가 이 environment를 쓸 수 있는지는 GitHub 설정
+  # (Settings → Environments → frontend → 배포 브랜치: develop만)이 정하고, 이 템플릿으로는 바꿀 수 없습니다.
+  DeployEnvironment:
+    Type: String
+    Default: frontend
+    Description: GitHub environment whose jobs may assume the FE deploy role. Its deployment branch policy (develop only) is set in GitHub.
   DeployBranch:
     Type: String
     Default: develop
-    Description: The only branch whose workflows may assume the FE deploy role (NFR-13).
+    Description: Branch the FE environment deploys from (enforced by the environment's deployment branch policy in GitHub). Shown in the distribution comment.
   DeployRoleName:
     Type: String
     Default: aidam-fe-deploy
@@ -86,7 +93,7 @@ Resources:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
-      # 버전 관리는 켜지 않습니다. 되돌리기는 배포 태그(NFR-15, 이름은 fe-deploy-* 제안)의 코드로 다시 빌드합니다.
+      # 버전 관리는 켜지 않습니다. 되돌리기는 배포 태그(NFR-15, fe-deploy-YYYYMMDD-HHMM)의 코드로 다시 빌드합니다.
       # 화면 파일은 git에서 언제든 다시 만들 수 있는 산출물입니다.
       LifecycleConfiguration:
         Rules:
@@ -147,6 +154,8 @@ Resources:
   # 초대 링크 경로는 문서끼리 다릅니다: 서버가 만드는 링크는 /invite/<토큰>(docs/api/organization.md),
   # FE 라우트 계획은 /p/invite/:inviteToken(frontend/src/app/routes/parent.ts). 맞출 때까지 둘 다 받습니다.
   # 이 경로들 아래에는 정적 파일을 두지 않습니다.
+  # 슬래시 없는 /api는 /api/* 동작에 걸리지 않아 이 함수가 index.html(200)로 바꿉니다. FE는 늘
+  # /api/v1/...로 부르므로 문제없습니다(#150 리뷰).
   #
   # 함수 코드 안의 주석은 영어로 둡니다(엣지 런타임에 그대로 올라가는 코드).
   #
@@ -267,15 +276,16 @@ Resources:
           Value: frontend
 
   # ── GitHub Actions FE 배포 역할 (NFR-14) ──────────────────────────────────
-  # develop 브랜치 맥락에서 도는 워크플로만 받고(sub 고정), FE 버킷만 다룹니다.
-  # 신뢰 조건으로는 워크플로 파일 단위까지 좁힐 수 없습니다. develop에서 id-token: write를 가진 워크플로
-  # (지금은 BE deploy.yml)도 이 역할을 받을 수 있으므로, 새 워크플로에 id-token: write를 줄 때 리뷰에서 확인합니다.
-  # 기존 ktc-github-deploy는 쓰지 않습니다.
+  # GitHub environment `frontend`를 쓰는 job만 받고(sub 고정), FE 버킷만 다룹니다. 그 environment는
+  # GitHub 설정에서 develop 브랜치만 쓸 수 있게 막아 둡니다(위 DeployEnvironment).
+  # environment가 없는 워크플로는 sub가 <접두사>:ref:...라 이 역할을 받지 못합니다. 그래서 BE deploy.yml처럼
+  # develop에서 id-token: write를 가진 다른 워크플로도 FE 버킷을 건드릴 수 없습니다(#150 리뷰).
+  # 새 워크플로에 environment: frontend를 붙일 때는 리뷰에서 확인합니다. 기존 ktc-github-deploy는 쓰지 않습니다.
   FrontendDeployRole:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Ref DeployRoleName
-      Description: GitHub Actions deploys the FE build to the FE bucket (develop only).
+      Description: GitHub Actions jobs in the frontend environment (develop only) deploy the FE build to the FE bucket.
       MaxSessionDuration: 3600
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -288,8 +298,8 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                # environment를 쓰는 job은 sub가 environment:<이름>으로 바뀌어 여기서 막힙니다.
-                token.actions.githubusercontent.com:sub: !Sub "${GitHubSubjectPrefix}:ref:refs/heads/${DeployBranch}"
+                # environment가 없는 job(sub가 ref 형식)은 여기서 막힙니다.
+                token.actions.githubusercontent.com:sub: !Sub "${GitHubSubjectPrefix}:environment:${DeployEnvironment}"
       Policies:
         - PolicyName: fe-deploy
           PolicyDocument:
