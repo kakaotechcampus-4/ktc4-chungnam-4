@@ -21,7 +21,7 @@
 - [ ] 자동저장과 RevisionLog 최근 5회 보관의 충돌. 문장 추가·삭제, 사진 변경 로그
 - [ ] `NO_LINKED_PARENT` 처리, `parent_note_id = draft_id` 재사용 확정
 - [ ] 학부모에게 `llm_allowed == true`인 선택 사진만 보이게 할지(김동건과 함께)
-- [ ] `review_confirmed`를 `reviewed`로 개명(PR #14로 develop에 들어간 schemas·router·service 수정)
+- [x] `review_confirmed`를 `reviewed`로 개명 → 바꿨습니다(FE도 `reviewed`를 씀). 임시 결정(한상균). 반영: `backend/domains/documents/schemas.py` `ApproveRequest`
 - [ ] `preview` 정의: 앞부분 100자, 문장 경계에서 자름
 - [x] `documents/CLAUDE.md`의 `/documents` 표기 수정
 
@@ -52,10 +52,8 @@ develop의 documents(PR #14)는 경로·요청·응답 모양만 있고, 서비�
 | 알림장 이름 | `parent_note`, `parent_note_id` | 경로는 맞췄고, 스키마·서비스 함수 이름에 `letter`가 남아 있음(용어표에서 쓰지 않는 말). `doc_type` 값은 `parent_note`로 같음 |
 | 초안 `status` 값 | `draft`·`verified`·`approved`·`unclassified` | `draft`·`verified`·`approved`·`revoked` |
 | 반·날짜 초안 목록의 `unclassified` | 초안 없이 미분류로 끝난 원아의 사유 | 항상 `null`. agents가 미분류를 기록하지 않고(`_send_to_unclassified`가 빈 함수), `UnclassifiedItem`에 원아·날짜가 없음 |
-| 초안 상세 응답 | ID `draft_id`, 본문 `sentences[]`. `selected_media_ids`·`media[]`·`title`·`author_name`·`published_at` 있음. `ai_version` 없음 | ID `id`, 본문 `content`(텍스트 하나). `ai_version`·`evidence_bundle_id`·`created_at` 있음. `sentences`·`selected_media_ids`·`media`·`title`·`author_name`·`published_at` 없음 |
+| 초안 상세 응답(승인·되돌리기 응답) | 위 모양 그대로, 근거·사진·작성 교사 이름이 채워짐 | 모양은 같음. 다른 도메인 조회 함수가 생기기 전까지 `evidences`·`selected_media_ids`·`media`는 빈 배열, `author_name`은 빈 문자열, `title`·`include_photos`는 `null`. `GET /drafts/{draft_id}`는 아직 구현 전 |
 | 초안 수정 요청 | `expected_version`, 바뀐 문장만 담은 `sentences[]`, `selected_media_ids` | `expected_version`, 본문 전체를 바꾸는 `content` |
-| 승인 요청의 확인 필드 | `reviewed: true` | `review_confirmed: true` |
-| 승인 응답 | 상세와 같은 교사용 스키마 | `id`·`status`·`version`만 |
 | 게시 요청 | `request_id`·`include_photos`·`items[]` | `request_id`·`items[]`(`include_photos` 없음) |
 | 게시 건별 결과(둘 다 `draft_id`·`status`·`published_at`·`error_code` 있음) | `child_id`·`parent_note_id`·`version` 있음 | `publication_id`·`round_number`·`revoke_deadline` 있음 |
 | 학부모 목록 쿼리 | `limit`·`cursor` | 없음 |
@@ -354,8 +352,9 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
   - `DRAFT_VERSION_CONFLICT` (409) — 화면의 버전이 오래됐을 때
   - `DRAFT_NOT_APPROVABLE` (409) — `status`가 `verified`가 아닐 때
   - `DRAFT_NOT_FOUND` (404) — 없는 초안일 때
-  - `CLASS_ACCESS_DENIED` (403) — 담당 반이 아닐 때
-- [확인 필요: 한상균] 필드 이름을 `reviewed`로 바꿀지 정해야 합니다. PR #14의 `review_confirmed`는 금지어 confirm을 씁니다. 정은과 함께 `unclassified` 초안 승인 허용 여부(이 문서에서는 409), 이미 승인된 초안을 다시 승인할 때 멱등 200으로 처리할지, 승인 차단 조건(`DraftDecisionLog`)도 정해야 합니다.
+  - `CHILD_ACCESS_DENIED` (403) — 다른 어린이집 원아의 초안일 때(같은 어린이집 교사는 모든 반의 초안을 승인합니다, FR-25). 원아 기준으로 검사합니다 — 임시 결정(한상균), #156
+- 필드 이름은 `reviewed`입니다 — 임시 결정(한상균). 이미 승인된 초안을 다시 승인하면 멱등 200이 아니라 `409 DRAFT_NOT_APPROVABLE`입니다(`verified`가 아니므로) — 임시 결정(한상균).
+- [확인 필요: 한상균] 정은과 함께 승인 차단 조건(`DraftDecisionLog`)을 정해야 합니다. 지금은 agents가 검증을 통과한 초안만 `verified`로 저장하므로 `status` 검사로 대신합니다.
 
 ### `POST /api/v1/drafts/{draft_id}/reopen` — 교사용: 승인을 되돌려 다시 검토
 
@@ -370,7 +369,8 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 
 - 응답 `200`: 상세와 같은 교사용 스키마입니다. `status`가 `approved` → `verified`로 돌아가고 `approved_at`은 `null`이 되며, `version`이 1 오릅니다. 되돌린 뒤에는 다시 수정(`PATCH`)하고 승인할 수 있습니다.
 - **게시한 알림장은 되돌릴 수 없습니다** — `published_at`이 있으면 `409 DRAFT_ALREADY_PUBLISHED`입니다. 이미 학부모에게 나갔으므로 회수(`POST /api/v1/drafts/{draft_id}/revoke`)가 따로 필요합니다(H-1).
-- 에러: 승인 상태가 아니면 `409 DRAFT_NOT_APPROVED`, 버전이 다르면 `409 DRAFT_VERSION_CONFLICT`입니다.
+- 되돌린 사실은 `RevisionLog`(action=reopen)에 남깁니다 — 임시 결정(한상균), 테크스펙 ⑤ RevisionLog.
+- 에러: 승인 상태가 아니면 `409 DRAFT_NOT_APPROVED`, 버전이 다르면 `409 DRAFT_VERSION_CONFLICT`, 없는 초안이면 `404 DRAFT_NOT_FOUND`, 다른 어린이집 원아의 초안이면 `403 CHILD_ACCESS_DENIED`입니다.
 
 ### `POST /api/v1/publications` — 교사용: 승인된 알림장을 골라 학부모에게 게시(일괄, 건별 결과)
 
