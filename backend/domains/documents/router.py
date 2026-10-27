@@ -65,9 +65,11 @@ def list_class_drafts(
 def get_draft(
     draft_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    teacher_id: Annotated[UUID, Depends(get_current_teacher_id)],
+    teacher: CurrentTeacher,
 ) -> DraftDetailResponse:
-    return service.get_draft_for_teacher(db, draft_id=draft_id, teacher_id=teacher_id)
+    return service.get_draft_for_teacher(
+        db, draft_id=draft_id, teacher_id=teacher.teacher_id, center_id=teacher.center_id
+    )
 
 
 @router.patch("/drafts/{draft_id}", response_model=DraftDetailResponse)

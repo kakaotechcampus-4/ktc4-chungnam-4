@@ -87,10 +87,11 @@ from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import ColumnElement, Exists, Subquery, delete, exists, func, or_, select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from core.exceptions import (
+    AccessLogFailed,
     AidamError,
     DraftAlreadyApproved,
     DraftAlreadyPublished,
@@ -104,6 +105,8 @@ from core.exceptions import (
     NotParentNote,
     RequestValidationFailed,
 )
+from domains.agents import service as agents_service
+from domains.audit import service as audit_service
 from domains.documents.models import (
     DocType,
     DocumentPublication,
@@ -123,6 +126,7 @@ from domains.documents.schemas import (
     DraftSummary,
     DraftUpdateRequest,
     DraftVersionInfo,
+    EvidenceView,
     MediaUrl,
     ParentLetterDetailResponse,
     ParentLetterListResponse,
@@ -432,9 +436,32 @@ def _preview(sentences: Sequence[str]) -> str:
     return sentences[0][:_PREVIEW_MAX_CHARS]
 
 
-def get_draft_for_teacher(db: Session, *, draft_id: UUID, teacher_id: UUID) -> DraftDetailResponse:
-    # TODO(한상균): 검수 권한 교사인지 확인 — organization의 반 배정 조회 필요 (B와 협의).
-    raise NotImplementedError("교사용 초안 상세 조회 구현 예정")
+def get_draft_for_teacher(
+    db: Session, *, draft_id: UUID, teacher_id: UUID, center_id: UUID | None
+) -> DraftDetailResponse:
+    """교사가 초안 상세(문장·문장별 근거·사진)를 본다 (FR-06·FR-07·FR-16·FR-26).
+
+    같은 어린이집 원아의 초안이면 승인 전이어도 본다(H-1 검수 권한). 근거 원문에 실명이
+    있어 교사에게만 싣는다. 열람마다 AccessLog(teacher, draft_document, view_detail)를 남기고
+    커밋한 뒤 돌려준다 — NFR-05 "모든 열람에 접근 기록", 임시 결정(한상균). 기록에 실패하면
+    본문 없이 500이다.
+    """
+    _draft_for_teacher(db, draft_id, center_id)
+    detail = _teacher_detail(db, draft_id)
+    try:
+        audit_service.record_access(
+            db,
+            actor_type="teacher",
+            actor_id=teacher_id,
+            target_type="draft_document",
+            target_id=draft_id,
+            action="view_detail",
+        )
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise AccessLogFailed("열람 기록을 남기지 못해 초안을 보여 드릴 수 없습니다.") from None
+    return detail
 
 
 def update_draft(
@@ -696,8 +723,8 @@ def _claim_version(
     raise unless_exists[1]
 
 
-def _signed_photos(db: Session, media_ids: Sequence[UUID]) -> list[MediaUrl]:
-    """선택 사진의 서명 URL. 사진이 없으면 S3를 부르지 않는다."""
+def _signed_media(db: Session, media_ids: Sequence[UUID]) -> list[MediaUrl]:
+    """선택 사진·근거 미디어의 서명 URL. 요청 순서대로이고, 없으면 S3를 부르지 않는다."""
     if not media_ids:
         return []
     return [
@@ -712,12 +739,15 @@ def _signed_photos(db: Session, media_ids: Sequence[UUID]) -> list[MediaUrl]:
 
 
 def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
-    """교사용 상세 응답. 다른 도메인이 가진 값은 조회 함수가 생기기 전까지 비워 둔다.
+    """교사용 상세 응답 (docs/api/documents.md §GET /drafts/{draft_id}).
 
-    TODO(한상균): 근거(agents, 정은)·작성 교사 이름(auth, 엄태은)·근거 미디어의 서명 URL은
-      함수가 생기면 채운다. 그전까지 evidences는 빈 배열, author_name은 빈 문자열이고, media에는
-      선택 사진만 담긴다 — FE 타입이 문자열이라 이름에 null을 보내지 않는다. include_photos는
-      게시 때 정해져 게시 전에는 null이다.
+    - 문장별 근거는 agents의 list_sentence_evidences로 받는다. 교사가 고친 문장은 원문이 그
+      문장을 뒷받침한다고 볼 수 없어 빈 배열로 돌려준다(근거 행은 DB에 남음, #75).
+    - media에는 선택 사진, 그다음 보여 주는 근거의 미디어 서명 URL을 겹치지 않게 싣는다.
+    - include_photos는 게시할 때 정해져 게시 전에는 null이다.
+
+    TODO(한상균): 작성 교사 이름은 auth 조회 함수(get_teacher_names)가 생기면 채운다. 그전까지
+      빈 문자열이다 — FE 타입이 문자열이라 null을 보내지 않는다.
     """
     draft = db.get(DraftDocument, draft_id, populate_existing=True)
     sentences = db.scalars(
@@ -725,9 +755,34 @@ def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
         .where(DraftSentence.draft_id == draft_id)
         .order_by(DraftSentence.position)
     )
-    active = _active_publications()
-    published_at = db.scalar(select(active.c.published_at).where(active.c.draft_id == draft_id))
+    publication = db.scalar(
+        select(DocumentPublication)
+        .where(DocumentPublication.draft_id == draft_id, DocumentPublication.revoked_at.is_(None))
+        .order_by(DocumentPublication.published_at.desc())
+        .limit(1)
+    )
     selected_media_ids = [UUID(media_id) for media_id in draft.selected_media_ids]
+    evidences_by_sentence = agents_service.list_sentence_evidences(db, draft_id)
+    views = [
+        DraftSentenceView(
+            sentence_id=sentence.sentence_id,
+            text=sentence.text,
+            is_edited_by_teacher=sentence.is_edited_by_teacher,
+            evidences=[]
+            if sentence.is_edited_by_teacher
+            else [
+                EvidenceView.model_validate(evidence, from_attributes=True)
+                for evidence in evidences_by_sentence.get(sentence.sentence_id, [])
+            ],
+        )
+        for sentence in sentences
+    ]
+    evidence_media_ids = [
+        evidence.media_id
+        for view in views
+        for evidence in view.evidences
+        if evidence.media_id is not None
+    ]
     return DraftDetailResponse(
         draft_id=draft.id,
         child_id=draft.child_id,
@@ -736,22 +791,14 @@ def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
         status=DraftStatus(draft.status),
         version=draft.version,
         title=None,
-        sentences=[
-            DraftSentenceView(
-                sentence_id=sentence.sentence_id,
-                text=sentence.text,
-                is_edited_by_teacher=sentence.is_edited_by_teacher,
-                evidences=[],
-            )
-            for sentence in sentences
-        ],
+        sentences=views,
         selected_media_ids=selected_media_ids,
-        media=_signed_photos(db, selected_media_ids),
+        media=_signed_media(db, list(dict.fromkeys(selected_media_ids + evidence_media_ids))),
         author_teacher_id=draft.author_teacher_id,
         author_name="",
         approved_at=draft.approved_at,
-        published_at=published_at,
-        include_photos=None,
+        published_at=publication.published_at if publication else None,
+        include_photos=publication.include_photos if publication else None,
         updated_at=draft.updated_at,
     )
 
