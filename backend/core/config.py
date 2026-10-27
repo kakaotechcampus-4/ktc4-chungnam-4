@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
 
@@ -50,8 +50,8 @@ class Settings(BaseSettings):
     upload_max_video_bytes: int = Field(default=300 * 1024 * 1024, gt=0)  # 1080p 2~5분, 4K 1분 안팎
     upload_max_voice_memo_bytes: int = Field(default=100 * 1024 * 1024, gt=0)  # WAV 10분
 
-    # TODO(태은): AI 기능 배포 전에는 키 누락을 차단하도록 필수값 검증을 추가합니다.
-    # Redis·worker 연습은 AI 호출 없이 실행하므로 현재는 빈 값을 허용합니다.
+    # production에서는 아래 키·주소가 비어 있으면 앱이 뜨지 않습니다(require_ai_settings_in_production).
+    # 로컬·테스트는 AI 호출 없이 다른 도메인을 개발할 수 있게 빈 값을 허용합니다.
     anthropic_api_key: SecretStr = SecretStr("")
     # agents(초안 생성·Critic)용 게이트웨이. 기수·팀별 주소라 반드시 .env에서 설정합니다.
     llm_gateway_base_url: str = ""
@@ -99,6 +99,26 @@ class Settings(BaseSettings):
             raise ValueError("Generate a database password with scripts/init_env.py")
         return value
 
+    @model_validator(mode="after")
+    def require_ai_settings_in_production(self) -> "Settings":
+        """배포 서버에서 AI 키가 빠진 채로 뜨면 초안 생성 Job이 전부 실패로 끝납니다.
+
+        헬스 체크는 AI 설정을 보지 않아 배포는 초록불이 되므로, 뜨는 시점에 막습니다.
+        `.env.example`의 예시 값이 그대로 남은 것도 빈 값으로 봅니다. 메시지에는 키 이름만
+        넣고 값은 넣지 않습니다 (H-4).
+        """
+        if self.app_env != "production":
+            return self
+        required = {
+            "ANTHROPIC_API_KEY": self.anthropic_api_key.get_secret_value(),
+            "LLM_GATEWAY_BASE_URL": self.llm_gateway_base_url,
+            "VISION_GATEWAY_BASE_URL": self.vision_gateway_base_url,
+        }
+        missing = [name for name, value in required.items() if _is_unset(value)]
+        if missing:
+            raise ValueError(f"APP_ENV=production requires: {', '.join(missing)}")
+        return self
+
     @property
     def database_url(self) -> URL:
         return URL.create(
@@ -109,6 +129,11 @@ class Settings(BaseSettings):
             port=self.postgres_port,
             database=self.postgres_db,
         )
+
+
+def _is_unset(value: str) -> bool:
+    # .env.example의 예시 값(replace-with-…, https://<gateway-address>/v1)을 그대로 복사한 경우
+    return not value.strip() or value.startswith("replace-with-") or "<" in value
 
 
 @lru_cache
