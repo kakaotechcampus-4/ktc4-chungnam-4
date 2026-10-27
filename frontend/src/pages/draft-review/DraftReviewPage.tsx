@@ -124,6 +124,8 @@ export function DraftReviewPage() {
   const [editing, setEditing] = useState<Record<string, string> | null>(null);
   /** 편집 중 새로 쓴 문장. 저장할 때 added_sentences로 보냅니다. */
   const [addedTexts, setAddedTexts] = useState<string[]>([]);
+  /** 고친 문장을 비운 채 "수정 완료"를 누르면 저장하지 않고 이 안내를 보여 줍니다. */
+  const [emptyEdit, setEmptyEdit] = useState(false);
   /** 초안이 없는 원아에게 교사가 직접 쓰는 글 */
   const [newText, setNewText] = useState("");
   const [publishOpen, setPublishOpen] = useState(false);
@@ -365,14 +367,23 @@ export function DraftReviewPage() {
         ),
       );
       setAddedTexts([]);
+      setEmptyEdit(false);
       return;
     }
-    const changed = draft.sentences.flatMap((sentence) => {
+    // 고친 문장도 새 문장처럼 앞뒤 공백을 지운 값으로 비교하고 보냅니다(#170 리뷰). 끝 공백이나
+    // 줄바꿈만 달라진 문장은 고친 것으로 보지 않아 근거가 끊기지 않습니다. 공백만 남은 문장은
+    // 정하지 않은 "문장 삭제"와 같아서 저장하지 않습니다.
+    const edited = draft.sentences.flatMap((sentence) => {
       const text = editing[sentence.sentence_id];
-      return text !== undefined && text !== sentence.text
-        ? [{ sentence_id: sentence.sentence_id, text }]
-        : [];
+      return text === undefined ? [] : [{ sentence, text: text.trim() }];
     });
+    if (edited.some(({ text }) => text === "")) {
+      setEmptyEdit(true);
+      return;
+    }
+    const changed = edited.flatMap(({ sentence, text }) =>
+      text !== sentence.text.trim() ? [{ sentence_id: sentence.sentence_id, text }] : [],
+    );
     const added = addedTexts
       .map((text) => text.trim())
       .filter((text) => text !== "")
@@ -498,12 +509,13 @@ export function DraftReviewPage() {
                         rows={1}
                         className={EDIT_FIELD_CLASS}
                         aria-label="초안 문장 수정"
-                        onChange={(event) =>
+                        onChange={(event) => {
+                          setEmptyEdit(false);
                           setEditing((prev) => ({
                             ...prev,
                             [sentence.sentence_id]: event.target.value,
-                          }))
-                        }
+                          }));
+                        }}
                       />
                     ))}
                     {addedTexts.map((text, index) => (
@@ -582,6 +594,11 @@ export function DraftReviewPage() {
                   >
                     다시 검토하기
                   </button>
+                ) : null}
+                {emptyEdit ? (
+                  <p className="text-caption text-destructive">
+                    비어 있는 문장은 저장할 수 없어요. 내용을 채운 뒤 수정 완료를 눌러 주세요.
+                  </p>
                 ) : null}
                 {patchMutation.isError || reopenMutation.isError ? (
                   <p className="text-caption text-destructive">
