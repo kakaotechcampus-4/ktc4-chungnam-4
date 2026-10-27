@@ -40,9 +40,17 @@
 
 ## 프롬프트
 
-- 코드 문자열에 하드코딩하지 않고 최상위 `prompts/*.md`에 둡니다.
-- 파일명: `agent1_evidence.md` `agent2_observation_log.md` `agent3_parent_note.md` `agent4_critic.md`
-- 각 파일 상단에 **입력 변수 목록과 기대 출력 형식**을 적습니다.
+- 코드 문자열에 하드코딩하지 않고 최상위 `prompts/<영역>/`에 둡니다. **본문은 `.md`, 변수 삽입·조립은 `.py`**로 나눕니다. 하위 전체를 한 확장자로 고정하지 않습니다(AI 회의 결정, `docs/open-questions.md`).
+
+  | 파이프라인 단계 | 본문 | 조립 |
+  | --- | --- | --- |
+  | 5 사진 맥락 추출 | `perception/photo_analysis.md` | `perception/photo_analysis.py` |
+  | 6 알림장 생성 | `generation/parent_note.md` | `generation/draft.py` |
+  | 7-B Critic | `verification/critic.md` | `verification/critic.py` |
+
+  관찰일지 본문은 생성 조건이 정해지면 `generation/`에 더합니다(#158 7번).
+- `.md` 맨 앞 주석(`<!-- -->`)에 **입력 변수(자리표시자)와 기대 출력 형식**을 적습니다. 이 주석은 LLM에 보내지 않고 조립 함수가 떼어 냅니다. 주석이 없거나 자리표시자 개수가 틀리면 조립 함수가 `RuntimeError`로 멈춥니다.
+- 조립 `.py`에 `PROMPT_VERSION`을 두고, 본문을 고치면 값을 올립니다.
 - **프롬프트 수정은 코드 수정과 동일하게 PR로 리뷰합니다.** 문체·톤이 바뀌면 산출물 품질이 바로 바뀝니다.
 
 ## 관측
