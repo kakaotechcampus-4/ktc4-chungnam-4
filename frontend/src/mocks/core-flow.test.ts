@@ -92,9 +92,10 @@ describe("핵심 흐름 목", () => {
     // 1. 업로드(사진은 완료 통지에 귀속 포함). ③ 미동의 원아의 사진은 교사가 체크해도 llm_allowed가 false입니다.
     const doyunPhoto = await uploadPhoto(900, { llm_allowed: true, child_links: [manual(DOYUN)] });
     const yerinPhoto = await uploadPhoto(901, { llm_allowed: true, child_links: [manual(YERIN)] });
-    expect(doyunPhoto.llm_allowed).toBe(true);
+    // 서버처럼 교사 값을 그대로 저장합니다. ③ 미동의 원아 사진은 근거를 모을 때 빠집니다(H-2).
+    expect(doyunPhoto).toMatchObject({ llm_allowed: true, child_links: [manual(DOYUN)] });
     expect(doyunPhoto.attributed_at).not.toBeNull();
-    expect(yerinPhoto.llm_allowed).toBe(false);
+    expect(yerinPhoto.llm_allowed).toBe(true);
 
     // 2. Job → 폴링. 근거가 있는 원아만 초안이 생기고, 근거가 없으면 미분류로 끝납니다.
     const started = await createJob(CLASS_ID, {
@@ -496,6 +497,34 @@ describe("목의 판정 규칙", () => {
     const registered = await completeUpload(voice);
     expect(registered).toMatchObject({ llm_allowed: false, attributed_at: null });
     expect((await saveChildLinks(registered.media_id, attribution)).llm_allowed).toBe(true);
+  });
+
+  it("등록된 사진에 다른 귀속으로 완료 통지를 다시 보내면 귀속을 전체 교체한다", async () => {
+    const first = await uploadPhoto(960, { llm_allowed: true, child_links: [manual(DOYUN)] });
+    const again = await completeUpload({
+      client_photo_id: fixtureId("clientPhoto", 960),
+      class_id: CLASS_ID,
+      type: "photo",
+      captured_at: `${kstToday()}T01:00:00Z`,
+      model_version: "buffalo_l-1.0",
+      attribution: { llm_allowed: false, child_links: [manual(YERIN)] },
+    });
+    expect(again.media_id).toBe(first.media_id);
+    expect(again).toMatchObject({ llm_allowed: false, child_links: [manual(YERIN)] });
+  });
+
+  it("업로드 URL은 서버 상한(10개)에 맞춰 나눠 받고 요청 순서대로 합친다", async () => {
+    const ids = Array.from({ length: 11 }, (_, i) => fixtureId("clientPhoto", 970 + i));
+    const { items } = await requestUploadUrls({
+      class_id: CLASS_ID,
+      items: ids.map((id) => ({
+        client_photo_id: id,
+        type: "photo" as const,
+        content_type: "image/jpeg",
+        size_bytes: 3,
+      })),
+    });
+    expect(items.map((item) => item.client_photo_id)).toEqual(ids);
   });
 
   it("얼굴 임베딩은 ③ 동의 원아만 준다", async () => {

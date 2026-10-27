@@ -54,6 +54,7 @@ describe("media adapter (업로드·귀속)", () => {
       captured_at: "2026-09-15T01:00:00Z",
       size_bytes: 10,
       llm_allowed: false,
+      child_links: [],
       attributed_at: null,
       storage_url: "s3://internal/m1",
     } as MediaAsset;

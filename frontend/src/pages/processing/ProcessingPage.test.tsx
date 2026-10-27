@@ -4,6 +4,7 @@ import { File as NodeFile } from "node:buffer";
 import { http, HttpResponse } from "msw";
 
 import { isPhoto, useUploadQueue } from "@/features/upload-queue/upload-queue-store";
+import { readDb } from "@/mocks/db";
 import { fixtureId } from "@/mocks/fixtures/ids";
 import { apiPath, errorResponse } from "@/mocks/http";
 import { server } from "@/mocks/server";
@@ -140,8 +141,12 @@ describe("ProcessingPage", () => {
         { child_id: fixtureId("child", 2), method: "manual", confidence_score: null },
       ],
     });
-    const mediaId = (writes[3]?.body as { media_ids?: string[] } | undefined)?.media_ids?.[0];
-    expect(mediaId).toBeDefined();
+    // Job에는 방금 ack로 등록된 그 사진의 media_id가 실립니다.
+    const registered = Object.values(readDb().media).find(
+      (media) => media.client_photo_id === confirmed!.client_id,
+    );
+    expect(registered).toBeDefined();
+    expect(writes[3]?.body).toMatchObject({ media_ids: [registered!.media_id] });
     expect(useUploadQueue.getState().items).toEqual([]);
   });
 

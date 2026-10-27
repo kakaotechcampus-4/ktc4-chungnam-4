@@ -63,6 +63,8 @@ export interface MediaAssetView {
   captured_at: string;
   size_bytes: number;
   llm_allowed: boolean;
+  /** 저장된 귀속. 영상·음성은 child-links 전까지 빈 배열입니다. */
+  child_links: ChildLinkView[];
   /** 귀속을 저장하기 전이면 null */
   attributed_at: string | null;
 }

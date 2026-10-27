@@ -62,6 +62,8 @@ export interface MediaAsset {
   captured_at: string;
   size_bytes: number;
   llm_allowed: boolean;
+  /** 저장된 귀속. 사진은 ack에 실은 값이고, 영상·음성은 child-links 전까지 빈 배열입니다. */
+  child_links: ChildLink[];
   /** (제안) 귀속을 저장하기 전이면 null */
   attributed_at: string | null;
 }

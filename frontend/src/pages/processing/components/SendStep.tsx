@@ -53,7 +53,12 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
   const { currentClass } = useCurrentClass();
   const setUploadState = useUploadQueue((state) => state.setUploadState);
   // 이 단계에 들어온 순간의 확정 목록으로 고정합니다. 전송 중에 목록이 바뀌지 않게 하려는 것입니다.
-  const [targets] = useState(() => uploadTargets(useUploadQueue.getState().items));
+  // 사진을 먼저 보냅니다. 영상·음성 귀속(child-links)이 실패해도 앞선 사진은 이미 서버에 귀속까지 저장돼 있습니다.
+  // TODO(정은): 서버에 PUT child-links가 아직 없어 영상·음성이 섞이면 여기서 멈춥니다. 클립 귀속 방식은 #142·#163에서 정해지면 맞춥니다.
+  const [targets] = useState(() => {
+    const items = uploadTargets(useUploadQueue.getState().items);
+    return [...items.filter(isPhoto), ...items.filter((item) => !isPhoto(item))];
+  });
   const [acked, setAcked] = useState(0);
   const started = useRef(false);
 
@@ -76,7 +81,7 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
         let mediaId = issued.media_id;
         if (mediaId === null) await uploadFile(issued, item.file);
         // 사진은 등록된 파일이어도 완료 통지를 다시 보냅니다. 같은 client_photo_id면 서버가 기존 media_id를
-        // 돌려주고 귀속을 전체 교체하므로, 귀속을 저장하지 못하고 끊긴 사진도 여기서 이어집니다.
+        // 돌려주고 귀속을 전체 교체하므로, 끊긴 뒤 교사가 바꾼 귀속이 마지막 값으로 저장됩니다.
         if (mediaId === null || isPhoto(item)) {
           mediaId = (
             await completeUpload({

@@ -43,6 +43,7 @@ import { isMockScenario } from "../scenario";
 //         media.stt-fails(서버 STT 실패 → 발화 없음)
 
 const MEDIA_TYPES: readonly MediaType[] = ["photo", "video", "voice_memo"];
+const UPLOAD_URLS_BATCH_SIZE = 10;
 const ATTRIBUTION_METHODS = ["face_recognition", "manual"];
 const SPEAKERS: readonly (TranscriptSpeaker | null)[] = [
   "child",
@@ -65,22 +66,13 @@ function toMediaAsset(media: MediaRecord): MediaAsset {
     captured_at: media.captured_at,
     size_bytes: media.size_bytes,
     llm_allowed: media.llm_allowed,
+    child_links: media.child_links,
     attributed_at: media.attributed_at,
   };
 }
 
 function findByClientPhotoId(media: Record<string, MediaRecord>, clientPhotoId: string) {
   return Object.values(media).find((m) => m.client_photo_id === clientPhotoId);
-}
-
-/**
- * (제안, API 문서 §media) llm_allowed 최종값. 사진은 "교사 확인 AND 귀속 원아 전원 ③ 동의",
- * 영상·음성메모는 교사 확인값을 그대로 저장합니다. ③ 미동의 원아가 귀속된 사진은 LLM 근거에서 빠집니다(H-2).
- */
-function finalLlmAllowed(type: MediaType, teacherChecked: boolean, links: ChildLink[]) {
-  if (!teacherChecked) return false;
-  if (type !== "photo") return true;
-  return links.every((link) => FACE_CONSENTED_CHILD_IDS.has(link.child_id));
 }
 
 /** 귀속 형식 오류(400). 완료 통지와 child-links가 같은 규칙을 씁니다. */
@@ -94,10 +86,13 @@ function invalidLinksResponse(links: ChildLink[]) {
   return null;
 }
 
-/** (제안) 전체 교체: 보낸 목록이 최종 상태입니다. */
+/**
+ * (제안) 전체 교체: 보낸 목록이 최종 상태입니다. llm_allowed는 서버처럼 교사가 보낸 값을 그대로 저장합니다.
+ * ③ 미동의 원아 사진을 LLM 근거에서 빼는 것(H-2)은 근거를 모을 때 합니다(목은 handlers/agents.ts).
+ */
 function saveLinks(media: MediaRecord, teacherChecked: boolean, links: ChildLink[]) {
   media.child_links = links;
-  media.llm_allowed = finalLlmAllowed(media.type, teacherChecked, links);
+  media.llm_allowed = teacherChecked;
   media.attributed_at = nowIso();
 }
 
@@ -115,6 +110,14 @@ export const handlers = [
     if (denied) return denied;
     const items = body.items ?? [];
     if (items.length === 0) return validationError("body.items", "파일이 하나 이상 있어야 합니다");
+    // 서버처럼 한 번에 10개까지만 받습니다(API 문서 §media, 임시 결정(김동건)). FE가 나눠 보내는지 확인하려는 것입니다.
+    if (items.length > UPLOAD_URLS_BATCH_SIZE) {
+      return errorResponse(
+        400,
+        "UPLOAD_BATCH_TOO_LARGE",
+        "한 번에 올릴 수 있는 파일 수를 넘었어요.",
+      );
+    }
 
     // 한 항목이라도 형식이 틀리면 요청 전체를 거절합니다(API 문서).
     const rejected = items
