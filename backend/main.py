@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from core.config import get_settings
 from core.database import engine, get_db
 from core.exceptions import AidamError
+from domains.agents.router import router as agents_router
 from domains.auth.router import router as auth_router
 from domains.documents.router import router as documents_router
 from domains.face.router import router as face_router
@@ -41,6 +42,7 @@ app.include_router(documents_router, prefix="/api/v1")
 app.include_router(organization_router, prefix="/api/v1")
 app.include_router(media_router, prefix="/api/v1")
 app.include_router(face_router, prefix="/api/v1")
+app.include_router(agents_router, prefix="/api/v1")
 
 
 @app.exception_handler(AidamError)
