@@ -23,10 +23,10 @@ export interface UploadUrlsRequest {
   items: UploadUrlRequestItem[];
 }
 
-/** POST /media/upload-urls 응답 항목. 순서는 요청과 같습니다. */
 /** 업로드 URL 발급 결과. issued는 URL 발급, registered는 이미 등록된 파일, error는 그 파일만 실패입니다. */
 export type UploadUrlStatus = "issued" | "registered" | "error";
 
+/** POST /media/upload-urls 응답 항목. 순서는 요청과 같습니다. */
 export interface UploadUrlItem {
   client_photo_id: string;
   status: UploadUrlStatus;

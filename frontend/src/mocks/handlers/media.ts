@@ -189,7 +189,9 @@ export const handlers = [
   }),
 
   http.post(apiPath("/media"), async ({ request }) => {
-    // 검사 순서는 서버와 같습니다: 요청 모양(422) → 반 접근(403) → 귀속 원아(400) → 업로드 기록.
+    // 검사 순서는 서버와 같습니다: 로그인·역할(401·403) → 요청 모양(422) → 반 접근(403) → 귀속 원아(400) → 업로드 기록.
+    const teacherDenied = requireTeacher();
+    if (teacherDenied) return teacherDenied;
     const body = (await request.json()) as Partial<MediaCompleteRequest>;
     if (!body.client_photo_id || !MEDIA_TYPES.includes(body.type as MediaType)) {
       return validationError("body", "client_photo_id와 type이 필요합니다");

@@ -93,7 +93,7 @@ export const UPLOAD_URLS_BATCH_SIZE = 10;
 
 /**
  * 여러 파일의 업로드 URL을 받습니다. 서버 상한에 맞춰 10개씩 나눠 요청하고 결과를 요청 순서대로 합칩니다.
- * 형식이 틀린 파일이 하나라도 있으면 그 묶음 전체가 MEDIA_TYPE_NOT_ALLOWED입니다.
+ * 형식이 틀린 파일은 그 파일만 status가 error로 오고, 나머지는 그대로 발급됩니다.
  */
 export async function requestUploadUrls(input: UploadUrlsInput) {
   const items: UploadUrlsResponse["items"] = [];
