@@ -23,7 +23,7 @@
 - [ ] 학부모에게 `llm_allowed == true`인 선택 사진만 보이게 할지(김동건과 함께)
 - [ ] `review_confirmed`를 `reviewed`로 개명(PR #14로 develop에 들어간 schemas·router·service 수정)
 - [ ] `preview` 정의: 앞부분 100자, 문장 경계에서 자름
-- [ ] `documents/CLAUDE.md`의 `/documents` 표기 수정
+- [x] `documents/CLAUDE.md`의 `/documents` 표기 수정
 
 **김진하**
 
@@ -49,27 +49,25 @@ develop의 documents(PR #14)는 경로·요청·응답 모양만 있고, 서비�
 
 | 항목 | 이 문서(제안) | develop 코드 |
 |---|---|---|
-| 기본 경로 | 모두 `/api/v1`로 시작 | `/api/v1` 없음. 예: `/drafts/{draft_id}`(`main.py`가 prefix 없이 등록) |
-| 알림장 이름 | `parent_note`, `parent_note_id` | 경로·필드에 `letter`, `letter_id`(용어표에서 쓰지 않는 말). `doc_type` 값은 `parent_note`로 같음 |
+| 알림장 이름 | `parent_note`, `parent_note_id` | 경로는 맞췄고, 스키마·서비스 함수 이름에 `letter`가 남아 있음(용어표에서 쓰지 않는 말). `doc_type` 값은 `parent_note`로 같음 |
 | 초안 `status` 값 | `draft`·`verified`·`approved`·`unclassified` | `draft`·`verified`·`approved`·`revoked` |
 | 반·날짜 초안 목록 | `GET /api/v1/classes/{class_id}/drafts`(상세 작성) | 없음 |
 | 초안 상세 응답 | ID `draft_id`, 본문 `sentences[]`. `selected_media_ids`·`media[]`·`title`·`author_name`·`published_at` 있음. `ai_version` 없음 | ID `id`, 본문 `content`(텍스트 하나). `ai_version`·`evidence_bundle_id`·`created_at` 있음. `sentences`·`selected_media_ids`·`media`·`title`·`author_name`·`published_at` 없음 |
 | 초안 수정 요청 | `expected_version`, 바뀐 문장만 담은 `sentences[]`, `selected_media_ids` | `expected_version`, 본문 전체를 바꾸는 `content` |
 | 승인 요청의 확인 필드 | `reviewed: true` | `review_confirmed: true` |
 | 승인 응답 | 상세와 같은 교사용 스키마 | `id`·`status`·`version`만 |
-| 게시 경로 | `POST /api/v1/publications` | `POST /letters/publish` |
 | 게시 요청 | `request_id`·`include_photos`·`items[]` | `request_id`·`items[]`(`include_photos` 없음) |
 | 게시 건별 결과(둘 다 `draft_id`·`status`·`published_at`·`error_code` 있음) | `child_id`·`parent_note_id`·`version` 있음 | `publication_id`·`round_number`·`revoke_deadline` 있음 |
-| 학부모 목록 경로 | `GET /api/v1/children/{child_id}/parent-notes`, 쿼리 `limit`·`cursor` | `GET /parent/letters`. `child_id`와 쿼리 없음(로그인한 학부모 기준) |
+| 학부모 목록 쿼리 | `limit`·`cursor` | 없음 |
 | 학부모 목록 응답 | `items`·`next_cursor`·`unread_count`·`this_month_count`. 항목에 `preview`·`photos`·`is_read` | `letters[]`만. 항목은 `letter_id`·`doc_type`·`record_date`·`published_at`. `doc_type`이 있어 관찰일지도 학부모 목록에 올 수 있는 모양(의도 확인 필요) |
-| 학부모 상세 | `GET /api/v1/parent-notes/{parent_note_id}`. `child_id`·`photos`·`author_name`·`prev`·`next` 있음 | `GET /parent/letters/{letter_id}`. `letter_id`·`doc_type`·`record_date`·`content`·`published_at`만 |
+| 학부모 상세 응답 | `child_id`·`photos`·`author_name`·`prev`·`next` 있음 | `letter_id`·`doc_type`·`record_date`·`content`·`published_at`만 |
 | 미분류 표시 | 반·날짜 목록의 `unclassified`에 UnclassifiedItem을 원아별로 붙임 | `UnclassifiedItem`은 `ref_type`·`ref_id`로만 대상을 가리킴. `child_id`·`record_date` 없음 |
 | 재생 URL | `media[]`·`photos`에 `{media_id, type, url, url_expires_at}` 서명 URL | media의 `get_playback_url`(PR #13)이 한 건씩 서명·만료 없는 URL 문자열을 줌. 초안·학부모 응답에 URL 필드 없음 |
 | 회수 | 경로만(`POST /api/v1/drafts/{draft_id}/revoke`, 화면 없음) | `POST /drafts/{draft_id}/revoke`의 요청·응답까지 있음. 게시 후 24시간 안, 학부모가 아직 보지 않았을 때만 회수. 회수하면 `revoked`가 되고 다시 게시하려면 재승인 |
 | 학부모 목록 열람 기록 | AccessLog(`view_list`)를 남김 | 정하지 않음. 목록 조회는 `first_viewed_at`을 건드리지 않음 |
 | 에러 코드 | 엔드포인트마다 정함(`DRAFT_VERSION_CONFLICT` 등) | 아직 없음. 버전이 다르면 409를 준다는 방침만 있음 |
 
-- [ ] 위 차이를 이 문서에 맞출지 develop에 맞출지(한상균. 기본 경로는 엄태은과, 재생 URL은 김동건과 함께)
+- [ ] 위 차이를 이 문서에 맞출지 develop에 맞출지(한상균. 재생 URL은 김동건과 함께). 기본 경로와 경로 이름은 이 문서에 맞췄습니다 — `main.py`가 `/api/v1`을 붙입니다(#136 리뷰 합의)
 
 ## 이 도메인의 규칙
 

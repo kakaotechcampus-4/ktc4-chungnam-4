@@ -80,8 +80,8 @@ def approve_draft(
     )
 
 
-@router.post("/letters/publish", response_model=PublishResponse)
-def publish_letters(
+@router.post("/publications", response_model=PublishResponse)
+def create_publications(
     body: PublishRequest,
     db: Annotated[Session, Depends(get_db)],
     teacher_id: Annotated[UUID, Depends(get_current_teacher_id)],
@@ -106,18 +106,19 @@ def revoke_letter(
     )
 
 
-@router.get("/parent/letters", response_model=ParentLetterListResponse)
-def list_parent_letters(
+@router.get("/children/{child_id}/parent-notes", response_model=ParentLetterListResponse)
+def list_parent_notes(
+    child_id: UUID,
     db: Annotated[Session, Depends(get_db)],
     parent_id: Annotated[UUID, Depends(get_current_parent_id)],
 ) -> ParentLetterListResponse:
-    return service.list_letters_for_parent(db, parent_id=parent_id)
+    return service.list_letters_for_parent(db, child_id=child_id, parent_id=parent_id)
 
 
-@router.get("/parent/letters/{letter_id}", response_model=ParentLetterDetailResponse)
-def get_parent_letter(
-    letter_id: UUID,
+@router.get("/parent-notes/{parent_note_id}", response_model=ParentLetterDetailResponse)
+def get_parent_note(
+    parent_note_id: UUID,
     db: Annotated[Session, Depends(get_db)],
     parent_id: Annotated[UUID, Depends(get_current_parent_id)],
 ) -> ParentLetterDetailResponse:
-    return service.get_letter_for_parent(db, letter_id=letter_id, parent_id=parent_id)
+    return service.get_letter_for_parent(db, letter_id=parent_note_id, parent_id=parent_id)

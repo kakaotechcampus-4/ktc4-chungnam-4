@@ -121,7 +121,7 @@ class PublishItem(BaseModel):
 
 
 class PublishRequest(BaseModel):
-    """POST /letters/publish. 같은 request_id + draft_id 조합의 재전송은 새 게시
+    """POST /api/v1/publications. 같은 request_id + draft_id 조합의 재전송은 새 게시
     회차를 만들지 않고 기존 회차를 그대로 반환한다."""
 
     items: list[PublishItem] = Field(min_length=1)

@@ -178,7 +178,7 @@ def test_같은_draft에_같은_요청ID_재전송은_중복_생성되지_않는
 
 
 def test_한_요청ID로_여러_draft를_한번에_게시할_수_있다():
-    # POST /letters/publish는 하나의 request_id로 여러 문서를 함께 게시한다 —
+    # POST /publications는 하나의 request_id로 여러 문서를 함께 게시한다 —
     # publish_request_id 단독 유니크였다면 두 번째 draft부터 막혔을 시나리오.
     db = _session()
     draft_a, draft_b = (
