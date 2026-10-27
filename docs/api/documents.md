@@ -261,7 +261,7 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
   - `DRAFT_NOT_FOUND` (404) — 없는 초안일 때
   - `CLASS_ACCESS_DENIED` (403) — 담당 반 원아의 초안이 아닐 때
 - 본문은 문장 단위(`DraftSentence`)로 저장합니다 — 임시 결정(정은), 이슈 #75. `sentences[]` 한 항목은 문법상 문장이 아니라 근거를 함께 쓰는 표시 단위입니다. 화면에서 두 문장이 한 덩어리로 보여도 근거와 수정은 이 항목 단위로 움직입니다.
-- [확인 필요: 정은] `SentenceEvidence`에는 `source_type`·`end_ms`·`captured_at`이 없어서 조인 경로를 정해야 합니다. `source_text`가 비식별 토큰(`CHILD_A`) 상태로 저장되는지, 그렇다면 교사 응답의 어디에서 실명을 되살릴지 정해야 합니다. `evidence_id`를 UUID로 바꿀지도 정해야 합니다.
+- ~~[확인 필요: 정은] `SentenceEvidence`에는 `source_type`·`end_ms`·`captured_at`이 없어서 조인 경로를 정해야 합니다. `source_text`가 비식별 토큰(`CHILD_A`) 상태로 저장되는지, 그렇다면 교사 응답의 어디에서 실명을 되살릴지 정해야 합니다. `evidence_id`를 UUID로 바꿀지도 정해야 합니다.~~ → 임시 결정(정은): `evidences[]`는 agents `list_sentence_evidences(db, draft_id)`로 받습니다(문장 ID → 근거 목록, 위 응답 모양 그대로). `source_text`는 원문으로 저장돼 실명을 되살릴 필요가 없습니다. `end_ms`는 아직 저장하지 않아 `null`입니다. `evidence_id`는 불투명 문자열 그대로 둡니다. 자세한 규칙은 `docs/api/agents.md` 상단 목록.
 
 ### `POST /api/v1/children/{child_id}/drafts` — 교사용: 자료 없이 직접 쓴 초안 만들기
 
