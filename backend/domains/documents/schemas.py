@@ -197,7 +197,7 @@ class DraftUpdateRequest(BaseModel):
     expected_version: int = Field(ge=1)
     sentences: list[SentenceEdit] = Field(default_factory=list)
     added_sentences: list[AddedSentence] = Field(default_factory=list)
-    # TODO(한상균): 사진 선택 저장은 사진 컬럼 마이그레이션 PR에서 받는다. 그전까지 오면 422다.
+    # 알림장에 보일 사진의 순서. 보내지 않으면 그대로 둔다.
     selected_media_ids: list[UUID] | None = None
 
     @model_validator(mode="after")
@@ -207,6 +207,9 @@ class DraftUpdateRequest(BaseModel):
         ids = [edit.sentence_id for edit in self.sentences]
         if len(ids) != len(set(ids)):
             raise ValueError("duplicate sentence_id")
+        media_ids = self.selected_media_ids or []
+        if len(media_ids) != len(set(media_ids)):
+            raise ValueError("duplicate media_id")
         return self
 
 
