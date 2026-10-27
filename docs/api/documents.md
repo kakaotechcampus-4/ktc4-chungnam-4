@@ -51,7 +51,7 @@ develop의 documents(PR #14)는 경로·요청·응답 모양만 있고, 서비�
 |---|---|---|
 | 알림장 이름 | `parent_note`, `parent_note_id` | 경로는 맞췄고, 스키마·서비스 함수 이름에 `letter`가 남아 있음(용어표에서 쓰지 않는 말). `doc_type` 값은 `parent_note`로 같음 |
 | 초안 `status` 값 | `draft`·`verified`·`approved`·`unclassified` | `draft`·`verified`·`approved`·`revoked` |
-| 반·날짜 초안 목록 | `GET /api/v1/classes/{class_id}/drafts`(상세 작성) | 없음 |
+| 반·날짜 초안 목록의 `unclassified` | 초안 없이 미분류로 끝난 원아의 사유 | 항상 `null`. agents가 미분류를 기록하지 않고(`_send_to_unclassified`가 빈 함수), `UnclassifiedItem`에 원아·날짜가 없음 |
 | 초안 상세 응답 | ID `draft_id`, 본문 `sentences[]`. `selected_media_ids`·`media[]`·`title`·`author_name`·`published_at` 있음. `ai_version` 없음 | ID `id`, 본문 `content`(텍스트 하나). `ai_version`·`evidence_bundle_id`·`created_at` 있음. `sentences`·`selected_media_ids`·`media`·`title`·`author_name`·`published_at` 없음 |
 | 초안 수정 요청 | `expected_version`, 바뀐 문장만 담은 `sentences[]`, `selected_media_ids` | `expected_version`, 본문 전체를 바꾸는 `content` |
 | 승인 요청의 확인 필드 | `reviewed: true` | `review_confirmed: true` |
@@ -147,9 +147,12 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 
 - `items`에는 그날 초안이나 미분류 기록이 있는 원아만 담습니다. "자료 없음" 행은 FE가 명단과 비교해 만듭니다.
 - `unclassified`(제안)는 초안 없이 미분류로 끝난 원아의 사유입니다. documents가 소유한 UnclassifiedItem을 조인합니다.
-- `preview`(제안)는 본문 앞부분 최대 100자이고, 문장 경계에서 자릅니다.
+- `preview`(제안)는 본문 앞부분 최대 100자이고, 문장 경계에서 자릅니다. 첫 문장부터 100자를 넘으면 그 문장을 100자에서 자릅니다(빈 미리보기를 내지 않으려는 것) — 임시 결정(한상균).
 - 게시할 수 있는 행은 FE가 `status == approved && published_at == null`로 판단합니다.
-- 에러: `CLASS_ACCESS_DENIED` (403) — 담당 반이 아닐 때
+- 에러:
+  - `CLASS_ACCESS_DENIED` (403) — 다른 어린이집의 반일 때(같은 어린이집 교사는 모든 반을 봅니다, FR-25)
+  - `CLASS_NOT_FOUND` (404) — 없는 반일 때
+  - `VALIDATION_ERROR` (422) — `published=true`가 아닌데 `record_date`가 없을 때
 - [확인 필요: 김진하] 레일 "2 / 5명 검토 완료"에서 무엇을 "검토 완료"로 셀지 정해야 합니다(두 문서가 모두 `approved`일 때인지).
 
 ### `GET /api/v1/children/{child_id}/drafts` — 교사용: 원아별 문서 목록(날짜 이동용)
