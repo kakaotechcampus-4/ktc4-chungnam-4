@@ -105,6 +105,7 @@ from domains.documents.schemas import (
     DraftDetailResponse,
     DraftSaveInput,
     DraftSummary,
+    DraftVersionInfo,
     ParentLetterDetailResponse,
     ParentLetterListResponse,
     PublishItem,
@@ -118,6 +119,44 @@ _AI_LOCKED_STATUSES = (DraftStatus.APPROVED.value, DraftStatus.REVOKED.value)
 
 # 반·날짜 목록의 미리보기 길이 (docs/api/documents.md §GET /classes/{class_id}/drafts, 제안).
 _PREVIEW_MAX_CHARS = 100
+
+
+def get_draft_version(
+    db: Session, *, child_id: UUID, doc_type: DocType | str, record_date: date
+) -> DraftVersionInfo | None:
+    """agents가 재생성으로 저장하기 전에 기존 초안의 버전을 읽는다 (#75 5번).
+
+    같은 원아·문서 종류·날짜의 초안이 없으면 None이다 — 최초 저장으로 보내면 된다.
+    agents는 status가 approved·revoked이거나 has_teacher_edits면 재생성을 건너뛰고, 그 밖에는
+    돌려받은 draft_id·version으로 save_draft(expected_version=version)를 부른다 (#75 5번 표).
+    has_teacher_edits의 기준은 재생성 거부와 같은 _has_teacher_edits()다.
+
+    doc_type은 agents가 가진 tools/contracts.py의 DocType을 그대로 넘겨도 된다 — 값이 같아
+    이 도메인의 DocType으로 바꿔 쓴다(계층 규칙상 따로 정의돼 있음, #140 리뷰).
+
+    읽은 값은 판단용이다. 읽은 뒤 교사가 수정하면 save_draft의 버전 검사가 저장을 막는다.
+    """
+    doc_type = DocType(doc_type)
+    row = db.execute(
+        select(
+            DraftDocument.id,
+            DraftDocument.version,
+            DraftDocument.status,
+            _has_teacher_edits().label("has_teacher_edits"),
+        ).where(
+            DraftDocument.child_id == child_id,
+            DraftDocument.doc_type == doc_type.value,
+            DraftDocument.record_date == record_date,
+        )
+    ).one_or_none()
+    if row is None:
+        return None
+    return DraftVersionInfo(
+        draft_id=row.id,
+        version=row.version,
+        status=DraftStatus(row.status),
+        has_teacher_edits=row.has_teacher_edits,
+    )
 
 
 def save_draft(db: Session, data: DraftSaveInput, *, expected_version: int | None) -> DraftDocument:
@@ -383,7 +422,9 @@ def update_draft(
     #   별도 비교 금지). rowcount==0이면 충돌(409). 통과 시 RevisionLog에
     #   action=edit, edit_method=manual, before_content(수정 전)·after_content(수정 후)
     #   를 함께 남긴다(테크스펙 RevisionLog ERD). RevisionLog 기록과 version 증가는 한
-    #   트랜잭션에서 한다 — save_draft()의 재생성 거부가 version 비교에 기댄다.
+    #   트랜잭션에서 한다 — save_draft()의 재생성 거부가 version 비교에 기댄다. RevisionLog를
+    #   빠뜨리면 get_draft_version·재생성 거부가 교사가 손댄 문서를 알아보지 못한다
+    #   (_has_teacher_edits, #140 리뷰).
     raise NotImplementedError("초안 수정 처리 구현 예정")
 
 
@@ -401,6 +442,8 @@ def approve_draft(
     #   (ref_type="draft_document")으로 갈지 협의 후 구현. 통과 시 RevisionLog에
     #   action=approve를 남긴다(before/after_content는 비워도 된다). RevisionLog 기록과
     #   version 증가는 한 트랜잭션에서 한다 — save_draft()의 재생성 거부가 version 비교에 기댄다.
+    #   RevisionLog를 빠뜨리면 get_draft_version·재생성 거부가 승인된 문서를 알아보지 못한다
+    #   (_has_teacher_edits, #140 리뷰).
     raise NotImplementedError("초안 승인 처리 구현 예정")
 
 
