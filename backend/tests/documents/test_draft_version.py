@@ -86,6 +86,37 @@ def test_교사_이력이_하나라도_있으면_손댄_문서다(action):
     assert _version(db, draft).has_teacher_edits is True
 
 
+def test_교사가_쓴_문장이_있으면_이력이_없어도_손댄_문서다():
+    # 직접 작성 초안은 생성이라 RevisionLog가 없고 t… 문장만 있다 (#139 리뷰, 임시 결정(정은)).
+    db = _session()
+    draft = _draft(db)
+    db.add(DraftSentence(draft_id=draft.id, sentence_id="t1", position=0, text="교사가 쓴 문장"))
+    db.commit()
+
+    assert _version(db, draft).has_teacher_edits is True
+
+
+def test_AI_문장만_있으면_손댄_문서가_아니다():
+    db = _session()
+    draft = _draft(db)
+    db.add(DraftSentence(draft_id=draft.id, sentence_id="s1", position=0, text="AI 문장"))
+    db.commit()
+
+    assert _version(db, draft).has_teacher_edits is False
+
+
+def test_doc_type은_값이_같은_문자열_enum도_받는다():
+    # agents는 tools/contracts.py의 DocType(StrEnum)을 갖고 있어 값으로 넘어온다 (#140 리뷰).
+    db = _session()
+    draft = _draft(db)
+
+    info = get_draft_version(
+        db, child_id=draft.child_id, doc_type="parent_note", record_date=draft.record_date
+    )
+
+    assert info.draft_id == draft.id
+
+
 def test_다른_초안의_교사_이력은_섞이지_않는다():
     db = _session()
     draft = _draft(db)
