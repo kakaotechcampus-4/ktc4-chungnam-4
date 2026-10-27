@@ -220,6 +220,79 @@ def _overall_status(children: Sequence[ChildJobStatus]) -> JobStatus:
     return JobStatus.SUCCEEDED
 
 
+# ---------------------------------------------------------------------------
+# 문장별 근거 조회 (documents의 교사용 초안 상세가 부른다)
+# ---------------------------------------------------------------------------
+
+# 근거 행에 출처 종류를 저장하지 않아 미디어 종류로 정한다. 영상은 발화만 근거로 쓰므로
+# (테크스펙 §요청사항 2) video_speech다. 미디어가 없으면 활동계획이다.
+_SOURCE_TYPE_BY_MEDIA_TYPE = {
+    "photo": contracts.SourceType.PHOTO_OBSERVATION,
+    "voice_memo": contracts.SourceType.TEACHER_VOICE_MEMO,
+    "video": contracts.SourceType.VIDEO_SPEECH,
+}
+
+
+@dataclass(frozen=True)
+class SentenceEvidenceView:
+    """문장 하나를 뒷받침하는 근거 (docs/api/documents.md §GET /drafts/{draft_id} evidences[]).
+
+    text는 비식별화 전 원문이라 실명이 있을 수 있다. 검수 권한이 있는 교사 화면에만 싣고
+    LLM·로그로 보내지 않는다 (H-1, H-2, H-4).
+    """
+
+    evidence_id: str
+    source_type: str
+    text: str
+    media_id: UUID | None
+    start_ms: int | None
+    end_ms: int | None
+    captured_at: datetime | None
+
+
+def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[SentenceEvidenceView]]:
+    """초안의 문장별 근거를 sentence_id로 묶어 돌려준다 (FR-07).
+
+    권한 판정과 열람 기록은 부르는 쪽(documents)이 한다. 근거가 없는 문장은 키가 없다 — 교사가
+    고친 문장의 근거를 비우는 것도 documents가 정한다 (documents.md §PATCH).
+
+    임시 결정(정은): 근거 행에 출처 종류·끝 시각을 저장하지 않아서 source_type은 미디어 종류로
+    정하고 end_ms는 null이다. 영상 속 교사 관찰 발화는 생성 때 teacher_voice_memo였어도
+    여기서는 video_speech로 보인다. TODO(eun): 영상 근거를 쓰기 시작하면 SentenceEvidence에
+    source_type·end_ms를 저장한다(테크스펙 먼저).
+    """
+    rows = db.scalars(
+        select(SentenceEvidenceRow)
+        .where(SentenceEvidenceRow.draft_id == draft_id)
+        .order_by(SentenceEvidenceRow.sentence_id, SentenceEvidenceRow.evidence_id)
+    ).all()
+    media = media_service.get_media_meta(
+        db, [row.source_media_id for row in rows if row.source_media_id is not None]
+    )
+    result: dict[str, list[SentenceEvidenceView]] = {}
+    for row in rows:
+        meta = media.get(row.source_media_id) if row.source_media_id is not None else None
+        source_type = (
+            _SOURCE_TYPE_BY_MEDIA_TYPE[meta.type]
+            if meta is not None
+            else contracts.SourceType.ACTIVITY_PLAN
+        )
+        result.setdefault(row.sentence_id, []).append(
+            SentenceEvidenceView(
+                evidence_id=row.evidence_id,
+                source_type=source_type.value,
+                text=row.source_text,
+                media_id=row.source_media_id,
+                start_ms=(
+                    round(row.source_timestamp * 1000) if row.source_timestamp is not None else None
+                ),
+                end_ms=None,
+                captured_at=meta.captured_at if meta is not None else None,
+            )
+        )
+    return result
+
+
 def orchestrate_drafts(job_id: str, child_id: str) -> None:
     """원아 한 명의 초안을 만든다. 초안 저장이나 미분류로 끝나면 Job을 SUCCEEDED로 둔다.
 
