@@ -370,7 +370,9 @@ def revoke_publication(
     raise NotImplementedError("게시 회수 처리 구현 예정")
 
 
-def list_letters_for_parent(db: Session, *, parent_id: UUID) -> ParentLetterListResponse:
+def list_letters_for_parent(
+    db: Session, *, child_id: UUID, parent_id: UUID
+) -> ParentLetterListResponse:
     # TODO(한상균): 단일 게이트 — 활성 게시 회차(revoked_at is null) + 대상 원아 접근권한
     #   (B와 협의: parent_id ↔ child_id 관계 조회) 검사. 목록 조회는 first_viewed_at을
     #   건드리지 않는다 ("목록 조회는 상세 열람으로 취급하지 않는다").

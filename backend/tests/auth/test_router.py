@@ -222,7 +222,7 @@ def test_학부모가_교사_경로에_들어오면_ROLE_NOT_ALLOWED(client, db)
     _parent(db)
     _login(client, "parent@example.com")
 
-    response = client.get(f"/drafts/{uuid.uuid4()}")
+    response = client.get(f"/api/v1/drafts/{uuid.uuid4()}")
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "ROLE_NOT_ALLOWED"
@@ -232,14 +232,14 @@ def test_교사가_학부모_경로에_들어오면_ROLE_NOT_ALLOWED(client, db)
     _teacher(db)
     _login(client, "teacher@example.com")
 
-    response = client.get("/parent/letters")
+    response = client.get(f"/api/v1/children/{uuid.uuid4()}/parent-notes")
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "ROLE_NOT_ALLOWED"
 
 
 def test_로그인하지_않으면_교사_경로도_UNAUTHENTICATED(client):
-    response = client.get(f"/drafts/{uuid.uuid4()}")
+    response = client.get(f"/api/v1/drafts/{uuid.uuid4()}")
 
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "UNAUTHENTICATED"

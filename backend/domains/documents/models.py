@@ -156,7 +156,7 @@ class DocumentPublication(Base):
 
     __tablename__ = "document_publications"
     __table_args__ = (
-        # 한 request_id로 여러 draft_id를 한 번에 게시하므로(POST /letters/publish),
+        # 한 request_id로 여러 draft_id를 한 번에 게시하므로(POST /publications),
         # 멱등 판단은 draft_id별로 해야 한다 — request_id 단독 유니크는 두 번째
         # draft부터 저장이 막힌다.
         UniqueConstraint("publish_request_id", "draft_id", name="uq_publication_request_draft"),
