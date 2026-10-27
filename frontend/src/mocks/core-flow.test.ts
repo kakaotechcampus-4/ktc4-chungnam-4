@@ -12,6 +12,7 @@ import {
 } from "@/api/documents";
 import {
   type ChildLinksInput,
+  type MediaCompleteInput,
   completeUpload,
   faceEmbeddingsQueryOptions,
   requestUploadUrls,
@@ -377,7 +378,7 @@ describe("목의 판정 규칙", () => {
     });
   });
 
-  it("올리지 않은 파일은 완료 통지할 수 없고, 형식이 틀리면 요청 전체를 거절한다", async () => {
+  it("올리지 않은 파일은 완료 통지할 수 없고, 형식이 틀린 파일만 거절하고 나머지는 발급한다", async () => {
     const clientPhotoId = fixtureId("clientPhoto", 920);
     await requestUploadUrls({
       class_id: CLASS_ID,
@@ -400,23 +401,20 @@ describe("목의 판정 규칙", () => {
         attribution: { llm_allowed: true, child_links: [manual(DOYUN)] },
       }),
     ).rejects.toMatchObject({ status: 409, code: "MEDIA_UPLOAD_NOT_FOUND" });
-    await expect(
-      requestUploadUrls({
-        class_id: CLASS_ID,
-        items: [
-          {
-            client_photo_id: clientPhotoId,
-            type: "photo",
-            content_type: "application/zip",
-            size_bytes: 3,
-          },
-        ],
-      }),
-    ).rejects.toMatchObject({
-      status: 400,
-      code: "MEDIA_TYPE_NOT_ALLOWED",
-      detail: { client_photo_ids: [clientPhotoId] },
+    const zipId = fixtureId("clientPhoto", 921);
+    const okId = fixtureId("clientPhoto", 922);
+    const { items } = await requestUploadUrls({
+      class_id: CLASS_ID,
+      items: [
+        { client_photo_id: zipId, type: "photo", content_type: "application/zip", size_bytes: 3 },
+        { client_photo_id: okId, type: "photo", content_type: "image/jpeg", size_bytes: 3 },
+      ],
     });
+    // 서버처럼 파일마다 따로 판정합니다. 걸린 파일만 error이고 나머지는 발급됩니다(API 문서 §media).
+    expect(items.map((item) => item.status)).toEqual(["error", "issued"]);
+    expect(items[0]?.error).toMatchObject({ code: "MEDIA_TYPE_NOT_ALLOWED" });
+    // 거절된 파일을 올리려 하면 엉뚱한 문구가 아니라 서버 사유로 멈춥니다.
+    expect(() => uploadFile(items[0]!, FILE_BYTES)).toThrow("올릴 수 없는 형식의 파일이에요.");
   });
 
   it("S3 PUT이 실패하면 연결 오류이고, URL을 다시 받아 올리면 이어서 등록된다", async () => {
@@ -482,17 +480,19 @@ describe("목의 판정 규칙", () => {
       return {
         client_photo_id: clientPhotoId,
         class_id: CLASS_ID,
-        type,
         captured_at: `${kstToday()}T01:00:00Z`,
         model_version: null,
       };
     };
     const attribution = { llm_allowed: true, child_links: [manual(DOYUN)] };
 
+    // 타입이 막는 잘못된 요청을 일부러 보내, 목이 서버처럼 422로 거절하는지 봅니다.
     const photo = await upload(950, "photo");
-    await expect(completeUpload(photo)).rejects.toMatchObject({ status: 422 });
-    const voice = await upload(951, "voice_memo");
-    await expect(completeUpload({ ...voice, attribution })).rejects.toMatchObject({ status: 422 });
+    const photoWithoutLinks = { ...photo, type: "photo" } as unknown as MediaCompleteInput;
+    await expect(completeUpload(photoWithoutLinks)).rejects.toMatchObject({ status: 422 });
+    const voice = { ...(await upload(951, "voice_memo")), type: "voice_memo" as const };
+    const voiceWithLinks = { ...voice, attribution } as unknown as MediaCompleteInput;
+    await expect(completeUpload(voiceWithLinks)).rejects.toMatchObject({ status: 422 });
 
     const registered = await completeUpload(voice);
     expect(registered).toMatchObject({ llm_allowed: false, attributed_at: null });

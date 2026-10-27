@@ -119,16 +119,7 @@ export const handlers = [
       );
     }
 
-    // 한 항목이라도 형식이 틀리면 요청 전체를 거절합니다(API 문서).
-    const rejected = items
-      .filter((item) => !ALLOWED_CONTENT_TYPES[item.type]?.includes(item.content_type))
-      .map((item) => item.client_photo_id);
-    if (rejected.length > 0) {
-      return errorResponse(400, "MEDIA_TYPE_NOT_ALLOWED", "올릴 수 없는 형식의 파일이 있어요.", {
-        client_photo_ids: rejected,
-      });
-    }
-
+    // 서버처럼 파일마다 따로 판정합니다. 형식이 틀린 파일만 status error로 주고 나머지는 발급합니다(API 문서).
     const expiresAt = new Date(Date.now() + 15 * 60_000).toISOString();
     const result = updateDb((db) =>
       items.map((item): UploadUrlItem => {
@@ -137,10 +128,23 @@ export const handlers = [
         if (registered) {
           return {
             client_photo_id: item.client_photo_id,
+            status: "registered",
             media_id: registered.media_id,
             upload_url: null,
             upload_headers: null,
             upload_url_expires_at: null,
+            error: null,
+          };
+        }
+        if (!ALLOWED_CONTENT_TYPES[item.type]?.includes(item.content_type)) {
+          return {
+            client_photo_id: item.client_photo_id,
+            status: "error",
+            media_id: null,
+            upload_url: null,
+            upload_headers: null,
+            upload_url_expires_at: null,
+            error: { code: "MEDIA_TYPE_NOT_ALLOWED", message: "올릴 수 없는 형식의 파일이에요." },
           };
         }
         db.uploads[item.client_photo_id] = {
@@ -153,10 +157,12 @@ export const handlers = [
         };
         return {
           client_photo_id: item.client_photo_id,
+          status: "issued",
           media_id: null,
           upload_url: uploadUrl(item.client_photo_id),
           upload_headers: { "Content-Type": item.content_type },
           upload_url_expires_at: expiresAt,
+          error: null,
         };
       }),
     );
@@ -183,9 +189,8 @@ export const handlers = [
   }),
 
   http.post(apiPath("/media"), async ({ request }) => {
+    // 검사 순서는 서버와 같습니다: 요청 모양(422) → 반 접근(403) → 귀속 원아(400) → 업로드 기록.
     const body = (await request.json()) as Partial<MediaCompleteRequest>;
-    const denied = requireTeacherOfClass(body.class_id);
-    if (denied) return denied;
     if (!body.client_photo_id || !MEDIA_TYPES.includes(body.type as MediaType)) {
       return validationError("body", "client_photo_id와 type이 필요합니다");
     }
@@ -202,6 +207,8 @@ export const handlers = [
     if (!isPhotoBody && hasAttribution) {
       return validationError("body", "영상·음성은 귀속을 child-links로 저장합니다");
     }
+    const denied = requireTeacherOfClass(body.class_id);
+    if (denied) return denied;
     const links = body.child_links ?? [];
     const linkError = invalidLinksResponse(links);
     if (linkError) return linkError;
