@@ -25,7 +25,7 @@ from domains.agents.models import (
 from domains.agents.models import SentenceEvidence as SentenceEvidenceRow
 from domains.agents.models import VerificationResult as VerificationResultRow
 from domains.documents import service as documents
-from domains.documents.schemas import DraftSaveInput
+from domains.documents.schemas import DraftSaveInput, DraftSentenceInput
 from domains.media import service as media_service
 from prompts.generation.draft import DraftFeedback, build_draft_prompt
 from prompts.verification.critic import build_critic_prompt
@@ -542,7 +542,11 @@ def _save_passed_draft(
         author_teacher_id=_author_teacher_id(session, job),
         doc_type=document.doc_type.value,
         record_date=document.record_date,
-        content=_join_sentences(document),
+        # 문장 단위·순서 그대로 넘긴다. 합쳤다가 다시 자르면 근거와 어긋난다 (#75 ①).
+        sentences=[
+            DraftSentenceInput(sentence_id=sentence.sentence_id, text=sentence.text)
+            for sentence in document.sentences
+        ],
         ai_version=document.version,
         evidence_bundle_id=bundle.id,
     )
@@ -575,15 +579,6 @@ def _author_teacher_id(session: Session, job: Job) -> UUID:
     if generation_job is None:
         raise ValueError(f"GenerationJob {job.generation_job_id} not found")
     return generation_job.requested_by_teacher_id
-
-
-def _join_sentences(document: contracts.DraftDocument) -> str:
-    """문장을 줄바꿈으로 합친 본문.
-
-    TODO(eun): 문장 단위 저장(#75 ①)이 documents 스키마에 들어오면 합치지 않고
-    sentence_id·순서째로 넘긴다. 그전까지 DraftSaveInput.content가 문자열 하나라 임시로 합친다.
-    """
-    return "\n".join(sentence.text for sentence in document.sentences)
 
 
 def _run_critic(

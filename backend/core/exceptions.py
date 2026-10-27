@@ -211,3 +211,11 @@ class CenterNotFound(AidamError):
 
     code = "CENTER_NOT_FOUND"
     status_code = 404
+
+
+class RequestValidationFailed(AidamError):
+    """요청 값의 조합이 맞지 않습니다. 필드 하나의 형식 오류는 Pydantic이 422로 막고,
+    이 예외는 서비스가 판단하는 조합 조건에 씁니다 (테크스펙 §공통 API 규약 VALIDATION_ERROR)."""
+
+    code = "VALIDATION_ERROR"
+    status_code = 422

@@ -81,37 +81,94 @@ WHERE에 넣는다 — rowcount가 곧 판단 결과다.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
+from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import ColumnElement, Subquery, delete, exists, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from core.exceptions import DraftVersionConflict
-from domains.documents.models import DraftDocument, DraftStatus
+from core.exceptions import DraftVersionConflict, RequestValidationFailed
+from domains.documents.models import (
+    DocType,
+    DocumentPublication,
+    DraftDocument,
+    DraftSentence,
+    DraftStatus,
+    RevisionLog,
+)
 from domains.documents.schemas import (
     ApproveResponse,
+    ClassDraftItem,
+    ClassDraftListResponse,
     DraftDetailResponse,
     DraftSaveInput,
+    DraftSummary,
+    DraftVersionInfo,
     ParentLetterDetailResponse,
     ParentLetterListResponse,
     PublishItem,
     PublishResponse,
     RevokeResponse,
 )
+from domains.organization import service as organization_service
 
 # 자동 생성 결과로 덮어쓰지 않는 상태. 승인·회수된 문서는 교사가 확정한 내용이다.
 _AI_LOCKED_STATUSES = (DraftStatus.APPROVED.value, DraftStatus.REVOKED.value)
 
+# 반·날짜 목록의 미리보기 길이 (docs/api/documents.md §GET /classes/{class_id}/drafts, 제안).
+_PREVIEW_MAX_CHARS = 100
+
+
+def get_draft_version(
+    db: Session, *, child_id: UUID, doc_type: DocType | str, record_date: date
+) -> DraftVersionInfo | None:
+    """agents가 재생성으로 저장하기 전에 기존 초안의 버전을 읽는다 (#75 5번).
+
+    같은 원아·문서 종류·날짜의 초안이 없으면 None이다 — 최초 저장으로 보내면 된다.
+    agents는 status가 approved·revoked이거나 has_teacher_edits면 재생성을 건너뛰고, 그 밖에는
+    돌려받은 draft_id·version으로 save_draft(expected_version=version)를 부른다 (#75 5번 표).
+    has_teacher_edits의 기준은 재생성 거부와 같은 _has_teacher_edits()다.
+
+    doc_type은 agents가 가진 tools/contracts.py의 DocType을 그대로 넘겨도 된다 — 값이 같아
+    이 도메인의 DocType으로 바꿔 쓴다(계층 규칙상 따로 정의돼 있음, #140 리뷰).
+
+    읽은 값은 판단용이다. 읽은 뒤 교사가 수정하면 save_draft의 버전 검사가 저장을 막는다.
+    """
+    doc_type = DocType(doc_type)
+    row = db.execute(
+        select(
+            DraftDocument.id,
+            DraftDocument.version,
+            DraftDocument.status,
+            _has_teacher_edits().label("has_teacher_edits"),
+        ).where(
+            DraftDocument.child_id == child_id,
+            DraftDocument.doc_type == doc_type.value,
+            DraftDocument.record_date == record_date,
+        )
+    ).one_or_none()
+    if row is None:
+        return None
+    return DraftVersionInfo(
+        draft_id=row.id,
+        version=row.version,
+        status=DraftStatus(row.status),
+        has_teacher_edits=row.has_teacher_edits,
+    )
+
 
 def save_draft(db: Session, data: DraftSaveInput, *, expected_version: int | None) -> DraftDocument:
-    """AI가 최종 통과(PASS)한 초안을 저장한다 (FR-05, FR-06, #35).
+    """AI가 최종 통과(PASS)한 초안을 저장한다 (FR-05, FR-06, #35, #75).
 
+    - 검증을 통과한 초안만 여기로 오므로 VERIFIED(교사 검토 대기)로 저장한다 (#75·#106).
+    - 본문은 data.sentences 순서대로 DraftSentence에 넣는다. position은 0부터다.
     - expected_version이 None이면 최초 생성이다. (child_id, doc_type, record_date)
       문서가 이미 있으면 덮어쓰지 않고 충돌로 거부한다.
     - 값이 있으면 재생성이다. 같은 문서 ID를 유지한 채, 버전이 그대로이고 승인·회수
-      전이고 원아·문서 종류·날짜가 기존 문서와 같을 때만 본문을 바꾼다. 비교와 갱신은
-      UPDATE 한 문장으로 묶는다(모듈 docstring).
+      전이고 원아·문서 종류·날짜가 기존 문서와 같고 교사가 한 번도 손대지 않았을 때만
+      문장을 바꿔 넣는다. 비교와 갱신은 UPDATE 한 문장으로 묶는다(모듈 docstring).
       그 사이 교사 수정·승인이 있었으면 교사 문서를 그대로 두고 충돌로 거부한다 —
       반영하지 못한 AI 결과를 따로 보관하지 않는다.
 
@@ -130,8 +187,7 @@ def _insert_draft(db: Session, data: DraftSaveInput) -> DraftDocument:
         author_teacher_id=data.author_teacher_id,
         doc_type=data.doc_type.value,
         record_date=data.record_date,
-        status=DraftStatus.DRAFT.value,
-        content=data.content,
+        status=DraftStatus.VERIFIED.value,
         ai_version=data.ai_version,
         evidence_bundle_id=data.evidence_bundle_id,
     )
@@ -143,6 +199,10 @@ def _insert_draft(db: Session, data: DraftSaveInput) -> DraftDocument:
     try:
         with db.begin_nested():
             db.add(draft)
+            # 문서 행이 들어간 뒤에 문장을 넣는다. 중복 문서면 이 flush에서 멈춰 문장도
+            # 같은 savepoint와 함께 되돌아간다.
+            db.flush()
+            db.add_all(_sentence_rows(draft.id, data))
     except IntegrityError:
         # 예상한 중복(같은 원아·종류·날짜)만 충돌로 바꾼다. 제약 이름은 DB 드라이버마다
         # 꺼내는 방법이 달라서, savepoint를 되돌린 뒤 실제로 그 문서가 있는지 확인한다.
@@ -178,9 +238,15 @@ def _update_generated_draft(
             DraftDocument.record_date == data.record_date,
             DraftDocument.version == expected_version,
             DraftDocument.status.notin_(_AI_LOCKED_STATUSES),
+            # 교사가 한 번이라도 손댄 문서는 AI 결과로 덮어쓰지 않는다 (#75 6-1). 동시 요청은
+            # 이 서브쿼리가 아니라 위 version 비교가 막는다 — READ COMMITTED에서 행 락을
+            # 기다린 뒤 WHERE를 다시 볼 때 다른 테이블(RevisionLog·DraftSentence)은 처음
+            # 스냅샷으로 평가되지만, 교사 수정·승인은 RevisionLog 기록과 version 증가를 한
+            # 트랜잭션에서 하므로 version이 달라져 있다.
+            ~_has_teacher_edits(),
         )
         .values(
-            content=data.content,
+            status=DraftStatus.VERIFIED.value,
             ai_version=data.ai_version,
             evidence_bundle_id=data.evidence_bundle_id,
             version=DraftDocument.version + 1,
@@ -191,7 +257,152 @@ def _update_generated_draft(
         raise DraftVersionConflict(
             "초안이 없거나, 대상이 다르거나, 그 사이 수정·승인됐습니다. 기존 문서를 유지합니다."
         )
+    # 문장은 모두 바꿔 넣는다. 새 초안이 같은 sentence_id를 다른 문장에 쓸 수 있어서
+    # 문장별로 맞춰 갱신하지 않는다 (#75).
+    db.execute(delete(DraftSentence).where(DraftSentence.draft_id == data.draft_id))
+    db.add_all(_sentence_rows(data.draft_id, data))
+    db.flush()
     return db.get(DraftDocument, data.draft_id, populate_existing=True)
+
+
+def _has_teacher_edits() -> ColumnElement[bool]:
+    """교사가 이 초안에 한 번이라도 손댔는가 (#75 6-1, 임시 결정(정은)).
+
+    교사의 수정·승인·회수는 모두 RevisionLog에 남는다(documents/CLAUDE.md). 교사가 직접 쓴
+    초안은 생성이라 RevisionLog가 없어서, 교사가 쓴 문장(서버가 붙인 `t…`)이 있는지도 본다
+    (#139 리뷰). AI 문장 ID는 tools/generation/draft.py가 `s…`로 붙인다. DraftDocument를
+    조회·갱신하는 문장 안에서 상관 서브쿼리로 쓴다.
+    """
+    return or_(
+        exists().where(RevisionLog.draft_id == DraftDocument.id),
+        exists().where(
+            DraftSentence.draft_id == DraftDocument.id,
+            DraftSentence.sentence_id.startswith("t"),
+        ),
+    )
+
+
+def _sentence_rows(draft_id: UUID, data: DraftSaveInput) -> list[DraftSentence]:
+    return [
+        DraftSentence(
+            draft_id=draft_id,
+            sentence_id=sentence.sentence_id,
+            position=position,
+            text=sentence.text,
+        )
+        for position, sentence in enumerate(data.sentences)
+    ]
+
+
+def list_class_drafts(
+    db: Session,
+    *,
+    class_id: UUID,
+    center_id: UUID | None,
+    record_date: date | None,
+    doc_type: DocType | None,
+    published: bool,
+) -> ClassDraftListResponse:
+    """반·날짜별 원아 초안 상태 목록 (FR-06, FR-16, docs/api/documents.md).
+
+    - 접근 검사와 재원 원아 명단은 organization이 맡는다. 같은 어린이집 교사면 모든 반을
+      본다 (FR-25). 검수 권한이 있는 교사라 승인 전 초안의 미리보기도 싣는다 (H-1).
+    - 그날 초안이 있는 원아만 명단 순서대로 담는다. "자료 없음" 행은 FE가 명단과 비교해 만든다.
+    - published=True면 활성 게시 회차가 있는 문서만 담는다. 이때 record_date가 없으면
+      원아·문서 종류마다 가장 최근 게시본 1건만 담는다 (임시 결정(김진하)).
+    """
+    if record_date is None and not published:
+        raise RequestValidationFailed("record_date는 published=true일 때만 생략할 수 있습니다.")
+    roster = organization_service.list_class_children(db, class_id, center_id)
+    child_ids = [child.child_id for child in roster.items]
+    if not child_ids:
+        return ClassDraftListResponse(items=[])
+
+    active = _active_publications()
+    stmt = (
+        select(DraftDocument, active.c.published_at)
+        .outerjoin(active, active.c.draft_id == DraftDocument.id)
+        .where(DraftDocument.child_id.in_(child_ids))
+        .order_by(DraftDocument.record_date.desc())
+    )
+    if record_date is not None:
+        stmt = stmt.where(DraftDocument.record_date == record_date)
+    if doc_type is not None:
+        stmt = stmt.where(DraftDocument.doc_type == doc_type.value)
+    if published:
+        stmt = stmt.where(active.c.published_at.is_not(None))
+
+    # 날짜 최신순이라 원아·문서 종류마다 처음 나온 행이 가장 최근 문서다. 날짜를 정하면
+    # (child_id, doc_type, record_date)가 UNIQUE라 원래 한 건씩이다.
+    latest: dict[tuple[UUID, str], tuple[DraftDocument, datetime | None]] = {}
+    for draft, published_at in db.execute(stmt).tuples():
+        latest.setdefault((draft.child_id, draft.doc_type), (draft, published_at))
+    previews = _previews(db, [draft.id for draft, _ in latest.values()])
+
+    documents_by_child: dict[UUID, dict[str, DraftSummary]] = {}
+    for (child_id, draft_doc_type), (draft, published_at) in latest.items():
+        documents_by_child.setdefault(child_id, {})[draft_doc_type] = DraftSummary(
+            draft_id=draft.id,
+            status=DraftStatus(draft.status),
+            version=draft.version,
+            published_at=published_at,
+            preview=previews.get(draft.id, ""),
+        )
+    return ClassDraftListResponse(
+        items=[
+            ClassDraftItem(child_id=child_id, **documents_by_child[child_id])
+            for child_id in child_ids
+            if child_id in documents_by_child
+        ]
+    )
+
+
+def _active_publications() -> Subquery:
+    """초안별 활성 게시 회차(회수되지 않은 회차)의 게시 시각.
+
+    활성 회차가 여럿 남아 있어도 가장 최근 것만 본다 — 재게시는 새 회차만 활성으로
+    취급한다 (DocumentPublication).
+    """
+    return (
+        select(
+            DocumentPublication.draft_id,
+            func.max(DocumentPublication.published_at).label("published_at"),
+        )
+        .where(DocumentPublication.revoked_at.is_(None))
+        .group_by(DocumentPublication.draft_id)
+        .subquery()
+    )
+
+
+def _previews(db: Session, draft_ids: Sequence[UUID]) -> dict[UUID, str]:
+    if not draft_ids:
+        return {}
+    rows = db.execute(
+        select(DraftSentence.draft_id, DraftSentence.text)
+        .where(DraftSentence.draft_id.in_(draft_ids))
+        .order_by(DraftSentence.draft_id, DraftSentence.position)
+    )
+    sentences_by_draft: dict[UUID, list[str]] = {}
+    for draft_id, text in rows.tuples():
+        sentences_by_draft.setdefault(draft_id, []).append(text)
+    return {draft_id: _preview(texts) for draft_id, texts in sentences_by_draft.items()}
+
+
+def _preview(sentences: Sequence[str]) -> str:
+    """앞 문장부터 이어 붙여 100자를 넘기기 직전까지 쓴다. 문장 중간에서 자르지 않는다.
+
+    첫 문장부터 100자를 넘으면 그 문장만 100자에서 자른다 — 빈 미리보기를 내지 않으려는
+    것이다 (임시 결정(한상균), docs/api/documents.md의 preview는 제안 상태).
+    """
+    preview = ""
+    for sentence in sentences:
+        candidate = f"{preview} {sentence}" if preview else sentence
+        if len(candidate) > _PREVIEW_MAX_CHARS:
+            break
+        preview = candidate
+    if preview or not sentences:
+        return preview
+    return sentences[0][:_PREVIEW_MAX_CHARS]
 
 
 def get_draft_for_teacher(db: Session, *, draft_id: UUID, teacher_id: UUID) -> DraftDetailResponse:
@@ -210,7 +421,10 @@ def update_draft(
     # TODO(한상균): 버전 비교+갱신은 모듈 docstring의 원자적 UPDATE 패턴으로 (조회 후
     #   별도 비교 금지). rowcount==0이면 충돌(409). 통과 시 RevisionLog에
     #   action=edit, edit_method=manual, before_content(수정 전)·after_content(수정 후)
-    #   를 함께 남긴다(테크스펙 RevisionLog ERD).
+    #   를 함께 남긴다(테크스펙 RevisionLog ERD). RevisionLog 기록과 version 증가는 한
+    #   트랜잭션에서 한다 — save_draft()의 재생성 거부가 version 비교에 기댄다. RevisionLog를
+    #   빠뜨리면 get_draft_version·재생성 거부가 교사가 손댄 문서를 알아보지 못한다
+    #   (_has_teacher_edits, #140 리뷰).
     raise NotImplementedError("초안 수정 처리 구현 예정")
 
 
@@ -226,7 +440,10 @@ def approve_draft(
     #   원자적 UPDATE 패턴으로. 승인 차단 조건 확정 필요 — D(정은) 담당
     #   VerificationResult가 passed가 아니면 승인 거부할지, UnclassifiedItem
     #   (ref_type="draft_document")으로 갈지 협의 후 구현. 통과 시 RevisionLog에
-    #   action=approve를 남긴다(before/after_content는 비워도 된다).
+    #   action=approve를 남긴다(before/after_content는 비워도 된다). RevisionLog 기록과
+    #   version 증가는 한 트랜잭션에서 한다 — save_draft()의 재생성 거부가 version 비교에 기댄다.
+    #   RevisionLog를 빠뜨리면 get_draft_version·재생성 거부가 승인된 문서를 알아보지 못한다
+    #   (_has_teacher_edits, #140 리뷰).
     raise NotImplementedError("초안 승인 처리 구현 예정")
 
 
@@ -273,7 +490,9 @@ def revoke_publication(
     raise NotImplementedError("게시 회수 처리 구현 예정")
 
 
-def list_letters_for_parent(db: Session, *, parent_id: UUID) -> ParentLetterListResponse:
+def list_letters_for_parent(
+    db: Session, *, child_id: UUID, parent_id: UUID
+) -> ParentLetterListResponse:
     # TODO(한상균): 단일 게이트 — 활성 게시 회차(revoked_at is null) + 대상 원아 접근권한
     #   (B와 협의: parent_id ↔ child_id 관계 조회) 검사. 목록 조회는 first_viewed_at을
     #   건드리지 않는다 ("목록 조회는 상세 열람으로 취급하지 않는다").

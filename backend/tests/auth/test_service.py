@@ -270,3 +270,49 @@ def test_프로필을_통째로_로그에_남겨도_실명과_이메일이_찍�
 
     for profile, secrets in ((teacher, ("teacher@", "교사A")), (parent, ("parent@", "보호자A"))):
         assert all(secret not in repr(profile) for secret in secrets)
+
+
+# ---- 계정 만들기 (시드·가입용) ----
+
+
+def test_교사_계정은_이메일을_정규화하고_비밀번호는_해시로만_저장한다():
+    db = _profile_session()
+    center_id = uuid.uuid4()
+
+    teacher = service.create_teacher_account(
+        db,
+        email=" Teacher@Example.COM ",
+        password="good-password",
+        name="교사A",
+        center_id=center_id,
+    )
+    db.commit()
+
+    account = db.get(Account, teacher.account_id)
+    assert account.email == "teacher@example.com"
+    assert account.account_type == AccountType.TEACHER.value
+    assert "good-password" not in account.password_hash
+    assert teacher.center_id == center_id
+    assert service.authenticate(db, "teacher@example.com", "good-password").id == account.id
+
+
+def test_학부모_계정을_만들면_학부모로_로그인한다():
+    db = _profile_session()
+
+    parent = service.create_parent_account(
+        db, email="parent@example.com", password="good-password", name="보호자A"
+    )
+    db.commit()
+
+    account = service.authenticate(db, "parent@example.com", "good-password")
+    assert account.account_type == AccountType.PARENT.value
+    assert parent.account_id == account.id
+
+
+def test_있는_계정인지는_대소문자를_가리지_않는다():
+    db = _profile_session()
+    service.create_parent_account(db, email="parent@example.com", password="pw", name="보호자A")
+    db.commit()
+
+    assert service.account_exists(db, "PARENT@example.com") is True
+    assert service.account_exists(db, "nobody@example.com") is False
