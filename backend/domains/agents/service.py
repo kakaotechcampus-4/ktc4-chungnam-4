@@ -22,7 +22,7 @@ from core.exceptions import (
     MediaNotReady,
     NoTargetChildren,
 )
-from domains.agents.llm import call_claude
+from domains.agents.llm import call_claude, call_vision
 from domains.agents.models import (
     DraftDecisionLog,
     EvidenceBundle,
@@ -37,11 +37,14 @@ from domains.documents.schemas import DraftSaveInput, DraftSentenceInput
 from domains.media import service as media_service
 from domains.organization.service import ensure_class_access
 from prompts.generation.draft import DraftFeedback, build_draft_prompt
+from prompts.perception.photo_analysis import build_single_photo_prompt
 from prompts.verification.critic import build_critic_prompt
 from tools import contracts
 from tools.evidence.builder import build_evidence
 from tools.generation.draft import DraftResponseError, parse_draft_response
 from tools.generation.pseudonymize import pseudonymize_evidence, restore_names
+from tools.perception.photo import parse_single_photo_analysis
+from tools.perception.types import ChildLink, PerceptionResult, PerceptionStatus, PhotoInput
 from tools.verification.critic_result import parse_critic_response
 from tools.verification.decision import MAX_REGENERATIONS, decide
 from tools.verification.references import validate_references
@@ -435,6 +438,62 @@ def _cap_photos(media: list[media_service.MediaEvidence]) -> list[media_service.
     step = (len(photo_positions) - 1) / (MAX_PHOTOS_PER_CHILD - 1)
     kept = {photo_positions[round(i * step)] for i in range(MAX_PHOTOS_PER_CHILD)}
     return [item for i, item in enumerate(media) if item.type != "photo" or i in kept]
+
+
+# 사진 분석 응답이 형식을 어기면 그 사진만 이만큼 다시 부른다. 호출 예외는 여기서 잡지 않고
+# Celery task 재시도가 맡는다 (테크스펙 §오류 복구 '사진 분석 응답 오류', #155).
+PHOTO_RESPONSE_RETRIES = 1
+
+
+def _photo_inputs(media: Sequence[media_service.MediaEvidence]) -> list[PhotoInput]:
+    """근거 미디어 중 사진을 사진 분석 입력으로 바꾼다.
+
+    귀속(child_links)은 브라우저 얼굴 인식과 교사 확정을 거쳐 저장된 값을 그대로 옮긴다.
+    귀속이 없는 사진은 근거로 쓸 수 없어 뺀다 — collect_media_for_llm은 대상 원아에게 귀속된
+    미디어만 주므로 정상이라면 생기지 않는다.
+    """
+    return [
+        PhotoInput(
+            media_id=str(item.media_id),
+            captured_at=item.captured_at,
+            links=tuple(
+                ChildLink(child_id=str(link.child_id), method=link.method)
+                for link in item.child_links
+            ),
+        )
+        for item in media
+        if item.type == "photo" and item.child_links
+    ]
+
+
+def _analyze_photos(
+    session: Session, photos: Sequence[PhotoInput], *, target_child_id: str, record_date: date
+) -> list[tuple[PhotoInput, PerceptionResult]]:
+    """사진을 1장씩 분석해 (사진, 결과) 짝으로 돌려준다 (파이프라인 5단계, NFR-09).
+
+    결과는 tools.perception.merge.merge_perception_results에 그대로 넘긴다. 다시 불러도 응답
+    오류인 사진도 빼지 않고 RESPONSE_ERROR 결과로 둔다 — 빼면 사진이 모두 실패했을 때 근거가
+    없는 경우와 구분되지 않는다 (merge.py). 사진은 S3 서명 URL로 넘긴다(llm.call_vision).
+    LLM에는 이미지와 아이 수만 가고 media_id·child_id·이름은 가지 않는다 (H-2).
+    """
+    urls = {
+        signed.media_id: signed.url
+        for signed in media_service.get_signed_urls(
+            session, [UUID(photo.media_id) for photo in photos]
+        )
+    }
+    results = []
+    for photo in photos:
+        prompt = build_single_photo_prompt(photo)
+        for _ in range(PHOTO_RESPONSE_RETRIES + 1):
+            raw = call_vision(prompt.instructions, [urls[UUID(photo.media_id)]])
+            result = parse_single_photo_analysis(
+                raw, photo=photo, target_child_id=target_child_id, record_date=record_date
+            )
+            if result.status != PerceptionStatus.RESPONSE_ERROR:
+                break
+        results.append((photo, result))
+    return results
 
 
 class InsufficientEvidence(Exception):
