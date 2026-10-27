@@ -53,7 +53,7 @@ develop의 documents(PR #14)는 경로·요청·응답 모양만 있고, 서비�
 | 초안 `status` 값 | `draft`·`verified`·`approved`·`unclassified` | `draft`·`verified`·`approved`·`revoked` |
 | 반·날짜 초안 목록의 `unclassified` | 초안 없이 미분류로 끝난 원아의 사유 | 항상 `null`. agents가 미분류를 기록하지 않고(`_send_to_unclassified`가 빈 함수), `UnclassifiedItem`에 원아·날짜가 없음 |
 | 초안 상세 응답(승인·되돌리기 응답) | 위 모양 그대로, 근거·사진·작성 교사 이름이 채워짐 | 모양은 같음. 다른 도메인 조회 함수가 생기기 전까지 `evidences`·`selected_media_ids`·`media`는 빈 배열, `author_name`은 빈 문자열, `title`·`include_photos`는 `null`. `GET /drafts/{draft_id}`는 아직 구현 전 |
-| 초안 수정 요청 | `expected_version`, 바뀐 문장만 담은 `sentences[]`, `selected_media_ids` | `expected_version`, 본문 전체를 바꾸는 `content` |
+| 초안 수정 요청 | `expected_version`, 바뀐 문장만 담은 `sentences[]`, `added_sentences[]`, `selected_media_ids` | `selected_media_ids`만 아직 받지 않음(오면 `422 VALIDATION_ERROR`). 사진 컬럼 마이그레이션 PR에서 받음 |
 | 게시 요청 | `request_id`·`include_photos`·`items[]` | `request_id`·`items[]`(`include_photos` 없음) |
 | 게시 건별 결과(둘 다 `draft_id`·`status`·`published_at`·`error_code` 있음) | `child_id`·`parent_note_id`·`version` 있음 | `publication_id`·`round_number`·`revoke_deadline` 있음 |
 | 학부모 목록 쿼리 | `limit`·`cursor` | 없음 |
@@ -314,6 +314,8 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 ```
 
 - 응답 `200`: 상세와 같은 교사용 스키마를 돌려주고, `version`이 1 오릅니다. 바뀐 문장마다 `RevisionLog`(action=edit, edit_method=manual)를 남깁니다.
+  - 글자가 그대로인 문장은 바뀐 것으로 보지 않습니다(이력·"수정됨" 없음) — 임시 결정(한상균).
+  - 새 문장(`added_sentences`)도 한 문장에 한 줄씩 `RevisionLog`(action=edit, edit_method=manual, `before_content`는 `null`)를 남깁니다 — 임시 결정(한상균).
 - `added_sentences`는 기존 문장 **뒤에 이어 붙이고**, 서버가 `sentence_id`를 `t1`·`t2`…로 붙입니다(그 문서의 `t` 번호 최댓값 + 1 — 임시 결정(정은), 이슈 #75). 새 문장의 `evidences`는 빈 배열입니다(교사가 쓴 글이라 원문 근거가 없습니다).
 - **바뀐 문장의 `evidences`는 빈 배열로 돌려줍니다** — 임시 결정(김진하). 교사가 직접 고친 문장은 원문 발화가 그 문장을 뒷받침한다고 보장할 수 없어, 화면에서 근거를 보여 주지 않고 `is_edited_by_teacher: true`로 표시합니다(FR-07). 근거 행은 DB에 남깁니다 — 나중에 재검증할 때 대조할 원래 근거가 있어야 해서입니다(이슈 #75, 정은·김진하 확인). 고치지 않은 문장의 근거는 그대로입니다.
 
@@ -328,8 +330,9 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
   - `INVALID_SENTENCE_ID` (400) — 그 초안에 없는 `sentence_id`일 때
   - `MEDIA_NOT_LINKED_TO_CHILD` (400) — 이 원아에게 귀속되지 않은 사진일 때
   - `DRAFT_NOT_FOUND` (404) — 없는 초안일 때
-  - `CLASS_ACCESS_DENIED` (403) — 담당 반이 아닐 때
-- [확인 필요: 한상균] 자동저장마다 RevisionLog를 남기면 최근 5회 보관분이 자동저장 기록으로 채워집니다. 저장 시점과 로그 단위를 정해야 합니다. 문장 추가·삭제, 사진 선택 변경의 로그 기록, `unclassified` 초안 수정을 허용할지도 정해야 합니다.
+  - `CHILD_ACCESS_DENIED` (403) — 다른 어린이집 원아의 초안일 때. 원아 기준으로 검사합니다 — 임시 결정(한상균), #156
+  - `VALIDATION_ERROR` (422) — 바꿀 것이 없거나, 같은 `sentence_id`가 두 번 오거나, 아직 받지 않는 `selected_media_ids`가 올 때
+- [확인 필요: 한상균] 자동저장마다 RevisionLog를 남기면 최근 5회 보관분이 자동저장 기록으로 채워집니다. 저장 시점과 로그 단위를 정해야 합니다. 문장 삭제, 사진 선택 변경의 로그 기록, `unclassified` 초안 수정을 허용할지도 정해야 합니다(문장 추가 로그는 위에서 정함).
 
 ### `POST /api/v1/drafts/{draft_id}/approve` — 교사용: 초안 승인(H-1 승인 게이트)
 
