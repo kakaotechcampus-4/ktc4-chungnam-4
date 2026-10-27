@@ -13,6 +13,7 @@ import pytest
         "domains.agents.models",
         "domains.documents.models",
         "domains.audit.models",
+        "domains.auth.models",
         "domains.face.models",
         "domains.media.models",
         "domains.organization.models",

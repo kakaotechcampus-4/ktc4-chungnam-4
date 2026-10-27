@@ -57,7 +57,7 @@ class Teacher(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     account_id = Column(UUID(as_uuid=True), ForeignKey("accounts.id"), nullable=False, unique=True)
-    # organization.Center 참조 — organization/models.py가 아직 없어 FK 제약은 걸지 않습니다.
+    # organization.Center 참조 — 도메인 간에는 FK 제약을 걸지 않습니다(organization/models.py).
     # 가입 코드로 소속을 확정하기 전에는 비어 있습니다 (FR-23, FR-24).
     center_id = Column(UUID(as_uuid=True), nullable=True)
     name = Column(String, nullable=False)
