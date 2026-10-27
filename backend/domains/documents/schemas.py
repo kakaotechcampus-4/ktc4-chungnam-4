@@ -114,26 +114,60 @@ class ClassDraftListResponse(BaseModel):
     next_cursor: str | None = None
 
 
+class EvidenceView(BaseModel):
+    """문장 하나를 뒷받침하는 근거. 사진·계획 근거는 start_ms·end_ms가 없다."""
+
+    evidence_id: str
+    source_type: str
+    text: str
+    media_id: UUID | None
+    start_ms: int | None
+    end_ms: int | None
+    captured_at: datetime | None
+
+
+class DraftSentenceView(BaseModel):
+    sentence_id: str
+    text: str
+    is_edited_by_teacher: bool
+    # 교사가 고친 문장·새로 쓴 문장은 빈 배열이다 (docs/api/documents.md §PATCH).
+    evidences: list[EvidenceView]
+
+
+class MediaUrl(BaseModel):
+    """서명 URL. 만료되면 GET /api/v1/media/{media_id}로 다시 받는다."""
+
+    media_id: UUID
+    type: str
+    url: str
+    url_expires_at: datetime
+
+
 class DraftDetailResponse(BaseModel):
-    """교사 초안 상세 조회 응답. 미승인 상태 본문도 포함한다 (H-1 — 검수 권한 교사 한정)."""
+    """교사용 초안 상세. 승인 전 본문도 싣는다 (H-1 — 검수 권한 교사 한정).
 
-    model_config = ConfigDict(from_attributes=True)
+    수정·승인·승인 되돌리기도 이 모양으로 돌려준다 (docs/api/documents.md). 학부모 응답과
+    스키마를 나눈다 — status·version·근거는 교사에게만 보인다.
+    """
 
-    id: UUID
+    draft_id: UUID
     child_id: UUID
-    author_teacher_id: UUID
     doc_type: DocType
     record_date: date
     status: DraftStatus
-    # TODO(한상균): 본문은 DraftSentence에 문장 단위로 저장한다(#75). 교사 상세를 구현할 때
-    #   docs/api/documents.md §GET /api/v1/drafts/{draft_id}의 sentences[]로 바꾼다.
-    content: str
-    ai_version: int
     version: int
-    evidence_bundle_id: UUID | None
-    created_at: datetime
-    updated_at: datetime
+    # AI가 제목을 만들지 않아 지금은 늘 null이다.
+    title: str | None
+    sentences: list[DraftSentenceView]
+    selected_media_ids: list[UUID]
+    media: list[MediaUrl]
+    author_teacher_id: UUID
+    author_name: str
     approved_at: datetime | None
+    # 활성 게시 회차의 게시 시각. 게시 전이면 null이다 (승인·게시 분리).
+    published_at: datetime | None
+    include_photos: bool | None
+    updated_at: datetime
 
 
 class DraftUpdateRequest(BaseModel):
@@ -148,21 +182,22 @@ class DraftUpdateRequest(BaseModel):
 
 
 class ApproveRequest(BaseModel):
-    """POST /drafts/{draft_id}/approve.
+    """POST /api/v1/drafts/{draft_id}/approve.
 
-    review_confirmed는 "지금 화면에 보이는 최신 본문을 확인하고 승인한다"는
-    교사의 명시적 확인이다 — 화면을 안 새로고침한 채 오래된 내용을 승인 처리하는
-    것을 막는다. expected_version과 별개로 항상 True를 요구한다.
+    reviewed는 "지금 화면에 보이는 최신 본문을 확인하고 승인한다"는 교사의 표시다. 화면을
+    새로고침하지 않은 채 오래된 내용을 승인하는 것을 막는다. expected_version과 별개로 항상
+    True를 요구하고, 아니면 422다. 이전 이름 review_confirmed는 용어표의 금지어(confirm)라
+    API 문서 이름으로 바꿨다.
     """
 
     expected_version: int = Field(ge=1)
-    review_confirmed: Literal[True]
+    reviewed: Literal[True]
 
 
-class ApproveResponse(BaseModel):
-    id: UUID
-    status: DraftStatus
-    version: int
+class ReopenRequest(BaseModel):
+    """POST /api/v1/drafts/{draft_id}/reopen. 게시 전 승인을 되돌린다 (임시 결정(김진하))."""
+
+    expected_version: int = Field(ge=1)
 
 
 class PublishItem(BaseModel):

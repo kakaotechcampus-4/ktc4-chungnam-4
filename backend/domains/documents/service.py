@@ -82,28 +82,37 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, Subquery, delete, exists, func, or_, select, update
+from sqlalchemy import ColumnElement, Exists, Subquery, delete, exists, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from core.exceptions import DraftVersionConflict, RequestValidationFailed
+from core.exceptions import (
+    AidamError,
+    DraftAlreadyPublished,
+    DraftNotApprovable,
+    DraftNotApproved,
+    DraftNotFound,
+    DraftVersionConflict,
+    RequestValidationFailed,
+)
 from domains.documents.models import (
     DocType,
     DocumentPublication,
     DraftDocument,
     DraftSentence,
     DraftStatus,
+    RevisionAction,
     RevisionLog,
 )
 from domains.documents.schemas import (
-    ApproveResponse,
     ClassDraftItem,
     ClassDraftListResponse,
     DraftDetailResponse,
     DraftSaveInput,
+    DraftSentenceView,
     DraftSummary,
     DraftVersionInfo,
     ParentLetterDetailResponse,
@@ -433,18 +442,165 @@ def approve_draft(
     *,
     draft_id: UUID,
     teacher_id: UUID,
+    center_id: UUID | None,
     expected_version: int,
-    review_confirmed: bool,
-) -> ApproveResponse:
-    # TODO(한상균): 버전 비교+갱신(status=APPROVED, approved_at=now)은 모듈 docstring의
-    #   원자적 UPDATE 패턴으로. 승인 차단 조건 확정 필요 — D(정은) 담당
-    #   VerificationResult가 passed가 아니면 승인 거부할지, UnclassifiedItem
-    #   (ref_type="draft_document")으로 갈지 협의 후 구현. 통과 시 RevisionLog에
-    #   action=approve를 남긴다(before/after_content는 비워도 된다). RevisionLog 기록과
-    #   version 증가는 한 트랜잭션에서 한다 — save_draft()의 재생성 거부가 version 비교에 기댄다.
-    #   RevisionLog를 빠뜨리면 get_draft_version·재생성 거부가 승인된 문서를 알아보지 못한다
-    #   (_has_teacher_edits, #140 리뷰).
-    raise NotImplementedError("초안 승인 처리 구현 예정")
+) -> DraftDetailResponse:
+    """교사가 검토를 마친 초안을 승인한다 (FR-08, H-1 승인 게이트).
+
+    검토 대기(verified)인 초안만 승인한다. 생성 중(draft)·이미 승인된 초안은 409다.
+    승인만으로는 학부모에게 보이지 않는다 — 게시는 따로 한다(승인·게시 분리).
+
+    TODO(한상균): 승인 차단 조건(DraftDecisionLog 등)은 정은과 협의 전이다. 지금은 agents가
+      검증을 통과한 초안만 verified로 저장하므로 status 검사로 대신한다.
+    """
+    _draft_for_teacher(db, draft_id, center_id)
+    _change_status(
+        db,
+        draft_id,
+        teacher_id=teacher_id,
+        expected_version=expected_version,
+        from_status=DraftStatus.VERIFIED,
+        to_status=DraftStatus.APPROVED,
+        action=RevisionAction.APPROVE,
+        wrong_status=DraftNotApprovable("검토 대기 중인 초안만 승인할 수 있습니다."),
+    )
+    return _teacher_detail(db, draft_id)
+
+
+def reopen_draft(
+    db: Session,
+    *,
+    draft_id: UUID,
+    teacher_id: UUID,
+    center_id: UUID | None,
+    expected_version: int,
+) -> DraftDetailResponse:
+    """게시 전 승인을 되돌려 다시 검토하게 한다 (임시 결정(김진하), docs/api/documents.md).
+
+    학부모에게 게시된 초안은 되돌리지 않는다 — 이미 나갔으므로 회수가 따로 필요하다 (H-1).
+    """
+    _draft_for_teacher(db, draft_id, center_id)
+    _change_status(
+        db,
+        draft_id,
+        teacher_id=teacher_id,
+        expected_version=expected_version,
+        from_status=DraftStatus.APPROVED,
+        to_status=DraftStatus.VERIFIED,
+        action=RevisionAction.REOPEN,
+        wrong_status=DraftNotApproved("승인된 초안만 되돌릴 수 있습니다."),
+        unless_exists=(
+            exists().where(
+                DocumentPublication.draft_id == DraftDocument.id,
+                DocumentPublication.revoked_at.is_(None),
+            ),
+            DraftAlreadyPublished("게시한 알림장은 회수한 뒤에 고칠 수 있습니다."),
+        ),
+    )
+    return _teacher_detail(db, draft_id)
+
+
+def _draft_for_teacher(db: Session, draft_id: UUID, center_id: UUID | None) -> DraftDocument:
+    """교사가 이 초안을 검수해도 되는지 확인한다 — 같은 어린이집 원아의 초안이어야 한다 (FR-25).
+
+    TODO(한상균): 검사 위치는 #156(권한 검사 위치) 결정에 맞춘다.
+    """
+    draft = db.get(DraftDocument, draft_id)
+    if draft is None:
+        raise DraftNotFound("초안을 찾을 수 없습니다.")
+    organization_service.ensure_child_access(db, draft.child_id, center_id)
+    return draft
+
+
+def _change_status(
+    db: Session,
+    draft_id: UUID,
+    *,
+    teacher_id: UUID,
+    expected_version: int,
+    from_status: DraftStatus,
+    to_status: DraftStatus,
+    action: RevisionAction,
+    wrong_status: AidamError,
+    unless_exists: tuple[Exists, AidamError] | None = None,
+) -> None:
+    """초안 상태를 바꾸는 유일한 곳 (documents/CLAUDE.md "상태 전이는 한 함수에서만").
+
+    비교와 갱신을 UPDATE 한 문장으로 묶고(모듈 docstring), 같은 트랜잭션에서 RevisionLog를
+    남긴 뒤 커밋한다. 둘이 함께여야 재생성 거부·get_draft_version이 교사가 손댄 문서를
+    알아본다(_has_teacher_edits). 실패하면 이유를 다시 읽어 알맞은 409로 바꾼다 — 읽기만
+    하므로 판단과 쓰기가 갈라지지 않는다.
+    """
+    conditions = [
+        DraftDocument.id == draft_id,
+        DraftDocument.version == expected_version,
+        DraftDocument.status == from_status.value,
+    ]
+    if unless_exists is not None:
+        conditions.append(~unless_exists[0])
+    approved_at = datetime.now(UTC) if to_status == DraftStatus.APPROVED else None
+    result = db.execute(
+        update(DraftDocument)
+        .where(*conditions)
+        .values(status=to_status.value, approved_at=approved_at, version=DraftDocument.version + 1)
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount == 0:
+        db.rollback()
+        current = db.get(DraftDocument, draft_id, populate_existing=True)
+        if current.version != expected_version:
+            raise DraftVersionConflict(
+                "그 사이 초안이 바뀌었습니다. 새로 불러온 뒤 다시 해 주세요."
+            )
+        if current.status != from_status.value or unless_exists is None:
+            raise wrong_status
+        raise unless_exists[1]
+    db.add(RevisionLog(draft_id=draft_id, editor_id=teacher_id, action=action.value))
+    db.commit()
+
+
+def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
+    """교사용 상세 응답. 다른 도메인이 가진 값은 조회 함수가 생기기 전까지 비워 둔다.
+
+    TODO(한상균): 근거(agents, 정은)·작성 교사 이름(auth, 엄태은)·선택 사진과 서명 URL
+      (media, 김동건 + 사진 컬럼 PR)은 함수가 생기면 채운다. 그전까지 evidences·
+      selected_media_ids·media는 빈 배열, author_name은 빈 문자열이다 — FE 타입이 문자열이라
+      null을 보내지 않는다. include_photos는 게시 때 정해져 게시 전에는 null이다.
+    """
+    draft = db.get(DraftDocument, draft_id, populate_existing=True)
+    sentences = db.scalars(
+        select(DraftSentence)
+        .where(DraftSentence.draft_id == draft_id)
+        .order_by(DraftSentence.position)
+    )
+    active = _active_publications()
+    published_at = db.scalar(select(active.c.published_at).where(active.c.draft_id == draft_id))
+    return DraftDetailResponse(
+        draft_id=draft.id,
+        child_id=draft.child_id,
+        doc_type=DocType(draft.doc_type),
+        record_date=draft.record_date,
+        status=DraftStatus(draft.status),
+        version=draft.version,
+        title=None,
+        sentences=[
+            DraftSentenceView(
+                sentence_id=sentence.sentence_id,
+                text=sentence.text,
+                is_edited_by_teacher=sentence.is_edited_by_teacher,
+                evidences=[],
+            )
+            for sentence in sentences
+        ],
+        selected_media_ids=[],
+        media=[],
+        author_teacher_id=draft.author_teacher_id,
+        author_name="",
+        approved_at=draft.approved_at,
+        published_at=published_at,
+        include_photos=None,
+        updated_at=draft.updated_at,
+    )
 
 
 def publish_drafts(

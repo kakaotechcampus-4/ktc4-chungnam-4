@@ -19,7 +19,6 @@ from domains.documents import service
 from domains.documents.models import DocType
 from domains.documents.schemas import (
     ApproveRequest,
-    ApproveResponse,
     ClassDraftListResponse,
     DraftDetailResponse,
     DraftUpdateRequest,
@@ -27,6 +26,7 @@ from domains.documents.schemas import (
     ParentLetterListResponse,
     PublishRequest,
     PublishResponse,
+    ReopenRequest,
     RevokeRequest,
     RevokeResponse,
 )
@@ -86,19 +86,35 @@ def update_draft(
     )
 
 
-@router.post("/drafts/{draft_id}/approve", response_model=ApproveResponse)
+@router.post("/drafts/{draft_id}/approve", response_model=DraftDetailResponse)
 def approve_draft(
     draft_id: UUID,
     body: ApproveRequest,
     db: Annotated[Session, Depends(get_db)],
-    teacher_id: Annotated[UUID, Depends(get_current_teacher_id)],
-) -> ApproveResponse:
+    teacher: CurrentTeacher,
+) -> DraftDetailResponse:
     return service.approve_draft(
         db,
         draft_id=draft_id,
-        teacher_id=teacher_id,
+        teacher_id=teacher.teacher_id,
+        center_id=teacher.center_id,
         expected_version=body.expected_version,
-        review_confirmed=body.review_confirmed,
+    )
+
+
+@router.post("/drafts/{draft_id}/reopen", response_model=DraftDetailResponse)
+def reopen_draft(
+    draft_id: UUID,
+    body: ReopenRequest,
+    db: Annotated[Session, Depends(get_db)],
+    teacher: CurrentTeacher,
+) -> DraftDetailResponse:
+    return service.reopen_draft(
+        db,
+        draft_id=draft_id,
+        teacher_id=teacher.teacher_id,
+        center_id=teacher.center_id,
+        expected_version=body.expected_version,
     )
 
 

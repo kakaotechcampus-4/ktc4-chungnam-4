@@ -63,6 +63,34 @@ class DraftVersionConflict(AidamError):
     status_code = 409
 
 
+class DraftNotFound(AidamError):
+    """없는 초안에 접근하려 한 경우."""
+
+    code = "DRAFT_NOT_FOUND"
+    status_code = 404
+
+
+class DraftNotApprovable(AidamError):
+    """검토 대기(`verified`)가 아닌 초안을 승인하려 한 경우 (docs/api/documents.md)."""
+
+    code = "DRAFT_NOT_APPROVABLE"
+    status_code = 409
+
+
+class DraftNotApproved(AidamError):
+    """승인되지 않은 초안의 승인을 되돌리려 한 경우."""
+
+    code = "DRAFT_NOT_APPROVED"
+    status_code = 409
+
+
+class DraftAlreadyPublished(AidamError):
+    """학부모에게 게시된 초안의 승인을 되돌리려 한 경우. 회수가 따로 필요하다 (H-1)."""
+
+    code = "DRAFT_ALREADY_PUBLISHED"
+    status_code = 409
+
+
 class InvalidCredentials(AidamError):
     """이메일이 없거나 비밀번호가 틀렸습니다.
 
