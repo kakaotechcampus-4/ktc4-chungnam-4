@@ -11,6 +11,7 @@ import {
   publishParentNotes,
 } from "@/api/documents";
 import {
+  type ChildLinksInput,
   completeUpload,
   faceEmbeddingsQueryOptions,
   requestUploadUrls,
@@ -54,7 +55,7 @@ function useScenario(name: string) {
   window.history.replaceState(null, "", `/?mock=${name}`);
 }
 
-async function uploadPhoto(n: number) {
+async function uploadPhoto(n: number, attribution: ChildLinksInput) {
   const clientPhotoId = fixtureId("clientPhoto", n);
   const { items } = await requestUploadUrls({
     class_id: CLASS_ID,
@@ -71,6 +72,7 @@ async function uploadPhoto(n: number) {
     type: "photo",
     captured_at: `${kstToday()}T01:00:00Z`,
     model_version: "buffalo_l-1.0",
+    attribution,
   });
 }
 
@@ -87,20 +89,13 @@ describe("핵심 흐름 목", () => {
     const client = queryClient();
     const today = kstToday();
 
-    // 1. 업로드 → 귀속 저장. 귀속 전 llm_allowed는 false이고, ③ 미동의 원아의 사진은 교사가 체크해도 false입니다.
-    const doyunPhoto = await uploadPhoto(900);
-    const yerinPhoto = await uploadPhoto(901);
-    expect(doyunPhoto).toMatchObject({ llm_allowed: false, attributed_at: null });
-    const doyunLinks = await saveChildLinks(doyunPhoto.media_id, {
-      llm_allowed: true,
-      child_links: [manual(DOYUN)],
-    });
-    const yerinLinks = await saveChildLinks(yerinPhoto.media_id, {
-      llm_allowed: true,
-      child_links: [manual(YERIN)],
-    });
-    expect(doyunLinks.llm_allowed).toBe(true);
-    expect(yerinLinks.llm_allowed).toBe(false);
+    // 1. 업로드(사진은 완료 통지에 귀속 포함). ③ 미동의 원아의 사진은 교사가 체크해도 llm_allowed가 false입니다.
+    const doyunPhoto = await uploadPhoto(900, { llm_allowed: true, child_links: [manual(DOYUN)] });
+    const yerinPhoto = await uploadPhoto(901, { llm_allowed: true, child_links: [manual(YERIN)] });
+    // 서버처럼 교사 값을 그대로 저장합니다. ③ 미동의 원아 사진은 근거를 모을 때 빠집니다(H-2).
+    expect(doyunPhoto).toMatchObject({ llm_allowed: true, child_links: [manual(DOYUN)] });
+    expect(doyunPhoto.attributed_at).not.toBeNull();
+    expect(yerinPhoto.llm_allowed).toBe(true);
 
     // 2. Job → 폴링. 근거가 있는 원아만 초안이 생기고, 근거가 없으면 미분류로 끝납니다.
     const started = await createJob(CLASS_ID, {
@@ -345,17 +340,40 @@ describe("목의 판정 규칙", () => {
   });
 
   it("귀속을 저장하지 않은 자료로는 초안 생성을 시작할 수 없다", async () => {
-    const photo = await uploadPhoto(910);
+    // 사진은 완료 통지에 귀속이 들어가므로, 귀속 전 상태가 될 수 있는 것은 영상·음성입니다.
+    const clientPhotoId = fixtureId("clientPhoto", 910);
+    const [item] = (
+      await requestUploadUrls({
+        class_id: CLASS_ID,
+        items: [
+          {
+            client_photo_id: clientPhotoId,
+            type: "voice_memo",
+            content_type: "audio/mp4",
+            size_bytes: 3,
+          },
+        ],
+      })
+    ).items;
+    if (!item) throw new Error("업로드 URL이 오지 않았습니다.");
+    await uploadFile(item, FILE_BYTES);
+    const voice = await completeUpload({
+      client_photo_id: clientPhotoId,
+      class_id: CLASS_ID,
+      type: "voice_memo",
+      captured_at: `${kstToday()}T01:00:00Z`,
+      model_version: null,
+    });
     await expect(
       createJob(CLASS_ID, {
         request_id: fixtureId("request", 910),
         record_date: kstToday(),
-        media_ids: [photo.media_id],
+        media_ids: [voice.media_id],
       }),
     ).rejects.toMatchObject({
       status: 409,
       code: "MEDIA_NOT_READY",
-      detail: { media_ids: [photo.media_id] },
+      detail: { media_ids: [voice.media_id] },
     });
   });
 
@@ -379,6 +397,7 @@ describe("목의 판정 규칙", () => {
         type: "photo",
         captured_at: `${kstToday()}T01:00:00Z`,
         model_version: null,
+        attribution: { llm_allowed: true, child_links: [manual(DOYUN)] },
       }),
     ).rejects.toMatchObject({ status: 409, code: "MEDIA_UPLOAD_NOT_FOUND" });
     await expect(
@@ -431,6 +450,7 @@ describe("목의 판정 규칙", () => {
       type: "photo" as const,
       captured_at: `${kstToday()}T01:00:00Z`,
       model_version: null,
+      attribution: { llm_allowed: true, child_links: [manual(DOYUN)] },
     };
     const registered = await completeUpload(complete);
     // 응답을 못 받고 다시 보내도 같은 파일이고, URL을 다시 청하면 media_id가 와서 올리지 않습니다.
@@ -439,6 +459,72 @@ describe("목의 판정 규칙", () => {
       media_id: registered.media_id,
       upload_url: null,
     });
+  });
+
+  it("사진은 완료 통지에 귀속이 필요하고, 영상·음성은 귀속을 child-links로 따로 저장한다", async () => {
+    const upload = async (n: number, type: "photo" | "voice_memo") => {
+      const clientPhotoId = fixtureId("clientPhoto", n);
+      const [item] = (
+        await requestUploadUrls({
+          class_id: CLASS_ID,
+          items: [
+            {
+              client_photo_id: clientPhotoId,
+              type,
+              content_type: type === "photo" ? "image/jpeg" : "audio/mp4",
+              size_bytes: 3,
+            },
+          ],
+        })
+      ).items;
+      if (!item) throw new Error("업로드 URL이 오지 않았습니다.");
+      await uploadFile(item, FILE_BYTES);
+      return {
+        client_photo_id: clientPhotoId,
+        class_id: CLASS_ID,
+        type,
+        captured_at: `${kstToday()}T01:00:00Z`,
+        model_version: null,
+      };
+    };
+    const attribution = { llm_allowed: true, child_links: [manual(DOYUN)] };
+
+    const photo = await upload(950, "photo");
+    await expect(completeUpload(photo)).rejects.toMatchObject({ status: 422 });
+    const voice = await upload(951, "voice_memo");
+    await expect(completeUpload({ ...voice, attribution })).rejects.toMatchObject({ status: 422 });
+
+    const registered = await completeUpload(voice);
+    expect(registered).toMatchObject({ llm_allowed: false, attributed_at: null });
+    expect((await saveChildLinks(registered.media_id, attribution)).llm_allowed).toBe(true);
+  });
+
+  it("등록된 사진에 다른 귀속으로 완료 통지를 다시 보내면 귀속을 전체 교체한다", async () => {
+    const first = await uploadPhoto(960, { llm_allowed: true, child_links: [manual(DOYUN)] });
+    const again = await completeUpload({
+      client_photo_id: fixtureId("clientPhoto", 960),
+      class_id: CLASS_ID,
+      type: "photo",
+      captured_at: `${kstToday()}T01:00:00Z`,
+      model_version: "buffalo_l-1.0",
+      attribution: { llm_allowed: false, child_links: [manual(YERIN)] },
+    });
+    expect(again.media_id).toBe(first.media_id);
+    expect(again).toMatchObject({ llm_allowed: false, child_links: [manual(YERIN)] });
+  });
+
+  it("업로드 URL은 서버 상한(10개)에 맞춰 나눠 받고 요청 순서대로 합친다", async () => {
+    const ids = Array.from({ length: 11 }, (_, i) => fixtureId("clientPhoto", 970 + i));
+    const { items } = await requestUploadUrls({
+      class_id: CLASS_ID,
+      items: ids.map((id) => ({
+        client_photo_id: id,
+        type: "photo" as const,
+        content_type: "image/jpeg",
+        size_bytes: 3,
+      })),
+    });
+    expect(items.map((item) => item.client_photo_id)).toEqual(ids);
   });
 
   it("얼굴 임베딩은 ③ 동의 원아만 준다", async () => {
@@ -450,8 +536,7 @@ describe("목의 판정 규칙", () => {
 
   it("생성이 실패하면 그 원아와 작업이 failed로 끝난다", async () => {
     useScenario("agents.job-fails");
-    const photo = await uploadPhoto(940);
-    await saveChildLinks(photo.media_id, { llm_allowed: true, child_links: [manual(DOYUN)] });
+    const photo = await uploadPhoto(940, { llm_allowed: true, child_links: [manual(DOYUN)] });
     const started = await createJob(CLASS_ID, {
       request_id: fixtureId("request", 940),
       record_date: kstToday(),
