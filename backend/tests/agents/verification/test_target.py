@@ -20,7 +20,7 @@ def _document(sentences: list[DraftSentence]) -> DraftDocument:
 
 def test_다른_원아의_근거를_참조하면_실패한다():
     document = _document(
-        [DraftSentence(sentence_id="s_01", text="그림을 그렸다", evidence_ids=["ev_002"])]
+        [DraftSentence(sentence_id="s1", text="그림을 그렸다", evidence_ids=["ev_002"])]
     )
 
     issues = validate_target(document, EVIDENCE_BY_ID, request=REQUEST)
@@ -30,7 +30,7 @@ def test_다른_원아의_근거를_참조하면_실패한다():
 
 def test_대상_미확인_근거를_참조하면_실패한다():
     document = _document(
-        [DraftSentence(sentence_id="s_01", text="미끄럼틀을 탔다", evidence_ids=["ev_004"])]
+        [DraftSentence(sentence_id="s1", text="미끄럼틀을 탔다", evidence_ids=["ev_004"])]
     )
 
     issues = validate_target(document, EVIDENCE_BY_ID, request=REQUEST)
@@ -40,7 +40,7 @@ def test_대상_미확인_근거를_참조하면_실패한다():
 
 def test_다른_날짜의_근거를_참조하면_실패한다():
     document = _document(
-        [DraftSentence(sentence_id="s_01", text="그림책을 봤다", evidence_ids=["ev_005"])]
+        [DraftSentence(sentence_id="s1", text="그림책을 봤다", evidence_ids=["ev_005"])]
     )
 
     issues = validate_target(document, EVIDENCE_BY_ID, request=REQUEST)
@@ -50,7 +50,7 @@ def test_다른_날짜의_근거를_참조하면_실패한다():
 
 def test_같은_원아_같은_날짜_근거는_통과한다():
     document = _document(
-        [DraftSentence(sentence_id="s_01", text="탑을 만들었다", evidence_ids=["ev_001"])]
+        [DraftSentence(sentence_id="s1", text="탑을 만들었다", evidence_ids=["ev_001"])]
     )
 
     assert validate_target(document, EVIDENCE_BY_ID, request=REQUEST) == []
@@ -59,7 +59,7 @@ def test_같은_원아_같은_날짜_근거는_통과한다():
 def test_공동_활동_근거는_대상에_포함되면_통과한다():
     # 개별 행동으로 확대 해석했는지는 Critic이 판단한다 — target.py는 대상 포함 여부만 본다.
     document = _document(
-        [DraftSentence(sentence_id="s_01", text="함께 블록을 정리했다", evidence_ids=["ev_003"])]
+        [DraftSentence(sentence_id="s1", text="함께 블록을 정리했다", evidence_ids=["ev_003"])]
     )
 
     assert validate_target(document, EVIDENCE_BY_ID, request=REQUEST) == []

@@ -6,7 +6,7 @@
 
 | 파일 | 내용 |
 | --- | --- |
-| `models.py` | `DraftDocument`, `RevisionLog`, `UnclassifiedItem`, `Notice` |
+| `models.py` | `DraftDocument`, `DraftSentence`(본문 문장), `RevisionLog`, `UnclassifiedItem`, `Notice` |
 | `schemas.py` | 검토·수정·승인 요청, 교사용/학부모용 응답 |
 | `router.py` | `/documents` 엔드포인트 |
 | `service.py` | 교사 검토·수정·승인·회수, 학부모 열람 |

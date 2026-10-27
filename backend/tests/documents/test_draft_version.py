@@ -9,6 +9,7 @@ from core.base import Base
 from domains.documents.models import (
     DocType,
     DraftDocument,
+    DraftSentence,
     DraftStatus,
     RevisionAction,
     RevisionLog,
@@ -20,7 +21,10 @@ RECORD_DATE = date(2026, 9, 29)
 
 def _session() -> Session:
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
-    Base.metadata.create_all(engine, tables=[DraftDocument.__table__, RevisionLog.__table__])
+    Base.metadata.create_all(
+        engine,
+        tables=[DraftDocument.__table__, DraftSentence.__table__, RevisionLog.__table__],
+    )
     return Session(engine)
 
 

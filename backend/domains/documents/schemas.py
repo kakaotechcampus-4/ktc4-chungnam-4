@@ -10,11 +10,21 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from domains.documents.models import DocType, DraftStatus
 
 # ---- agents → documents (API 아님) ----
+
+
+class DraftSentenceInput(BaseModel):
+    """초안 문장 하나. sentence_id는 contracts.DraftSentence.sentence_id를 그대로 받는다."""
+
+    # 검증 오류 문자열에 문장 본문을 싣지 않는다 — 본문에는 원아 이름이 들어 있다 (H-4).
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    sentence_id: str = Field(min_length=1)
+    text: str = Field(min_length=1)
 
 
 class DraftSaveInput(BaseModel):
@@ -27,18 +37,28 @@ class DraftSaveInput(BaseModel):
       최초 ID를 누가 언제 만드는지는 정은님 확인 전이라 양쪽을 다 받는다 (#35).
     - ai_version: contracts.DraftDocument.version(AI 생성 회차). 잠금용
       DraftDocument.version과 다르다.
-    - content: 문장을 합친 본문. 문장 단위(sentences[]) 저장 형태는 미정이다
-      (docs/api/documents.md "본문 저장 형태").
+    - sentences: agents가 만든 문장 단위·순서 그대로 받는다. 합치지 않는다 (#75).
     """
+
+    model_config = ConfigDict(hide_input_in_errors=True)
 
     draft_id: UUID | None = None
     child_id: UUID
     author_teacher_id: UUID
     doc_type: DocType
     record_date: date
-    content: str = Field(min_length=1)
+    sentences: list[DraftSentenceInput] = Field(min_length=1)
     ai_version: int = Field(ge=1)
     evidence_bundle_id: UUID | None = None
+
+    @field_validator("sentences")
+    @classmethod
+    def _unique_sentence_ids(cls, sentences: list[DraftSentenceInput]) -> list[DraftSentenceInput]:
+        # 같은 ID가 두 번 오면 근거가 어느 문장을 가리키는지 정할 수 없다.
+        ids = [sentence.sentence_id for sentence in sentences]
+        if len(ids) != len(set(ids)):
+            raise ValueError("duplicate sentence_id")
+        return sentences
 
 
 class DraftVersionInfo(BaseModel):
@@ -72,6 +92,8 @@ class DraftDetailResponse(BaseModel):
     doc_type: DocType
     record_date: date
     status: DraftStatus
+    # TODO(한상균): 본문은 DraftSentence에 문장 단위로 저장한다(#75). 교사 상세를 구현할 때
+    #   docs/api/documents.md §GET /api/v1/drafts/{draft_id}의 sentences[]로 바꾼다.
     content: str
     ai_version: int
     version: int

@@ -3,7 +3,9 @@ import type {
   DraftDetail,
   DraftStatus,
   DraftSummary,
+  Evidence,
   PublicationResult,
+  Sentence,
 } from "@/types/api-draft/documents";
 import type { MediaUrl } from "@/types/api-draft/media";
 
@@ -11,20 +13,18 @@ import {
   canApprove,
   canReopen,
   didSendPhotos,
-  type DraftSummaryView,
-  type DraftView,
   isNotReady,
   isPublishTarget,
   needsReview,
-  type RosterState,
   isPublished,
   selectedPhotos,
   sentPhotos,
   toClassDraftView,
-  toDraftState,
+  toDraftStatusView,
   toDraftView,
   toPublicationResultView,
 } from "./documents-adapter";
+import type { DraftSummaryView, DraftView, RosterStatusView } from "./documents-view";
 
 const PHOTO: MediaUrl = {
   media_id: fixtureId("media", 41),
@@ -44,7 +44,7 @@ function summary(status: DraftStatus): DraftSummary {
 }
 
 /** 레일 한 줄이 들고 있는 초안 요약. 게시 판정은 상태와 "초안이 있는지"만 봅니다. */
-function summaryView(status: RosterState): DraftSummaryView {
+function summaryView(status: RosterStatusView): DraftSummaryView {
   return {
     draft_id: fixtureId("draft", 12),
     status: status === "none" || status === "published" ? "approved" : status,
@@ -79,22 +79,22 @@ function detail(over: Partial<DraftDetail> = {}): DraftDetail {
 describe("초안 상태 해석", () => {
   // verified는 검증을 통과해 교사 검토를 기다리는 상태입니다(이슈 #106 정은 님 답변).
   it("verified만 교사가 검토할 수 있다", () => {
-    expect(toDraftState("verified")).toBe("review");
+    expect(toDraftStatusView("verified")).toBe("review");
   });
 
   it("approved만 검토 완료다", () => {
-    expect(toDraftState("approved")).toBe("approved");
+    expect(toDraftStatusView("approved")).toBe("approved");
   });
 
   // draft는 AI가 아직 쓰는 중입니다. 열어 두면 교사가 승인해 미완성 글이 그대로 나갑니다.
   it("draft는 만드는 중이라 잠근다", () => {
-    expect(toDraftState("draft")).toBe("generating");
+    expect(toDraftStatusView("draft")).toBe("generating");
   });
 
   // 미분류는 재시도 상한을 넘겨 끝난 상태라 기다려도 달라지지 않습니다. 교사가 봐야 해서
   // 만드는 중과 나눕니다(#107 리뷰 송유진 님, docs/api/documents.md §레일·목록 표기).
   it("unclassified는 만드는 중과 구분해 잠근다", () => {
-    expect(toDraftState("unclassified")).toBe("unclassified");
+    expect(toDraftStatusView("unclassified")).toBe("unclassified");
   });
 
   // 모르는 값을 열어 두면 같은 사고가 납니다. 애매하면 잠그는 쪽이 맞습니다(H-1).
@@ -102,7 +102,7 @@ describe("초안 상태 해석", () => {
   it("모르는 상태는 unknown으로 두고 값만 로그에 남긴다", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    expect(toDraftState("in_review" as DraftStatus)).toBe("unknown");
+    expect(toDraftStatusView("in_review" as DraftStatus)).toBe("unknown");
 
     expect(warn).toHaveBeenCalledWith("모르는 초안 상태", "in_review");
     warn.mockRestore();
@@ -155,6 +155,51 @@ describe("사진", () => {
     expect(selectedPhotos(view)).toEqual([]);
     // 근거 패널이 쓰므로 미디어 자체는 버리지 않습니다.
     expect(view.media).toEqual([PHOTO, voice]);
+  });
+});
+
+describe("문장과 근거", () => {
+  // 서버 객체를 그대로 넘기지 않고 필드를 하나씩 옮깁니다(#124 멘토 리뷰). 서버 응답에 필드가
+  // 늘어도 화면용 타입에는 문서에 있는 필드만 들어가야 서버 변경이 화면까지 새지 않습니다.
+  it("서버가 필드를 더해도 문서에 있는 필드만 옮긴다", () => {
+    const evidence = {
+      evidence_id: "ev-0",
+      source_type: "video_speech",
+      text: "블록 탑을 높이 쌓았어요.",
+      media_id: fixtureId("media", 42),
+      start_ms: 1200,
+      end_ms: 3400,
+      captured_at: "2026-10-06T01:10:00Z",
+      score: 0.92,
+    } as Evidence;
+    const sentence = {
+      sentence_index: 0,
+      text: "블록을 쌓았어요.",
+      evidences: [evidence],
+      model: "gpt",
+    } as Sentence;
+    const media = { ...PHOTO, thumbnail_url: "https://example.com/t.jpg" } as MediaUrl;
+
+    const view = toDraftView(detail({ sentences: [sentence], media: [media] }));
+
+    expect(view.sentences).toEqual([
+      {
+        sentence_index: 0,
+        text: "블록을 쌓았어요.",
+        evidences: [
+          {
+            evidence_id: "ev-0",
+            source_type: "video_speech",
+            text: "블록 탑을 높이 쌓았어요.",
+            media_id: fixtureId("media", 42),
+            start_ms: 1200,
+            end_ms: 3400,
+            captured_at: "2026-10-06T01:10:00Z",
+          },
+        ],
+      },
+    ]);
+    expect(view.media).toEqual([PHOTO]);
   });
 });
 
@@ -248,7 +293,7 @@ describe("목록과 게시 결과", () => {
 // 게시 판정이 화면 세 곳에 흩어져 있을 때 상태가 늘면서 하나를 빠뜨렸고, 만드는 중인 아이가
 // 조용히 게시에서 빠졌습니다(#107 리뷰 송유진 님). 판정을 여기 모았으니 여기서 지킵니다.
 describe("게시 판정", () => {
-  const row = (status: RosterState, note: DraftSummaryView | null = summaryView(status)) => ({
+  const row = (status: RosterStatusView, note: DraftSummaryView | null = summaryView(status)) => ({
     status,
     note,
   });

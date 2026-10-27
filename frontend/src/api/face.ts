@@ -1,14 +1,11 @@
 import { api } from "@/lib/api-client";
 import type { FaceEmbeddingRegisterResponse } from "@/types/api-draft/face";
 
-import {
-  type FaceEmbeddingInput,
-  toFaceEmbeddingBody,
-  toFaceEmbeddingRegistrationView,
-} from "./face-adapter";
+import { toFaceEmbeddingBody, toFaceEmbeddingRegistrationView } from "./face-adapter";
+import type { FaceEmbeddingInput } from "./face-view";
 
 // 화면은 face 서버 타입 대신 여기서 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
-export { type FaceEmbeddingInput, type FaceEmbeddingRegistrationView } from "./face-adapter";
+export type { FaceEmbeddingInput, FaceEmbeddingRegistrationView } from "./face-view";
 
 // 얼굴 임베딩 등록·삭제 요청입니다. 반 임베딩 조회(GET /classes/{id}/face-embeddings)는
 // 분류를 도는 처리 중 화면이 쓰는 faceEmbeddingsQueryOptions(api/media.ts)에 있습니다.
