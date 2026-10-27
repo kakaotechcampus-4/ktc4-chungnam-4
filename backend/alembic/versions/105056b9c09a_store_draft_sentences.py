@@ -1,7 +1,7 @@
 """store draft sentences
 
 Revision ID: 105056b9c09a
-Revises: 21171b2bd658
+Revises: 9bebc130fae0
 Create Date: 2026-10-12 17:03:42.693203
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "105056b9c09a"
-down_revision: str | Sequence[str] | None = "21171b2bd658"
+down_revision: str | Sequence[str] | None = "9bebc130fae0"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
