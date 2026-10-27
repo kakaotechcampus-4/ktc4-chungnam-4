@@ -129,6 +129,34 @@ class NotParentNote(AidamError):
     status_code = 409
 
 
+class ParentNoteNotFound(AidamError):
+    """학부모가 볼 수 없는 알림장. 없음·미게시·남의 자녀 것을 구분하지 않는다 (H-1)."""
+
+    code = "PARENT_NOTE_NOT_FOUND"
+    status_code = 404
+
+
+class ChildAccessExpired(AidamError):
+    """졸업 후 1년이 지나 학부모 열람 기간이 끝난 경우 (NFR-03)."""
+
+    code = "CHILD_ACCESS_EXPIRED"
+    status_code = 403
+
+
+class AccessLogFailed(AidamError):
+    """열람 기록(AccessLog)을 남기지 못해 본문을 돌려주지 않은 경우 (NFR-05, H-4)."""
+
+    code = "ACCESS_LOG_FAILED"
+    status_code = 500
+
+
+class InvalidCursor(AidamError):
+    """목록 커서를 읽을 수 없는 경우."""
+
+    code = "INVALID_CURSOR"
+    status_code = 400
+
+
 class InvalidCredentials(AidamError):
     """이메일이 없거나 비밀번호가 틀렸습니다.
 

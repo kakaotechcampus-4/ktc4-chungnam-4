@@ -10,7 +10,7 @@ from datetime import date
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from core.database import get_db
@@ -22,8 +22,8 @@ from domains.documents.schemas import (
     ClassDraftListResponse,
     DraftDetailResponse,
     DraftUpdateRequest,
-    ParentLetterDetailResponse,
-    ParentLetterListResponse,
+    ParentNoteDetailResponse,
+    ParentNoteListResponse,
     PublishRequest,
     PublishResponse,
     ReopenRequest,
@@ -144,19 +144,23 @@ def revoke_letter(
     )
 
 
-@router.get("/children/{child_id}/parent-notes", response_model=ParentLetterListResponse)
+@router.get("/children/{child_id}/parent-notes", response_model=ParentNoteListResponse)
 def list_parent_notes(
     child_id: UUID,
     db: Annotated[Session, Depends(get_db)],
     parent_id: Annotated[UUID, Depends(get_current_parent_id)],
-) -> ParentLetterListResponse:
-    return service.list_letters_for_parent(db, child_id=child_id, parent_id=parent_id)
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    cursor: str | None = None,
+) -> ParentNoteListResponse:
+    return service.list_letters_for_parent(
+        db, child_id=child_id, parent_id=parent_id, limit=limit, cursor=cursor
+    )
 
 
-@router.get("/parent-notes/{parent_note_id}", response_model=ParentLetterDetailResponse)
+@router.get("/parent-notes/{parent_note_id}", response_model=ParentNoteDetailResponse)
 def get_parent_note(
     parent_note_id: UUID,
     db: Annotated[Session, Depends(get_db)],
     parent_id: Annotated[UUID, Depends(get_current_parent_id)],
-) -> ParentLetterDetailResponse:
+) -> ParentNoteDetailResponse:
     return service.get_letter_for_parent(db, letter_id=parent_note_id, parent_id=parent_id)
