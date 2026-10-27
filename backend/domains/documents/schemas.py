@@ -238,24 +238,40 @@ class PublishItem(BaseModel):
 
 
 class PublishRequest(BaseModel):
-    """POST /api/v1/publications. 같은 request_id + draft_id 조합의 재전송은 새 게시
-    회차를 만들지 않고 기존 회차를 그대로 반환한다."""
+    """POST /api/v1/publications. 승인된 알림장을 학부모에게 게시한다(일괄, 건별 결과).
 
-    items: list[PublishItem] = Field(min_length=1)
+    request_id는 게시 버튼을 누를 때마다 새로 만든다. 같은 (request_id, draft_id)를 다시
+    보내면 새 회차를 만들지 않고 처음 결과를 돌려준다. include_photos는 "사진도 함께
+    보내기"로 반 전체에 한 번 정한다 (임시 결정(김진하)).
+    """
+
     request_id: str = Field(min_length=1)
+    include_photos: bool
+    items: list[PublishItem] = Field(min_length=1)
+
+    @field_validator("items")
+    @classmethod
+    def _unique_drafts(cls, items: list[PublishItem]) -> list[PublishItem]:
+        ids = [item.draft_id for item in items]
+        if len(ids) != len(set(ids)):
+            raise ValueError("duplicate draft_id")
+        return items
 
 
 class PublicationResult(BaseModel):
-    """게시 요청은 draft별로 독립 처리된다 — 하나가 실패해도 나머지는 게시된다.
-    status가 "published"일 때만 게시 관련 필드가 채워진다."""
+    """건별 결과. 하나가 실패해도 나머지는 게시된다 (docs/api/documents.md).
+
+    parent_note_id는 draft_id와 같다 — 다시 게시해도 학부모 링크가 유지된다. 없는 초안이면
+    child_id·version이 null이다.
+    """
 
     draft_id: UUID
+    child_id: UUID | None
     status: Literal["published", "failed"]
-    error_code: str | None = None
-    publication_id: UUID | None = None
-    round_number: int | None = None
-    published_at: datetime | None = None
-    revoke_deadline: datetime | None = None
+    parent_note_id: UUID | None
+    version: int | None
+    published_at: datetime | None
+    error_code: str | None
 
 
 class PublishResponse(BaseModel):

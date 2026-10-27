@@ -83,7 +83,7 @@ from __future__ import annotations
 import re
 import uuid
 from collections.abc import Callable, Sequence
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import ColumnElement, Exists, Subquery, delete, exists, func, or_, select, update
@@ -101,6 +101,7 @@ from core.exceptions import (
     DraftVersionConflict,
     InvalidSentenceId,
     MediaNotLinkedToChild,
+    NotParentNote,
     RequestValidationFailed,
 )
 from domains.documents.models import (
@@ -125,7 +126,9 @@ from domains.documents.schemas import (
     MediaUrl,
     ParentLetterDetailResponse,
     ParentLetterListResponse,
+    PublicationResult,
     PublishItem,
+    PublishRequest,
     PublishResponse,
     RevokeResponse,
 )
@@ -137,6 +140,9 @@ _AI_LOCKED_STATUSES = (DraftStatus.APPROVED.value, DraftStatus.REVOKED.value)
 
 # 교사가 쓴 문장의 서버 발급 ID (t1, t2…, 임시 결정(정은), #75).
 _TEACHER_SENTENCE_ID = re.compile(r"t(\d+)")
+
+# 게시 뒤 회수할 수 있는 기간 (테크스펙 파이프라인 9단계 "24시간 이내 회수").
+_REVOKE_WINDOW = timedelta(hours=24)
 
 # 반·날짜 목록의 미리보기 길이 (docs/api/documents.md §GET /classes/{class_id}/drafts, 제안).
 _PREVIEW_MAX_CHARS = 100
@@ -599,10 +605,7 @@ def reopen_draft(
         action=RevisionAction.REOPEN,
         wrong_status=lambda _: DraftNotApproved("승인된 초안만 되돌릴 수 있습니다."),
         unless_exists=(
-            exists().where(
-                DocumentPublication.draft_id == DraftDocument.id,
-                DocumentPublication.revoked_at.is_(None),
-            ),
+            _active_publication_exists(),
             DraftAlreadyPublished("게시한 알림장은 회수한 뒤에 고칠 수 있습니다."),
         ),
     )
@@ -754,32 +757,126 @@ def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
 
 
 def publish_drafts(
-    db: Session, *, items: list[PublishItem], request_id: str, teacher_id: UUID
+    db: Session, *, request: PublishRequest, teacher_id: UUID, center_id: UUID | None
 ) -> PublishResponse:
-    # TODO(한상균): draft별로 독립 처리 — 하나 실패해도 나머지는 진행하고 결과에
-    #   status="failed"+error_code로 표시한다. (request_id, draft_id) 조합이 이미
-    #   있으면 기존 회차를 그대로 반환(멱등, revoke_deadline 재계산·연장 없음).
-    #
-    #   활성 게시 회차가 있으면(revoked_at is null인 DocumentPublication 존재) 새
-    #   요청ID라도 새 회차를 만들지 않는다 — 기존 회차를 먼저 회수하고 재승인한
-    #   문서만 재게시할 수 있다. 이 검사가 없으면 새 request_id로 반복 게시해서
-    #   사실상 회수 기한을 계속 연장할 수 있다. rowcount==0이 됐을 때 상태
-    #   불일치·버전 충돌·활성 회차 존재 중 어느 사유인지 구분해 error_code에 담는다.
-    #
-    #   각 draft마다 버전 비교+갱신은 모듈 docstring의 원자적 UPDATE 패턴으로
-    #   (WHERE status==APPROVED AND version==expected_version). 통과 시
-    #   DocumentPublication 새 회차(round_number += 1, published_version=갱신된
-    #   version) 생성, revoke_deadline = published_at + timedelta(hours=24) 계산.
-    #   status는 APPROVED로 유지한다 — 바꾸지 않는다 (게이트는 status==APPROVED +
-    #   활성 게시 회차 존재로 판단).
-    #
-    #   최초 게시 이력과 시각은 DocumentPublication(published_at)에 기록한다.
-    #   approved_at은 승인 시각이며 게시 시각을 대신하지 않는다 — 승인과 게시가
-    #   분리된 이 설계에서는 둘이 다른 시점일 수 있다. round_number>=2(재게시)면
-    #   RevisionLog에 action=resend를 남긴다 — 테크스펙 action enum에 최초 게시에
-    #   대응하는 값이 없어(edit/approve/revoke/resend뿐), 최초 게시(round_number==1)를
-    #   RevisionLog에도 남길지는 별도로 결정한다.
-    raise NotImplementedError("초안 게시 처리 구현 예정")
+    """승인된 알림장을 학부모에게 게시한다 (FR-08·FR-09, 승인·게시 분리).
+
+    초안마다 따로 처리하고 따로 커밋한다 — 하나가 실패해도 나머지는 게시되고, 실패한 건은
+    error_code로 알린다(docs/api/documents.md). 같은 날 두 번째 게시를 서버가 막지는 않는다:
+    건별 실패를 다시 올릴 수 있어야 해서 "반 전체·하루 한 번"은 FE 화면 규칙으로 둔다.
+
+    TODO(한상균): 보호자가 연결되지 않은 원아는 NO_LINKED_PARENT로 거른다 — organization에
+      확인 함수(has_linked_parent)를 요청했다.
+    """
+    results = []
+    for item in request.items:
+        try:
+            results.append(_publish_one(db, item, request, teacher_id, center_id))
+        except AidamError as error:
+            db.rollback()
+            draft = db.get(DraftDocument, item.draft_id)
+            results.append(
+                PublicationResult(
+                    draft_id=item.draft_id,
+                    child_id=draft.child_id if draft else None,
+                    status="failed",
+                    parent_note_id=None,
+                    version=draft.version if draft else None,
+                    published_at=None,
+                    error_code=error.code,
+                )
+            )
+    return PublishResponse(results=results)
+
+
+def _publish_one(
+    db: Session,
+    item: PublishItem,
+    request: PublishRequest,
+    teacher_id: UUID,
+    center_id: UUID | None,
+) -> PublicationResult:
+    draft = _draft_for_teacher(db, item.draft_id, center_id)
+    if draft.doc_type != DocType.PARENT_NOTE.value:
+        raise NotParentNote("알림장만 학부모에게 게시할 수 있습니다.")
+    repeated = _publication_of(db, request.request_id, draft.id)
+    if repeated is not None:
+        return _published_result(draft, repeated)
+    try:
+        _claim_version(
+            db,
+            draft.id,
+            expected_version=item.expected_version,
+            from_status=DraftStatus.APPROVED,
+            wrong_status=lambda _: DraftNotApproved("승인된 알림장만 게시할 수 있습니다."),
+            values={},
+            unless_exists=(
+                _active_publication_exists(),
+                DraftAlreadyPublished("이미 게시 중입니다."),
+            ),
+        )
+    except AidamError:
+        # 같은 요청이 동시에 두 번 와서 먼저 온 쪽이 게시했다면 그 결과를 돌려준다(멱등).
+        repeated = _publication_of(db, request.request_id, draft.id)
+        if repeated is not None:
+            return _published_result(draft, repeated)
+        raise
+    round_number = (
+        db.scalar(
+            select(func.max(DocumentPublication.round_number)).where(
+                DocumentPublication.draft_id == draft.id
+            )
+        )
+        or 0
+    ) + 1
+    published_at = datetime.now(UTC)
+    publication = DocumentPublication(
+        draft_id=draft.id,
+        round_number=round_number,
+        publish_request_id=request.request_id,
+        published_version=item.expected_version + 1,
+        published_at=published_at,
+        revoke_deadline=published_at + _REVOKE_WINDOW,
+        include_photos=request.include_photos,
+    )
+    db.add(publication)
+    if round_number > 1:
+        # 회수 뒤 다시 게시한 것이다. 최초 게시는 DocumentPublication이 기록이라 이력을 따로
+        # 남기지 않는다 (테크스펙 RevisionLog.action에 최초 게시 값이 없음).
+        db.add(
+            RevisionLog(draft_id=draft.id, editor_id=teacher_id, action=RevisionAction.RESEND.value)
+        )
+    db.commit()
+    return _published_result(draft, publication)
+
+
+def _publication_of(db: Session, request_id: str, draft_id: UUID) -> DocumentPublication | None:
+    return db.scalar(
+        select(DocumentPublication).where(
+            DocumentPublication.publish_request_id == request_id,
+            DocumentPublication.draft_id == draft_id,
+        )
+    )
+
+
+def _active_publication_exists() -> Exists:
+    """회수되지 않은 게시 회차가 있다 — 학부모에게 지금 보이는 중이다."""
+    return exists().where(
+        DocumentPublication.draft_id == DraftDocument.id,
+        DocumentPublication.revoked_at.is_(None),
+    )
+
+
+def _published_result(draft: DraftDocument, publication: DocumentPublication) -> PublicationResult:
+    return PublicationResult(
+        draft_id=draft.id,
+        child_id=draft.child_id,
+        status="published",
+        parent_note_id=draft.id,
+        version=publication.published_version,
+        published_at=publication.published_at,
+        error_code=None,
+    )
 
 
 def revoke_publication(
