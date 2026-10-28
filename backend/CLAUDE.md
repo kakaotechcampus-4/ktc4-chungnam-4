@@ -91,6 +91,7 @@ router.py  →  service.py  →  models.py
   - 음성 추출에 쓰는 ffmpeg는 `Dockerfile`에 시스템 패키지로 들어 있습니다. api와 worker가 같은 이미지를 씁니다.
 - task는 **멱등**하게 씁니다. 같은 `job_id`로 두 번 실행돼도 결과가 같아야 합니다.
 - 재시도 상한 2회, 타임아웃 180초(LLM 1회 호출은 30초). 근거는 테크스펙 파이프라인 4단계. **상한 초과 항목은 예외를 던지지 않고 미분류함으로 보냅니다.**
+  - 이 값은 4~7단계(LLM) 기준입니다. 1-B(STT)의 재시도·타임아웃은 구현 PR에서 정합니다(미정) — 긴 영상은 조각을 여러 번 불러 180초를 넘을 수 있습니다.
 
 ```python
 @celery_app.task(bind=True, max_retries=2, soft_time_limit=180)
