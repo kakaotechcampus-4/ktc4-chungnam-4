@@ -88,9 +88,8 @@ case "$code_m2" in
         header missing2 cache-control | grep -qi 'no-store' || warn "/api 응답에 Cache-Control: no-store가 없습니다(BE 또는 응답 헤더 정책 확인)"
         case "$code_me" in
             401) grep -q '"UNAUTHENTICATED"' "$WORK/me.b" || fail "$probe_me 401 본문이 공통 에러 형식이 아닙니다" ;;
-            # TODO(송유진): BE에 auth 라우터(#136)가 배포되면 404도 fail로 바꿉니다.
-            404) warn "$probe_me 가 404입니다. BE에 auth 라우터가 아직 없습니다(머지 전이면 정상)" ;;
             000|5??) warn "$probe_me 가 $code_me 입니다(BE 무응답·오류)" ;;
+            # 404면 auth 라우터(#136)가 빠졌거나 /api/v1 접두사가 바뀐 것입니다.
             *) fail "$probe_me 가 $code_me 입니다(401 기대)" ;;
         esac
         echo "ok ($code_m1, $code_m2, $code_me)" ;;

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 os.environ["POSTGRES_PASSWORD"] = "test-only-password"
 
 from core.config import Settings
-from core.database import get_db
+from core.database import engine, get_db
 from main import app
 
 
@@ -86,3 +86,8 @@ def test_agents_and_photo_analysis_gateways_are_configured_separately(
     assert settings.anthropic_model == "anthropic/claude-sonnet-5"
     assert settings.vision_gateway_base_url == "https://vision.example/v1"
     assert settings.vision_model == "glm-5.3-flash"
+
+
+def test_database_errors_hide_sql_parameters():
+    # 오류 메시지에 바인딩 값이 실리면 로그에 실명·연락처가 남습니다 (H-4).
+    assert engine.hide_parameters is True

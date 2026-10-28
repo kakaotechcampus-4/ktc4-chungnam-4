@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 import openai
 from openai import OpenAI
 
@@ -25,6 +27,10 @@ _TIMEOUT_SECONDS = 30
 # 재시도만 남음 (#102 리뷰, 엄태은)
 _SDK_MAX_RETRIES = 0
 
+# 사진 분석 응답 상한. 스파이크에서 아이 4명 사진 1건이 1,618토큰까지 나와 1024로는 잘릴 수 있다
+# (#179 리뷰, 유진). 과금은 실제 출력 토큰 기준이라 상한을 올려도 평소 비용은 같다.
+_VISION_MAX_TOKENS = 2048
+
 
 def call_claude(prompt: str) -> str:
     settings = get_settings()
@@ -38,6 +44,34 @@ def call_claude(prompt: str) -> str:
         model=_MODEL,
         max_tokens=1024,
         messages=[{"role": "user", "content": prompt}],
+    )
+    return response.choices[0].message.content
+
+
+def call_vision(instructions: str, image_urls: Sequence[str]) -> str | None:
+    """사진 분석 모델(GLM, 엘리스 ML API)을 부른다 (파이프라인 5단계, NFR-09).
+
+    image_urls는 prompts/perception의 images 순서대로 붙인다. 서명 URL(https)과
+    data URL(base64)을 모두 받는다 — 지금은 서버가 S3 서명 URL을 넘긴다.
+    본문이 없으면 None을 돌려준다. 파서가 응답 오류로 다룬다.
+
+    키는 Claude와 같은 캠퍼스 게이트웨이 키를 쓰고 주소·모델만 따로 둔다
+    (.env.example, #98). TODO(eun): 게이트웨이가 URL 이미지를 받지 않으면 S3에서 읽어
+    data URL로 바꾼다. HEIC는 모델이 읽지 못할 수 있어 JPEG 변환이 필요하다(Pillow, 팀 확인).
+    """
+    settings = get_settings()
+    client = OpenAI(
+        api_key=settings.anthropic_api_key.get_secret_value(),
+        base_url=settings.vision_gateway_base_url,
+        timeout=_TIMEOUT_SECONDS,
+        max_retries=_SDK_MAX_RETRIES,
+    )
+    content: list[dict] = [{"type": "text", "text": instructions}]
+    content += [{"type": "image_url", "image_url": {"url": url}} for url in image_urls]
+    response = client.chat.completions.create(
+        model=settings.vision_model,
+        max_tokens=_VISION_MAX_TOKENS,
+        messages=[{"role": "user", "content": content}],
     )
     return response.choices[0].message.content
 

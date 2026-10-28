@@ -95,7 +95,13 @@ export function buildDrafts({
           : index === 0
             ? `${subjectOf(child.name)} ${activity.note}`
             : activity.note;
-      return { sentence_index: index, text, evidences: [evidence] };
+      // AI 문장 ID는 서버처럼 s1부터 붙입니다(backend/tools/generation/draft.py).
+      return {
+        sentence_id: `s${index + 1}`,
+        text,
+        is_edited_by_teacher: false,
+        evidences: [evidence],
+      };
     });
   const base = {
     child_id: child.child_id,

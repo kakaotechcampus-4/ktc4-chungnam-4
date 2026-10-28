@@ -1,6 +1,6 @@
-"""organization 라우터 — 교사의 반 목록·반 원아 명단 (docs/api/organization.md).
+"""organization 라우터 — 교사의 반 목록·반 원아 명단, 학부모의 자녀 목록 (docs/api/organization.md).
 
-권한 판정과 조회는 service가 하고, 여기서는 로그인 교사의 `center_id`만 넘깁니다.
+권한 판정과 조회는 service가 하고, 여기서는 로그인 교사의 `center_id`·학부모의 `parent_id`만 넘깁니다.
 """
 
 from __future__ import annotations
@@ -12,9 +12,13 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from core.database import get_db
-from domains.auth.middleware import CurrentTeacher
+from domains.auth.middleware import CurrentParent, CurrentTeacher
 from domains.organization import service
-from domains.organization.schemas import ClassChildListResponse, ClassListResponse
+from domains.organization.schemas import (
+    ClassChildListResponse,
+    ClassListResponse,
+    MyChildListResponse,
+)
 
 # 베이스 경로 /api/v1은 main.py에서 붙입니다.
 router = APIRouter(tags=["organization"])
@@ -37,3 +41,12 @@ def list_class_children(
 ) -> ClassChildListResponse:
     """반의 재원 원아 명단 (FR-04). 없는 반 404, 다른 어린이집 반 403."""
     return service.list_class_children(db, class_id, teacher.center_id)
+
+
+@router.get("/me/children", response_model=MyChildListResponse)
+def list_my_children(
+    parent: CurrentParent,
+    db: Annotated[Session, Depends(get_db)],
+) -> MyChildListResponse:
+    """학부모와 연결된 자녀 목록 (FR-09). 열람 기간이 지난 자녀는 `access_expired`로 표시합니다."""
+    return service.list_my_children(db, parent.parent_id)

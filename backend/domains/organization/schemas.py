@@ -38,3 +38,27 @@ class ClassChildItem(BaseModel):
 class ClassChildListResponse(BaseModel):
     items: list[ClassChildItem]
     next_cursor: str | None = None
+
+
+class MyChildItem(BaseModel):
+    """학부모의 자녀 한 명 (W3·W4 상단 자녀 칩).
+
+    교사용 명단과 스키마를 나눕니다(H-1과 같은 원칙). 동의 상태·다른 보호자 정보는 싣지 않습니다.
+    """
+
+    child_id: UUID
+    name: str
+    class_id: UUID
+    class_name: str
+    age_group: str
+    center_name: str
+    # TODO(이한나): 담당교사 개념이 폐지됐고 교사 이름은 auth 소유라 아직 빈 문자열입니다.
+    #   필드를 유지할지(어떤 교사 이름을 줄지)는 BE 회의에서 정합니다.
+    class_teacher_name: str = ""
+    # 졸업 후 1년이 지나면 true (NFR-03). 목록에서 빼지 않고 표시만 합니다.
+    access_expired: bool
+
+
+class MyChildListResponse(BaseModel):
+    items: list[MyChildItem]
+    next_cursor: str | None = None

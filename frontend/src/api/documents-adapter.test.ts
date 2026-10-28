@@ -63,7 +63,9 @@ function detail(over: Partial<DraftDetail> = {}): DraftDetail {
     status: "verified",
     version: 3,
     title: "블록 쌓기",
-    sentences: [{ sentence_index: 0, text: "블록을 쌓았어요.", evidences: [] }],
+    sentences: [
+      { sentence_id: "s1", text: "블록을 쌓았어요.", is_edited_by_teacher: false, evidences: [] },
+    ],
     selected_media_ids: [PHOTO.media_id],
     media: [PHOTO],
     author_teacher_id: fixtureId("teacher", 1),
@@ -91,10 +93,20 @@ describe("초안 상태 해석", () => {
     expect(toDraftStatusView("draft")).toBe("generating");
   });
 
-  // 미분류는 재시도 상한을 넘겨 끝난 상태라 기다려도 달라지지 않습니다. 교사가 봐야 해서
-  // 만드는 중과 나눕니다(#107 리뷰 송유진 님, docs/api/documents.md §레일·목록 표기).
-  it("unclassified는 만드는 중과 구분해 잠근다", () => {
-    expect(toDraftStatusView("unclassified")).toBe("unclassified");
+  // 회수한 문서를 다시 다루는 흐름이 아직 없어서, 열어 두면 무엇이 나갈지 알 수 없습니다(#106).
+  // 기다려도 달라지지 않아 만드는 중과 나눕니다(docs/api/documents.md §레일·목록 표기).
+  it("revoked(게시 회수)는 만드는 중과 구분해 잠근다", () => {
+    expect(toDraftStatusView("revoked")).toBe("revoked");
+  });
+
+  // 서버 4값에서 빠진 값(#139)이 오면 모르는 값으로 다룹니다.
+  it("빠진 상태값 unclassified는 unknown으로 둔다", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(toDraftStatusView("unclassified" as DraftStatus)).toBe("unknown");
+
+    expect(warn).toHaveBeenCalledWith("모르는 초안 상태", "unclassified");
+    warn.mockRestore();
   });
 
   // 모르는 값을 열어 두면 같은 사고가 납니다. 애매하면 잠그는 쪽이 맞습니다(H-1).
@@ -115,6 +127,8 @@ describe("판정 함수", () => {
     expect(canApprove(toDraftView(detail({ status: "approved" })))).toBe(false);
     // 만드는 중이면 승인 버튼이 열리면 안 됩니다.
     expect(canApprove(toDraftView(detail({ status: "draft" })))).toBe(false);
+    // 회수한 문서도 승인 버튼을 열지 않습니다(#106).
+    expect(canApprove(toDraftView(detail({ status: "revoked" })))).toBe(false);
     expect(canApprove(undefined)).toBe(false);
   });
 
@@ -126,6 +140,7 @@ describe("판정 함수", () => {
       false,
     );
     expect(canReopen(toDraftView(detail({ status: "verified" })))).toBe(false);
+    expect(canReopen(toDraftView(detail({ status: "revoked" })))).toBe(false);
   });
 });
 
@@ -173,8 +188,9 @@ describe("문장과 근거", () => {
       score: 0.92,
     } as Evidence;
     const sentence = {
-      sentence_index: 0,
+      sentence_id: "s1",
       text: "블록을 쌓았어요.",
+      is_edited_by_teacher: true,
       evidences: [evidence],
       model: "gpt",
     } as Sentence;
@@ -184,8 +200,9 @@ describe("문장과 근거", () => {
 
     expect(view.sentences).toEqual([
       {
-        sentence_index: 0,
+        sentence_id: "s1",
         text: "블록을 쌓았어요.",
+        is_edited_by_teacher: true,
         evidences: [
           {
             evidence_id: "ev-0",
@@ -320,7 +337,7 @@ describe("게시 판정", () => {
   });
 
   // 잠긴 상태는 게시를 막지 않고 모달이 수를 세어 알려 줍니다. 막으면 그날을 영영 못 닫습니다.
-  it.each([["generating"], ["unclassified"], ["unknown"]] as const)(
+  it.each([["generating"], ["revoked"], ["unknown"]] as const)(
     "%s는 게시를 막지 않고 빠지는 줄로 센다",
     (status) => {
       expect(needsReview(row(status))).toBe(false);

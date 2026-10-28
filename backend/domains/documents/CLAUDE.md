@@ -6,7 +6,7 @@
 
 | 파일 | 내용 |
 | --- | --- |
-| `models.py` | `DraftDocument`, `DraftSentence`(본문 문장), `RevisionLog`, `UnclassifiedItem`, `Notice` |
+| `models.py` | `DraftDocument`(선택 사진 `selected_media_ids` 포함), `DraftSentence`(본문 문장), `DocumentPublication`(게시 회차, `include_photos`), `RevisionLog`, `UnclassifiedItem`, `Notice` |
 | `schemas.py` | 검토·수정·승인 요청, 교사용/학부모용 응답 |
 | `router.py` | `/api/v1` 아래 `/drafts`·`/publications`·`/parent-notes` 엔드포인트 (경로는 `docs/api/documents.md`) |
 | `service.py` | 교사 검토·수정·승인·회수, 학부모 열람 |

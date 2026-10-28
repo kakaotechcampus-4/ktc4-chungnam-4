@@ -80,42 +80,89 @@ WHERE에 넣는다 — rowcount가 곧 판단 결과다.
 
 from __future__ import annotations
 
+import base64
+import re
 import uuid
-from collections.abc import Sequence
-from datetime import date, datetime
+from collections.abc import Callable, Sequence
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import ColumnElement, Subquery, delete, exists, func, or_, select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import ColumnElement, Exists, Subquery, delete, exists, func, or_, select, update
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from core.exceptions import DraftVersionConflict, RequestValidationFailed
+from core.exceptions import (
+    AccessLogFailed,
+    AidamError,
+    ChildAccessDenied,
+    ChildNotFound,
+    DraftAlreadyApproved,
+    DraftAlreadyPublished,
+    DraftNotApprovable,
+    DraftNotApproved,
+    DraftNotFound,
+    DraftNotReady,
+    DraftVersionConflict,
+    InvalidCursor,
+    InvalidSentenceId,
+    MediaNotLinkedToChild,
+    NoLinkedParent,
+    NotParentNote,
+    ParentNoteNotFound,
+    RequestValidationFailed,
+)
+
+# agents도 documents를 import한다(save_draft). 순환이라 이름이 아니라 모듈째 import한다 — 이름을 직접
+# import하면 import 순서에 따라 깨진다. import-linter를 도입하면 이 순환을 예외로 적는다.
+from domains.agents import service as agents_service
+from domains.audit import service as audit_service
 from domains.documents.models import (
     DocType,
     DocumentPublication,
     DraftDocument,
     DraftSentence,
     DraftStatus,
+    EditMethod,
+    RevisionAction,
     RevisionLog,
 )
 from domains.documents.schemas import (
-    ApproveResponse,
     ClassDraftItem,
     ClassDraftListResponse,
     DraftDetailResponse,
     DraftSaveInput,
+    DraftSentenceView,
     DraftSummary,
+    DraftUpdateRequest,
     DraftVersionInfo,
-    ParentLetterDetailResponse,
-    ParentLetterListResponse,
+    EvidenceView,
+    MediaUrl,
+    ParentNoteDetailResponse,
+    ParentNoteLink,
+    ParentNoteListResponse,
+    ParentNoteSummary,
+    PublicationResult,
     PublishItem,
+    PublishRequest,
     PublishResponse,
     RevokeResponse,
 )
+from domains.media import service as media_service
 from domains.organization import service as organization_service
 
 # 자동 생성 결과로 덮어쓰지 않는 상태. 승인·회수된 문서는 교사가 확정한 내용이다.
 _AI_LOCKED_STATUSES = (DraftStatus.APPROVED.value, DraftStatus.REVOKED.value)
+
+# 교사가 쓴 문장의 서버 발급 ID (t1, t2…, 임시 결정(정은), #75).
+_TEACHER_SENTENCE_ID = re.compile(r"t(\d+)")
+
+# 게시 뒤 회수할 수 있는 기간 (테크스펙 파이프라인 9단계 "24시간 이내 회수").
+_REVOKE_WINDOW = timedelta(hours=24)
+
+# 학부모 목록에 싣는 알림장당 사진 수 (docs/api/documents.md "앞 3장").
+_LIST_PHOTOS_PER_NOTE = 3
+_KST = ZoneInfo("Asia/Seoul")
 
 # 반·날짜 목록의 미리보기 길이 (docs/api/documents.md §GET /classes/{class_id}/drafts, 제안).
 _PREVIEW_MAX_CHARS = 100
@@ -357,8 +404,13 @@ def list_class_drafts(
     )
 
 
+def _is_active_publication() -> ColumnElement[bool]:
+    """활성 게시 회차 = 회수되지 않은 회차. 학부모에게 지금 보이는 회차이고, "활성"의 정의는 여기 하나다."""
+    return DocumentPublication.revoked_at.is_(None)
+
+
 def _active_publications() -> Subquery:
-    """초안별 활성 게시 회차(회수되지 않은 회차)의 게시 시각.
+    """초안별 활성 게시 회차의 게시 시각.
 
     활성 회차가 여럿 남아 있어도 가장 최근 것만 본다 — 재게시는 새 회차만 활성으로
     취급한다 (DocumentPublication).
@@ -368,7 +420,7 @@ def _active_publications() -> Subquery:
             DocumentPublication.draft_id,
             func.max(DocumentPublication.published_at).label("published_at"),
         )
-        .where(DocumentPublication.revoked_at.is_(None))
+        .where(_is_active_publication())
         .group_by(DocumentPublication.draft_id)
         .subquery()
     )
@@ -405,9 +457,32 @@ def _preview(sentences: Sequence[str]) -> str:
     return sentences[0][:_PREVIEW_MAX_CHARS]
 
 
-def get_draft_for_teacher(db: Session, *, draft_id: UUID, teacher_id: UUID) -> DraftDetailResponse:
-    # TODO(한상균): 검수 권한 교사인지 확인 — organization의 반 배정 조회 필요 (B와 협의).
-    raise NotImplementedError("교사용 초안 상세 조회 구현 예정")
+def get_draft_for_teacher(
+    db: Session, *, draft_id: UUID, teacher_id: UUID, center_id: UUID | None
+) -> DraftDetailResponse:
+    """교사가 초안 상세(문장·문장별 근거·사진)를 본다 (FR-06·FR-07·FR-16·FR-26).
+
+    같은 어린이집 원아의 초안이면 승인 전이어도 본다(H-1 검수 권한). 근거 원문에 실명이
+    있어 교사에게만 싣는다. 열람마다 AccessLog(teacher, draft_document, view_detail)를 남기고
+    커밋한 뒤 돌려준다 — NFR-05 "모든 열람에 접근 기록", 임시 결정(한상균). 기록에 실패하면
+    본문 없이 500이다.
+    """
+    _draft_for_teacher(db, draft_id, center_id)
+    detail = _teacher_detail(db, draft_id)
+    try:
+        audit_service.record_access(
+            db,
+            actor_type="teacher",
+            actor_id=teacher_id,
+            target_type="draft_document",
+            target_id=draft_id,
+            action="view_detail",
+        )
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise AccessLogFailed("열람 기록을 남기지 못해 초안을 보여 드릴 수 없습니다.") from None
+    return detail
 
 
 def update_draft(
@@ -415,17 +490,120 @@ def update_draft(
     *,
     draft_id: UUID,
     teacher_id: UUID,
-    content: str,
-    expected_version: int,
+    center_id: UUID | None,
+    request: DraftUpdateRequest,
 ) -> DraftDetailResponse:
-    # TODO(한상균): 버전 비교+갱신은 모듈 docstring의 원자적 UPDATE 패턴으로 (조회 후
-    #   별도 비교 금지). rowcount==0이면 충돌(409). 통과 시 RevisionLog에
-    #   action=edit, edit_method=manual, before_content(수정 전)·after_content(수정 후)
-    #   를 함께 남긴다(테크스펙 RevisionLog ERD). RevisionLog 기록과 version 증가는 한
-    #   트랜잭션에서 한다 — save_draft()의 재생성 거부가 version 비교에 기댄다. RevisionLog를
-    #   빠뜨리면 get_draft_version·재생성 거부가 교사가 손댄 문서를 알아보지 못한다
-    #   (_has_teacher_edits, #140 리뷰).
-    raise NotImplementedError("초안 수정 처리 구현 예정")
+    """교사가 초안 문장을 직접 고치거나 새 문장을 덧붙인다 (FR-17).
+
+    - 검토 대기(verified)인 초안만 고친다. 승인 뒤에 고치려면 reopen을 먼저 한다.
+    - 고친 문장은 is_edited_by_teacher=True가 된다. 교사가 쓴 t… 문장도 고치면 True다
+      (임시 결정(한상균), #139). 근거 행은 DB에 남기고 교사 응답에서만 비운다 (#75).
+      글자가 그대로인 문장은 고친 것으로 보지 않는다.
+    - 새 문장은 맨 뒤에 붙이고 서버가 t1, t2…를 붙인다 — 그 문서 t 번호 최댓값 + 1
+      (임시 결정(정은), #75). 새 문장은 is_edited_by_teacher=False다.
+    - 고친 문장·새 문장마다 RevisionLog(edit, manual)를 남긴다. 버전 증가와 한 트랜잭션이라
+      재생성 거부가 이 문서를 교사가 손댄 문서로 알아본다 (_has_teacher_edits).
+    - selected_media_ids를 보내면 알림장 사진을 그 순서로 바꾼다. 고를 수 있는 사진만 받는다
+      (_ensure_selectable_photos). TODO(한상균): 사진 선택 변경을 RevisionLog에 남길지는
+      docs/api/documents.md의 [확인 필요]로 남아 있다.
+    """
+    draft = _draft_for_teacher(db, draft_id, center_id)
+    values: dict[str, object] = {}
+    if request.selected_media_ids is not None:
+        _ensure_selectable_photos(db, draft, request.selected_media_ids)
+        values["selected_media_ids"] = [str(media_id) for media_id in request.selected_media_ids]
+    _claim_version(
+        db,
+        draft_id,
+        expected_version=request.expected_version,
+        from_status=DraftStatus.VERIFIED,
+        wrong_status=_not_editable,
+        values=values,
+    )
+    # 버전 UPDATE가 이 초안 행을 잡고 있어, 아래에서 읽고 쓰는 동안 다른 수정이 끼지 않는다.
+    sentences = {
+        sentence.sentence_id: sentence
+        for sentence in db.scalars(select(DraftSentence).where(DraftSentence.draft_id == draft_id))
+    }
+    if any(edit.sentence_id not in sentences for edit in request.sentences):
+        db.rollback()
+        raise InvalidSentenceId("이 초안에 없는 문장입니다.")
+
+    logs = []
+    for edit in request.sentences:
+        sentence = sentences[edit.sentence_id]
+        if sentence.text == edit.text:
+            continue
+        logs.append(_edit_log(draft_id, teacher_id, sentence.sentence_id, sentence.text, edit.text))
+        sentence.text = edit.text
+        sentence.is_edited_by_teacher = True
+    next_number = _next_teacher_sentence_number(sentences)
+    next_position = max((sentence.position for sentence in sentences.values()), default=-1) + 1
+    for offset, added in enumerate(request.added_sentences):
+        sentence_id = f"t{next_number + offset}"
+        db.add(
+            DraftSentence(
+                draft_id=draft_id,
+                sentence_id=sentence_id,
+                position=next_position + offset,
+                text=added.text,
+                is_edited_by_teacher=False,
+            )
+        )
+        logs.append(_edit_log(draft_id, teacher_id, sentence_id, None, added.text))
+    db.add_all(logs)
+    db.commit()
+    return _teacher_detail(db, draft_id)
+
+
+def _ensure_selectable_photos(db: Session, draft: DraftDocument, media_ids: Sequence[UUID]) -> None:
+    """알림장 사진은 그 원아·그 날짜에 학부모에게 보여도 되는 사진 중에서만 고른다."""
+    if not set(media_ids) <= _shareable_photo_ids(db, draft.child_id, draft.record_date):
+        raise MediaNotLinkedToChild("이 원아의 그날 사진만 고를 수 있습니다.")
+
+
+def _shareable_photo_ids(db: Session, child_id: UUID, record_date: date) -> set[UUID]:
+    """그 원아·그 날짜에 학부모에게 보여도 되는 사진. 고를 때와 보여 줄 때 같은 범위를 쓴다.
+
+    media의 collect_media_for_llm 범위(llm_allowed, 귀속 원아 전원 ③ 동의)를 그대로 쓴다 —
+    다른 아이가 함께 찍힌 사진이 학부모에게 나가는 것을 줄이는 보수적인 범위다(임시 결정
+    (한상균), docs/api/documents.md "llm_allowed인 사진만 학부모에게" 제안). 그 함수는
+    영상·음성메모도 돌려주므로 사진만 남긴다.
+    """
+    return {
+        media.media_id
+        for media in media_service.collect_media_for_llm(db, child_id, record_date)
+        if media.type == "photo"
+    }
+
+
+def _not_editable(status: str) -> AidamError:
+    if status == DraftStatus.DRAFT.value:
+        return DraftNotReady("초안을 만드는 중입니다. 다 만들어진 뒤에 고칠 수 있습니다.")
+    return DraftAlreadyApproved("승인된 초안입니다. 승인을 되돌린 뒤에 고칠 수 있습니다.")
+
+
+def _next_teacher_sentence_number(sentences: dict[str, DraftSentence]) -> int:
+    numbers = [
+        int(match.group(1))
+        for sentence_id in sentences
+        if (match := _TEACHER_SENTENCE_ID.fullmatch(sentence_id))
+    ]
+    return max(numbers, default=0) + 1
+
+
+def _edit_log(
+    draft_id: UUID, teacher_id: UUID, sentence_id: str, before: str | None, after: str
+) -> RevisionLog:
+    return RevisionLog(
+        draft_id=draft_id,
+        editor_id=teacher_id,
+        action=RevisionAction.EDIT.value,
+        edit_method=EditMethod.MANUAL.value,
+        target_sentence_id=sentence_id,
+        before_content=before,
+        after_content=after,
+    )
 
 
 def approve_draft(
@@ -433,47 +611,350 @@ def approve_draft(
     *,
     draft_id: UUID,
     teacher_id: UUID,
+    center_id: UUID | None,
     expected_version: int,
-    review_confirmed: bool,
-) -> ApproveResponse:
-    # TODO(한상균): 버전 비교+갱신(status=APPROVED, approved_at=now)은 모듈 docstring의
-    #   원자적 UPDATE 패턴으로. 승인 차단 조건 확정 필요 — D(정은) 담당
-    #   VerificationResult가 passed가 아니면 승인 거부할지, UnclassifiedItem
-    #   (ref_type="draft_document")으로 갈지 협의 후 구현. 통과 시 RevisionLog에
-    #   action=approve를 남긴다(before/after_content는 비워도 된다). RevisionLog 기록과
-    #   version 증가는 한 트랜잭션에서 한다 — save_draft()의 재생성 거부가 version 비교에 기댄다.
-    #   RevisionLog를 빠뜨리면 get_draft_version·재생성 거부가 승인된 문서를 알아보지 못한다
-    #   (_has_teacher_edits, #140 리뷰).
-    raise NotImplementedError("초안 승인 처리 구현 예정")
+) -> DraftDetailResponse:
+    """교사가 검토를 마친 초안을 승인한다 (FR-08, H-1 승인 게이트).
+
+    검토 대기(verified)인 초안만 승인한다. 생성 중(draft)·이미 승인된 초안은 409다.
+    승인만으로는 학부모에게 보이지 않는다 — 게시는 따로 한다(승인·게시 분리).
+
+    TODO(한상균): 승인 차단 조건(DraftDecisionLog 등)은 정은과 협의 전이다. 지금은 agents가
+      검증을 통과한 초안만 verified로 저장하므로 status 검사로 대신한다.
+    """
+    _draft_for_teacher(db, draft_id, center_id)
+    _change_status(
+        db,
+        draft_id,
+        teacher_id=teacher_id,
+        expected_version=expected_version,
+        from_status=DraftStatus.VERIFIED,
+        to_status=DraftStatus.APPROVED,
+        action=RevisionAction.APPROVE,
+        wrong_status=lambda _: DraftNotApprovable("검토 대기 중인 초안만 승인할 수 있습니다."),
+    )
+    return _teacher_detail(db, draft_id)
+
+
+def reopen_draft(
+    db: Session,
+    *,
+    draft_id: UUID,
+    teacher_id: UUID,
+    center_id: UUID | None,
+    expected_version: int,
+) -> DraftDetailResponse:
+    """게시 전 승인을 되돌려 다시 검토하게 한다 (임시 결정(김진하), docs/api/documents.md).
+
+    학부모에게 게시된 초안은 되돌리지 않는다 — 이미 나갔으므로 회수가 따로 필요하다 (H-1).
+    """
+    _draft_for_teacher(db, draft_id, center_id)
+    _change_status(
+        db,
+        draft_id,
+        teacher_id=teacher_id,
+        expected_version=expected_version,
+        from_status=DraftStatus.APPROVED,
+        to_status=DraftStatus.VERIFIED,
+        action=RevisionAction.REOPEN,
+        wrong_status=lambda _: DraftNotApproved("승인된 초안만 되돌릴 수 있습니다."),
+        unless_exists=(
+            _active_publication_exists(),
+            DraftAlreadyPublished("게시한 알림장은 회수한 뒤에 고칠 수 있습니다."),
+        ),
+    )
+    return _teacher_detail(db, draft_id)
+
+
+def _draft_for_teacher(db: Session, draft_id: UUID, center_id: UUID | None) -> DraftDocument:
+    """교사가 이 초안을 검수해도 되는지 확인한다 — 같은 어린이집 원아의 초안이어야 한다 (FR-25).
+
+    TODO(한상균): 검사 위치는 #156(권한 검사 위치) 결정에 맞춘다.
+    """
+    draft = db.get(DraftDocument, draft_id)
+    if draft is None:
+        raise DraftNotFound("초안을 찾을 수 없습니다.")
+    organization_service.ensure_child_access(db, draft.child_id, center_id)
+    return draft
+
+
+def _change_status(
+    db: Session,
+    draft_id: UUID,
+    *,
+    teacher_id: UUID,
+    expected_version: int,
+    from_status: DraftStatus,
+    to_status: DraftStatus,
+    action: RevisionAction,
+    wrong_status: Callable[[str], AidamError],
+    unless_exists: tuple[Exists, AidamError] | None = None,
+) -> None:
+    """초안 상태를 바꾸는 유일한 곳 (documents/CLAUDE.md "상태 전이는 한 함수에서만").
+
+    버전 검사와 상태 갱신을 _claim_version의 UPDATE 한 문장으로 하고, 같은 트랜잭션에서
+    RevisionLog를 남긴 뒤 커밋한다. 둘이 함께여야 재생성 거부·get_draft_version이 교사가
+    손댄 문서를 알아본다(_has_teacher_edits).
+    """
+    approved_at = datetime.now(UTC) if to_status == DraftStatus.APPROVED else None
+    _claim_version(
+        db,
+        draft_id,
+        expected_version=expected_version,
+        from_status=from_status,
+        wrong_status=wrong_status,
+        values={"status": to_status.value, "approved_at": approved_at},
+        unless_exists=unless_exists,
+    )
+    db.add(RevisionLog(draft_id=draft_id, editor_id=teacher_id, action=action.value))
+    db.commit()
+
+
+def _claim_version(
+    db: Session,
+    draft_id: UUID,
+    *,
+    expected_version: int,
+    from_status: DraftStatus,
+    wrong_status: Callable[[str], AidamError],
+    values: dict[str, object],
+    unless_exists: tuple[Exists, AidamError] | None = None,
+) -> None:
+    """버전·상태가 그대로일 때만 version을 1 올리고 values를 쓴다. 커밋하지 않는다.
+
+    비교와 갱신을 UPDATE 한 문장으로 묶는다(모듈 docstring). 실패하면 이유를 다시 읽어 알맞은
+    예외로 바꾼다 — 읽기만 하므로 판단과 쓰기가 갈라지지 않는다. 성공하면 이 행을 커밋까지
+    잡고 있어, 호출한 쪽의 나머지 쓰기와 다른 수정이 섞이지 않는다.
+    """
+    conditions = [
+        DraftDocument.id == draft_id,
+        DraftDocument.version == expected_version,
+        DraftDocument.status == from_status.value,
+    ]
+    if unless_exists is not None:
+        conditions.append(~unless_exists[0])
+    result = db.execute(
+        update(DraftDocument)
+        .where(*conditions)
+        .values(**values, version=DraftDocument.version + 1)
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount:
+        return
+    db.rollback()
+    current = db.get(DraftDocument, draft_id, populate_existing=True)
+    if current.version != expected_version:
+        raise DraftVersionConflict("그 사이 초안이 바뀌었습니다. 새로 불러온 뒤 다시 해 주세요.")
+    if current.status != from_status.value or unless_exists is None:
+        raise wrong_status(current.status)
+    raise unless_exists[1]
+
+
+def _signed_media(db: Session, media_ids: Sequence[UUID]) -> list[MediaUrl]:
+    """선택 사진·근거 미디어의 서명 URL. 요청 순서대로이고, 없으면 S3를 부르지 않는다."""
+    if not media_ids:
+        return []
+    return [
+        MediaUrl(
+            media_id=signed.media_id,
+            type=signed.type,
+            url=signed.url,
+            url_expires_at=signed.url_expires_at,
+        )
+        for signed in media_service.get_signed_urls(db, media_ids)
+    ]
+
+
+def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
+    """교사용 상세 응답 (docs/api/documents.md §GET /drafts/{draft_id}).
+
+    - 문장별 근거는 agents의 list_sentence_evidences로 받는다. 교사가 고친 문장은 원문이 그
+      문장을 뒷받침한다고 볼 수 없어 빈 배열로 돌려준다(근거 행은 DB에 남음, #75).
+    - media에는 선택 사진, 그다음 보여 주는 근거의 미디어 서명 URL을 겹치지 않게 싣는다.
+    - include_photos는 게시할 때 정해져 게시 전에는 null이다.
+
+    TODO(한상균): 작성 교사 이름은 auth 조회 함수(get_teacher_names)가 생기면 채운다. 그전까지
+      빈 문자열이다 — FE 타입이 문자열이라 null을 보내지 않는다.
+    """
+    draft = db.get(DraftDocument, draft_id, populate_existing=True)
+    sentences = db.scalars(
+        select(DraftSentence)
+        .where(DraftSentence.draft_id == draft_id)
+        .order_by(DraftSentence.position)
+    )
+    # include_photos도 필요해 회차 행을 읽는다. 여럿이면 _active_publications()처럼 가장 최근 것
+    publication = db.scalar(
+        select(DocumentPublication)
+        .where(DocumentPublication.draft_id == draft_id, _is_active_publication())
+        .order_by(DocumentPublication.published_at.desc())
+        .limit(1)
+    )
+    selected_media_ids = [UUID(media_id) for media_id in draft.selected_media_ids]
+    evidences_by_sentence = agents_service.list_sentence_evidences(db, draft_id)
+    views = [
+        DraftSentenceView(
+            sentence_id=sentence.sentence_id,
+            text=sentence.text,
+            is_edited_by_teacher=sentence.is_edited_by_teacher,
+            evidences=[]
+            if sentence.is_edited_by_teacher
+            else [
+                EvidenceView.model_validate(evidence, from_attributes=True)
+                for evidence in evidences_by_sentence.get(sentence.sentence_id, [])
+            ],
+        )
+        for sentence in sentences
+    ]
+    evidence_media_ids = [
+        evidence.media_id
+        for view in views
+        for evidence in view.evidences
+        if evidence.media_id is not None
+    ]
+    return DraftDetailResponse(
+        draft_id=draft.id,
+        child_id=draft.child_id,
+        doc_type=DocType(draft.doc_type),
+        record_date=draft.record_date,
+        status=DraftStatus(draft.status),
+        version=draft.version,
+        title=None,
+        sentences=views,
+        selected_media_ids=selected_media_ids,
+        media=_signed_media(db, list(dict.fromkeys(selected_media_ids + evidence_media_ids))),
+        author_teacher_id=draft.author_teacher_id,
+        author_name="",
+        approved_at=draft.approved_at,
+        published_at=publication.published_at if publication else None,
+        include_photos=publication.include_photos if publication else None,
+        updated_at=draft.updated_at,
+    )
 
 
 def publish_drafts(
-    db: Session, *, items: list[PublishItem], request_id: str, teacher_id: UUID
+    db: Session, *, request: PublishRequest, teacher_id: UUID, center_id: UUID | None
 ) -> PublishResponse:
-    # TODO(한상균): draft별로 독립 처리 — 하나 실패해도 나머지는 진행하고 결과에
-    #   status="failed"+error_code로 표시한다. (request_id, draft_id) 조합이 이미
-    #   있으면 기존 회차를 그대로 반환(멱등, revoke_deadline 재계산·연장 없음).
-    #
-    #   활성 게시 회차가 있으면(revoked_at is null인 DocumentPublication 존재) 새
-    #   요청ID라도 새 회차를 만들지 않는다 — 기존 회차를 먼저 회수하고 재승인한
-    #   문서만 재게시할 수 있다. 이 검사가 없으면 새 request_id로 반복 게시해서
-    #   사실상 회수 기한을 계속 연장할 수 있다. rowcount==0이 됐을 때 상태
-    #   불일치·버전 충돌·활성 회차 존재 중 어느 사유인지 구분해 error_code에 담는다.
-    #
-    #   각 draft마다 버전 비교+갱신은 모듈 docstring의 원자적 UPDATE 패턴으로
-    #   (WHERE status==APPROVED AND version==expected_version). 통과 시
-    #   DocumentPublication 새 회차(round_number += 1, published_version=갱신된
-    #   version) 생성, revoke_deadline = published_at + timedelta(hours=24) 계산.
-    #   status는 APPROVED로 유지한다 — 바꾸지 않는다 (게이트는 status==APPROVED +
-    #   활성 게시 회차 존재로 판단).
-    #
-    #   최초 게시 이력과 시각은 DocumentPublication(published_at)에 기록한다.
-    #   approved_at은 승인 시각이며 게시 시각을 대신하지 않는다 — 승인과 게시가
-    #   분리된 이 설계에서는 둘이 다른 시점일 수 있다. round_number>=2(재게시)면
-    #   RevisionLog에 action=resend를 남긴다 — 테크스펙 action enum에 최초 게시에
-    #   대응하는 값이 없어(edit/approve/revoke/resend뿐), 최초 게시(round_number==1)를
-    #   RevisionLog에도 남길지는 별도로 결정한다.
-    raise NotImplementedError("초안 게시 처리 구현 예정")
+    """승인된 알림장을 학부모에게 게시한다 (FR-08·FR-09, 승인·게시 분리).
+
+    초안마다 따로 처리하고 따로 커밋한다 — 하나가 실패해도 나머지는 게시되고, 실패한 건은
+    error_code로 알린다(docs/api/documents.md). 같은 날 두 번째 게시를 서버가 막지는 않는다:
+    건별 실패를 다시 올릴 수 있어야 해서 "반 전체·하루 한 번"은 FE 화면 규칙으로 둔다.
+
+    보호자가 연결되지 않은 원아는 NO_LINKED_PARENT로 거른다 — 게시해도 볼 사람이 없다.
+    """
+    results = []
+    for item in request.items:
+        try:
+            results.append(_publish_one(db, item, request, teacher_id, center_id))
+        except AidamError as error:
+            db.rollback()
+            draft = db.get(DraftDocument, item.draft_id)
+            # 접근이 거부된 건에는 그 원아 ID·버전을 싣지 않는다 — 다른 어린이집 정보가 샌다
+            if isinstance(error, ChildAccessDenied | ChildNotFound):
+                draft = None
+            results.append(
+                PublicationResult(
+                    draft_id=item.draft_id,
+                    child_id=draft.child_id if draft else None,
+                    status="failed",
+                    parent_note_id=None,
+                    version=draft.version if draft else None,
+                    published_at=None,
+                    error_code=error.code,
+                )
+            )
+    return PublishResponse(results=results)
+
+
+def _publish_one(
+    db: Session,
+    item: PublishItem,
+    request: PublishRequest,
+    teacher_id: UUID,
+    center_id: UUID | None,
+) -> PublicationResult:
+    draft = _draft_for_teacher(db, item.draft_id, center_id)
+    if draft.doc_type != DocType.PARENT_NOTE.value:
+        raise NotParentNote("알림장만 학부모에게 게시할 수 있습니다.")
+    repeated = _publication_of(db, request.request_id, draft.id)
+    if repeated is not None:
+        return _published_result(draft, repeated)
+    if not organization_service.has_linked_parent(db, draft.child_id):
+        raise NoLinkedParent("알림장을 받을 보호자가 연결되지 않은 원아입니다.")
+    try:
+        _claim_version(
+            db,
+            draft.id,
+            expected_version=item.expected_version,
+            from_status=DraftStatus.APPROVED,
+            wrong_status=lambda _: DraftNotApproved("승인된 알림장만 게시할 수 있습니다."),
+            values={},
+            unless_exists=(
+                _active_publication_exists(),
+                DraftAlreadyPublished("이미 게시 중입니다."),
+            ),
+        )
+    except AidamError:
+        # 같은 요청이 동시에 두 번 와서 먼저 온 쪽이 게시했다면 그 결과를 돌려준다(멱등).
+        repeated = _publication_of(db, request.request_id, draft.id)
+        if repeated is not None:
+            return _published_result(draft, repeated)
+        raise
+    round_number = (
+        db.scalar(
+            select(func.max(DocumentPublication.round_number)).where(
+                DocumentPublication.draft_id == draft.id
+            )
+        )
+        or 0
+    ) + 1
+    published_at = datetime.now(UTC)
+    publication = DocumentPublication(
+        draft_id=draft.id,
+        round_number=round_number,
+        publish_request_id=request.request_id,
+        published_version=item.expected_version + 1,
+        published_at=published_at,
+        revoke_deadline=published_at + _REVOKE_WINDOW,
+        include_photos=request.include_photos,
+    )
+    db.add(publication)
+    if round_number > 1:
+        # 회수 뒤 다시 게시한 것이다. 최초 게시는 DocumentPublication이 기록이라 이력을 따로
+        # 남기지 않는다 (테크스펙 RevisionLog.action에 최초 게시 값이 없음).
+        db.add(
+            RevisionLog(draft_id=draft.id, editor_id=teacher_id, action=RevisionAction.RESEND.value)
+        )
+    db.commit()
+    return _published_result(draft, publication)
+
+
+def _publication_of(db: Session, request_id: str, draft_id: UUID) -> DocumentPublication | None:
+    return db.scalar(
+        select(DocumentPublication).where(
+            DocumentPublication.publish_request_id == request_id,
+            DocumentPublication.draft_id == draft_id,
+        )
+    )
+
+
+def _active_publication_exists() -> Exists:
+    """활성 게시 회차가 있다 — 학부모에게 지금 보이는 중이다."""
+    return exists().where(
+        DocumentPublication.draft_id == DraftDocument.id, _is_active_publication()
+    )
+
+
+def _published_result(draft: DraftDocument, publication: DocumentPublication) -> PublicationResult:
+    return PublicationResult(
+        draft_id=draft.id,
+        child_id=draft.child_id,
+        status="published",
+        parent_note_id=draft.id,
+        version=publication.published_version,
+        published_at=publication.published_at,
+        error_code=None,
+    )
 
 
 def revoke_publication(
@@ -491,26 +972,201 @@ def revoke_publication(
 
 
 def list_letters_for_parent(
-    db: Session, *, child_id: UUID, parent_id: UUID
-) -> ParentLetterListResponse:
-    # TODO(한상균): 단일 게이트 — 활성 게시 회차(revoked_at is null) + 대상 원아 접근권한
-    #   (B와 협의: parent_id ↔ child_id 관계 조회) 검사. 목록 조회는 first_viewed_at을
-    #   건드리지 않는다 ("목록 조회는 상세 열람으로 취급하지 않는다").
-    raise NotImplementedError("학부모용 알림장 목록 조회 구현 예정")
+    db: Session, *, child_id: UUID, parent_id: UUID, limit: int, cursor: str | None
+) -> ParentNoteListResponse:
+    """학부모가 자녀의 게시된 알림장 목록을 본다 (FR-09, H-1).
+
+    - 단일 게이트(_parent_notes)를 통과한 게시본만 기록 날짜 최신순으로 담는다.
+    - 목록에도 미리보기와 사진이 보이므로 담은 알림장마다 AccessLog(view_list)를 남기고,
+      기록을 커밋한 뒤에 돌려준다 — 임시 결정(한상균), docs/api/documents.md. 목록은 회수
+      판단용 first_viewed_at을 건드리지 않는다.
+    - is_read·unread_count는 이 학부모가 본문을 연 적이 있는지(AccessLog view_detail)로 센다.
+    """
+    notes = _parent_notes(db, parent_id=parent_id, child_id=child_id)
+    after = _decode_cursor(cursor)
+    remaining = [note for note in notes if after is None or note[0].record_date < after]
+    page = remaining[:limit]
+    viewed = audit_service.viewed_target_ids(
+        db,
+        actor_type="parent",
+        actor_id=parent_id,
+        target_type="document_publication",
+        action="view_detail",
+        target_ids=[publication.id for _, publication in notes],
+    )
+    previews = _previews(db, [draft.id for draft, _ in page])
+    photos = _parent_photos(db, page, max_per_note=_LIST_PHOTOS_PER_NOTE)
+    this_month = datetime.now(_KST).date().replace(day=1)
+    response = ParentNoteListResponse(
+        items=[
+            ParentNoteSummary(
+                parent_note_id=draft.id,
+                record_date=draft.record_date,
+                published_at=publication.published_at,
+                preview=previews.get(draft.id, ""),
+                photos=photos[draft.id],
+                is_read=publication.id in viewed,
+            )
+            for draft, publication in page
+        ],
+        next_cursor=_encode_cursor(page[-1][0].record_date) if len(remaining) > limit else None,
+        unread_count=sum(publication.id not in viewed for _, publication in notes),
+        this_month_count=sum(draft.record_date >= this_month for draft, _ in notes),
+    )
+    _record_parent_views(db, parent_id, [publication.id for _, publication in page], "view_list")
+    return response
 
 
 def get_letter_for_parent(
     db: Session, *, letter_id: UUID, parent_id: UUID
-) -> ParentLetterDetailResponse:
-    # TODO(한상균): 대상 원아에 대한 학부모 접근 권한부터 확인(B와 협의, UPDATE 성공을
-    #   권한 통과로 착각하지 않는다). "이 편지를 보여줘도 되는가" 판단과
-    #   first_viewed_at 기록을 분리하지 않는다 — 모듈 docstring의 "열람·회수 공통
-    #   주의사항" 패턴대로 하나의 UPDATE로 합쳐서, 그 rowcount로 보여줄지 말지
-    #   정한다(조회로 먼저 판단 후 별도로 쓰기 금지 — 그 사이 회수가 끼어들면 이미
-    #   회수된 내용을 반환하게 된다). rowcount==0이면 404(회수됐거나 대상 아님).
-    #   통과 시 audit.record_access(actor_type="parent",
-    #   target_type="document_publication", action="view_detail")를 같은
-    #   트랜잭션에서 커밋한 뒤에만 본문을 응답한다 — 무조건 매번 호출한다
-    #   ("학부모 열람은 매번 AccessLog를 남긴다", NFR-05, audit/CLAUDE.md).
-    #   first_viewed_at이 이미 있었든 방금 채워졌든 관계없이 호출한다.
-    raise NotImplementedError("학부모용 알림장 상세 조회 구현 예정")
+) -> ParentNoteDetailResponse:
+    """학부모가 게시된 알림장 본문을 연다 (FR-09, FR-26, H-1, NFR-05).
+
+    - 없음·미게시·남의 자녀 것을 구분하지 않고 모두 404다. 졸업 후 1년이 지났으면 403이다.
+    - "보여 줘도 되는가"와 first_viewed_at 기록을 UPDATE 한 문장으로 합친다 — 그 사이 회수가
+      끼면 보여 주지 않는다 (모듈 docstring "열람·회수 공통 주의사항").
+    - AccessLog(view_detail)를 같은 트랜잭션에서 커밋한 뒤에만 본문을 돌려준다. 기록에
+      실패하면 본문 없이 500이다 (audit/CLAUDE.md).
+    """
+    draft = db.get(DraftDocument, letter_id)
+    if draft is None:
+        raise ParentNoteNotFound("알림장을 찾을 수 없습니다.")
+    try:
+        notes = _parent_notes(db, parent_id=parent_id, child_id=draft.child_id)
+    except ChildAccessDenied:
+        raise ParentNoteNotFound("알림장을 찾을 수 없습니다.") from None
+    index = next((i for i, (note, _) in enumerate(notes) if note.id == letter_id), None)
+    if index is None:
+        raise ParentNoteNotFound("알림장을 찾을 수 없습니다.")
+    publication = notes[index][1]
+    result = db.execute(
+        update(DocumentPublication)
+        .where(DocumentPublication.id == publication.id, _is_active_publication())
+        .values(
+            first_viewed_at=func.coalesce(DocumentPublication.first_viewed_at, datetime.now(UTC))
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount == 0:
+        db.rollback()
+        raise ParentNoteNotFound("알림장을 찾을 수 없습니다.")
+    sentences = db.scalars(
+        select(DraftSentence.text)
+        .where(DraftSentence.draft_id == letter_id)
+        .order_by(DraftSentence.position)
+    )
+    content = "\n".join(sentences)
+    photos = _parent_photos(db, [notes[index]], max_per_note=None)[letter_id]
+    _record_parent_views(db, parent_id, [publication.id], "view_detail")
+    older = notes[index + 1][0] if index + 1 < len(notes) else None
+    newer = notes[index - 1][0] if index > 0 else None
+    return ParentNoteDetailResponse(
+        parent_note_id=draft.id,
+        child_id=draft.child_id,
+        record_date=draft.record_date,
+        content=content,
+        photos=photos,
+        # TODO(한상균): 작성 교사 이름은 auth 조회 함수가 생기면 채운다(FR-26). FE 타입이 문자열이다.
+        author_name="",
+        published_at=publication.published_at,
+        prev=ParentNoteLink(parent_note_id=older.id, record_date=older.record_date)
+        if older
+        else None,
+        next=ParentNoteLink(parent_note_id=newer.id, record_date=newer.record_date)
+        if newer
+        else None,
+    )
+
+
+def _parent_notes(
+    db: Session, *, parent_id: UUID, child_id: UUID
+) -> list[tuple[DraftDocument, DocumentPublication]]:
+    """학부모에게 보여도 되는 알림장 — 학부모 노출의 단일 게이트다 (H-1, documents/CLAUDE.md).
+
+    네 가지를 함께 본다: 학부모–원아 관계와 NFR-03 열람 기간(organization), 승인됨, 회수되지
+    않은 게시 회차, 알림장(관찰일지는 학부모에게 가지 않음). 학부모 응답은 이 함수가 돌려준
+    것만 쓴다. 기록 날짜 최신순이다.
+    """
+    organization_service.ensure_parent_child_access(db, parent_id, child_id)
+    rows = db.execute(
+        select(DraftDocument, DocumentPublication)
+        .join(
+            DocumentPublication,
+            (DocumentPublication.draft_id == DraftDocument.id) & _is_active_publication(),
+        )
+        .where(
+            DraftDocument.child_id == child_id,
+            DraftDocument.status == DraftStatus.APPROVED.value,
+            DraftDocument.doc_type == DocType.PARENT_NOTE.value,
+        )
+        .order_by(DraftDocument.record_date.desc())
+    )
+    return list(rows.tuples())
+
+
+def _parent_photos(
+    db: Session,
+    notes: Sequence[tuple[DraftDocument, DocumentPublication]],
+    *,
+    max_per_note: int | None,
+) -> dict[UUID, list[MediaUrl]]:
+    """게시 때 사진을 함께 보내기로 한 알림장만 선택 사진의 서명 URL을 싣는다. 한 번에 서명한다.
+
+    볼 때마다 고를 때와 같은 범위로 다시 거른다. media는 동의 철회를 저장된 값을 고치지 않고
+    조회할 때 빼므로, 게시 뒤 함께 찍힌 아이가 ③을 철회하면 그 사진은 더 나가지 않는다(#174 리뷰).
+    """
+    chosen: dict[UUID, list[UUID]] = {}
+    for draft, publication in notes:
+        if not publication.include_photos:
+            chosen[draft.id] = []
+            continue
+        shareable = _shareable_photo_ids(db, draft.child_id, draft.record_date)
+        selected = [UUID(media_id) for media_id in draft.selected_media_ids]
+        chosen[draft.id] = [m for m in selected if m in shareable][:max_per_note]
+    signed = {
+        photo.media_id: photo
+        for photo in _signed_media(
+            db, list(dict.fromkeys(m for ids in chosen.values() for m in ids))
+        )
+    }
+    return {
+        draft_id: [signed[media_id] for media_id in media_ids if media_id in signed]
+        for draft_id, media_ids in chosen.items()
+    }
+
+
+def _record_parent_views(
+    db: Session, parent_id: UUID, publication_ids: Sequence[UUID], action: str
+) -> None:
+    """학부모 열람을 남기고 커밋한다. 실패하면 응답하지 않도록 드러낸다 (NFR-05, audit/CLAUDE.md).
+
+    로그에는 ID만 남긴다 (H-4). target은 게시 회차다 — 임시 결정(한상균).
+    """
+    try:
+        for publication_id in publication_ids:
+            audit_service.record_access(
+                db,
+                actor_type="parent",
+                actor_id=parent_id,
+                target_type="document_publication",
+                target_id=publication_id,
+                action=action,
+            )
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise AccessLogFailed("열람 기록을 남기지 못해 알림장을 보여 드릴 수 없습니다.") from None
+
+
+def _encode_cursor(record_date: date) -> str:
+    return base64.urlsafe_b64encode(record_date.isoformat().encode()).decode()
+
+
+def _decode_cursor(cursor: str | None) -> date | None:
+    """다음 쪽은 이 기록 날짜보다 오래된 알림장부터다. 한 자녀의 알림장은 날짜마다 하나다."""
+    if cursor is None:
+        return None
+    try:
+        return date.fromisoformat(base64.urlsafe_b64decode(cursor.encode()).decode())
+    except ValueError:
+        raise InvalidCursor("목록 위치를 읽을 수 없습니다.") from None

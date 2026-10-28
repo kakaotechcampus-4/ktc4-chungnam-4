@@ -11,7 +11,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import date, datetime
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import ColumnElement, Exists, select
 from sqlalchemy.orm import Session
@@ -19,23 +21,34 @@ from sqlalchemy.orm import Session
 from core.exceptions import (
     CenterNotFound,
     ChildAccessDenied,
+    ChildAccessExpired,
     ChildNotFound,
     ChildNotInClass,
     ClassAccessDenied,
     ClassNotFound,
 )
-from domains.organization.models import Center, Child, ConsentRecord, Klass
+from domains.organization.models import (
+    Center,
+    Child,
+    ConsentRecord,
+    Klass,
+    ParentChildRelation,
+)
 from domains.organization.schemas import (
     ClassChildItem,
     ClassChildListResponse,
     ClassItem,
     ClassListResponse,
+    MyChildItem,
+    MyChildListResponse,
 )
 
 # Child.status 값 — 재원 원아만 동의 판정 대상입니다 (졸업·퇴소 제외).
 CHILD_STATUS_ENROLLED = "enrolled"
 # ConsentRecord.status 값. 철회는 같은 행의 revoked_at을 채우므로 둘 다 봅니다.
 CONSENT_STATUS_AGREED = "agreed"
+# 학부모 열람 기간의 "오늘"은 KST 날짜로 봅니다 (graduated_at이 날짜라서).
+_KST = ZoneInfo("Asia/Seoul")
 
 
 def _valid_consent_exists(child_id: ColumnElement[UUID] | UUID, consent_type: str) -> Exists:
@@ -151,6 +164,65 @@ def has_consent(db: Session, child_id: UUID, consent_type: str) -> bool:
     return bool(db.scalar(select(_valid_consent_exists(child_id, consent_type))))
 
 
+def ensure_parent_child_access(
+    db: Session, parent_id: UUID, child_id: UUID, *, today: date | None = None
+) -> None:
+    """학부모가 이 원아의 자료를 봐도 되는지 확인하고, 안 되면 예외를 올립니다.
+
+    학부모 열람 권한 판단은 `ParentChildRelation` 조회 한 곳으로 모읍니다 (organization/CLAUDE.md).
+    열람은 졸업·퇴소 확정일(`Child.graduated_at`) 후 1년까지이고, 조회 시점에 판정합니다
+    (NFR-03, F-3). 1년이 되는 날까지는 열람할 수 있습니다. `today`는 테스트용이며 기본은 KST 오늘입니다.
+
+    - 관계가 없음(없는 원아 포함): `ChildAccessDenied` (403 `CHILD_ACCESS_DENIED`) — 없는 원아와
+      남의 원아를 구분하면 원아 ID가 있는지가 샙니다.
+    - 열람 기간이 지남: `ChildAccessExpired` (403 `CHILD_ACCESS_EXPIRED`)
+    """
+    row = db.execute(
+        select(Child.graduated_at)
+        .join(ParentChildRelation, ParentChildRelation.child_id == Child.id)
+        .where(ParentChildRelation.parent_id == parent_id, Child.id == child_id)
+    ).first()
+    if row is None:
+        raise ChildAccessDenied("이 원아에 접근할 권한이 없습니다.")
+    if _is_access_expired(row.graduated_at, today):
+        raise ChildAccessExpired("열람 기간이 지났습니다.")
+
+
+def _is_access_expired(graduated_at: date | None, today: date | None) -> bool:
+    """졸업·퇴소 확정일 + 1년이 지났는가 (NFR-03). 재원 중(`None`)이면 False입니다.
+
+    `ensure_parent_child_access`와 `list_my_children`이 같이 써서 두 판정이 어긋나지 않게 합니다.
+    """
+    if graduated_at is None:
+        return False
+    return (today or datetime.now(_KST).date()) > _one_year_after(graduated_at)
+
+
+def _one_year_after(day: date) -> date:
+    """1년 뒤 같은 날. 2월 29일은 다음 해 2월 28일로 봅니다 — 기간을 늘리지 않는 쪽입니다."""
+    try:
+        return day.replace(year=day.year + 1)
+    except ValueError:
+        return day.replace(year=day.year + 1, day=28)
+
+
+def has_linked_parent(db: Session, child_id: UUID) -> bool:
+    """이 원아에게 연결된 학부모가 한 명이라도 있는가.
+
+    documents가 알림장을 게시할 때 받을 사람이 없는 원아를 `NO_LINKED_PARENT`로 거릅니다 (#173).
+    없는 원아도 `False`입니다.
+    """
+    return bool(
+        db.scalar(
+            select(
+                select(ParentChildRelation.id)
+                .where(ParentChildRelation.child_id == child_id)
+                .exists()
+            )
+        )
+    )
+
+
 def list_classes(db: Session, center_id: UUID | None) -> ClassListResponse:
     """교사가 고를 수 있는 반 목록 — 같은 어린이집의 반 전체, 반 이름순.
 
@@ -201,6 +273,30 @@ def list_class_children(
     )
 
 
+def get_class_child_names(db: Session, class_id: UUID) -> dict[UUID, list[str]]:
+    """반 원아 전체의 원아 ID → 이름들. agents가 근거 속 실명을 토큰으로 바꿀 때 씁니다 (H-2).
+    첫 값은 승인 전 초안 본문에 되돌려 넣는 호칭이고, 나머지는 본문에서 찾아 바꿀 다른 이름입니다.
+    졸업·퇴소 원아도 넣습니다 — 발화에서 불릴 수 있고, 빠뜨리면 실명이 LLM으로 갑니다.
+    반이 없거나 원아가 없으면 빈 딕셔너리입니다. 접근 검사는 하지 않습니다(worker가 부르는 내부 함수).
+    """
+    rows = db.execute(select(Child.id, Child.name).where(Child.class_id == class_id))
+    return {child_id: _name_variants(name) for child_id, name in rows}
+
+
+def _name_variants(name: str) -> list[str]:
+    """성명 하나에서 호칭과 바꿀 이름들을 만듭니다.
+
+    세 글자 이름("김민준")은 앞 한 글자를 성으로 보고 이름("민준")을 호칭으로, 성명을 그다음에
+    둡니다. 그 밖의 길이는 성을 가를 수 없어(두 글자 성·외자 이름) 성명만 씁니다 — 한 글자만
+    남기면 다른 낱말 속 글자까지 바꿔 버립니다.
+    TODO(이한나): 임시 결정. 호칭 형식("민준"/"민준이")·애칭 저장 여부는 agents(정은)와 확인.
+    """
+    full_name = name.strip()
+    if len(full_name) == 3:
+        return [full_name[1:], full_name]
+    return [full_name]
+
+
 @dataclass(frozen=True)
 class CenterSummary:
     """가입 코드로 찾은 어린이집. auth는 `center_id`를 교사 소속으로 저장하고,
@@ -226,3 +322,45 @@ def find_center_by_code(db: Session, center_code: str) -> CenterSummary:
     if row is None:
         raise CenterNotFound("가입 코드와 일치하는 어린이집이 없습니다.")
     return CenterSummary(center_id=row.id, name=row.name)
+
+
+def list_my_children(
+    db: Session, parent_id: UUID, *, today: date | None = None
+) -> MyChildListResponse:
+    """학부모와 연결된 자녀 목록, 이름순 (FR-09, W3·W4 상단 자녀 칩).
+
+    `ParentChildRelation`으로 연결된 자녀만 돌려줍니다. 열람 기간이 지난 자녀(NFR-03)도 빼지 않고
+    `access_expired: true`로 표시합니다 — 그 자녀의 알림장 조회는 `ensure_parent_child_access`가
+    `CHILD_ACCESS_EXPIRED`로 막습니다. 연결된 자녀가 없으면 빈 목록입니다.
+    """
+    rows = db.execute(
+        select(
+            Child.id,
+            Child.name,
+            Child.graduated_at,
+            Klass.id.label("class_id"),
+            Klass.name.label("class_name"),
+            Klass.age_group,
+            Center.name.label("center_name"),
+        )
+        .join(ParentChildRelation, ParentChildRelation.child_id == Child.id)
+        .join(Klass, Klass.id == Child.class_id)
+        .join(Center, Center.id == Klass.center_id)
+        .where(ParentChildRelation.parent_id == parent_id)
+        .distinct()
+        .order_by(Child.name, Child.id)
+    )
+    return MyChildListResponse(
+        items=[
+            MyChildItem(
+                child_id=row.id,
+                name=row.name,
+                class_id=row.class_id,
+                class_name=row.class_name,
+                age_group=row.age_group,
+                center_name=row.center_name,
+                access_expired=_is_access_expired(row.graduated_at, today),
+            )
+            for row in rows
+        ]
+    )

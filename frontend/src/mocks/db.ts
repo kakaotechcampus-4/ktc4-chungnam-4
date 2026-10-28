@@ -117,7 +117,8 @@ export interface MockDb {
 }
 
 const STORAGE_KEY = "aidam:mock-db";
-const DB_VERSION = 1;
+// 저장 모양이 바뀌면 올립니다. 열린 탭에 남은 옛 기록을 버리고 시드를 새로 깝니다.
+const DB_VERSION = 2;
 
 // 저장소를 못 쓰는 창(사생활 보호 모드 등)에서만 쓰는 메모리 사본입니다.
 let memoryDb: MockDb | null = null;

@@ -9,6 +9,7 @@ _EXPECTED = {
     ("GET", "/api/v1/drafts/{draft_id}"),
     ("PATCH", "/api/v1/drafts/{draft_id}"),
     ("POST", "/api/v1/drafts/{draft_id}/approve"),
+    ("POST", "/api/v1/drafts/{draft_id}/reopen"),
     ("POST", "/api/v1/drafts/{draft_id}/revoke"),
     ("POST", "/api/v1/publications"),
     ("GET", "/api/v1/children/{child_id}/parent-notes"),
