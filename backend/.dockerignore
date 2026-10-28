@@ -10,4 +10,5 @@ tests
 scripts/*
 !scripts/celery_smoke.py
 !scripts/seed_demo_accounts.py
+!scripts/seed_demo_organization.py
 README.md
