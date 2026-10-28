@@ -52,8 +52,8 @@ from tools.verification.references import validate_references
 from tools.verification.target import validate_target
 
 # Critic 응답 오류(RETRY_CRITIC)만 재시도하는 횟수. CLAUDE.md 규칙상 이 재시도는 초안
-# 재생성 횟수에 포함되지 않는다. 상한 값 자체는 스펙에 없어 무한 루프 방지용으로 1을
-# 임의로 골랐다 — 팀 확인 필요.
+# 재생성 횟수에 포함되지 않는다. 스펙에 값이 없어 1로 정했다(10/28 AI팀 PR 리뷰로 확정) —
+# 늘리면 원아마다 Critic 호출이 늘어 작업 타임아웃(180초)에 가까워진다.
 MAX_CRITIC_RETRIES = 1
 
 # 백엔드 로그 형식: 모듈마다 getLogger(__name__), 정상 흐름 안의 예외 상황은 WARNING (#90).
@@ -1019,8 +1019,8 @@ def _record_verification_issues(
     """검증에서 나온 실패(issue)를 VerificationResult에 남긴다.
 
     통과 자체(문서 전체의 최종 판정)는 DraftDecisionLog가 담당한다. 이 함수는
-    개별 검사 실패 사유만 남긴다 — PR #7의 VerificationCheckType 7종이 전부
-    실패 사유라, 통과한 개별 검사 하나하나를 나타낼 값이 없기 때문이다.
+    개별 검사 실패 사유만 남긴다 — VerificationCheckType 8종(PR #7의 7종 + draft_response_error)이
+    전부 실패 사유라, 통과한 개별 검사 하나하나를 나타낼 값이 없기 때문이다.
     """
     for stage_result in stage_results:
         for issue in stage_result.issues:
