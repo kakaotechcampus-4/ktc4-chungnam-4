@@ -13,8 +13,8 @@
 - [x] 근거 범위(날짜 전체 vs `media_ids`), STT 미완료 시 409로 막을지 `transcribing`에서 기다릴지(김동건과 함께) → 임시 결정(정은): 근거는 본문대로 날짜 전체로 모으고, `media_ids`는 준비 확인에만 씀. STT 미완료 확인은 STT 호출(#142)이 생기면 붙임 — 지금은 막지도 기다리지도 않음. 반영: `agents/service.py` `start_generation_job`
 - [x] 반 전체 `status` 규칙, 진행률 계산식, `stage` 4값 → 임시 결정(정은): `status`는 본문 상태값 표대로(모두 대기면 `pending`, 안 끝난 원아가 있으면 `running`, 실패 1명 이상이면 `failed`). Job에 단계 컬럼이 없어 `stage`는 항상 `null`, `progress.percent`는 끝난 원아 비율(끝난 원아 ÷ 전체 × 100, 버림)로 셈. 단계 컬럼이 생기면 본문 계산식으로 바꿈. 반영: `agents/service.py` `_job_status`
 - [ ] 미분류 사유 코드, 검증 실패로 미분류된 초안의 노출과 근거 저장(한상균과 함께)
-- [ ] `SentenceEvidence` 조인 경로(`source_type`·`end_ms`·`captured_at` 없음), `source_text`가 비식별 토큰으로 저장되는지
-- [ ] `evidence_id`를 불투명 문자열로 둘지, UUID로 바꿀지
+- [x] `SentenceEvidence` 조인 경로(`source_type`·`end_ms`·`captured_at` 없음), `source_text`가 비식별 토큰으로 저장되는지 → 임시 결정(정은): agents `list_sentence_evidences(db, draft_id)`가 문장별로 묶어 줌. `source_type`은 미디어 종류로 정함(사진 `photo_observation`, 음성메모 `teacher_voice_memo`, 영상 `video_speech`, 미디어 없음 `activity_plan`), `captured_at`은 media `get_media_meta`로 붙이고, `end_ms`는 저장하지 않아 `null`. `source_text`는 토큰이 아니라 원문(실명 포함)으로 저장되므로 되살릴 필요 없음 — 교사 화면에만 실음(H-1). 영상 근거를 쓰기 시작하면 `source_type`·`end_ms`를 저장하도록 바꿈. 반영: `agents/service.py` `list_sentence_evidences`
+- [x] `evidence_id`를 불투명 문자열로 둘지, UUID로 바꿀지 → 임시 결정(정은): 불투명 문자열 그대로. 초안 안에서만 유일하면 되고(documents.md), 사진·발화 근거 ID(`photo:…`·`seg:…`)가 어디서 왔는지 드러나 추적이 쉬움
 - [ ] `Job.target_date`를 Date 타입으로 바꿀지
 - [ ] 처리 순서 모순(김동건·엄태은·송유진과 함께). 상세 작성 범위에서는 5→6단계 연속 실행으로 가정 → 제안(송유진 #83 리뷰, 팀 결정 전): 하루 정리 확인을 서버 전송 전 분류 확인 단계로 옮기고, 전송 뒤에는 5→6단계를 이어 실행. 하단 §상의 필요 1
 - [ ] "취소하고 돌아가기"를 화면 이탈로 보는 해석이 맞는지
