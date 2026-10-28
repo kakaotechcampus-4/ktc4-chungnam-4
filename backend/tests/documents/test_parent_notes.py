@@ -1,7 +1,8 @@
 """학부모 알림장 목록·본문 — 단일 게이트(H-1)와 열람 기록(NFR-05).
 
-organization의 학부모–원아 확인 함수(ensure_parent_child_access)는 요청해 둔 모양대로
-가짜로 넣는다. 원아 이름·본문은 합성 값만 쓴다.
+organization의 학부모–원아 확인 함수(ensure_parent_child_access)는 대부분 가짜로 넣어
+documents의 게이트만 본다. 진짜 함수(#188)와 맞물리는지는 마지막 테스트 하나가 본다.
+원아 이름·본문은 합성 값만 쓴다.
 """
 
 import uuid
@@ -31,6 +32,7 @@ from domains.documents.models import (
     DraftStatus,
 )
 from domains.media.service import MediaEvidence, SignedMediaUrl
+from domains.organization.models import Center, Child, Klass, ParentChildRelation
 from main import app
 
 PARENT_ID = uuid.uuid4()
@@ -71,9 +73,7 @@ def client(db: Session, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]
         return [_evidence(photo) for photo in PHOTOS]
 
     organization = documents_service.organization_service
-    monkeypatch.setattr(
-        organization, "ensure_parent_child_access", ensure_parent_child_access, raising=False
-    )
+    monkeypatch.setattr(organization, "ensure_parent_child_access", ensure_parent_child_access)
     monkeypatch.setattr(documents_service.media_service, "get_signed_urls", sign)
     monkeypatch.setattr(documents_service.media_service, "collect_media_for_llm", collect)
     app.dependency_overrides[get_db] = lambda: db
@@ -292,3 +292,60 @@ def test_게시_뒤_보여도_되는_범위에서_빠진_사진은_더_나가지
     assert [photo["media_id"] for photo in body["photos"]] == expected
     assert [photo["media_id"] for photo in listed["items"][0]["photos"]] == expected
     assert calls == [(MY_CHILD, date(2026, 10, 20))] * 2
+
+
+def test_진짜_보호자_확인으로_내_아이는_열리고_남의_아이와_기간_지난_아이는_막힌다(monkeypatch):
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    tables = [Center, Klass, Child, ParentChildRelation, DraftDocument, DraftSentence]
+    tables += [DocumentPublication, AccessLog]
+    Base.metadata.create_all(engine, tables=[table.__table__ for table in tables])
+    db = sessionmaker(bind=engine)()
+    center = Center(center_code="demo0001", name="햇살어린이집", contract_status="trial")
+    db.add(center)
+    db.flush()
+    klass = Klass(center_id=center.id, teacher_id=uuid.uuid4(), name="햇살반", age_group="만 4세")
+    db.add(klass)
+    db.flush()
+
+    def child(name: str, graduated_at: date | None = None) -> UUID:
+        row = Child(
+            class_id=klass.id,
+            name=name,
+            birth_date=date(2021, 5, 1),
+            status="enrolled" if graduated_at is None else "graduated",
+            enrolled_at=date(2025, 3, 1),
+            graduated_at=graduated_at,
+        )
+        db.add(row)
+        db.flush()
+        return row.id
+
+    mine, other, graduated = child("가나"), child("다라"), child("마바", date(2024, 2, 28))
+    db.add_all(ParentChildRelation(parent_id=PARENT_ID, child_id=c) for c in (mine, graduated))
+    db.commit()
+    note, others = _note(db, 20, child_id=mine), _note(db, 20, child_id=other)
+    monkeypatch.setattr(documents_service.media_service, "collect_media_for_llm", lambda *a: [])
+    monkeypatch.setattr(documents_service.media_service, "get_signed_urls", lambda db, ids: [])
+    parent = ParentProfile(
+        account_id=uuid.uuid4(), email="parent@example.com", name="학부모A", parent_id=PARENT_ID
+    )
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_current_user] = lambda: parent
+    try:
+        with TestClient(app, base_url="https://testserver") as client:
+            listed = client.get(f"/api/v1/children/{mine}/parent-notes")
+            opened = client.get(f"/api/v1/parent-notes/{note.id}")
+            denied = client.get(f"/api/v1/children/{other}/parent-notes")
+            hidden = client.get(f"/api/v1/parent-notes/{others.id}")
+            expired = client.get(f"/api/v1/children/{graduated}/parent-notes")
+    finally:
+        app.dependency_overrides.clear()
+        db.close()
+
+    assert [item["parent_note_id"] for item in listed.json()["items"]] == [str(note.id)]
+    assert opened.status_code == 200
+    assert (denied.status_code, denied.json()["error"]["code"]) == (403, "CHILD_ACCESS_DENIED")
+    assert (hidden.status_code, hidden.json()["error"]["code"]) == (404, "PARENT_NOTE_NOT_FOUND")
+    assert (expired.status_code, expired.json()["error"]["code"]) == (403, "CHILD_ACCESS_EXPIRED")
