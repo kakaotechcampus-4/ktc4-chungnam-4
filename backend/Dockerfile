@@ -5,6 +5,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
+
+# ffmpeg: worker가 영상·음성메모에서 음성만 뽑아 STT 조각으로 나눌 때 씁니다(파이프라인 1-B, #163).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt \
     && groupadd --system app \
