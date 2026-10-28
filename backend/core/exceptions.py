@@ -269,6 +269,13 @@ class ChildAccessDenied(AidamError):
     status_code = 403
 
 
+class ChildAccessExpired(AidamError):
+    """졸업 후 1년이 지나 학부모 열람 기간이 끝난 경우 (NFR-03)."""
+
+    code = "CHILD_ACCESS_EXPIRED"
+    status_code = 403
+
+
 class ChildNotInClass(AidamError):
     """그 반 원아가 아닌 원아를 반의 미디어·기록에 연결하려 한 경우."""
 
