@@ -232,6 +232,9 @@ _SOURCE_TYPE_BY_MEDIA_TYPE = {
     "video": contracts.SourceType.VIDEO_SPEECH,
 }
 
+# 시각이 없는 근거끼리만 비교되는 자리 채움 값이다 (정렬 키의 앞 항목이 이미 구분한다).
+_NO_TIME = datetime(1970, 1, 1, tzinfo=UTC)
+
 
 @dataclass(frozen=True)
 class SentenceEvidenceView:
@@ -288,6 +291,18 @@ def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[Sente
                 ),
                 end_ms=None,
                 captured_at=meta.captured_at if meta is not None else None,
+            )
+        )
+    for views in result.values():
+        # 출처마다 evidence_id 접두가 달라 문자열 순이 시간 순이 아니다. 촬영 시각, 영상·음성 안의
+        # 시각 순으로 보여 주고 값이 없는 근거(활동계획)는 뒤에 둔다.
+        views.sort(
+            key=lambda view: (
+                view.captured_at is None,
+                view.captured_at or _NO_TIME,
+                view.start_ms is None,
+                view.start_ms or 0,
+                view.evidence_id,
             )
         )
     return result

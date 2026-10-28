@@ -31,7 +31,7 @@ def db() -> Session:
         yield session
 
 
-def _media(db: Session, media_type: str) -> uuid.UUID:
+def _media(db: Session, media_type: str, captured_at: datetime = MORNING) -> uuid.UUID:
     media_id = uuid.uuid4()
     db.add(
         MediaAsset(
@@ -40,7 +40,7 @@ def _media(db: Session, media_type: str) -> uuid.UUID:
             class_id=CLASS_ID,
             teacher_id=TEACHER_ID,
             type=media_type,
-            captured_at=MORNING,
+            captured_at=captured_at,
             storage_url=f"s3://bucket/{media_id}",
             size_bytes=2048,
             llm_allowed=True,
@@ -127,3 +127,23 @@ def test_근거가_가리키는_미디어가_없으면_숨기지_않고_오류�
 
     with pytest.raises(MediaAssetNotFound):
         list_sentence_evidences(db, DRAFT_ID)
+
+
+def test_한_문장의_근거는_촬영_시각_시작_시각_순이고_값이_없는_근거는_뒤다(db: Session) -> None:
+    late = _media(db, "photo", captured_at=datetime(2026, 9, 15, 5, 0, tzinfo=UTC))
+    early = _media(db, "voice_memo", captured_at=datetime(2026, 9, 15, 1, 0, tzinfo=UTC))
+    video = _media(db, "video", captured_at=datetime(2026, 9, 15, 1, 0, tzinfo=UTC))
+    # evidence_id 문자열 순(photo < plan < seg)과 다르게 들어가도 시간 순으로 나와야 합니다.
+    _evidence(db, "s1", "photo:a:1", late)
+    _evidence(db, "s1", "plan:1", None)
+    _evidence(db, "s1", "seg:2", video, timestamp=9.0)
+    _evidence(db, "s1", "seg:1", early, timestamp=2.0)
+
+    result = list_sentence_evidences(db, DRAFT_ID)
+
+    assert [item.evidence_id for item in result["s1"]] == [
+        "seg:1",
+        "seg:2",
+        "photo:a:1",
+        "plan:1",
+    ]
