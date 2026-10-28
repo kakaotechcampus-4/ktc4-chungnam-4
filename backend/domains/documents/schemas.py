@@ -10,7 +10,7 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from domains.documents.models import DocType, DraftStatus
 
@@ -170,15 +170,45 @@ class DraftDetailResponse(BaseModel):
     updated_at: datetime
 
 
-class DraftUpdateRequest(BaseModel):
-    """PATCH /drafts/{draft_id}. 본문 직접 수정 — 이전 내용은 RevisionLog에 남는다.
+class SentenceEdit(BaseModel):
+    # 앞뒤 공백을 지운 뒤 길이를 본다 — 공백만 있는 문장은 422, 공백만 다른 문장은 그대로인 문장이다.
+    model_config = ConfigDict(hide_input_in_errors=True, str_strip_whitespace=True)
 
-    expected_version이 현재 DraftDocument.version과 다르면 충돌로 거부한다
-    (오래된 화면의 수정이 그 사이의 최신 내용을 덮어쓰는 것을 막기 위함).
+    sentence_id: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+
+
+class AddedSentence(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True, str_strip_whitespace=True)
+
+    text: str = Field(min_length=1)
+
+
+class DraftUpdateRequest(BaseModel):
+    """PATCH /api/v1/drafts/{draft_id}. 교사가 문장을 직접 고치거나 새 문장을 덧붙인다 (FR-17).
+
+    sentences에는 바뀐 문장만 sentence_id와 함께 보낸다. 본문 전체를 바꾸지 않는 것은 문장과
+    근거의 연결이 어긋나지 않게 하려는 것이다 (#75). expected_version이 현재 버전과 다르면
+    충돌로 거부한다.
     """
 
-    content: str = Field(min_length=1)
+    # 검증 오류 문자열에 문장 본문을 싣지 않는다 — 본문에는 원아 이름이 들어 있다 (H-4).
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     expected_version: int = Field(ge=1)
+    sentences: list[SentenceEdit] = Field(default_factory=list)
+    added_sentences: list[AddedSentence] = Field(default_factory=list)
+    # TODO(한상균): 사진 선택 저장은 사진 컬럼 마이그레이션 PR에서 받는다. 그전까지 오면 422다.
+    selected_media_ids: list[UUID] | None = None
+
+    @model_validator(mode="after")
+    def _has_change_and_unique_ids(self) -> DraftUpdateRequest:
+        if not self.sentences and not self.added_sentences and self.selected_media_ids is None:
+            raise ValueError("sentences·added_sentences·selected_media_ids 중 하나는 있어야 합니다")
+        ids = [edit.sentence_id for edit in self.sentences]
+        if len(ids) != len(set(ids)):
+            raise ValueError("duplicate sentence_id")
+        return self
 
 
 class ApproveRequest(BaseModel):
