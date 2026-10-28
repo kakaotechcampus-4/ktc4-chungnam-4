@@ -10,7 +10,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -74,8 +74,14 @@ DAILY_DOC_TYPE = contracts.DocType.PARENT_NOTE
 _KST = ZoneInfo("Asia/Seoul")
 _UNFINISHED_STATUSES = frozenset({JobStatus.PENDING, JobStatus.RUNNING})
 # worker가 죽어 running으로 남은 Job이 그 반·날짜를 영구히 막지 않게, 이 시간 넘게 갱신이 없는
-# Job은 진행 중으로 보지 않는다. task 최대 소요(180초 × 3회)에 여유 60초를 더했다 (#161 리뷰, 엄태은).
+# running Job은 진행 중으로 보지 않는다. task 최대 소요(180초 × 3회)에 여유 60초를 더했다 (#161 리뷰, 엄태은).
+# 시작할 때 RUNNING으로 바꾸며 갱신되므로 "실행을 시작한 뒤 10분"이다.
 _STALE_JOB_AFTER = timedelta(seconds=180 * 3 + 60)
+# pending은 큐에서 차례를 기다리는 중이라 갱신이 없는 게 정상이다. 위 10분을 그대로 쓰면 오래
+# 기다린 Job을 멈춘 것으로 보고 같은 반·날짜 작업을 하나 더 만든다(#185 리뷰). 큐 메시지가
+# 사라져 영영 시작하지 못하는 경우만 풀도록 훨씬 길게 둔다.
+# TODO(donggeon): 1시간은 임시 결정(김동건). 정은 님 확인 대기
+_STALE_PENDING_JOB_AFTER = timedelta(hours=1)
 
 
 # ---------------------------------------------------------------------------
@@ -139,14 +145,23 @@ def start_generation_job(
 
     if record_date > datetime.now(_KST).date():
         raise InvalidRecordDate("오늘보다 뒤 날짜의 초안은 만들 수 없습니다.")
+    now = datetime.now(UTC)
     running_id = db.scalar(
         select(GenerationJob.id)
         .join(Job, Job.generation_job_id == GenerationJob.id)
         .where(
             GenerationJob.class_id == class_id,
             GenerationJob.record_date == record_date,
-            Job.status.in_([status.value for status in _UNFINISHED_STATUSES]),
-            Job.updated_at >= datetime.now(UTC) - _STALE_JOB_AFTER,
+            or_(
+                and_(
+                    Job.status == JobStatus.RUNNING.value,
+                    Job.updated_at >= now - _STALE_JOB_AFTER,
+                ),
+                and_(
+                    Job.status == JobStatus.PENDING.value,
+                    Job.updated_at >= now - _STALE_PENDING_JOB_AFTER,
+                ),
+            ),
         )
         .limit(1)
     )

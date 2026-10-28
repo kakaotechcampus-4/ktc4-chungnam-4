@@ -4,6 +4,7 @@
 서버는 URL 발급과 업로드 확인(HeadObject)만 합니다.
 """
 
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
@@ -14,7 +15,7 @@ from zoneinfo import ZoneInfo
 import boto3
 from botocore.client import BaseClient
 from botocore.config import Config
-from botocore.exceptions import ClientError, NoCredentialsError
+from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -39,6 +40,8 @@ from domains.organization.service import (
     ensure_class_access,
     get_consented_children,
 )
+
+logger = logging.getLogger(__name__)
 
 _ALLOWED_METHODS = frozenset({"face_recognition", "manual"})
 
@@ -605,6 +608,54 @@ def _read_object_head(key: str) -> bytes:
         Bucket=_bucket(), Key=key, Range=f"bytes=0-{_SIGNATURE_READ_BYTES - 1}"
     )
     return response["Body"].read()
+
+
+# 점검용 임시 객체는 원본 경로(`media/`)와 섞이지 않게 따로 둡니다.
+_STORAGE_CHECK_KEY_PREFIX = "healthcheck"
+
+
+def check_storage_access() -> str | None:
+    """서버 자격증명으로 S3에 실제로 쓰고·읽고·지울 수 있는지 확인합니다 (#129, FR-15).
+
+    presigned URL 발급은 AWS를 부르지 않는 로컬 계산이라 권한이 없어도 성공합니다
+    (스파이크 §11). 그래서 작은 임시 객체로 PUT → HEAD → DELETE를 직접 해 봅니다.
+    다 되면 None, 막히면 막힌 단계 이름(`config`·`put`·`head`·`delete`)을 돌려줍니다.
+
+    - 중간 단계가 실패해도 임시 객체 삭제는 시도합니다
+    - 로그에는 단계와 AWS 오류 코드만 남깁니다. AccessDenied 메시지에는 롤 ARN·버킷이,
+      연결 오류 메시지에는 버킷 호스트가 들어 있어 원문을 찍지 않습니다 (H-4)
+    - S3에 쓰고 지우므로 Docker healthcheck처럼 주기적으로 부르지 않습니다. 배포 직후 한 번만
+    """
+    try:
+        bucket = _bucket()
+    except StorageNotConfigured:
+        logger.warning("storage check failed: step=config")
+        return "config"
+    client = _s3_client(get_settings().s3_region)
+    key = f"{_STORAGE_CHECK_KEY_PREFIX}/{uuid4()}"
+
+    failed_step: str | None = None
+    step = "put"
+    try:
+        client.put_object(Bucket=bucket, Key=key, Body=b"ok", ContentType="text/plain")
+        step = "head"
+        client.head_object(Bucket=bucket, Key=key)
+    except (ClientError, BotoCoreError) as error:
+        failed_step = step
+        logger.warning("storage check failed: step=%s code=%s", step, _error_code(error))
+    try:
+        client.delete_object(Bucket=bucket, Key=key)
+    except (ClientError, BotoCoreError) as error:
+        logger.warning("storage check failed: step=delete code=%s", _error_code(error))
+        failed_step = failed_step or "delete"
+    return failed_step
+
+
+def _error_code(error: ClientError | BotoCoreError) -> str:
+    """로그에 남겨도 되는 오류 이름만 꺼냅니다. 메시지 원문은 버킷·ARN을 담고 있습니다."""
+    if isinstance(error, ClientError):
+        return str(error.response.get("Error", {}).get("Code", "unknown"))
+    return type(error).__name__
 
 
 # ---------------------------------------------------------------------------
