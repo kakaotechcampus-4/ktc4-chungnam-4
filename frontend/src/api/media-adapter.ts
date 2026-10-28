@@ -51,10 +51,12 @@ export function toUploadUrlsBody(input: UploadUrlsInput): UploadUrlsRequest {
 function toUploadTicketView(raw: UploadUrlItem): UploadTicketView {
   return {
     client_photo_id: raw.client_photo_id,
+    status: raw.status,
     media_id: raw.media_id,
     upload_url: raw.upload_url,
     upload_headers: raw.upload_headers === null ? null : { ...raw.upload_headers },
     upload_url_expires_at: raw.upload_url_expires_at,
+    error: raw.error === null ? null : { code: raw.error.code, message: raw.error.message },
   };
 }
 

@@ -10,7 +10,7 @@ from datetime import date
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from core.database import get_db
@@ -19,14 +19,14 @@ from domains.documents import service
 from domains.documents.models import DocType
 from domains.documents.schemas import (
     ApproveRequest,
-    ApproveResponse,
     ClassDraftListResponse,
     DraftDetailResponse,
     DraftUpdateRequest,
-    ParentLetterDetailResponse,
-    ParentLetterListResponse,
+    ParentNoteDetailResponse,
+    ParentNoteListResponse,
     PublishRequest,
     PublishResponse,
+    ReopenRequest,
     RevokeRequest,
     RevokeResponse,
 )
@@ -65,9 +65,11 @@ def list_class_drafts(
 def get_draft(
     draft_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    teacher_id: Annotated[UUID, Depends(get_current_teacher_id)],
+    teacher: CurrentTeacher,
 ) -> DraftDetailResponse:
-    return service.get_draft_for_teacher(db, draft_id=draft_id, teacher_id=teacher_id)
+    return service.get_draft_for_teacher(
+        db, draft_id=draft_id, teacher_id=teacher.teacher_id, center_id=teacher.center_id
+    )
 
 
 @router.patch("/drafts/{draft_id}", response_model=DraftDetailResponse)
@@ -75,30 +77,46 @@ def update_draft(
     draft_id: UUID,
     body: DraftUpdateRequest,
     db: Annotated[Session, Depends(get_db)],
-    teacher_id: Annotated[UUID, Depends(get_current_teacher_id)],
+    teacher: CurrentTeacher,
 ) -> DraftDetailResponse:
     return service.update_draft(
         db,
         draft_id=draft_id,
-        teacher_id=teacher_id,
-        content=body.content,
-        expected_version=body.expected_version,
+        teacher_id=teacher.teacher_id,
+        center_id=teacher.center_id,
+        request=body,
     )
 
 
-@router.post("/drafts/{draft_id}/approve", response_model=ApproveResponse)
+@router.post("/drafts/{draft_id}/approve", response_model=DraftDetailResponse)
 def approve_draft(
     draft_id: UUID,
     body: ApproveRequest,
     db: Annotated[Session, Depends(get_db)],
-    teacher_id: Annotated[UUID, Depends(get_current_teacher_id)],
-) -> ApproveResponse:
+    teacher: CurrentTeacher,
+) -> DraftDetailResponse:
     return service.approve_draft(
         db,
         draft_id=draft_id,
-        teacher_id=teacher_id,
+        teacher_id=teacher.teacher_id,
+        center_id=teacher.center_id,
         expected_version=body.expected_version,
-        review_confirmed=body.review_confirmed,
+    )
+
+
+@router.post("/drafts/{draft_id}/reopen", response_model=DraftDetailResponse)
+def reopen_draft(
+    draft_id: UUID,
+    body: ReopenRequest,
+    db: Annotated[Session, Depends(get_db)],
+    teacher: CurrentTeacher,
+) -> DraftDetailResponse:
+    return service.reopen_draft(
+        db,
+        draft_id=draft_id,
+        teacher_id=teacher.teacher_id,
+        center_id=teacher.center_id,
+        expected_version=body.expected_version,
     )
 
 
@@ -106,10 +124,10 @@ def approve_draft(
 def create_publications(
     body: PublishRequest,
     db: Annotated[Session, Depends(get_db)],
-    teacher_id: Annotated[UUID, Depends(get_current_teacher_id)],
+    teacher: CurrentTeacher,
 ) -> PublishResponse:
     return service.publish_drafts(
-        db, items=body.items, request_id=body.request_id, teacher_id=teacher_id
+        db, request=body, teacher_id=teacher.teacher_id, center_id=teacher.center_id
     )
 
 
@@ -128,19 +146,23 @@ def revoke_letter(
     )
 
 
-@router.get("/children/{child_id}/parent-notes", response_model=ParentLetterListResponse)
+@router.get("/children/{child_id}/parent-notes", response_model=ParentNoteListResponse)
 def list_parent_notes(
     child_id: UUID,
     db: Annotated[Session, Depends(get_db)],
     parent_id: Annotated[UUID, Depends(get_current_parent_id)],
-) -> ParentLetterListResponse:
-    return service.list_letters_for_parent(db, child_id=child_id, parent_id=parent_id)
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    cursor: str | None = None,
+) -> ParentNoteListResponse:
+    return service.list_letters_for_parent(
+        db, child_id=child_id, parent_id=parent_id, limit=limit, cursor=cursor
+    )
 
 
-@router.get("/parent-notes/{parent_note_id}", response_model=ParentLetterDetailResponse)
+@router.get("/parent-notes/{parent_note_id}", response_model=ParentNoteDetailResponse)
 def get_parent_note(
     parent_note_id: UUID,
     db: Annotated[Session, Depends(get_db)],
     parent_id: Annotated[UUID, Depends(get_current_parent_id)],
-) -> ParentLetterDetailResponse:
+) -> ParentNoteDetailResponse:
     return service.get_letter_for_parent(db, letter_id=parent_note_id, parent_id=parent_id)

@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.database import SessionLocal
@@ -22,7 +23,7 @@ from core.exceptions import (
     MediaNotReady,
     NoTargetChildren,
 )
-from domains.agents.llm import call_claude
+from domains.agents.llm import call_claude, call_vision
 from domains.agents.models import (
     DraftDecisionLog,
     EvidenceBundle,
@@ -37,11 +38,14 @@ from domains.documents.schemas import DraftSaveInput, DraftSentenceInput
 from domains.media import service as media_service
 from domains.organization.service import ensure_class_access
 from prompts.generation.draft import DraftFeedback, build_draft_prompt
+from prompts.perception.photo_analysis import build_single_photo_prompt
 from prompts.verification.critic import build_critic_prompt
 from tools import contracts
 from tools.evidence.builder import build_evidence
 from tools.generation.draft import DraftResponseError, parse_draft_response
 from tools.generation.pseudonymize import pseudonymize_evidence, restore_names
+from tools.perception.photo import parse_single_photo_analysis
+from tools.perception.types import ChildLink, PerceptionResult, PerceptionStatus, PhotoInput
 from tools.verification.critic_result import parse_critic_response
 from tools.verification.decision import MAX_REGENERATIONS, decide
 from tools.verification.references import validate_references
@@ -80,9 +84,18 @@ _STALE_JOB_AFTER = timedelta(seconds=180 * 3 + 60)
 
 
 @dataclass(frozen=True)
+class JobDraft:
+    draft_id: UUID
+    doc_type: str
+
+
+@dataclass(frozen=True)
 class ChildJobStatus:
     child_id: UUID
     status: JobStatus
+    # succeeded일 때만 채운다. 초안이 있으면 drafted, 없으면 unclassified (docs/api/agents.md).
+    outcome: str | None = None
+    drafts: tuple[JobDraft, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -120,11 +133,9 @@ def start_generation_job(
     그 원아가 귀속된 사진만 근거 수집에서 빠진다(H-2·H-3). 커밋과 큐 넣기는 호출자가 한다.
     """
     ensure_class_access(db, class_id, center_id)
-    existing = db.scalar(select(GenerationJob).where(GenerationJob.request_id == str(request_id)))
+    existing = _find_job_by_request_id(db, request_id)
     if existing is not None:
-        # request_id가 작업을 가리키므로, 경로의 반과 다르면 그 작업의 반으로 다시 확인한다.
-        ensure_class_access(db, existing.class_id, center_id)
-        return StartedGenerationJob(status=_job_status(db, existing), to_enqueue=[])
+        return _started_again(db, existing, center_id)
 
     if record_date > datetime.now(_KST).date():
         raise InvalidRecordDate("오늘보다 뒤 날짜의 초안은 만들 수 없습니다.")
@@ -159,8 +170,17 @@ def start_generation_job(
         request_id=str(request_id),
         requested_by_teacher_id=teacher_id,
     )
-    db.add(generation_job)
-    db.flush()
+    # 같은 request_id가 거의 동시에 두 번 오면 둘 다 위 조회를 통과한다. 늦은 쪽은 유일 제약에
+    # 걸리므로, 그 작업을 돌려줘 문서의 멱등성을 지킨다 (#161 리뷰 4번, 엄태은).
+    try:
+        with db.begin_nested():
+            db.add(generation_job)
+            db.flush()
+    except IntegrityError:
+        existing = _find_job_by_request_id(db, request_id)
+        if existing is None:
+            raise
+        return _started_again(db, existing, center_id)
     # 근거 수집이 이 값을 KST 날짜로 읽는다(collect_media_for_llm). 그 날 0시(KST)로 둔다.
     target_date = datetime.combine(record_date, time.min, tzinfo=_KST)
     jobs = [
@@ -173,6 +193,19 @@ def start_generation_job(
         status=_job_status(db, generation_job),
         to_enqueue=[(job.id, job.child_id) for job in jobs],
     )
+
+
+def _find_job_by_request_id(db: Session, request_id: UUID) -> GenerationJob | None:
+    return db.scalar(select(GenerationJob).where(GenerationJob.request_id == str(request_id)))
+
+
+def _started_again(
+    db: Session, existing: GenerationJob, center_id: UUID | None
+) -> StartedGenerationJob:
+    """같은 request_id로 다시 온 요청. 새로 만들지 않고 그 작업을 돌려준다."""
+    # request_id가 작업을 가리키므로, 경로의 반과 다르면 그 작업의 반으로 다시 확인한다.
+    ensure_class_access(db, existing.class_id, center_id)
+    return StartedGenerationJob(status=_job_status(db, existing), to_enqueue=[])
 
 
 def get_generation_job(db: Session, *, job_id: UUID, center_id: UUID | None) -> GenerationJobStatus:
@@ -188,7 +221,7 @@ def _job_status(db: Session, generation_job: GenerationJob) -> GenerationJobStat
     jobs = db.scalars(
         select(Job).where(Job.generation_job_id == generation_job.id).order_by(Job.child_id)
     ).all()
-    children = [ChildJobStatus(child_id=job.child_id, status=JobStatus(job.status)) for job in jobs]
+    children = [_child_status(db, job, generation_job.record_date) for job in jobs]
     finished = sum(child.status not in _UNFINISHED_STATUSES for child in children)
     # TODO(eun): 문서의 진행률은 원아별로 끝낸 단계 수로 세지만 Job에 단계 컬럼이 없다.
     #   지금은 끝난 원아 비율로 센다 (docs/api/agents.md 임시 결정(정은)).
@@ -201,6 +234,30 @@ def _job_status(db: Session, generation_job: GenerationJob) -> GenerationJobStat
         children=children,
         # 원아별 Job이 바뀌어도 부모 행은 갱신되지 않으므로 가장 늦은 시각을 쓴다.
         updated_at=max([generation_job.updated_at, *(job.updated_at for job in jobs)]),
+    )
+
+
+def _child_status(db: Session, job: Job, record_date: date) -> ChildJobStatus:
+    """원아별 상태. 성공한 원아는 그날 초안이 있는지로 결과를 정한다.
+
+    Job에 결과 컬럼이 없어도 초안은 원아·종류·날짜당 하나라서 찾을 수 있다. FE는 drafts로 초안
+    검토 화면에 넘어간다 (docs/api/agents.md). 같은 날 앞선 작업이 만든 초안이 있으면 이번 작업이
+    미분류로 끝났어도 drafted로 보인다 — 재생성 규칙(get_draft_version)을 붙일 때 함께 다룬다.
+    TODO(eun): 미분류 사유(unclassified_reason)·단계는 Job 결과 컬럼이 생기면 채운다.
+    """
+    status = JobStatus(job.status)
+    if status != JobStatus.SUCCEEDED:
+        return ChildJobStatus(child_id=job.child_id, status=status)
+    draft = documents.get_draft_version(
+        db, child_id=job.child_id, doc_type=DAILY_DOC_TYPE, record_date=record_date
+    )
+    if draft is None:
+        return ChildJobStatus(child_id=job.child_id, status=status, outcome="unclassified")
+    return ChildJobStatus(
+        child_id=job.child_id,
+        status=status,
+        outcome="drafted",
+        drafts=(JobDraft(draft_id=draft.draft_id, doc_type=DAILY_DOC_TYPE.value),),
     )
 
 
@@ -218,6 +275,94 @@ def _overall_status(children: Sequence[ChildJobStatus]) -> JobStatus:
     if JobStatus.FAILED in statuses:
         return JobStatus.FAILED
     return JobStatus.SUCCEEDED
+
+
+# ---------------------------------------------------------------------------
+# 문장별 근거 조회 (documents의 교사용 초안 상세가 부른다)
+# ---------------------------------------------------------------------------
+
+# 근거 행에 출처 종류를 저장하지 않아 미디어 종류로 정한다. 영상은 발화만 근거로 쓰므로
+# (테크스펙 §요청사항 2) video_speech다. 미디어가 없으면 활동계획이다.
+_SOURCE_TYPE_BY_MEDIA_TYPE = {
+    "photo": contracts.SourceType.PHOTO_OBSERVATION,
+    "voice_memo": contracts.SourceType.TEACHER_VOICE_MEMO,
+    "video": contracts.SourceType.VIDEO_SPEECH,
+}
+
+# 시각이 없는 근거끼리만 비교되는 자리 채움 값이다 (정렬 키의 앞 항목이 이미 구분한다).
+_NO_TIME = datetime(1970, 1, 1, tzinfo=UTC)
+
+
+@dataclass(frozen=True)
+class SentenceEvidenceView:
+    """문장 하나를 뒷받침하는 근거 (docs/api/documents.md §GET /drafts/{draft_id} evidences[]).
+
+    text는 비식별화 전 원문이라 실명이 있을 수 있다. 검수 권한이 있는 교사 화면에만 싣고
+    LLM·로그로 보내지 않는다 (H-1, H-2, H-4).
+    """
+
+    evidence_id: str
+    source_type: str
+    text: str
+    media_id: UUID | None
+    start_ms: int | None
+    end_ms: int | None
+    captured_at: datetime | None
+
+
+def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[SentenceEvidenceView]]:
+    """초안의 문장별 근거를 sentence_id로 묶어 돌려준다 (FR-07).
+
+    권한 판정과 열람 기록은 부르는 쪽(documents)이 한다. 근거가 없는 문장은 키가 없다 — 교사가
+    고친 문장의 근거를 비우는 것도 documents가 정한다 (documents.md §PATCH).
+
+    임시 결정(정은): 근거 행에 출처 종류·끝 시각을 저장하지 않아서 source_type은 미디어 종류로
+    정하고 end_ms는 null이다. 영상 속 교사 관찰 발화는 생성 때 teacher_voice_memo였어도
+    여기서는 video_speech로 보인다. TODO(eun): 영상 근거를 쓰기 시작하면 SentenceEvidence에
+    source_type·end_ms를 저장한다(테크스펙 먼저).
+    """
+    rows = db.scalars(
+        select(SentenceEvidenceRow)
+        .where(SentenceEvidenceRow.draft_id == draft_id)
+        .order_by(SentenceEvidenceRow.sentence_id, SentenceEvidenceRow.evidence_id)
+    ).all()
+    media = media_service.get_media_meta(
+        db, [row.source_media_id for row in rows if row.source_media_id is not None]
+    )
+    result: dict[str, list[SentenceEvidenceView]] = {}
+    for row in rows:
+        meta = media.get(row.source_media_id) if row.source_media_id is not None else None
+        source_type = (
+            _SOURCE_TYPE_BY_MEDIA_TYPE[meta.type]
+            if meta is not None
+            else contracts.SourceType.ACTIVITY_PLAN
+        )
+        result.setdefault(row.sentence_id, []).append(
+            SentenceEvidenceView(
+                evidence_id=row.evidence_id,
+                source_type=source_type.value,
+                text=row.source_text,
+                media_id=row.source_media_id,
+                start_ms=(
+                    round(row.source_timestamp * 1000) if row.source_timestamp is not None else None
+                ),
+                end_ms=None,
+                captured_at=meta.captured_at if meta is not None else None,
+            )
+        )
+    for views in result.values():
+        # 출처마다 evidence_id 접두가 달라 문자열 순이 시간 순이 아니다. 촬영 시각, 영상·음성 안의
+        # 시각 순으로 보여 주고 값이 없는 근거(활동계획)는 뒤에 둔다.
+        views.sort(
+            key=lambda view: (
+                view.captured_at is None,
+                view.captured_at or _NO_TIME,
+                view.start_ms is None,
+                view.start_ms or 0,
+                view.evidence_id,
+            )
+        )
+    return result
 
 
 def orchestrate_drafts(job_id: str, child_id: str) -> None:
@@ -435,6 +580,62 @@ def _cap_photos(media: list[media_service.MediaEvidence]) -> list[media_service.
     step = (len(photo_positions) - 1) / (MAX_PHOTOS_PER_CHILD - 1)
     kept = {photo_positions[round(i * step)] for i in range(MAX_PHOTOS_PER_CHILD)}
     return [item for i, item in enumerate(media) if item.type != "photo" or i in kept]
+
+
+# 사진 분석 응답이 형식을 어기면 그 사진만 이만큼 다시 부른다. 호출 예외는 여기서 잡지 않고
+# Celery task 재시도가 맡는다 (테크스펙 §오류 복구 '사진 분석 응답 오류', #155).
+PHOTO_RESPONSE_RETRIES = 1
+
+
+def _photo_inputs(media: Sequence[media_service.MediaEvidence]) -> list[PhotoInput]:
+    """근거 미디어 중 사진을 사진 분석 입력으로 바꾼다.
+
+    귀속(child_links)은 브라우저 얼굴 인식과 교사 확정을 거쳐 저장된 값을 그대로 옮긴다.
+    귀속이 없는 사진은 근거로 쓸 수 없어 뺀다 — collect_media_for_llm은 대상 원아에게 귀속된
+    미디어만 주므로 정상이라면 생기지 않는다.
+    """
+    return [
+        PhotoInput(
+            media_id=str(item.media_id),
+            captured_at=item.captured_at,
+            links=tuple(
+                ChildLink(child_id=str(link.child_id), method=link.method)
+                for link in item.child_links
+            ),
+        )
+        for item in media
+        if item.type == "photo" and item.child_links
+    ]
+
+
+def _analyze_photos(
+    session: Session, photos: Sequence[PhotoInput], *, target_child_id: str, record_date: date
+) -> list[tuple[PhotoInput, PerceptionResult]]:
+    """사진을 1장씩 분석해 (사진, 결과) 짝으로 돌려준다 (파이프라인 5단계, NFR-09).
+
+    결과는 tools.perception.merge.merge_perception_results에 그대로 넘긴다. 다시 불러도 응답
+    오류인 사진도 빼지 않고 RESPONSE_ERROR 결과로 둔다 — 빼면 사진이 모두 실패했을 때 근거가
+    없는 경우와 구분되지 않는다 (merge.py). 사진은 S3 서명 URL로 넘긴다(llm.call_vision).
+    LLM에는 이미지와 아이 수만 가고 media_id·child_id·이름은 가지 않는다 (H-2).
+    """
+    urls = {
+        signed.media_id: signed.url
+        for signed in media_service.get_signed_urls(
+            session, [UUID(photo.media_id) for photo in photos]
+        )
+    }
+    results = []
+    for photo in photos:
+        prompt = build_single_photo_prompt(photo)
+        for _ in range(PHOTO_RESPONSE_RETRIES + 1):
+            raw = call_vision(prompt.instructions, [urls[UUID(photo.media_id)]])
+            result = parse_single_photo_analysis(
+                raw, photo=photo, target_child_id=target_child_id, record_date=record_date
+            )
+            if result.status != PerceptionStatus.RESPONSE_ERROR:
+                break
+        results.append((photo, result))
+    return results
 
 
 class InsufficientEvidence(Exception):

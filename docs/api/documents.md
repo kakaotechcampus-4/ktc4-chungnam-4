@@ -11,17 +11,19 @@
 **한상균**
 
 - [x] (막힘) 초안 `status` 값: 테크스펙 4값(제안) vs develop에 병합된 PR #14 값(정은과 함께) → **`draft`(생성·검증 중) → `verified`(교사 검토 대기) → `approved`**. 검증을 통과한 초안은 `verified`로 저장하고, 승인 판정은 `status == verified` 하나입니다. PR #14의 `in_review`는 `verified`로 바꿨고, `revoked`는 아래 게시 모델이 정해질 때까지 그대로 둡니다. `unclassified`를 상태값으로 둘지는 아직 열려 있습니다(`docs/open-questions.md`). 임시 결정(한상균), 이슈 #75·#106에서 정은·김진하 확인. 반영: 테크스펙 ④ DraftDocument, `backend/domains/documents/models.py`
-- [ ] (막힘) 승인·게시 분리(`DocumentPublication`). 게시를 일괄 `POST /publications`로 할지 건별로 할지
+- [x] (막힘) 승인·게시 분리(`DocumentPublication`) → **분리하고 일괄 `POST /publications`로 게시**합니다. 승인만으로는 학부모에게 보이지 않고, 회수되지 않은 게시 회차가 있을 때만 보입니다. 임시 결정(한상균), 팀 확인 대기(#158 6번). 반영: 테크스펙 ⑤ DocumentPublication
 - [ ] (막힘) **생성 중인 원아를 목록에서 알리는 방법** (#139 리뷰 송유진·김진하) — 지금은 `draft`로 저장되는 경로가 없습니다. agents는 검증을 통과한 초안만 `verified`로 저장해서, 생성 중인 원아가 초안 없는 원아와 구분되지 않습니다. 화면 쪽은 Job(`job_id`)이 아니라 반·날짜 목록(`GET /classes/{class_id}/drafts`)에 생성 중을 알리는 값이 있기를 원합니다 — 화면을 떠났다 오면 `job_id`를 잃고, 두 응답의 시점이 어긋나서입니다. 목록 구현 PR에서 값의 모양을 정하고, 그때 `draft` 상태값과 아래 표의 `draft` → 생성 중 행을 함께 정리합니다
 - [x] (막힘) 본문 저장 형태와 `sentences[]` 단위 정의(정은과 함께) → **agents가 만든 문장 단위·순서 그대로 `DraftSentence`에 저장하고, 문장은 순번이 아니라 `sentence_id`로 가리킵니다.** `sentences[]` 한 항목이 `DraftSentence` 한 행이고, 근거도 이 단위로 붙습니다. 임시 결정(정은), 이슈 #75. 반영: 테크스펙 ④ DraftSentence, `backend/domains/documents/models.py`, 이 문서 §`GET /api/v1/drafts/{draft_id}`·§`PATCH /api/v1/drafts/{draft_id}`
-- [ ] `title`, `selected_media_ids`, `include_photos`, `published_at`의 저장 위치
-- [ ] AccessLog 범위: 목록 `view_list` 기록 단위, 교사 상세 조회 기록 여부, 본문 `target_type`, 서명 URL 발급·임베딩 조회 로그 값
-- [ ] `is_read`·`unread_count`·`this_month_count`의 출처와, 목록 응답 봉투 확장 허용 여부
+- [x] `title`, `selected_media_ids`, `include_photos`, `published_at`의 저장 위치 → `selected_media_ids`는 `DraftDocument`, `include_photos`·`published_at`은 `DocumentPublication`(게시 회차마다). `title`은 AI가 만들지 않아 저장하지 않고 `null`입니다. 임시 결정(한상균). 반영: 테크스펙 ④·⑤, 마이그레이션 `fa3e9648dc22`
+- [ ] AccessLog 범위: 서명 URL 발급·임베딩 조회 로그 값이 남아 있습니다. 정한 것은 아래와 같습니다
+  - 학부모 목록은 담긴 알림장마다 `view_list`, 본문은 `view_detail`, target은 게시 회차 `document_publication` — 임시 결정(한상균), 아래 학부모 두 절
+  - 교사 상세 조회 기록 여부 → 남깁니다(actor_type=teacher, target_type=draft_document, action=view_detail). 임시 결정(한상균), 엄태은 #186 리뷰 동의. 반영: 이 문서 §`GET /api/v1/drafts/{draft_id}`
+- [x] `is_read`·`unread_count`·`this_month_count`의 출처와, 목록 응답 봉투 확장 허용 여부 → 읽음은 그 학부모의 본문 열람 기록(AccessLog `view_detail`), 이번 달 수는 KST 이번 달의 기록 날짜로 셉니다. 목록 봉투 확장은 이 엔드포인트만 허용합니다. 임시 결정(한상균). 반영: 이 문서 §학부모 목록
 - [ ] 수정·승인 규칙: 승인 후 수정은 이 문서에서 409로 두고, 되돌리기는 `reopen`으로 다룹니다(상세 작성 — 임시 결정(김진하)). `unclassified` 초안 수정·승인, 재승인 멱등 처리, 승인 차단 조건(정은과 함께)
 - [ ] 자동저장과 RevisionLog 최근 5회 보관의 충돌. 문장 추가·삭제, 사진 변경 로그
 - [ ] `NO_LINKED_PARENT` 처리, `parent_note_id = draft_id` 재사용 확정
-- [ ] 학부모에게 `llm_allowed == true`인 선택 사진만 보이게 할지(김동건과 함께)
-- [ ] `review_confirmed`를 `reviewed`로 개명(PR #14로 develop에 들어간 schemas·router·service 수정)
+- [x] 학부모에게 `llm_allowed == true`인 선택 사진만 보이게 할지(김동건과 함께) → 고를 때와 학부모가 볼 때 모두 media `collect_media_for_llm` 범위(`llm_allowed`, 파기 안 됨, 귀속 원아 전원 ③ 동의)의 사진만 씁니다. 임시 결정(한상균), 범위는 김동건 #172 리뷰에서 확인. 반영: 이 문서 §publications·§학부모 목록·본문
+- [x] `review_confirmed`를 `reviewed`로 개명 → 바꿨습니다(FE도 `reviewed`를 씀). 임시 결정(한상균). 반영: `backend/domains/documents/schemas.py` `ApproveRequest`
 - [ ] `preview` 정의: 앞부분 100자, 문장 경계에서 자름
 - [x] `documents/CLAUDE.md`의 `/documents` 표기 수정
 
@@ -52,19 +54,13 @@ develop의 documents(PR #14)는 경로·요청·응답 모양만 있고, 서비�
 | 알림장 이름 | `parent_note`, `parent_note_id` | 경로는 맞췄고, 스키마·서비스 함수 이름에 `letter`가 남아 있음(용어표에서 쓰지 않는 말). `doc_type` 값은 `parent_note`로 같음 |
 | 초안 `status` 값 | `draft`·`verified`·`approved`·`unclassified` | `draft`·`verified`·`approved`·`revoked` |
 | 반·날짜 초안 목록의 `unclassified` | 초안 없이 미분류로 끝난 원아의 사유 | 항상 `null`. agents가 미분류를 기록하지 않고(`_send_to_unclassified`가 빈 함수), `UnclassifiedItem`에 원아·날짜가 없음 |
-| 초안 상세 응답 | ID `draft_id`, 본문 `sentences[]`. `selected_media_ids`·`media[]`·`title`·`author_name`·`published_at` 있음. `ai_version` 없음 | ID `id`, 본문 `content`(텍스트 하나). `ai_version`·`evidence_bundle_id`·`created_at` 있음. `sentences`·`selected_media_ids`·`media`·`title`·`author_name`·`published_at` 없음 |
-| 초안 수정 요청 | `expected_version`, 바뀐 문장만 담은 `sentences[]`, `selected_media_ids` | `expected_version`, 본문 전체를 바꾸는 `content` |
-| 승인 요청의 확인 필드 | `reviewed: true` | `review_confirmed: true` |
-| 승인 응답 | 상세와 같은 교사용 스키마 | `id`·`status`·`version`만 |
+| 초안 상세 응답(수정·승인·되돌리기 응답) | 위 모양 그대로, 작성 교사 이름이 채워짐 | 모양은 같음. 작성 교사 이름(`author_name`)만 auth 조회 함수가 생기기 전까지 빈 문자열이고, `title`은 AI가 만들지 않아 `null` |
 | 게시 요청 | `request_id`·`include_photos`·`items[]` | `request_id`·`items[]`(`include_photos` 없음) |
 | 게시 건별 결과(둘 다 `draft_id`·`status`·`published_at`·`error_code` 있음) | `child_id`·`parent_note_id`·`version` 있음 | `publication_id`·`round_number`·`revoke_deadline` 있음 |
-| 학부모 목록 쿼리 | `limit`·`cursor` | 없음 |
-| 학부모 목록 응답 | `items`·`next_cursor`·`unread_count`·`this_month_count`. 항목에 `preview`·`photos`·`is_read` | `letters[]`만. 항목은 `letter_id`·`doc_type`·`record_date`·`published_at`. `doc_type`이 있어 관찰일지도 학부모 목록에 올 수 있는 모양(의도 확인 필요) |
-| 학부모 상세 응답 | `child_id`·`photos`·`author_name`·`prev`·`next` 있음 | `letter_id`·`doc_type`·`record_date`·`content`·`published_at`만 |
+| 학부모 응답의 `author_name` | 작성 교사 이름 | auth 조회 함수가 생기기 전까지 빈 문자열 |
 | 미분류 표시 | 반·날짜 목록의 `unclassified`에 UnclassifiedItem을 원아별로 붙임 | `UnclassifiedItem`은 `ref_type`·`ref_id`로만 대상을 가리킴. `child_id`·`record_date` 없음 |
 | 재생 URL | `media[]`·`photos`에 `{media_id, type, url, url_expires_at}` 서명 URL | media의 `get_playback_url`(PR #13)이 한 건씩 서명·만료 없는 URL 문자열을 줌. 초안·학부모 응답에 URL 필드 없음 |
 | 회수 | 경로만(`POST /api/v1/drafts/{draft_id}/revoke`, 화면 없음) | `POST /drafts/{draft_id}/revoke`의 요청·응답까지 있음. 게시 후 24시간 안, 학부모가 아직 보지 않았을 때만 회수. 회수하면 `revoked`가 되고 다시 게시하려면 재승인 |
-| 학부모 목록 열람 기록 | AccessLog(`view_list`)를 남김 | 정하지 않음. 목록 조회는 `first_viewed_at`을 건드리지 않음 |
 | 에러 코드 | 엔드포인트마다 정함(`DRAFT_VERSION_CONFLICT` 등) | 아직 없음. 버전이 다르면 409를 준다는 방침만 있음 |
 
 - [ ] 위 차이를 이 문서에 맞출지 develop에 맞출지(한상균. 재생 URL은 김동건과 함께). 기본 경로와 경로 이름은 이 문서에 맞췄습니다 — `main.py`가 `/api/v1`을 붙입니다(#136 리뷰 합의)
@@ -252,16 +248,19 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
   - `evidence_id`는 초안 안에서만 유일한 불투명 문자열입니다. "ID는 UUID"라는 공통 규약의 예외입니다.
   - `source_type`은 5종입니다: `photo_observation`·`video_speech`·`video_scene`·`teacher_voice_memo`·`activity_plan`.
   - `activity_plan` 근거는 `media_id`가 null입니다. 사진·계획 근거는 `start_ms`·`end_ms`가 null입니다.
-- `media[]`에는 선택 사진과 근거 미디어의 서명 URL이 들어갑니다(화면 데이터 "근거 클립 재생 URL"). media service 함수로 붙이며, 만료되면 `GET /api/v1/media/{media_id}`로 다시 받습니다.
+- `media[]`에는 선택 사진과 근거 미디어의 서명 URL이 들어갑니다(화면 데이터 "근거 클립 재생 URL"). media service 함수로 붙이며, 만료되면 `GET /api/v1/media/{media_id}`로 다시 받습니다. 선택 사진 다음 보여 주는 근거의 미디어 순서로 겹치지 않게 싣고, 교사가 고친 문장의 근거 미디어는 싣지 않습니다.
 - `selected_media_ids`는 선택 사진의 순서입니다. PATCH와 같은 필드입니다.
 - `author_name`은 서버가 `author_teacher_id`로 조회해 붙입니다. LLM에는 보내지 않습니다(FR-26, H-2).
 - `status == unclassified`이면 `evidences`가 빈 배열일 수 있습니다. 지금 코드는 PASS일 때만 근거를 저장합니다.
 - 스펙 모델에 없는 필드는 `title`, `selected_media_ids`, `media`, `published_at`입니다(제안).
 - 에러:
   - `DRAFT_NOT_FOUND` (404) — 없는 초안일 때
-  - `CLASS_ACCESS_DENIED` (403) — 담당 반 원아의 초안이 아닐 때
+  - `CHILD_ACCESS_DENIED` (403) — 다른 어린이집 원아의 초안일 때. 원아 기준으로 검사합니다 — 임시 결정(한상균), #156
+  - `ACCESS_LOG_FAILED` (500) — 열람 기록에 실패했을 때(본문 없이)
+- 볼 때마다 `AccessLog`(actor_type=teacher, target_type=draft_document, action=view_detail)를 남기고 커밋한 뒤 돌려줍니다. 승인 전 본문과 근거 원문(실명)을 보는 열람이라 NFR-05(모든 열람 기록)를 따릅니다 — 임시 결정(한상균). 수정·승인·되돌리기 응답은 열람으로 보지 않아 남기지 않습니다.
+- 분석하지 못해 근거에서 뺀 사진(#155)은 `failed_media_ids`(media_id 배열)로 싣고, 썸네일은 `media[]`에 같은 모양으로 넣습니다 — 임시 결정(한상균). agents가 이 목록을 저장하면(사진 분석 연결 PR) 응답에 붙이고, 그전까지는 응답에 없습니다.
 - 본문은 문장 단위(`DraftSentence`)로 저장합니다 — 임시 결정(정은), 이슈 #75. `sentences[]` 한 항목은 문법상 문장이 아니라 근거를 함께 쓰는 표시 단위입니다. 화면에서 두 문장이 한 덩어리로 보여도 근거와 수정은 이 항목 단위로 움직입니다.
-- [확인 필요: 정은] `SentenceEvidence`에는 `source_type`·`end_ms`·`captured_at`이 없어서 조인 경로를 정해야 합니다. `source_text`가 비식별 토큰(`CHILD_A`) 상태로 저장되는지, 그렇다면 교사 응답의 어디에서 실명을 되살릴지 정해야 합니다. `evidence_id`를 UUID로 바꿀지도 정해야 합니다.
+- ~~[확인 필요: 정은] `SentenceEvidence`에는 `source_type`·`end_ms`·`captured_at`이 없어서 조인 경로를 정해야 합니다. `source_text`가 비식별 토큰(`CHILD_A`) 상태로 저장되는지, 그렇다면 교사 응답의 어디에서 실명을 되살릴지 정해야 합니다. `evidence_id`를 UUID로 바꿀지도 정해야 합니다.~~ → 임시 결정(정은): `evidences[]`는 agents `list_sentence_evidences(db, draft_id)`로 받습니다(문장 ID → 근거 목록, 위 응답 모양 그대로). `source_text`는 원문으로 저장돼 실명을 되살릴 필요가 없습니다. `end_ms`는 아직 저장하지 않아 `null`입니다. `evidence_id`는 불투명 문자열 그대로 둡니다. 자세한 규칙은 `docs/api/agents.md` 상단 목록.
 
 ### `POST /api/v1/children/{child_id}/drafts` — 교사용: 자료 없이 직접 쓴 초안 만들기
 
@@ -316,6 +315,8 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 ```
 
 - 응답 `200`: 상세와 같은 교사용 스키마를 돌려주고, `version`이 1 오릅니다. 바뀐 문장마다 `RevisionLog`(action=edit, edit_method=manual)를 남깁니다.
+  - 글자가 그대로인 문장은 바뀐 것으로 보지 않습니다(이력·"수정됨" 없음) — 임시 결정(한상균). 서버가 `text`의 앞뒤 공백을 지운 뒤 비교하므로 앞뒤 공백만 다른 문장도 그대로인 문장입니다 — 임시 결정(한상균), #170 리뷰.
+  - 새 문장(`added_sentences`)도 한 문장에 한 줄씩 `RevisionLog`(action=edit, edit_method=manual, `before_content`는 `null`)를 남깁니다 — 임시 결정(한상균).
 - `added_sentences`는 기존 문장 **뒤에 이어 붙이고**, 서버가 `sentence_id`를 `t1`·`t2`…로 붙입니다(그 문서의 `t` 번호 최댓값 + 1 — 임시 결정(정은), 이슈 #75). 새 문장의 `evidences`는 빈 배열입니다(교사가 쓴 글이라 원문 근거가 없습니다).
 - **바뀐 문장의 `evidences`는 빈 배열로 돌려줍니다** — 임시 결정(김진하). 교사가 직접 고친 문장은 원문 발화가 그 문장을 뒷받침한다고 보장할 수 없어, 화면에서 근거를 보여 주지 않고 `is_edited_by_teacher: true`로 표시합니다(FR-07). 근거 행은 DB에 남깁니다 — 나중에 재검증할 때 대조할 원래 근거가 있어야 해서입니다(이슈 #75, 정은·김진하 확인). 고치지 않은 문장의 근거는 그대로입니다.
 
@@ -328,10 +329,11 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
   - `DRAFT_NOT_READY` (409) — `status == draft`일 때(생성·검증 중)
   - `DRAFT_ALREADY_APPROVED` (409) — 이미 승인됐을 때(게시된 것 포함). 승인을 되돌리는 것은 `reopen`에서 다룹니다.
   - `INVALID_SENTENCE_ID` (400) — 그 초안에 없는 `sentence_id`일 때
-  - `MEDIA_NOT_LINKED_TO_CHILD` (400) — 이 원아에게 귀속되지 않은 사진일 때
+  - `MEDIA_NOT_LINKED_TO_CHILD` (400) — 고를 수 있는 사진이 아닐 때(영상·음성메모 포함). 고를 수 있는 사진은 그 원아·그 날짜에 LLM 근거로 쓸 수 있는 **사진**(`type == photo`, `llm_allowed`, 귀속 원아 전원 ③ 동의, media `collect_media_for_llm`)입니다 — 다른 아이가 함께 찍힌 사진이 학부모에게 나가지 않게 보수적으로 둡니다. 임시 결정(한상균)
   - `DRAFT_NOT_FOUND` (404) — 없는 초안일 때
-  - `CLASS_ACCESS_DENIED` (403) — 담당 반이 아닐 때
-- [확인 필요: 한상균] 자동저장마다 RevisionLog를 남기면 최근 5회 보관분이 자동저장 기록으로 채워집니다. 저장 시점과 로그 단위를 정해야 합니다. 문장 추가·삭제, 사진 선택 변경의 로그 기록, `unclassified` 초안 수정을 허용할지도 정해야 합니다.
+  - `CHILD_ACCESS_DENIED` (403) — 다른 어린이집 원아의 초안일 때. 원아 기준으로 검사합니다 — 임시 결정(한상균), #156
+  - `VALIDATION_ERROR` (422) — 바꿀 것이 없거나, 같은 `sentence_id`·`media_id`가 두 번 오거나, 앞뒤 공백을 지운 `text`가 비었을 때(고친 문장·새 문장 모두)
+- [확인 필요: 한상균] 자동저장마다 RevisionLog를 남기면 최근 5회 보관분이 자동저장 기록으로 채워집니다. 저장 시점과 로그 단위를 정해야 합니다. 문장 삭제, 사진 선택 변경의 로그 기록, `unclassified` 초안 수정을 허용할지도 정해야 합니다(문장 추가 로그는 위에서 정함).
 
 ### `POST /api/v1/drafts/{draft_id}/approve` — 교사용: 초안 승인(H-1 승인 게이트)
 
@@ -354,8 +356,9 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
   - `DRAFT_VERSION_CONFLICT` (409) — 화면의 버전이 오래됐을 때
   - `DRAFT_NOT_APPROVABLE` (409) — `status`가 `verified`가 아닐 때
   - `DRAFT_NOT_FOUND` (404) — 없는 초안일 때
-  - `CLASS_ACCESS_DENIED` (403) — 담당 반이 아닐 때
-- [확인 필요: 한상균] 필드 이름을 `reviewed`로 바꿀지 정해야 합니다. PR #14의 `review_confirmed`는 금지어 confirm을 씁니다. 정은과 함께 `unclassified` 초안 승인 허용 여부(이 문서에서는 409), 이미 승인된 초안을 다시 승인할 때 멱등 200으로 처리할지, 승인 차단 조건(`DraftDecisionLog`)도 정해야 합니다.
+  - `CHILD_ACCESS_DENIED` (403) — 다른 어린이집 원아의 초안일 때(같은 어린이집 교사는 모든 반의 초안을 승인합니다, FR-25). 원아 기준으로 검사합니다 — 임시 결정(한상균), #156
+- 필드 이름은 `reviewed`입니다 — 임시 결정(한상균). 이미 승인된 초안을 다시 승인하면 멱등 200이 아니라 `409 DRAFT_NOT_APPROVABLE`입니다(`verified`가 아니므로) — 임시 결정(한상균).
+- [확인 필요: 한상균] 정은과 함께 승인 차단 조건(`DraftDecisionLog`)을 정해야 합니다. 지금은 agents가 검증을 통과한 초안만 `verified`로 저장하므로 `status` 검사로 대신합니다.
 
 ### `POST /api/v1/drafts/{draft_id}/reopen` — 교사용: 승인을 되돌려 다시 검토
 
@@ -370,7 +373,8 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 
 - 응답 `200`: 상세와 같은 교사용 스키마입니다. `status`가 `approved` → `verified`로 돌아가고 `approved_at`은 `null`이 되며, `version`이 1 오릅니다. 되돌린 뒤에는 다시 수정(`PATCH`)하고 승인할 수 있습니다.
 - **게시한 알림장은 되돌릴 수 없습니다** — `published_at`이 있으면 `409 DRAFT_ALREADY_PUBLISHED`입니다. 이미 학부모에게 나갔으므로 회수(`POST /api/v1/drafts/{draft_id}/revoke`)가 따로 필요합니다(H-1).
-- 에러: 승인 상태가 아니면 `409 DRAFT_NOT_APPROVED`, 버전이 다르면 `409 DRAFT_VERSION_CONFLICT`입니다.
+- 되돌린 사실은 `RevisionLog`(action=reopen)에 남깁니다 — 임시 결정(한상균), 테크스펙 ⑤ RevisionLog.
+- 에러: 승인 상태가 아니면 `409 DRAFT_NOT_APPROVED`, 버전이 다르면 `409 DRAFT_VERSION_CONFLICT`, 없는 초안이면 `404 DRAFT_NOT_FOUND`, 다른 어린이집 원아의 초안이면 `403 CHILD_ACCESS_DENIED`입니다.
 
 ### `POST /api/v1/publications` — 교사용: 승인된 알림장을 골라 학부모에게 게시(일괄, 건별 결과)
 
@@ -384,7 +388,7 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
   - **게시를 마친 날짜는 닫힙니다.** 그 날짜의 초안 검토 화면은 "게시를 마쳤어요"만 보여 주고 수정·승인·게시를 막습니다. 게시본을 고치려면 회수(`POST /api/v1/drafts/{draft_id}/revoke`, 경로만)가 필요합니다.
   - 따라서 한 날짜는 **"아무도 게시되지 않음"(검토 중)** 이거나 **"그날 게시분이 다 나감"(닫힘)** 둘 중 하나입니다. 한 원아만 게시된 상태는 이 흐름에서 나오지 않습니다(목 시드도 이 규칙을 따릅니다).
   - **건별 실패는 예외입니다** — 임시 결정(김진하). `results[]`에 `failed`가 섞이면 게시된 원아와 못 한 원아가 함께 남습니다. 이때는 날짜를 닫지 않고(완료 판정은 "승인했는데 아직 안 나간 초안이 없을 때") 화면에 실패한 원아를 알려 다시 올릴 수 있게 합니다. 교사가 이번 게시에서 뺀 원아도 같은 상태라 함께 다룹니다.
-- [확인 필요: 한상균·엄태은] 위 게시 단위를 서버도 규칙으로 지킬지(같은 날 두 번째 게시를 막을지), 아니면 FE 화면 규칙으로만 둘지 정해야 합니다.
+- 위 게시 단위는 **FE 화면 규칙으로만** 둡니다 — 서버는 같은 날 두 번째 게시를 막지 않습니다. 건별 실패와 교사가 뺀 원아를 다시 올릴 수 있어야 하기 때문입니다. 이미 게시 중인 초안은 건별 `DRAFT_ALREADY_PUBLISHED`로 막힙니다. 임시 결정(한상균). [확인 필요: 엄태은]
 - 요청: 본문 필드는 아래와 같습니다.
   - `request_id`: 게시 버튼을 누를 때마다 새로 만드는 UUID입니다. 같은 `(request_id, draft_id)`를 다시 보내면 처음 결과를 돌려줍니다.
   - `include_photos`: 전체 게시 확인 모달의 **"사진도 함께 보내기"** 체크박스(기본 켬). 게시가 반 전체·하루 한 번이라 **반 전체에 한 번만 정합니다** — 원아마다 따로 고르지 않습니다(임시 결정(김진하)). `false`로 게시하면 학부모에게 글만 갑니다
@@ -414,18 +418,19 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 
 - 건마다 따로 처리하므로 하나가 실패해도 나머지는 게시됩니다.
 - `parent_note_id`는 `draft_id`와 같은 값입니다(PR #14 재사용안). 다시 게시해도 링크가 유지됩니다.
-- `include_photos`가 true이면 선택 사진 가운데 `llm_allowed == true`인 사진만 학부모에게 보입니다(제안). 다른 아이가 함께 찍힌 사진이 나가는 것을 줄이는 보수적인 안입니다.
+- `include_photos`가 true이면 선택 사진 가운데 **학부모가 볼 때 기준으로** 보여도 되는 사진(media `collect_media_for_llm` 범위, 사진만)만 보입니다. 다른 아이가 함께 찍힌 사진이 나가는 것을 줄이는 보수적인 안입니다. 고를 때 한 번 거르고, 볼 때마다 한 번 더 거릅니다 — media는 동의 철회를 조회할 때 빼므로, 게시 뒤 함께 찍힌 아이가 ③을 철회하면 그 사진은 빠집니다. 임시 결정(한상균), #174 리뷰.
 - "학부모 알림 발송" 체크박스는 FR과 데이터 모델이 없어 받지 않습니다. 상세 작성 범위에서는 UI를 숨깁니다.
 - 에러: 요청 전체에는 공통 에러만 있습니다(`items`가 비면 422). 건별 오류는 응답 200 안의 `error_code`로 옵니다.
-  - `DRAFT_NOT_FOUND` (건별) — 없는 초안일 때
-  - `CLASS_ACCESS_DENIED` (건별) — 담당 반 원아가 아닐 때
+  - `DRAFT_NOT_FOUND` (건별) — 없는 초안일 때. `child_id`·`version`은 `null`입니다.
+  - `CHILD_ACCESS_DENIED` (건별) — 다른 어린이집 원아의 초안일 때. 원아 기준으로 검사합니다 — 임시 결정(한상균), #156. 다른 어린이집 정보가 새지 않게 `child_id`·`version`은 `null`입니다 — 임시 결정(한상균), #173 리뷰.
   - `NOT_PARENT_NOTE` (건별) — 관찰일지일 때(게시 대상 아님)
   - `DRAFT_NOT_APPROVED` (건별) — `approved`가 아닐 때
   - `DRAFT_VERSION_CONFLICT` (건별) — 승인 뒤 버전이 바뀌었을 때
   - `DRAFT_ALREADY_PUBLISHED` (건별) — 이미 게시 중일 때
-  - `NO_LINKED_PARENT` (건별) — 연결된 보호자가 없을 때(매칭 실패 시 자동 취소)
-- [확인 필요: 한상균] 승인과 게시를 분리할지 정해야 합니다. 분리하지 않으면 이 엔드포인트가 없어지고 승인 모달 문구도 바뀝니다. 일괄 게시로 할지 건별 `POST /drafts/{draft_id}/publish`로 할지, `include_photos`를 어디에 저장할지도 정해야 합니다.
-- [확인 필요: 한상균·김동건] 학부모에게 보일 사진의 범위를 위 제안대로 할지 정해야 합니다.
+  - `NO_LINKED_PARENT` (건별) — 연결된 보호자가 없을 때(매칭 실패 시 자동 취소). **아직 검사하지 않습니다** — organization에 확인 함수(`has_linked_parent`)를 요청했습니다
+- 게시하면 `version`이 1 오르고 `DocumentPublication` 회차가 생깁니다(회수 기한 = 게시 시각 + 24시간). 최초 게시는 회차가 기록이라 `RevisionLog`를 따로 남기지 않고, 회수 뒤 다시 게시하면 `RevisionLog`(action=resend)를 남깁니다.
+- 승인과 게시를 나누고 일괄 게시로 합니다. `include_photos`는 게시 회차(`DocumentPublication`)에 저장합니다 — 임시 결정(한상균), 팀 확인 대기(#158 6번).
+- 학부모에게 보일 사진의 범위는 **고르는 단계에서** 위 제안(`llm_allowed`)과 같은 범위로 제한합니다(§PATCH `MEDIA_NOT_LINKED_TO_CHILD`) — 임시 결정(한상균). [확인 필요: 김동건] 이 범위를 media `collect_media_for_llm`에 맡기는 것
 
 ### `GET /api/v1/children/{child_id}/parent-notes` — 학부모용: 자녀의 게시된 알림장 목록
 
@@ -456,15 +461,18 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 ```
 
 - 게이트를 통과한 게시본만 담습니다.
-- `photos`는 앞 3장의 서명 URL입니다. `include_photos=false`로 게시했으면 빈 배열입니다.
+- `photos`는 지금 보여도 되는 선택 사진(§publications) 가운데 앞 3장의 서명 URL입니다. `include_photos=false`로 게시했으면 빈 배열입니다.
 - `is_read`·`unread_count`는 이 학부모의 본문 열람 기록을 기준으로 합니다. `unread_count`는 전체 안 읽음 수이고, W3의 두 곳에 같은 값을 씁니다.
-- `this_month_count`(제안)는 KST 기준 이번 달 게시 수("이번 달 12")입니다. `unread_count`와 함께 목록 응답 봉투를 확장한 필드입니다.
+- `this_month_count`(제안)는 기록 날짜가 KST 기준 이번 달인 게시본 수("이번 달 12")입니다. `unread_count`와 함께 목록 응답 봉투를 확장한 필드입니다.
 - 목록에도 발췌와 사진이 보이므로 AccessLog(action=view_list, target_type=document_publication)를 남깁니다. 회수 판단용 `first_viewed_at`은 건드리지 않습니다.
 - 에러:
   - `CHILD_ACCESS_DENIED` (403) — 자기 자녀가 아닐 때
   - `CHILD_ACCESS_EXPIRED` (403) — 졸업 후 1년이 지났을 때(NFR-03)
   - `INVALID_CURSOR` (400) — cursor가 깨졌을 때
-- [확인 필요: 한상균] 목록 AccessLog를 항목별로 남길지 자녀 단위로 남길지, `is_read`의 출처(audit 조회 함수 또는 별도 읽음 기록), 목록 봉투 확장 허용 여부를 정해야 합니다. 허용하지 않으면 `this_month_count`를 빼거나 Figma의 "이번 달 12"를 지웁니다.
+  - `ACCESS_LOG_FAILED` (500) — 열람 기록에 실패했을 때(목록도 기록을 커밋한 뒤에만 돌려줍니다)
+- 목록 AccessLog는 **담긴 알림장마다** 한 줄씩 남깁니다(`view_list`). 읽음은 그 학부모의 본문 열람 기록(`view_detail`)으로 보고, `this_month_count`는 KST 이번 달 기록 날짜로 셉니다 — 임시 결정(한상균).
+- `limit`은 1~100이고 기본 20입니다. `cursor`는 마지막 알림장의 기록 날짜를 감싼 값입니다(한 자녀의 알림장은 날짜마다 하나).
+- 학부모–원아 관계와 열람 기간(NFR-03)은 organization의 `ensure_parent_child_access`(#188)로 확인합니다. 관계를 먼저 보고 기간을 다음에 봐서, 관계없는 학부모는 그 아이의 졸업 여부를 알 수 없습니다.
 
 ### `GET /api/v1/parent-notes/{parent_note_id}` — 학부모용: 게시된 알림장 본문(열람 기록)
 
@@ -493,13 +501,15 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 - 학부모 전용 스키마입니다. 근거, 상태, 버전이 없습니다.
 - 본문을 돌려주기 전에 같은 트랜잭션에서 AccessLog를 커밋합니다(actor_type=parent, target_type=document_publication, action=view_detail). 로그에는 ID만 남깁니다(H-4). 기록에 실패하면 본문 없이 500을 돌려줍니다.
 - `content`는 문장 단위로 줄을 바꿉니다(`\n`).
+- `photos`는 사진을 함께 보낸 경우 지금 보여도 되는 선택 사진(§publications) 전부입니다.
 - `author_name`은 작성 교사 이름입니다(FR-26).
 - `prev`·`next`(제안)는 같은 자녀의 이전·다음 게시본입니다.
 - 에러:
   - `PARENT_NOTE_NOT_FOUND` (404) — 없음, 미게시, 남의 자녀 것을 구분하지 않고 모두 404로 답합니다.
   - `CHILD_ACCESS_EXPIRED` (403) — NFR-03 열람 기간이 지났을 때
   - `ACCESS_LOG_FAILED` (500) — 열람 기록에 실패했을 때
-- [확인 필요: 한상균] AccessLog의 target을 게시 회차(`document_publication`)로 둘지, `draft_document`로 둘지 정해야 합니다.
+- AccessLog의 target은 게시 회차(`document_publication`)입니다 — 회수 뒤 다시 게시하면 어느 회차를 봤는지 남아야 해서입니다. 임시 결정(한상균).
+- 같은 학부모가 다시 열어도 매번 기록하지만, 회수 판단용 `first_viewed_at`은 처음 연 시각 그대로입니다.
 
 ## 경로만 정한 엔드포인트
 
