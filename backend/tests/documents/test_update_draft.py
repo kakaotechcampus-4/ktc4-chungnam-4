@@ -166,6 +166,35 @@ def test_새_문장은_맨_뒤에_t_번호_최댓값_다음부터_붙는다(clie
     ]
 
 
+def test_t_번호는_문자열이_아니라_숫자로_센다(client, db):
+    # 문자열로 비교하면 "t9" > "t10"이라 다음 번호가 t10으로 겹친다
+    draft = _draft(db, "s1", "t9", "t10")
+
+    _patch(client, draft, added_sentences=[{"text": "새 문장"}])
+
+    assert _stored(db, draft)[3] == ("t11", "새 문장", False)
+
+
+def test_고치기와_덧붙이기를_한_요청에_보내면_둘_다_이력에_남는다(client, db):
+    draft = _draft(db)
+
+    response = _patch(
+        client,
+        draft,
+        sentences=[{"sentence_id": "s1", "text": "고친 문장"}],
+        added_sentences=[{"text": "새 문장"}],
+    )
+
+    assert response.json()["version"] == 4  # 한 요청은 버전을 한 번만 올린다
+    assert _logs(db, draft) == [
+        ("s1", "s1 원래 문장", "고친 문장", "manual"),
+        ("t1", None, "새 문장", "manual"),
+    ]
+    # 고친 것·덧붙인 것 모두 로그인한 교사의 edit으로 남는다
+    rows = db.scalars(select(RevisionLog).where(RevisionLog.draft_id == draft.id))
+    assert {(row.action, row.editor_id) for row in rows} == {("edit", TEACHER_ID)}
+
+
 def test_교사가_쓴_문장도_고치면_수정됨이다(client, db):
     draft = _draft(db, "s1", "t1")
 
