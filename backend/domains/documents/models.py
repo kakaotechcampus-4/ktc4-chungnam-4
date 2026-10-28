@@ -187,6 +187,7 @@ class RevisionAction(StrEnum):
     APPROVE = "approve"
     REVOKE = "revoke"
     RESEND = "resend"
+    REOPEN = "reopen"  # 게시 전 승인 되돌리기 (임시 결정(한상균))
 
 
 class EditMethod(StrEnum):
