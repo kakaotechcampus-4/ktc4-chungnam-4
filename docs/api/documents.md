@@ -472,7 +472,7 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
   - `ACCESS_LOG_FAILED` (500) — 열람 기록에 실패했을 때(목록도 기록을 커밋한 뒤에만 돌려줍니다)
 - 목록 AccessLog는 **담긴 알림장마다** 한 줄씩 남깁니다(`view_list`). 읽음은 그 학부모의 본문 열람 기록(`view_detail`)으로 보고, `this_month_count`는 KST 이번 달 기록 날짜로 셉니다 — 임시 결정(한상균).
 - `limit`은 1~100이고 기본 20입니다. `cursor`는 마지막 알림장의 기록 날짜를 감싼 값입니다(한 자녀의 알림장은 날짜마다 하나).
-- 학부모–원아 관계와 열람 기간(NFR-03)은 organization의 `ensure_parent_child_access`로 확인합니다 — **organization에 요청한 함수라, 들어오기 전에는 이 API가 동작하지 않습니다.**
+- 학부모–원아 관계와 열람 기간(NFR-03)은 organization의 `ensure_parent_child_access`(#188)로 확인합니다. 관계를 먼저 보고 기간을 다음에 봐서, 관계없는 학부모는 그 아이의 졸업 여부를 알 수 없습니다.
 
 ### `GET /api/v1/parent-notes/{parent_note_id}` — 학부모용: 게시된 알림장 본문(열람 기록)
 
