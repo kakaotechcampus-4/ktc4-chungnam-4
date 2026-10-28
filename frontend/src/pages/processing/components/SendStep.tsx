@@ -6,6 +6,7 @@ import {
   completeUpload,
   requestUploadUrls,
   saveChildLinks,
+  uploadContentType,
   uploadFile,
 } from "@/api/media";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
@@ -69,7 +70,7 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
         items: targets.map((item) => ({
           client_photo_id: item.client_id,
           type: item.kind,
-          content_type: item.file.type,
+          content_type: uploadContentType(item.file),
           size_bytes: item.file.size,
         })),
       });
@@ -84,14 +85,24 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
         // 돌려주고 귀속을 전체 교체하므로, 끊긴 뒤 교사가 바꾼 귀속이 마지막 값으로 저장됩니다.
         if (mediaId === null || isPhoto(item)) {
           mediaId = (
-            await completeUpload({
-              client_photo_id: item.client_id,
-              class_id: classId,
-              type: item.kind,
-              captured_at: capturedAt(item.file),
-              model_version: isPhoto(item) ? item.model_version : null,
-              attribution: isPhoto(item) ? childLinksBody(item) : undefined,
-            })
+            await completeUpload(
+              isPhoto(item)
+                ? {
+                    client_photo_id: item.client_id,
+                    class_id: classId,
+                    type: item.kind,
+                    captured_at: capturedAt(item.file),
+                    model_version: item.model_version,
+                    attribution: childLinksBody(item),
+                  }
+                : {
+                    client_photo_id: item.client_id,
+                    class_id: classId,
+                    type: item.kind,
+                    captured_at: capturedAt(item.file),
+                    model_version: null,
+                  },
+            )
           ).media_id;
         }
         // ack를 받았으니 upload_state를 확인됨으로 둡니다. 원본 삭제는 큐를 비울 때 함께 합니다.

@@ -140,13 +140,6 @@ class ParentNoteNotFound(AidamError):
     status_code = 404
 
 
-class ChildAccessExpired(AidamError):
-    """졸업 후 1년이 지나 학부모 열람 기간이 끝난 경우 (NFR-03)."""
-
-    code = "CHILD_ACCESS_EXPIRED"
-    status_code = 403
-
-
 class AccessLogFailed(AidamError):
     """열람 기록(AccessLog)을 남기지 못해 본문을 돌려주지 않은 경우 (NFR-05, H-4)."""
 
@@ -294,6 +287,13 @@ class ChildAccessDenied(AidamError):
     """다른 어린이집의 원아에 접근하려 한 경우."""
 
     code = "CHILD_ACCESS_DENIED"
+    status_code = 403
+
+
+class ChildAccessExpired(AidamError):
+    """졸업 후 1년이 지나 학부모 열람 기간이 끝난 경우 (NFR-03)."""
+
+    code = "CHILD_ACCESS_EXPIRED"
     status_code = 403
 
 

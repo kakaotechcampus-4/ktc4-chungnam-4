@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-import { completeUpload, requestUploadUrls, uploadFile } from "@/api/media";
+import { completeUpload, requestUploadUrls, uploadContentType, uploadFile } from "@/api/media";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
 import {
   isPhoto,
@@ -54,7 +54,7 @@ export async function startClipUploads(classId: string) {
       items: clips.map((clip) => ({
         client_photo_id: clip.client_id,
         type: clip.kind,
-        content_type: clip.file.type,
+        content_type: uploadContentType(clip.file),
         size_bytes: clip.file.size,
       })),
     });

@@ -13,6 +13,7 @@ from sqlalchemy.pool import StaticPool
 
 from core.base import Base
 from core.database import get_db
+from domains.agents.models import SentenceEvidence
 from domains.auth.middleware import get_current_user
 from domains.auth.service import TeacherProfile
 from domains.documents import service as documents_service
@@ -42,6 +43,7 @@ def db() -> Iterator[Session]:
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
     tables = [Center, Klass, Child, DraftDocument, DraftSentence, DocumentPublication, RevisionLog]
+    tables.append(SentenceEvidence)  # 상세 응답이 문장별 근거를 읽는다(agents)
     Base.metadata.create_all(engine, tables=[table.__table__ for table in tables])
     session = sessionmaker(bind=engine)()
     yield session
