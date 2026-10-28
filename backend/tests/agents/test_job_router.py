@@ -332,6 +332,41 @@ def test_오래전에_멈춘_진행_중_작업은_잠그지_않고_최근_작업
     assert response.status_code == 202
 
 
+def _age_job(factory: sessionmaker[Session], child_id: uuid.UUID, by: timedelta) -> None:
+    with factory() as db:
+        job = db.scalar(select(Job).where(Job.child_id == child_id))
+        job.updated_at = datetime.now(UTC) - by
+        db.commit()
+
+
+def test_큐에서_10분_넘게_기다린_작업은_멈춘_것으로_보지_않고_계속_잠근다(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """pending은 차례를 기다리는 동안 갱신이 없는 게 정상입니다. 풀면 같은 작업이 둘 생깁니다(#185)."""
+    photo = _add_photo(session_factory, DOYUN)
+    first = _start(client, _body(photo))
+    _age_job(session_factory, DOYUN, timedelta(minutes=30))
+
+    response = _start(client, _body(photo))
+
+    assert response.status_code == 409
+    assert _error_code(response) == "JOB_ALREADY_RUNNING"
+    assert response.json()["error"]["detail"]["job_id"] == first.json()["job_id"]
+
+
+def test_큐에서_1시간_넘게_시작하지_못한_작업은_잠그지_않는다(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """큐 메시지가 사라져 영영 시작하지 못하는 Job이 그 반·날짜를 막지 않게 합니다."""
+    photo = _add_photo(session_factory, DOYUN)
+    _start(client, _body(photo))
+    _age_job(session_factory, DOYUN, timedelta(minutes=61))
+
+    response = _start(client, _body(photo))
+
+    assert response.status_code == 202
+
+
 def test_앞선_작업이_끝났으면_같은_날짜로_다시_시작할_수_있다(
     client: TestClient, session_factory: sessionmaker[Session]
 ) -> None:
