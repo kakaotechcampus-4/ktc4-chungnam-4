@@ -310,7 +310,7 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 ```
 
 - 응답 `200`: 상세와 같은 교사용 스키마를 돌려주고, `version`이 1 오릅니다. 바뀐 문장마다 `RevisionLog`(action=edit, edit_method=manual)를 남깁니다.
-  - 글자가 그대로인 문장은 바뀐 것으로 보지 않습니다(이력·"수정됨" 없음) — 임시 결정(한상균).
+  - 글자가 그대로인 문장은 바뀐 것으로 보지 않습니다(이력·"수정됨" 없음) — 임시 결정(한상균). 서버가 `text`의 앞뒤 공백을 지운 뒤 비교하므로 앞뒤 공백만 다른 문장도 그대로인 문장입니다 — 임시 결정(한상균), #170 리뷰.
   - 새 문장(`added_sentences`)도 한 문장에 한 줄씩 `RevisionLog`(action=edit, edit_method=manual, `before_content`는 `null`)를 남깁니다 — 임시 결정(한상균).
 - `added_sentences`는 기존 문장 **뒤에 이어 붙이고**, 서버가 `sentence_id`를 `t1`·`t2`…로 붙입니다(그 문서의 `t` 번호 최댓값 + 1 — 임시 결정(정은), 이슈 #75). 새 문장의 `evidences`는 빈 배열입니다(교사가 쓴 글이라 원문 근거가 없습니다).
 - **바뀐 문장의 `evidences`는 빈 배열로 돌려줍니다** — 임시 결정(김진하). 교사가 직접 고친 문장은 원문 발화가 그 문장을 뒷받침한다고 보장할 수 없어, 화면에서 근거를 보여 주지 않고 `is_edited_by_teacher: true`로 표시합니다(FR-07). 근거 행은 DB에 남깁니다 — 나중에 재검증할 때 대조할 원래 근거가 있어야 해서입니다(이슈 #75, 정은·김진하 확인). 고치지 않은 문장의 근거는 그대로입니다.
@@ -324,10 +324,10 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
   - `DRAFT_NOT_READY` (409) — `status == draft`일 때(생성·검증 중)
   - `DRAFT_ALREADY_APPROVED` (409) — 이미 승인됐을 때(게시된 것 포함). 승인을 되돌리는 것은 `reopen`에서 다룹니다.
   - `INVALID_SENTENCE_ID` (400) — 그 초안에 없는 `sentence_id`일 때
-  - `MEDIA_NOT_LINKED_TO_CHILD` (400) — 고를 수 있는 사진이 아닐 때. 고를 수 있는 사진은 그 원아·그 날짜에 LLM 근거로 쓸 수 있는 사진(`llm_allowed`, 귀속 원아 전원 ③ 동의, media `collect_media_for_llm`)입니다 — 다른 아이가 함께 찍힌 사진이 학부모에게 나가지 않게 보수적으로 둡니다. 임시 결정(한상균)
+  - `MEDIA_NOT_LINKED_TO_CHILD` (400) — 고를 수 있는 사진이 아닐 때(영상·음성메모 포함). 고를 수 있는 사진은 그 원아·그 날짜에 LLM 근거로 쓸 수 있는 **사진**(`type == photo`, `llm_allowed`, 귀속 원아 전원 ③ 동의, media `collect_media_for_llm`)입니다 — 다른 아이가 함께 찍힌 사진이 학부모에게 나가지 않게 보수적으로 둡니다. 임시 결정(한상균)
   - `DRAFT_NOT_FOUND` (404) — 없는 초안일 때
   - `CHILD_ACCESS_DENIED` (403) — 다른 어린이집 원아의 초안일 때. 원아 기준으로 검사합니다 — 임시 결정(한상균), #156
-  - `VALIDATION_ERROR` (422) — 바꿀 것이 없거나, 같은 `sentence_id`·`media_id`가 두 번 올 때
+  - `VALIDATION_ERROR` (422) — 바꿀 것이 없거나, 같은 `sentence_id`·`media_id`가 두 번 오거나, 앞뒤 공백을 지운 `text`가 비었을 때(고친 문장·새 문장 모두)
 - [확인 필요: 한상균] 자동저장마다 RevisionLog를 남기면 최근 5회 보관분이 자동저장 기록으로 채워집니다. 저장 시점과 로그 단위를 정해야 합니다. 문장 삭제, 사진 선택 변경의 로그 기록, `unclassified` 초안 수정을 허용할지도 정해야 합니다(문장 추가 로그는 위에서 정함).
 
 ### `POST /api/v1/drafts/{draft_id}/approve` — 교사용: 초안 승인(H-1 승인 게이트)
@@ -416,8 +416,8 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 - `include_photos`가 true이면 선택 사진 가운데 `llm_allowed == true`인 사진만 학부모에게 보입니다(제안). 다른 아이가 함께 찍힌 사진이 나가는 것을 줄이는 보수적인 안입니다.
 - "학부모 알림 발송" 체크박스는 FR과 데이터 모델이 없어 받지 않습니다. 상세 작성 범위에서는 UI를 숨깁니다.
 - 에러: 요청 전체에는 공통 에러만 있습니다(`items`가 비면 422). 건별 오류는 응답 200 안의 `error_code`로 옵니다.
-  - `DRAFT_NOT_FOUND` (건별) — 없는 초안일 때
-  - `CHILD_ACCESS_DENIED` (건별) — 다른 어린이집 원아의 초안일 때. 원아 기준으로 검사합니다 — 임시 결정(한상균), #156
+  - `DRAFT_NOT_FOUND` (건별) — 없는 초안일 때. `child_id`·`version`은 `null`입니다.
+  - `CHILD_ACCESS_DENIED` (건별) — 다른 어린이집 원아의 초안일 때. 원아 기준으로 검사합니다 — 임시 결정(한상균), #156. 다른 어린이집 정보가 새지 않게 `child_id`·`version`은 `null`입니다 — 임시 결정(한상균), #173 리뷰.
   - `NOT_PARENT_NOTE` (건별) — 관찰일지일 때(게시 대상 아님)
   - `DRAFT_NOT_APPROVED` (건별) — `approved`가 아닐 때
   - `DRAFT_VERSION_CONFLICT` (건별) — 승인 뒤 버전이 바뀌었을 때
