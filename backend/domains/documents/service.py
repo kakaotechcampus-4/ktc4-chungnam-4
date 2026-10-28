@@ -107,6 +107,7 @@ from core.exceptions import (
     InvalidCursor,
     InvalidSentenceId,
     MediaNotLinkedToChild,
+    NoLinkedParent,
     NotParentNote,
     ParentNoteNotFound,
     RequestValidationFailed,
@@ -839,8 +840,7 @@ def publish_drafts(
     error_code로 알린다(docs/api/documents.md). 같은 날 두 번째 게시를 서버가 막지는 않는다:
     건별 실패를 다시 올릴 수 있어야 해서 "반 전체·하루 한 번"은 FE 화면 규칙으로 둔다.
 
-    TODO(한상균): 보호자가 연결되지 않은 원아는 NO_LINKED_PARENT로 거른다 — organization에
-      확인 함수(has_linked_parent)를 요청했다.
+    보호자가 연결되지 않은 원아는 NO_LINKED_PARENT로 거른다 — 게시해도 볼 사람이 없다.
     """
     results = []
     for item in request.items:
@@ -879,6 +879,8 @@ def _publish_one(
     repeated = _publication_of(db, request.request_id, draft.id)
     if repeated is not None:
         return _published_result(draft, repeated)
+    if not organization_service.has_linked_parent(db, draft.child_id):
+        raise NoLinkedParent("알림장을 받을 보호자가 연결되지 않은 원아입니다.")
     try:
         _claim_version(
             db,

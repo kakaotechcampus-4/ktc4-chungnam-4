@@ -95,6 +95,13 @@ class DraftAlreadyPublished(AidamError):
     status_code = 409
 
 
+class NoLinkedParent(AidamError):
+    """알림장을 받을 보호자가 연결되지 않은 원아. 게시 결과에 건별로만 실린다 (FR-09)."""
+
+    code = "NO_LINKED_PARENT"
+    status_code = 409
+
+
 class DraftNotReady(AidamError):
     """생성·검증 중(`draft`)인 초안을 고치려 한 경우."""
 

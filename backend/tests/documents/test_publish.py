@@ -23,7 +23,7 @@ from domains.documents.models import (
     DraftStatus,
     RevisionLog,
 )
-from domains.organization.models import Center, Child, Klass
+from domains.organization.models import Center, Child, Klass, ParentChildRelation
 from main import app
 
 
@@ -32,7 +32,8 @@ def db() -> Iterator[Session]:
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
-    tables = [Center, Klass, Child, DraftDocument, DraftSentence, DocumentPublication, RevisionLog]
+    tables = [Center, Klass, Child, ParentChildRelation, DraftDocument, DraftSentence]
+    tables += [DocumentPublication, RevisionLog]
     Base.metadata.create_all(engine, tables=[table.__table__ for table in tables])
     session = sessionmaker(bind=engine)()
     yield session
@@ -76,6 +77,8 @@ def _draft(
     class_id: UUID,
     status: DraftStatus = DraftStatus.APPROVED,
     doc_type: DocType = DocType.PARENT_NOTE,
+    *,
+    has_parent: bool = True,
 ) -> DraftDocument:
     child = Child(
         class_id=class_id,
@@ -86,6 +89,8 @@ def _draft(
     )
     db.add(child)
     db.flush()
+    if has_parent:
+        db.add(ParentChildRelation(parent_id=uuid.uuid4(), child_id=child.id))
     draft = DraftDocument(
         child_id=child.id,
         author_teacher_id=uuid.uuid4(),
@@ -140,11 +145,13 @@ def test_건별로_실패해도_나머지는_게시된다(client, db, class_id):
     verified = _draft(db, class_id, status=DraftStatus.VERIFIED)
     log = _draft(db, class_id, doc_type=DocType.OBSERVATION_LOG)
     stale = _draft(db, class_id)
+    orphan = _draft(db, class_id, has_parent=False)  # 받을 보호자가 연결되지 않았다
     items = [
         {"draft_id": str(draft.id), "expected_version": 5} for draft in (ok, verified, log)
     ] + [
         {"draft_id": str(stale.id), "expected_version": 4},  # 화면이 본 버전이 오래됐다
         {"draft_id": str(uuid.uuid4()), "expected_version": 1},
+        {"draft_id": str(orphan.id), "expected_version": 5},
     ]
 
     response = _publish(client, items=items)
@@ -156,10 +163,13 @@ def test_건별로_실패해도_나머지는_게시된다(client, db, class_id):
         ("failed", "NOT_PARENT_NOTE"),
         ("failed", "DRAFT_VERSION_CONFLICT"),
         ("failed", "DRAFT_NOT_FOUND"),
+        ("failed", "NO_LINKED_PARENT"),
     ]
     assert results[3]["version"] == 5  # 실패해도 지금 버전을 알려 준다
     assert results[4]["child_id"] is None
     assert db.scalar(select(func.count()).select_from(DocumentPublication)) == 1
+    db.refresh(orphan)
+    assert orphan.version == 5  # 보호자가 없으면 버전도 그대로다
 
 
 def test_이미_게시_중이면_새_요청이어도_다시_게시하지_않는다(client, db, class_id):
