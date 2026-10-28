@@ -32,6 +32,8 @@ from main import app
 TEACHER_ID = uuid.uuid4()
 PHOTO_A = uuid.uuid4()
 PHOTO_B = uuid.uuid4()
+VIDEO = uuid.uuid4()
+VOICE = uuid.uuid4()
 
 
 @pytest.fixture
@@ -258,15 +260,23 @@ def test_다른_어린이집_교사는_고칠_수_없다(client, db):
 
 @pytest.fixture
 def photos(monkeypatch: pytest.MonkeyPatch) -> list[tuple]:
-    """그 원아·그 날짜에 고를 수 있는 사진은 PHOTO_A·PHOTO_B다. 서명 URL은 S3 없이 만든다."""
+    """그 원아·그 날짜에 고를 수 있는 사진은 PHOTO_A·PHOTO_B다. 서명 URL은 S3 없이 만든다.
+
+    collect_media_for_llm은 영상·음성메모도 돌려주므로 VIDEO·VOICE도 함께 싣는다.
+    """
     calls: list[tuple] = []
     taken = datetime(2026, 10, 27, 1, 0, tzinfo=UTC)
 
     def collect(db, child_id, target_date):
         calls.append((child_id, target_date))
         return [
-            MediaEvidence(media_id=media_id, type="photo", captured_at=taken, storage_url="s3://x")
-            for media_id in (PHOTO_A, PHOTO_B)
+            MediaEvidence(media_id=media_id, type=kind, captured_at=taken, storage_url="s3://x")
+            for media_id, kind in (
+                (PHOTO_A, "photo"),
+                (VIDEO, "video"),
+                (PHOTO_B, "photo"),
+                (VOICE, "voice_memo"),
+            )
         ]
 
     def sign(db, media_ids):
@@ -307,10 +317,13 @@ def test_빈_배열이면_사진을_모두_뺀다(client, db, photos):
     assert response.json()["media"] == []
 
 
-def test_고를_수_없는_사진이면_400이고_아무것도_바꾸지_않는다(client, db, photos):
+@pytest.mark.parametrize(
+    "media_id", [uuid.uuid4(), VIDEO, VOICE], ids=["범위_밖", "영상", "음성메모"]
+)
+def test_고를_수_없는_사진이면_400이고_아무것도_바꾸지_않는다(client, db, photos, media_id):
     draft = _draft(db)
 
-    response = _patch(client, draft, selected_media_ids=[str(PHOTO_A), str(uuid.uuid4())])
+    response = _patch(client, draft, selected_media_ids=[str(PHOTO_A), str(media_id)])
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "MEDIA_NOT_LINKED_TO_CHILD"
