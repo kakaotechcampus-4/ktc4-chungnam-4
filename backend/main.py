@@ -14,6 +14,7 @@ from domains.agents.router import router as agents_router
 from domains.auth.router import router as auth_router
 from domains.documents.router import router as documents_router
 from domains.face.router import router as face_router
+from domains.media import service as media_service
 from domains.media.router import router as media_router
 from domains.organization.router import router as organization_router
 
@@ -72,3 +73,18 @@ def database_health(db: Annotated[Session, Depends(get_db)]):
             content={"status": "error", "database": "unavailable"},
         )
     return {"status": "ok", "database": "ok"}
+
+
+# S3에 실제로 쓰고 지우므로 Docker healthcheck에 넣지 않고, deploy.sh가 배포 직후 한 번만
+# 부릅니다(#129). /api/v1 밖이라 CloudFront(/api/*)로는 닿지 않지만, Caddy는 경로 제한 없이
+# 프록시하므로 백엔드 도메인으로는 외부에서도 부를 수 있습니다.
+# TODO(donggeon): 외부 호출을 막을지(Caddyfile) 엄태은 님 확인 대기
+@app.get("/health/storage", tags=["health"], response_model=None)
+def storage_health():
+    failed_step = media_service.check_storage_access()
+    if failed_step is not None:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "storage": "unavailable", "failed_step": failed_step},
+        )
+    return {"status": "ok", "storage": "ok"}
