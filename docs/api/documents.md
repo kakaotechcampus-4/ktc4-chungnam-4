@@ -16,6 +16,7 @@
 - [x] (막힘) 본문 저장 형태와 `sentences[]` 단위 정의(정은과 함께) → **agents가 만든 문장 단위·순서 그대로 `DraftSentence`에 저장하고, 문장은 순번이 아니라 `sentence_id`로 가리킵니다.** `sentences[]` 한 항목이 `DraftSentence` 한 행이고, 근거도 이 단위로 붙습니다. 임시 결정(정은), 이슈 #75. 반영: 테크스펙 ④ DraftSentence, `backend/domains/documents/models.py`, 이 문서 §`GET /api/v1/drafts/{draft_id}`·§`PATCH /api/v1/drafts/{draft_id}`
 - [x] `title`, `selected_media_ids`, `include_photos`, `published_at`의 저장 위치 → `selected_media_ids`는 `DraftDocument`, `include_photos`·`published_at`은 `DocumentPublication`(게시 회차마다). `title`은 AI가 만들지 않아 저장하지 않고 `null`입니다. 임시 결정(한상균). 반영: 테크스펙 ④·⑤, 마이그레이션 `fa3e9648dc22`
 - [ ] AccessLog 범위: 목록 `view_list` 기록 단위, 교사 상세 조회 기록 여부, 본문 `target_type`, 서명 URL 발급·임베딩 조회 로그 값
+  - 교사 상세 조회 기록 여부 → 남깁니다(actor_type=teacher, target_type=draft_document, action=view_detail). 임시 결정(한상균), 엄태은 #186 리뷰 동의. 반영: 이 문서 §`GET /api/v1/drafts/{draft_id}`. 나머지 항목은 아직 열려 있습니다
 - [ ] `is_read`·`unread_count`·`this_month_count`의 출처와, 목록 응답 봉투 확장 허용 여부
 - [ ] 수정·승인 규칙: 승인 후 수정은 이 문서에서 409로 두고, 되돌리기는 `reopen`으로 다룹니다(상세 작성 — 임시 결정(김진하)). `unclassified` 초안 수정·승인, 재승인 멱등 처리, 승인 차단 조건(정은과 함께)
 - [ ] 자동저장과 RevisionLog 최근 5회 보관의 충돌. 문장 추가·삭제, 사진 변경 로그
