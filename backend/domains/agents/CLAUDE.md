@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | `models.py` | `GenerationJob`(반·날짜 요청), `Job`(원아별), `EvidenceBundle`, `SentenceEvidence`, `VerificationResult`, `DraftDecisionLog` | 완료 (`check_type`/`result` 값 도메인은 PR #7 계약과 맞춤) |
 | `schemas.py` | 파이프라인 요청·응답 | 완료 (`context_lookup` 구조만 미정 — organization/media 확정 후) |
-| `router.py` | 직접 API가 필요한 경우만 (예: 수동 재생성 요청) | 보류 — API 목록 확정 회의 전까지 손대지 않음 |
+| `router.py` | 초안 생성 작업 시작·폴링 (`POST /classes/{class_id}/jobs`, `GET /jobs/{job_id}`) | 완료 — 판정·조회는 `service.start_generation_job`·`get_generation_job`, 커밋 뒤 `tasks.enqueue_generate_drafts`로 큐에 넣음. 단계·결과·실패 사유 필드는 컬럼이 없어 `null`(docs/api/agents.md 임시 결정) |
 | `service.py` | 근거수집 → 초안생성 → Critic 검증 오케스트레이션 | 부분 구현. `orchestrate_drafts`는 `decide()`(pass/regenerate/retry_critic/needs_teacher_review) 4종 판정에 맞춰 재생성·Critic 재시도 루프를 돈다. `_verify_and_record`는 references→target→critic→decide 실제 파이프라인으로 동작. `_collect_evidence`는 `media.collect_media_for_llm`으로 받은 미디어를 `EvidenceBundle`로 저장(사진 상한 `MAX_PHOTOS_PER_CHILD`, `context_lookup`은 빈 고정 키). `_generate_draft`는 근거 선별(`tools/evidence`) → 비식별화·생성 응답 파싱(`tools/generation`) → 알림장 프롬프트(`prompts/generation`)로 동작. 입력을 만드는 `_load_generation_inputs`(인식 결과 병합 #128, 원아 이름 조회)만 미연결이라 `NotImplementedError` |
 | `llm.py` | LLM 직접 호출 | 완료 (카테캠 Elice AI Cloud 게이트웨이 경유, `openai` SDK + 커스텀 `base_url`. Anthropic 공식 API 아님) |
 | `tasks.py` | Celery 파이프라인 실행 | 완료 — `service.orchestrate_drafts` 호출 |
@@ -23,7 +23,11 @@
 - 이미지는 교사가 업로드 대상으로 확정한 것만 선별합니다. 아이 1명·하루 기준 3~5장 권장으로 전송량을 제한하며, 정확한 상한은 확정 예정입니다.
 - **검증은 코드(7-A) 먼저, Critic(7-B) 나중입니다.** 근거 ID 존재·대상 원아·날짜·출력 형식처럼 규칙으로 판정되는 것은 최상위 `tools/verification/`에서 코드로 걸러내고, **거기서 실패하면 Critic을 호출하지 않고 바로 재생성**합니다. Critic은 문장 내용이 근거로 뒷받침되는지만 봅니다. Critic 자체의 출력 오류도 정상 통과와 구분하세요.
 - **Critic(에이전트4)은 반드시 별도 세션으로 호출합니다.** 앞 단계 대화 히스토리를 넘기지 않는 게 검증의 전제입니다 — 같은 컨텍스트에서는 자기 실수를 못 봅니다.
-- 에이전트 1~4는 각각 하나의 모듈, 하나의 진입 함수 `run(...) -> Result`.
+- **LLM을 부르는 단계는 `prompts/` 조립 함수와 `tools/` 파싱 함수를 한 쌍으로 두고, LLM 호출은 `service.py`가 합니다.** 그 밖의 단계(발화 정리·근거 선별·비식별화·코드 검증 7-A 등)는 `tools/` 순수 함수입니다. `tools/`·`prompts/`는 LLM·DB를 직접 부르지 않습니다(`backend/CLAUDE.md` §계층 규칙).
+  - 초안 생성: `build_draft_prompt` → `call_claude` → `parse_draft_response`
+  - Critic: `build_critic_prompt` → `call_claude` → `parse_critic_response`
+  - 사진 분석: `build_single_photo_prompt` → (service 연결 예정) → `parse_single_photo_analysis`
+  - 예전 규칙 "에이전트 1~4는 각각 하나의 모듈, 하나의 진입 함수 `run(...) -> Result`"는 코드와 맞지 않아 바꿨습니다(#138, `[rule]`).
 - 에이전트 출력은 자유 텍스트로 받지 않고 **구조화된 JSON**으로 받아 Pydantic으로 검증합니다. 파싱 실패는 재시도 대상.
 - **규칙으로 되는 건 LLM에 맡기지 않습니다.** 동의 확인·귀속 판정·비식별화·노출은 전부 코드입니다 (테크스펙 책임 분담 표).
 - 초안 근거는 **영상·음성 발화가 1차, 사진은 맥락 보강**입니다 (NFR-08, NFR-09). 문장별 근거로 교사에게 보여주는 것은 영상 시각 + 원문 발화입니다 (FR-07).
@@ -40,9 +44,17 @@
 
 ## 프롬프트
 
-- 코드 문자열에 하드코딩하지 않고 최상위 `prompts/*.md`에 둡니다.
-- 파일명: `agent1_evidence.md` `agent2_observation_log.md` `agent3_parent_note.md` `agent4_critic.md`
-- 각 파일 상단에 **입력 변수 목록과 기대 출력 형식**을 적습니다.
+- 코드 문자열에 하드코딩하지 않고 최상위 `prompts/<영역>/`에 둡니다. **본문은 `.md`, 변수 삽입·조립은 `.py`**로 나눕니다. 하위 전체를 한 확장자로 고정하지 않습니다(AI 회의 결정, `docs/open-questions.md`).
+
+  | 파이프라인 단계 | 본문 | 조립 |
+  | --- | --- | --- |
+  | 5 사진 맥락 추출 | `perception/photo_analysis.md` | `perception/photo_analysis.py` |
+  | 6 알림장 생성 | `generation/parent_note.md` | `generation/draft.py` |
+  | 7-B Critic | `verification/critic.md` | `verification/critic.py` |
+
+  관찰일지 본문은 생성 조건이 정해지면 `generation/`에 더합니다(#158 7번).
+- `.md` 맨 앞 주석(`<!-- -->`)에 **입력 변수(자리표시자)와 기대 출력 형식**을 적습니다. 이 주석은 LLM에 보내지 않고 조립 함수가 떼어 냅니다. 주석이 없거나 자리표시자 개수가 틀리면 조립 함수가 `RuntimeError`로 멈춥니다.
+- 조립 `.py`에 `PROMPT_VERSION`을 두고, 본문을 고치면 값을 올립니다.
 - **프롬프트 수정은 코드 수정과 동일하게 PR로 리뷰합니다.** 문체·톤이 바뀌면 산출물 품질이 바로 바뀝니다.
 
 ## 관측

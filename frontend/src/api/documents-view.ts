@@ -9,7 +9,7 @@
  * - `review` — 교사가 보고 승인할 수 있습니다
  * - `approved` — 교사가 승인했습니다
  * - `generating` — 아직 만드는 중입니다. 기다리면 됩니다
- * - `unclassified` — 재시도 상한을 넘겨 미분류로 끝났습니다. 교사가 확인해야 합니다
+ * - `revoked` — 게시를 회수했습니다. 다시 다루는 흐름이 정해질 때까지 잠급니다
  * - `unknown` — 서버가 보낸 값을 화면이 모릅니다
  *
  * 뒤 셋은 모두 잠급니다. 모르는 값을 `review`로 두면 승인 버튼이 열려 미완성 글이
@@ -19,7 +19,7 @@
  * `unknown`을 `generating`에 섞지 않는 것은 `frontend/CLAUDE.md` §데이터 규칙입니다.
  * 섞으면 서버가 이상한 값을 보내도 "만드는 중"으로 보여 아무도 알아채지 못합니다.
  */
-export type DraftStatusView = "approved" | "review" | "generating" | "unclassified" | "unknown";
+export type DraftStatusView = "approved" | "review" | "generating" | "revoked" | "unknown";
 
 /**
  * 레일 한 줄이 보여 줄 상태. 초안이 아예 없는 원아는 `none`입니다.
@@ -85,9 +85,11 @@ export interface EvidenceView {
 }
 
 export interface SentenceView {
-  /** 0부터 셉니다 */
-  sentence_index: number;
+  /** 초안 안에서만 유일한 문자열입니다. 모양을 해석하지 않습니다 */
+  sentence_id: string;
   text: string;
+  /** 교사가 고친 문장. true면 evidences는 빈 배열입니다 */
+  is_edited_by_teacher: boolean;
   evidences: EvidenceView[];
 }
 

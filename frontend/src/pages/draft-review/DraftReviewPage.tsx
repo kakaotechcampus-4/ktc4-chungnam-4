@@ -59,7 +59,8 @@ function failureText(error: unknown) {
 }
 
 // 근거가 문장 단위로 붙어서 수정도 문장별 칸으로 받습니다. 한 칸으로 합치면 교사가 문장을
-// 합치거나 쪼갤 때 sentence_index가 어긋나 안 고친 문장의 근거까지 엉뚱한 곳에 붙습니다.
+// 합치거나 쪼갤 때 어느 문장(sentence_id)의 글인지 알 수 없어, 안 고친 문장의 근거까지
+// 엉뚱한 곳에 붙습니다.
 // 대신 칸의 테두리·그림자를 지워 읽을 때와 같은 한 덩어리 글로 보이게 합니다.
 // dark:bg-input/30은 Textarea 기본 클래스에 있고 변종이 달라 bg-transparent로 덮이지 않습니다.
 // 이 앱에는 다크 토큰이 없어서 OS가 다크면 그 칸만 색이 깔립니다. 그래서 같이 지웁니다.
@@ -118,9 +119,9 @@ export function DraftReviewPage() {
   });
 
   const [confirmed, setConfirmed] = useState(false);
-  const [selectedSentenceIndex, setSelectedSentenceIndex] = useState<number | null>(null);
-  /** 편집 중인 문장 텍스트(sentence_index → text). null이면 읽기 모드 */
-  const [editing, setEditing] = useState<Record<number, string> | null>(null);
+  const [selectedSentenceId, setSelectedSentenceId] = useState<string | null>(null);
+  /** 편집 중인 문장 텍스트(sentence_id → text). null이면 읽기 모드 */
+  const [editing, setEditing] = useState<Record<string, string> | null>(null);
   /** 편집 중 새로 쓴 문장. 저장할 때 added_sentences로 보냅니다. */
   const [addedTexts, setAddedTexts] = useState<string[]>([]);
   /** 초안이 없는 원아에게 교사가 직접 쓰는 글 */
@@ -150,7 +151,7 @@ export function DraftReviewPage() {
 
   function resetDraftState() {
     setConfirmed(false);
-    setSelectedSentenceIndex(null);
+    setSelectedSentenceId(null);
     setEditing(null);
     setNewText("");
   }
@@ -203,7 +204,7 @@ export function DraftReviewPage() {
     mutationFn: (input: {
       draftId: string;
       version: number;
-      sentences: { sentence_index: number; text: string }[];
+      sentences: { sentence_id: string; text: string }[];
       addedSentences: { text: string }[];
     }) =>
       patchDraft(input.draftId, {
@@ -304,7 +305,7 @@ export function DraftReviewPage() {
   /** 실패를 알릴 때 id 대신 이름을 보여 줍니다. 못 찾으면 빈 문자열이라 사유 코드로 갈음합니다. */
   const nameOf = (id: string | null) => children.find((child) => child.child_id === id)?.name ?? "";
   const selectedSentence =
-    draft?.sentences.find((sentence) => sentence.sentence_index === selectedSentenceIndex) ?? null;
+    draft?.sentences.find((sentence) => sentence.sentence_id === selectedSentenceId) ?? null;
   // 게시 전 초안이라 교사가 고른 사진을 그대로 보여 줍니다. 게시본을 되짚어 보는 화면은
   // adapter의 sentPhotos를 써서 실제로 나간 사진만 봅니다.
   const photos = selectedPhotos(draft);
@@ -357,19 +358,19 @@ export function DraftReviewPage() {
     if (editing === null) {
       // 고치기 전 문장을 보고 눌러 둔 체크입니다. 수정이 끝나면 다시 확인해야 합니다.
       setConfirmed(false);
-      setSelectedSentenceIndex(null);
+      setSelectedSentenceId(null);
       setEditing(
         Object.fromEntries(
-          draft.sentences.map((sentence) => [sentence.sentence_index, sentence.text]),
+          draft.sentences.map((sentence) => [sentence.sentence_id, sentence.text]),
         ),
       );
       setAddedTexts([]);
       return;
     }
     const changed = draft.sentences.flatMap((sentence) => {
-      const text = editing[sentence.sentence_index];
+      const text = editing[sentence.sentence_id];
       return text !== undefined && text !== sentence.text
-        ? [{ sentence_index: sentence.sentence_index, text }]
+        ? [{ sentence_id: sentence.sentence_id, text }]
         : [];
     });
     const added = addedTexts
@@ -492,15 +493,15 @@ export function DraftReviewPage() {
                   <>
                     {draft.sentences.map((sentence) => (
                       <Textarea
-                        key={sentence.sentence_index}
-                        value={editing[sentence.sentence_index] ?? sentence.text}
+                        key={sentence.sentence_id}
+                        value={editing[sentence.sentence_id] ?? sentence.text}
                         rows={1}
                         className={EDIT_FIELD_CLASS}
                         aria-label="초안 문장 수정"
                         onChange={(event) =>
                           setEditing((prev) => ({
                             ...prev,
-                            [sentence.sentence_index]: event.target.value,
+                            [sentence.sentence_id]: event.target.value,
                           }))
                         }
                       />
@@ -534,24 +535,24 @@ export function DraftReviewPage() {
                     // 교사가 직접 쓴 글과 교사가 고친 문장(서버가 근거를 끊음)이 여기에 해당합니다.
                     sentence.evidences.length === 0 ? (
                       <p
-                        key={sentence.sentence_index}
+                        key={sentence.sentence_id}
                         className="text-lead whitespace-pre-line text-ink"
                       >
                         {sentence.text}
                       </p>
                     ) : (
                       <button
-                        key={sentence.sentence_index}
+                        key={sentence.sentence_id}
                         type="button"
                         // 올리기만 해도 옆 근거 상세가 바뀝니다. 벗어나도 되돌리지 않아야
                         // 근거를 읽는 동안 패널이 비지 않습니다. 클릭·키보드 초점도 같습니다.
-                        onMouseEnter={() => setSelectedSentenceIndex(sentence.sentence_index)}
-                        onFocus={() => setSelectedSentenceIndex(sentence.sentence_index)}
-                        onClick={() => setSelectedSentenceIndex(sentence.sentence_index)}
-                        aria-pressed={sentence.sentence_index === selectedSentenceIndex}
+                        onMouseEnter={() => setSelectedSentenceId(sentence.sentence_id)}
+                        onFocus={() => setSelectedSentenceId(sentence.sentence_id)}
+                        onClick={() => setSelectedSentenceId(sentence.sentence_id)}
+                        aria-pressed={sentence.sentence_id === selectedSentenceId}
                         className={cn(
                           "block text-left text-lead whitespace-pre-line text-ink underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50",
-                          sentence.sentence_index === selectedSentenceIndex && "underline",
+                          sentence.sentence_id === selectedSentenceId && "underline",
                         )}
                       >
                         {sentence.text}
@@ -592,7 +593,7 @@ export function DraftReviewPage() {
           )}
         </section>
 
-        <EvidencePanel sentence={selectedSentence} onClose={() => setSelectedSentenceIndex(null)} />
+        <EvidencePanel sentence={selectedSentence} onClose={() => setSelectedSentenceId(null)} />
       </div>
 
       <div className="mt-6 flex items-center justify-between border-t border-line pt-4">

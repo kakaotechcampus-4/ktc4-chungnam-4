@@ -1,4 +1,8 @@
+from collections.abc import Sequence
+from uuid import UUID
+
 from celery import Task
+from celery.exceptions import SoftTimeLimitExceeded
 
 from celery_app import celery_app
 from domains.agents import service
@@ -8,6 +12,7 @@ from domains.agents.llm import RETRYABLE_LLM_ERRORS
 # 코드 오류는 다시 돌려도 같으므로 재시도하지 않고 바로 실패로 끝낸다.
 # 180초 작업 제한(SoftTimeLimitExceeded)도 뺀다 — 시간 제한을 넘긴 파이프라인을 처음부터 두 번
 # 더 돌리면 최대 약 9분이 걸리고 앞서 성공한 LLM 호출도 반복된다 (#102 리뷰, 엄태은).
+# SDK가 이 예외를 연결 오류로 감싸 올리는 경우는 generate_drafts에서 되돌린다.
 RETRYABLE_ERRORS = RETRYABLE_LLM_ERRORS
 
 
@@ -37,4 +42,30 @@ class _DraftTask(Task):
     soft_time_limit=180,
 )
 def generate_drafts(self, job_id: str, child_id: str) -> None:
-    service.orchestrate_drafts(job_id, child_id)
+    try:
+        service.orchestrate_drafts(job_id, child_id)
+    except RETRYABLE_ERRORS as error:
+        # 작업 제한이 LLM 호출 도중에 걸리면 openai SDK가 SoftTimeLimitExceeded를 받아
+        # APIConnectionError로 감싸 올린다. 그대로 두면 재시도 대상으로 잡히므로 원래 예외로
+        # 되돌려, 위에서 정한 대로 재시도하지 않고 실패로 끝낸다.
+        if isinstance(error.__cause__, SoftTimeLimitExceeded):
+            raise error.__cause__ from None
+        raise
+
+
+def enqueue_generate_drafts(child_jobs: Sequence[tuple[UUID, UUID]]) -> None:
+    """원아별 Job을 큐에 넣는다. worker가 Job 행을 읽으므로 커밋한 뒤에 부른다.
+
+    브로커 장애로 넣기가 실패하면 아직 못 넣은 Job을 failed로 바꾼 뒤 예외를 다시 올린다.
+    pending으로 두면 같은 반·날짜가 JOB_ALREADY_RUNNING에 영구히 막힌다 (#161 리뷰, 엄태은).
+    이미 넣은 Job은 worker가 처리하므로 건드리지 않는다.
+
+    TODO(eun): 실패한 Job을 다시 시작하는 POST /jobs/{job_id}/retry는 재시도 API를 만들 때 붙인다.
+    """
+    for index, (job_id, child_id) in enumerate(child_jobs):
+        try:
+            generate_drafts.delay(job_id=str(job_id), child_id=str(child_id))
+        except Exception:
+            for unqueued_job_id, _ in child_jobs[index:]:
+                service.mark_job_failed(str(unqueued_job_id))
+            raise

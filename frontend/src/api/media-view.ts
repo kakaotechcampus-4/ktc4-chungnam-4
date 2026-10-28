@@ -47,6 +47,11 @@ export interface MediaCompleteInput {
   captured_at: string;
   /** 사진만 채우고 영상·음성은 null */
   model_version: string | null;
+  /**
+   * 교사가 확정한 귀속. 사진은 필수이고 완료 통지와 함께 저장됩니다(API 문서 §media).
+   * 영상·음성은 교사 확인 전에 올라오므로 빼고, 귀속은 saveChildLinks로 따로 저장합니다.
+   */
+  attribution?: ChildLinksInput;
 }
 
 /** 업로드 완료 통지(ack) 응답 */
@@ -58,6 +63,8 @@ export interface MediaAssetView {
   captured_at: string;
   size_bytes: number;
   llm_allowed: boolean;
+  /** 저장된 귀속. 영상·음성은 child-links 전까지 빈 배열입니다. */
+  child_links: ChildLinkView[];
   /** 귀속을 저장하기 전이면 null */
   attributed_at: string | null;
 }
