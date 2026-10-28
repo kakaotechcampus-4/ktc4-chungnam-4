@@ -129,6 +129,8 @@ from domains.documents.models import (
     RevisionLog,
 )
 from domains.documents.schemas import (
+    ChildDraftItem,
+    ChildDraftListResponse,
     ClassDraftItem,
     ClassDraftListResponse,
     DraftCreateRequest,
@@ -402,6 +404,44 @@ def list_class_drafts(
             ClassDraftItem(child_id=child_id, **documents_by_child[child_id])
             for child_id in child_ids
             if child_id in documents_by_child
+        ]
+    )
+
+
+def list_child_drafts(
+    db: Session, *, child_id: UUID, center_id: UUID | None, doc_type: DocType, published: bool
+) -> ChildDraftListResponse:
+    """한 원아의 문서 목록 — 알림장 목록과 상세의 날짜 이동 (docs/api/documents.md).
+
+    - 같은 어린이집 원아만 본다. 원아 기준으로 검사한다 — 임시 결정(한상균), #156.
+    - 기록 날짜 최신순으로 전부 담는다(페이지 없음). 본문·사진·근거는 상세에서 따로 받는다.
+    - published=True면 활성 게시 회차가 있는 문서만 담는다. 회수된 문서는 빠진다.
+    - 반·날짜 목록처럼 미리보기만 싣고 열람 기록은 남기지 않는다. 본문과 근거 원문은 상세
+      (get_draft_for_teacher)에서만 보고, 그쪽이 AccessLog를 남긴다.
+    """
+    organization_service.ensure_child_access(db, child_id, center_id)
+    active = _active_publications()
+    stmt = (
+        select(DraftDocument, active.c.published_at)
+        .outerjoin(active, active.c.draft_id == DraftDocument.id)
+        .where(DraftDocument.child_id == child_id, DraftDocument.doc_type == doc_type.value)
+        .order_by(DraftDocument.record_date.desc())
+    )
+    if published:
+        stmt = stmt.where(active.c.published_at.is_not(None))
+    rows = db.execute(stmt).tuples().all()
+    previews = _previews(db, [draft.id for draft, _ in rows])
+    return ChildDraftListResponse(
+        items=[
+            ChildDraftItem(
+                draft_id=draft.id,
+                record_date=draft.record_date,
+                status=DraftStatus(draft.status),
+                version=draft.version,
+                published_at=published_at,
+                preview=previews.get(draft.id, ""),
+            )
+            for draft, published_at in rows
         ]
     )
 

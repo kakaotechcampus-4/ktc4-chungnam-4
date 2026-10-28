@@ -19,6 +19,7 @@ from domains.documents import service
 from domains.documents.models import DocType
 from domains.documents.schemas import (
     ApproveRequest,
+    ChildDraftListResponse,
     ClassDraftListResponse,
     DraftCreateRequest,
     DraftDetailResponse,
@@ -160,6 +161,23 @@ def revoke_letter(
         draft_id=draft_id,
         teacher_id=teacher_id,
         expected_version=body.expected_version,
+    )
+
+
+@router.get("/children/{child_id}/drafts", response_model=ChildDraftListResponse)
+def list_child_drafts(
+    child_id: UUID,
+    doc_type: DocType,
+    db: Annotated[Session, Depends(get_db)],
+    teacher: CurrentTeacher,
+    published: bool = False,
+) -> ChildDraftListResponse:
+    return service.list_child_drafts(
+        db,
+        child_id=child_id,
+        center_id=teacher.center_id,
+        doc_type=doc_type,
+        published=published,
     )
 
 

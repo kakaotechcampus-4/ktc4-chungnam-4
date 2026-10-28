@@ -114,6 +114,20 @@ class ClassDraftListResponse(BaseModel):
     next_cursor: str | None = None
 
 
+class ChildDraftItem(DraftSummary):
+    """원아별 문서 목록 한 줄. 날짜 이동에 필요한 값만 싣는다 — 임시 결정(김진하)."""
+
+    record_date: date
+
+
+class ChildDraftListResponse(BaseModel):
+    """GET /api/v1/children/{child_id}/drafts. 한 원아 기준이라 페이지를 나누지 않는다
+    (학기 단위로도 백 건 남짓 — 임시 결정(김진하))."""
+
+    items: list[ChildDraftItem]
+    next_cursor: str | None = None
+
+
 class EvidenceView(BaseModel):
     """문장 하나를 뒷받침하는 근거. 사진·계획 근거는 start_ms·end_ms가 없다."""
 
