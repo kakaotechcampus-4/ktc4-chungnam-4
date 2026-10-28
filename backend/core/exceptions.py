@@ -116,6 +116,16 @@ class InvalidSentenceId(AidamError):
     status_code = 400
 
 
+class MediaNotLinkedToChild(AidamError):
+    """그 원아·그 날짜에 고를 수 있는 사진이 아닌 것을 알림장 사진으로 고른 경우.
+
+    다른 아이 사진이 학부모에게 나가지 않게 막는다 (docs/api/documents.md §PATCH).
+    """
+
+    code = "MEDIA_NOT_LINKED_TO_CHILD"
+    status_code = 400
+
+
 class InvalidCredentials(AidamError):
     """이메일이 없거나 비밀번호가 틀렸습니다.
 

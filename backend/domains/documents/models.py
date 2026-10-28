@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     Column,
     Date,
@@ -28,6 +29,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
 )
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -103,6 +105,9 @@ class DraftDocument(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
     approved_at = Column(DateTime(timezone=True), nullable=True)
+    # 교사가 알림장에 고른 사진의 순서(media_id 문자열 배열). 그 원아·그 날짜에 LLM 근거로 쓸 수
+    # 있는 사진 중에서만 고른다(임시 결정(한상균), 테크스펙 ④) — 학부모에게 보일 사진 범위다.
+    selected_media_ids = Column(JSON, nullable=False, default=list, server_default="[]")
 
 
 class DraftSentence(Base):
@@ -178,6 +183,8 @@ class DocumentPublication(Base):
     # (audit/CLAUDE.md — router 없음), 회수 가능 여부는 이 필드로 직접 판단한다.
     # "목록 조회는 상세 열람으로 취급하지 않는다" — 이 필드는 상세 열람 API에서만 채운다.
     first_viewed_at = Column(DateTime(timezone=True), nullable=True)
+    # 게시 확인 모달의 "사진도 함께 보내기"(반 전체에 한 번, 임시 결정(김진하)). false면 글만 간다.
+    include_photos = Column(Boolean, nullable=False, default=False, server_default=false())
 
 
 class RevisionAction(StrEnum):

@@ -100,6 +100,7 @@ from core.exceptions import (
     DraftNotReady,
     DraftVersionConflict,
     InvalidSentenceId,
+    MediaNotLinkedToChild,
     RequestValidationFailed,
 )
 from domains.documents.models import (
@@ -121,12 +122,14 @@ from domains.documents.schemas import (
     DraftSummary,
     DraftUpdateRequest,
     DraftVersionInfo,
+    MediaUrl,
     ParentLetterDetailResponse,
     ParentLetterListResponse,
     PublishItem,
     PublishResponse,
     RevokeResponse,
 )
+from domains.media import service as media_service
 from domains.organization import service as organization_service
 
 # 자동 생성 결과로 덮어쓰지 않는 상태. 승인·회수된 문서는 교사가 확정한 내용이다.
@@ -446,17 +449,22 @@ def update_draft(
       (임시 결정(정은), #75). 새 문장은 is_edited_by_teacher=False다.
     - 고친 문장·새 문장마다 RevisionLog(edit, manual)를 남긴다. 버전 증가와 한 트랜잭션이라
       재생성 거부가 이 문서를 교사가 손댄 문서로 알아본다 (_has_teacher_edits).
+    - selected_media_ids를 보내면 알림장 사진을 그 순서로 바꾼다. 고를 수 있는 사진만 받는다
+      (_ensure_selectable_photos). TODO(한상균): 사진 선택 변경을 RevisionLog에 남길지는
+      docs/api/documents.md의 [확인 필요]로 남아 있다.
     """
+    draft = _draft_for_teacher(db, draft_id, center_id)
+    values: dict[str, object] = {}
     if request.selected_media_ids is not None:
-        raise RequestValidationFailed("사진 선택 저장은 아직 지원하지 않습니다.")
-    _draft_for_teacher(db, draft_id, center_id)
+        _ensure_selectable_photos(db, draft, request.selected_media_ids)
+        values["selected_media_ids"] = [str(media_id) for media_id in request.selected_media_ids]
     _claim_version(
         db,
         draft_id,
         expected_version=request.expected_version,
         from_status=DraftStatus.VERIFIED,
         wrong_status=_not_editable,
-        values={},
+        values=values,
     )
     # 버전 UPDATE가 이 초안 행을 잡고 있어, 아래에서 읽고 쓰는 동안 다른 수정이 끼지 않는다.
     sentences = {
@@ -492,6 +500,23 @@ def update_draft(
     db.add_all(logs)
     db.commit()
     return _teacher_detail(db, draft_id)
+
+
+def _ensure_selectable_photos(db: Session, draft: DraftDocument, media_ids: Sequence[UUID]) -> None:
+    """알림장 사진은 그 원아·그 날짜에 LLM 근거로 쓸 수 있는 사진 중에서만 고른다.
+
+    media의 collect_media_for_llm 범위(llm_allowed, 귀속 원아 전원 ③ 동의)를 그대로 쓴다 —
+    다른 아이가 함께 찍힌 사진이 학부모에게 나가는 것을 줄이는 보수적인 범위다(임시 결정
+    (한상균), docs/api/documents.md "llm_allowed인 사진만 학부모에게" 제안). 그 함수는
+    영상·음성메모도 돌려주므로 사진만 남긴다.
+    """
+    selectable = {
+        media.media_id
+        for media in media_service.collect_media_for_llm(db, draft.child_id, draft.record_date)
+        if media.type == "photo"
+    }
+    if not set(media_ids) <= selectable:
+        raise MediaNotLinkedToChild("이 원아의 그날 사진만 고를 수 있습니다.")
 
 
 def _not_editable(status: str) -> AidamError:
@@ -670,13 +695,28 @@ def _claim_version(
     raise unless_exists[1]
 
 
+def _signed_photos(db: Session, media_ids: Sequence[UUID]) -> list[MediaUrl]:
+    """선택 사진의 서명 URL. 사진이 없으면 S3를 부르지 않는다."""
+    if not media_ids:
+        return []
+    return [
+        MediaUrl(
+            media_id=signed.media_id,
+            type=signed.type,
+            url=signed.url,
+            url_expires_at=signed.url_expires_at,
+        )
+        for signed in media_service.get_signed_urls(db, media_ids)
+    ]
+
+
 def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
     """교사용 상세 응답. 다른 도메인이 가진 값은 조회 함수가 생기기 전까지 비워 둔다.
 
-    TODO(한상균): 근거(agents, 정은)·작성 교사 이름(auth, 엄태은)·선택 사진과 서명 URL
-      (media, 김동건 + 사진 컬럼 PR)은 함수가 생기면 채운다. 그전까지 evidences·
-      selected_media_ids·media는 빈 배열, author_name은 빈 문자열이다 — FE 타입이 문자열이라
-      null을 보내지 않는다. include_photos는 게시 때 정해져 게시 전에는 null이다.
+    TODO(한상균): 근거(agents, 정은)·작성 교사 이름(auth, 엄태은)·근거 미디어의 서명 URL은
+      함수가 생기면 채운다. 그전까지 evidences는 빈 배열, author_name은 빈 문자열이고, media에는
+      선택 사진만 담긴다 — FE 타입이 문자열이라 이름에 null을 보내지 않는다. include_photos는
+      게시 때 정해져 게시 전에는 null이다.
     """
     draft = db.get(DraftDocument, draft_id, populate_existing=True)
     sentences = db.scalars(
@@ -686,6 +726,7 @@ def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
     )
     active = _active_publications()
     published_at = db.scalar(select(active.c.published_at).where(active.c.draft_id == draft_id))
+    selected_media_ids = [UUID(media_id) for media_id in draft.selected_media_ids]
     return DraftDetailResponse(
         draft_id=draft.id,
         child_id=draft.child_id,
@@ -703,8 +744,8 @@ def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
             )
             for sentence in sentences
         ],
-        selected_media_ids=[],
-        media=[],
+        selected_media_ids=selected_media_ids,
+        media=_signed_photos(db, selected_media_ids),
         author_teacher_id=draft.author_teacher_id,
         author_name="",
         approved_at=draft.approved_at,

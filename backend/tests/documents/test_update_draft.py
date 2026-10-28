@@ -2,7 +2,7 @@
 
 import uuid
 from collections.abc import Iterator
-from datetime import date
+from datetime import UTC, date, datetime
 from uuid import UUID
 
 import pytest
@@ -15,6 +15,7 @@ from core.base import Base
 from core.database import get_db
 from domains.auth.middleware import get_current_user
 from domains.auth.service import TeacherProfile
+from domains.documents import service as documents_service
 from domains.documents.models import (
     DocType,
     DocumentPublication,
@@ -24,10 +25,15 @@ from domains.documents.models import (
     RevisionLog,
 )
 from domains.documents.service import get_draft_version
+from domains.media.service import MediaEvidence, SignedMediaUrl
 from domains.organization.models import Center, Child, Klass
 from main import app
 
 TEACHER_ID = uuid.uuid4()
+PHOTO_A = uuid.uuid4()
+PHOTO_B = uuid.uuid4()
+VIDEO = uuid.uuid4()
+VOICE = uuid.uuid4()
 
 
 @pytest.fixture
@@ -226,11 +232,11 @@ def test_고칠_수_없는_상태면_409(client, db, status, expected_version, c
     [
         {},
         {"sentences": [{"sentence_id": "s1", "text": "a"}, {"sentence_id": "s1", "text": "b"}]},
-        {"selected_media_ids": [str(uuid.uuid4())]},
+        {"selected_media_ids": [str(PHOTO_A), str(PHOTO_A)]},
         {"sentences": [{"sentence_id": "s1", "text": "  \n"}]},
         {"added_sentences": [{"text": " "}]},
     ],
-    ids=["바꿀_것_없음", "같은_문장_두_번", "사진_선택_아직_미지원", "공백만_고침", "공백만_추가"],
+    ids=["바꿀_것_없음", "같은_문장_두_번", "같은_사진_두_번", "공백만_고침", "공백만_추가"],
 )
 def test_요청이_맞지_않으면_422(client, db, body):
     draft = _draft(db)
@@ -250,3 +256,76 @@ def test_다른_어린이집_교사는_고칠_수_없다(client, db):
 
     assert response.status_code == 403
     assert _stored(db, draft)[0] == ("s1", "s1 원래 문장", False)
+
+
+@pytest.fixture
+def photos(monkeypatch: pytest.MonkeyPatch) -> list[tuple]:
+    """그 원아·그 날짜에 고를 수 있는 사진은 PHOTO_A·PHOTO_B다. 서명 URL은 S3 없이 만든다.
+
+    collect_media_for_llm은 영상·음성메모도 돌려주므로 VIDEO·VOICE도 함께 싣는다.
+    """
+    calls: list[tuple] = []
+    taken = datetime(2026, 10, 27, 1, 0, tzinfo=UTC)
+
+    def collect(db, child_id, target_date):
+        calls.append((child_id, target_date))
+        return [
+            MediaEvidence(media_id=media_id, type=kind, captured_at=taken, storage_url="s3://x")
+            for media_id, kind in (
+                (PHOTO_A, "photo"),
+                (VIDEO, "video"),
+                (PHOTO_B, "photo"),
+                (VOICE, "voice_memo"),
+            )
+        ]
+
+    def sign(db, media_ids):
+        expires = datetime(2026, 10, 27, 2, 0, tzinfo=UTC)
+        return [
+            SignedMediaUrl(media_id=m, type="photo", url=f"https://s3/{m}", url_expires_at=expires)
+            for m in media_ids
+        ]
+
+    monkeypatch.setattr(documents_service.media_service, "collect_media_for_llm", collect)
+    monkeypatch.setattr(documents_service.media_service, "get_signed_urls", sign)
+    return calls
+
+
+def test_고른_사진을_그_순서로_저장하고_서명_URL을_돌려준다(client, db, photos):
+    draft = _draft(db)
+
+    response = _patch(client, draft, selected_media_ids=[str(PHOTO_B), str(PHOTO_A)])
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["version"] == 4
+    assert body["selected_media_ids"] == [str(PHOTO_B), str(PHOTO_A)]
+    assert [m["url"] for m in body["media"]] == [f"https://s3/{PHOTO_B}", f"https://s3/{PHOTO_A}"]
+    db.refresh(draft)
+    assert draft.selected_media_ids == [str(PHOTO_B), str(PHOTO_A)]
+    # 그 원아·그 날짜의 고를 수 있는 사진 범위로 확인한다
+    assert photos == [(draft.child_id, draft.record_date)]
+
+
+def test_빈_배열이면_사진을_모두_뺀다(client, db, photos):
+    draft = _draft(db)
+    _patch(client, draft, selected_media_ids=[str(PHOTO_A)])
+
+    response = _patch(client, draft, expected_version=4, selected_media_ids=[])
+
+    assert response.json()["selected_media_ids"] == []
+    assert response.json()["media"] == []
+
+
+@pytest.mark.parametrize(
+    "media_id", [uuid.uuid4(), VIDEO, VOICE], ids=["범위_밖", "영상", "음성메모"]
+)
+def test_고를_수_없는_사진이면_400이고_아무것도_바꾸지_않는다(client, db, photos, media_id):
+    draft = _draft(db)
+
+    response = _patch(client, draft, selected_media_ids=[str(PHOTO_A), str(media_id)])
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "MEDIA_NOT_LINKED_TO_CHILD"
+    db.refresh(draft)
+    assert (draft.version, draft.selected_media_ids) == (3, [])
