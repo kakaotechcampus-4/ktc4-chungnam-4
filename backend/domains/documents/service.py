@@ -107,6 +107,9 @@ from core.exceptions import (
     NotParentNote,
     RequestValidationFailed,
 )
+
+# agents도 documents를 import한다(save_draft). 순환이라 이름이 아니라 모듈째 import한다 — 이름을 직접
+# import하면 import 순서에 따라 깨진다. import-linter를 도입하면 이 순환을 예외로 적는다.
 from domains.agents import service as agents_service
 from domains.audit import service as audit_service
 from domains.documents.models import (
@@ -390,8 +393,13 @@ def list_class_drafts(
     )
 
 
+def _is_active_publication() -> ColumnElement[bool]:
+    """활성 게시 회차 = 회수되지 않은 회차. 학부모에게 지금 보이는 회차이고, "활성"의 정의는 여기 하나다."""
+    return DocumentPublication.revoked_at.is_(None)
+
+
 def _active_publications() -> Subquery:
-    """초안별 활성 게시 회차(회수되지 않은 회차)의 게시 시각.
+    """초안별 활성 게시 회차의 게시 시각.
 
     활성 회차가 여럿 남아 있어도 가장 최근 것만 본다 — 재게시는 새 회차만 활성으로
     취급한다 (DocumentPublication).
@@ -401,7 +409,7 @@ def _active_publications() -> Subquery:
             DocumentPublication.draft_id,
             func.max(DocumentPublication.published_at).label("published_at"),
         )
-        .where(DocumentPublication.revoked_at.is_(None))
+        .where(_is_active_publication())
         .group_by(DocumentPublication.draft_id)
         .subquery()
     )
@@ -759,9 +767,10 @@ def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
         .where(DraftSentence.draft_id == draft_id)
         .order_by(DraftSentence.position)
     )
+    # include_photos도 필요해 회차 행을 읽는다. 여럿이면 _active_publications()처럼 가장 최근 것
     publication = db.scalar(
         select(DocumentPublication)
-        .where(DocumentPublication.draft_id == draft_id, DocumentPublication.revoked_at.is_(None))
+        .where(DocumentPublication.draft_id == draft_id, _is_active_publication())
         .order_by(DocumentPublication.published_at.desc())
         .limit(1)
     )
@@ -914,10 +923,9 @@ def _publication_of(db: Session, request_id: str, draft_id: UUID) -> DocumentPub
 
 
 def _active_publication_exists() -> Exists:
-    """회수되지 않은 게시 회차가 있다 — 학부모에게 지금 보이는 중이다."""
+    """활성 게시 회차가 있다 — 학부모에게 지금 보이는 중이다."""
     return exists().where(
-        DocumentPublication.draft_id == DraftDocument.id,
-        DocumentPublication.revoked_at.is_(None),
+        DocumentPublication.draft_id == DraftDocument.id, _is_active_publication()
     )
 
 
