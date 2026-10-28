@@ -6,7 +6,10 @@
 
 import type { ExtractedEmbedding } from "@/workers/face/types";
 
-/** 목 추출기의 모델 버전. 실제 값(human-face-<해시>)은 embedding.ts가 파일에서 만듭니다. */
+/**
+ * 목 추출기의 모델 버전. 실제 값은 `workers/face/model-manifest.ts`의 `FACE_MODEL_VERSION`
+ * (`human-face-<해시>`)이고, `pnpm models:copy`가 모델 파일에서 계산해 만듭니다.
+ */
 const MOCK_MODEL_VERSION = "mock";
 
 /** 목 벡터 길이. 실제는 1024(FACE_DESCRIPTOR_LENGTH)지만 목은 짧게 둡니다. */
