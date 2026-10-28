@@ -1004,8 +1004,8 @@ def _record_verification_issues(
     """검증에서 나온 실패(issue)를 VerificationResult에 남긴다.
 
     통과 자체(문서 전체의 최종 판정)는 DraftDecisionLog가 담당한다. 이 함수는
-    개별 검사 실패 사유만 남긴다 — PR #7의 VerificationCheckType 7종이 전부
-    실패 사유라, 통과한 개별 검사 하나하나를 나타낼 값이 없기 때문이다.
+    개별 검사 실패 사유만 남긴다 — VerificationCheckType 8종(PR #7의 7종 + draft_response_error)이
+    전부 실패 사유라, 통과한 개별 검사 하나하나를 나타낼 값이 없기 때문이다.
     """
     for stage_result in stage_results:
         for issue in stage_result.issues:
