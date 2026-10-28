@@ -114,6 +114,7 @@ def ensure_child_access(db: Session, child_id: UUID, center_id: UUID) -> None:
     if child_center_id != center_id:
         raise ChildAccessDenied("이 원아에 접근할 권한이 없습니다.")
 
+
 def ensure_children_in_class(db: Session, class_id: UUID, child_ids: Sequence[UUID]) -> None:
     """원아들이 모두 그 반의 재원 원아인지 확인하고, 아니면 예외를 올립니다.
 
