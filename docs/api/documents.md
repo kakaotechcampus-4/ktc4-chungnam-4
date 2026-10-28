@@ -20,7 +20,7 @@
 - [ ] 수정·승인 규칙: 승인 후 수정은 이 문서에서 409로 두고, 되돌리기는 `reopen`으로 다룹니다(상세 작성 — 임시 결정(김진하)). `unclassified` 초안 수정·승인, 재승인 멱등 처리, 승인 차단 조건(정은과 함께)
 - [ ] 자동저장과 RevisionLog 최근 5회 보관의 충돌. 문장 추가·삭제, 사진 변경 로그
 - [ ] `NO_LINKED_PARENT` 처리, `parent_note_id = draft_id` 재사용 확정
-- [ ] 학부모에게 `llm_allowed == true`인 선택 사진만 보이게 할지(김동건과 함께)
+- [x] 학부모에게 `llm_allowed == true`인 선택 사진만 보이게 할지(김동건과 함께) → 고를 때와 학부모가 볼 때 모두 media `collect_media_for_llm` 범위(`llm_allowed`, 파기 안 됨, 귀속 원아 전원 ③ 동의)의 사진만 씁니다. 임시 결정(한상균), 범위는 김동건 #172 리뷰에서 확인. 반영: 이 문서 §publications·§학부모 목록·본문
 - [x] `review_confirmed`를 `reviewed`로 개명 → 바꿨습니다(FE도 `reviewed`를 씀). 임시 결정(한상균). 반영: `backend/domains/documents/schemas.py` `ApproveRequest`
 - [ ] `preview` 정의: 앞부분 100자, 문장 경계에서 자름
 - [x] `documents/CLAUDE.md`의 `/documents` 표기 수정
@@ -413,7 +413,7 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 
 - 건마다 따로 처리하므로 하나가 실패해도 나머지는 게시됩니다.
 - `parent_note_id`는 `draft_id`와 같은 값입니다(PR #14 재사용안). 다시 게시해도 링크가 유지됩니다.
-- `include_photos`가 true이면 선택 사진 가운데 `llm_allowed == true`인 사진만 학부모에게 보입니다(제안). 다른 아이가 함께 찍힌 사진이 나가는 것을 줄이는 보수적인 안입니다.
+- `include_photos`가 true이면 선택 사진 가운데 **학부모가 볼 때 기준으로** 보여도 되는 사진(media `collect_media_for_llm` 범위, 사진만)만 보입니다. 다른 아이가 함께 찍힌 사진이 나가는 것을 줄이는 보수적인 안입니다. 고를 때 한 번 거르고, 볼 때마다 한 번 더 거릅니다 — media는 동의 철회를 조회할 때 빼므로, 게시 뒤 함께 찍힌 아이가 ③을 철회하면 그 사진은 빠집니다. 임시 결정(한상균), #174 리뷰.
 - "학부모 알림 발송" 체크박스는 FR과 데이터 모델이 없어 받지 않습니다. 상세 작성 범위에서는 UI를 숨깁니다.
 - 에러: 요청 전체에는 공통 에러만 있습니다(`items`가 비면 422). 건별 오류는 응답 200 안의 `error_code`로 옵니다.
   - `DRAFT_NOT_FOUND` (건별) — 없는 초안일 때. `child_id`·`version`은 `null`입니다.
@@ -456,14 +456,15 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 ```
 
 - 게이트를 통과한 게시본만 담습니다.
-- `photos`는 앞 3장의 서명 URL입니다. `include_photos=false`로 게시했으면 빈 배열입니다.
+- `photos`는 지금 보여도 되는 선택 사진(§publications) 가운데 앞 3장의 서명 URL입니다. `include_photos=false`로 게시했으면 빈 배열입니다.
 - `is_read`·`unread_count`는 이 학부모의 본문 열람 기록을 기준으로 합니다. `unread_count`는 전체 안 읽음 수이고, W3의 두 곳에 같은 값을 씁니다.
-- `this_month_count`(제안)는 KST 기준 이번 달 게시 수("이번 달 12")입니다. `unread_count`와 함께 목록 응답 봉투를 확장한 필드입니다.
+- `this_month_count`(제안)는 기록 날짜가 KST 기준 이번 달인 게시본 수("이번 달 12")입니다. `unread_count`와 함께 목록 응답 봉투를 확장한 필드입니다.
 - 목록에도 발췌와 사진이 보이므로 AccessLog(action=view_list, target_type=document_publication)를 남깁니다. 회수 판단용 `first_viewed_at`은 건드리지 않습니다.
 - 에러:
   - `CHILD_ACCESS_DENIED` (403) — 자기 자녀가 아닐 때
   - `CHILD_ACCESS_EXPIRED` (403) — 졸업 후 1년이 지났을 때(NFR-03)
   - `INVALID_CURSOR` (400) — cursor가 깨졌을 때
+  - `ACCESS_LOG_FAILED` (500) — 열람 기록에 실패했을 때(목록도 기록을 커밋한 뒤에만 돌려줍니다)
 - 목록 AccessLog는 **담긴 알림장마다** 한 줄씩 남깁니다(`view_list`). 읽음은 그 학부모의 본문 열람 기록(`view_detail`)으로 보고, `this_month_count`는 KST 이번 달 기록 날짜로 셉니다 — 임시 결정(한상균).
 - `limit`은 1~100이고 기본 20입니다. `cursor`는 마지막 알림장의 기록 날짜를 감싼 값입니다(한 자녀의 알림장은 날짜마다 하나).
 - 학부모–원아 관계와 열람 기간(NFR-03)은 organization의 `ensure_parent_child_access`로 확인합니다 — **organization에 요청한 함수라, 들어오기 전에는 이 API가 동작하지 않습니다.**
@@ -495,6 +496,7 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 - 학부모 전용 스키마입니다. 근거, 상태, 버전이 없습니다.
 - 본문을 돌려주기 전에 같은 트랜잭션에서 AccessLog를 커밋합니다(actor_type=parent, target_type=document_publication, action=view_detail). 로그에는 ID만 남깁니다(H-4). 기록에 실패하면 본문 없이 500을 돌려줍니다.
 - `content`는 문장 단위로 줄을 바꿉니다(`\n`).
+- `photos`는 사진을 함께 보낸 경우 지금 보여도 되는 선택 사진(§publications) 전부입니다.
 - `author_name`은 작성 교사 이름입니다(FR-26).
 - `prev`·`next`(제안)는 같은 자녀의 이전·다음 게시본입니다.
 - 에러:
