@@ -39,6 +39,8 @@ from domains.organization.schemas import (
     ClassChildListResponse,
     ClassItem,
     ClassListResponse,
+    MyChildItem,
+    MyChildListResponse,
 )
 
 # Child.status 값 — 재원 원아만 동의 판정 대상입니다 (졸업·퇴소 제외).
@@ -182,11 +184,18 @@ def ensure_parent_child_access(
     ).first()
     if row is None:
         raise ChildAccessDenied("이 원아에 접근할 권한이 없습니다.")
-    graduated_at = row.graduated_at
-    if graduated_at is None:
-        return
-    if (today or datetime.now(_KST).date()) > _one_year_after(graduated_at):
+    if _is_access_expired(row.graduated_at, today):
         raise ChildAccessExpired("열람 기간이 지났습니다.")
+
+
+def _is_access_expired(graduated_at: date | None, today: date | None) -> bool:
+    """졸업·퇴소 확정일 + 1년이 지났는가 (NFR-03). 재원 중(`None`)이면 False입니다.
+
+    `ensure_parent_child_access`와 `list_my_children`이 같이 써서 두 판정이 어긋나지 않게 합니다.
+    """
+    if graduated_at is None:
+        return False
+    return (today or datetime.now(_KST).date()) > _one_year_after(graduated_at)
 
 
 def _one_year_after(day: date) -> date:
@@ -313,3 +322,45 @@ def find_center_by_code(db: Session, center_code: str) -> CenterSummary:
     if row is None:
         raise CenterNotFound("가입 코드와 일치하는 어린이집이 없습니다.")
     return CenterSummary(center_id=row.id, name=row.name)
+
+
+def list_my_children(
+    db: Session, parent_id: UUID, *, today: date | None = None
+) -> MyChildListResponse:
+    """학부모와 연결된 자녀 목록, 이름순 (FR-09, W3·W4 상단 자녀 칩).
+
+    `ParentChildRelation`으로 연결된 자녀만 돌려줍니다. 열람 기간이 지난 자녀(NFR-03)도 빼지 않고
+    `access_expired: true`로 표시합니다 — 그 자녀의 알림장 조회는 `ensure_parent_child_access`가
+    `CHILD_ACCESS_EXPIRED`로 막습니다. 연결된 자녀가 없으면 빈 목록입니다.
+    """
+    rows = db.execute(
+        select(
+            Child.id,
+            Child.name,
+            Child.graduated_at,
+            Klass.id.label("class_id"),
+            Klass.name.label("class_name"),
+            Klass.age_group,
+            Center.name.label("center_name"),
+        )
+        .join(ParentChildRelation, ParentChildRelation.child_id == Child.id)
+        .join(Klass, Klass.id == Child.class_id)
+        .join(Center, Center.id == Klass.center_id)
+        .where(ParentChildRelation.parent_id == parent_id)
+        .distinct()
+        .order_by(Child.name, Child.id)
+    )
+    return MyChildListResponse(
+        items=[
+            MyChildItem(
+                child_id=row.id,
+                name=row.name,
+                class_id=row.class_id,
+                class_name=row.class_name,
+                age_group=row.age_group,
+                center_name=row.center_name,
+                access_expired=_is_access_expired(row.graduated_at, today),
+            )
+            for row in rows
+        ]
+    )
