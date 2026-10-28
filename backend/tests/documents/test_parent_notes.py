@@ -30,7 +30,7 @@ from domains.documents.models import (
     DraftSentence,
     DraftStatus,
 )
-from domains.media.service import SignedMediaUrl
+from domains.media.service import MediaEvidence, SignedMediaUrl
 from main import app
 
 PARENT_ID = uuid.uuid4()
@@ -67,11 +67,15 @@ def client(db: Session, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]
             for m in media_ids
         ]
 
+    def collect(db, child_id, target_date):
+        return [_evidence(photo) for photo in PHOTOS]
+
     organization = documents_service.organization_service
     monkeypatch.setattr(
         organization, "ensure_parent_child_access", ensure_parent_child_access, raising=False
     )
     monkeypatch.setattr(documents_service.media_service, "get_signed_urls", sign)
+    monkeypatch.setattr(documents_service.media_service, "collect_media_for_llm", collect)
     app.dependency_overrides[get_db] = lambda: db
     parent = ParentProfile(
         account_id=uuid.uuid4(), email="parent@example.com", name="학부모A", parent_id=PARENT_ID
@@ -124,6 +128,11 @@ def _note(
         )
     db.commit()
     return draft
+
+
+def _evidence(media_id: UUID, kind: str = "photo") -> MediaEvidence:
+    taken = datetime(2026, 10, 20, 1, 0, tzinfo=UTC)
+    return MediaEvidence(media_id=media_id, type=kind, captured_at=taken, storage_url="s3://x")
 
 
 def _logs(db: Session) -> list[tuple[str, UUID]]:
@@ -263,3 +272,23 @@ def test_깨진_커서는_400(client, db):
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "INVALID_CURSOR"
+
+
+def test_게시_뒤_보여도_되는_범위에서_빠진_사진은_더_나가지_않는다(client, db, monkeypatch):
+    note = _note(db, 20)
+    calls = []
+
+    def collect(db, child_id, target_date):
+        calls.append((child_id, target_date))
+        # PHOTOS[0]은 게시 뒤 함께 찍힌 아이의 ③ 철회로 빠졌고, PHOTOS[1]은 사진이 아니다
+        return [_evidence(PHOTOS[1], "video"), _evidence(PHOTOS[2]), _evidence(PHOTOS[3])]
+
+    monkeypatch.setattr(documents_service.media_service, "collect_media_for_llm", collect)
+
+    body = client.get(f"/api/v1/parent-notes/{note.id}").json()
+    listed = client.get(f"/api/v1/children/{MY_CHILD}/parent-notes").json()
+
+    expected = [str(PHOTOS[2]), str(PHOTOS[3])]
+    assert [photo["media_id"] for photo in body["photos"]] == expected
+    assert [photo["media_id"] for photo in listed["items"][0]["photos"]] == expected
+    assert calls == [(MY_CHILD, date(2026, 10, 20))] * 2

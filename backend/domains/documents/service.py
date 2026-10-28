@@ -523,20 +523,24 @@ def update_draft(
 
 
 def _ensure_selectable_photos(db: Session, draft: DraftDocument, media_ids: Sequence[UUID]) -> None:
-    """알림장 사진은 그 원아·그 날짜에 LLM 근거로 쓸 수 있는 사진 중에서만 고른다.
+    """알림장 사진은 그 원아·그 날짜에 학부모에게 보여도 되는 사진 중에서만 고른다."""
+    if not set(media_ids) <= _shareable_photo_ids(db, draft.child_id, draft.record_date):
+        raise MediaNotLinkedToChild("이 원아의 그날 사진만 고를 수 있습니다.")
+
+
+def _shareable_photo_ids(db: Session, child_id: UUID, record_date: date) -> set[UUID]:
+    """그 원아·그 날짜에 학부모에게 보여도 되는 사진. 고를 때와 보여 줄 때 같은 범위를 쓴다.
 
     media의 collect_media_for_llm 범위(llm_allowed, 귀속 원아 전원 ③ 동의)를 그대로 쓴다 —
     다른 아이가 함께 찍힌 사진이 학부모에게 나가는 것을 줄이는 보수적인 범위다(임시 결정
     (한상균), docs/api/documents.md "llm_allowed인 사진만 학부모에게" 제안). 그 함수는
     영상·음성메모도 돌려주므로 사진만 남긴다.
     """
-    selectable = {
+    return {
         media.media_id
-        for media in media_service.collect_media_for_llm(db, draft.child_id, draft.record_date)
+        for media in media_service.collect_media_for_llm(db, child_id, record_date)
         if media.type == "photo"
     }
-    if not set(media_ids) <= selectable:
-        raise MediaNotLinkedToChild("이 원아의 그날 사진만 고를 수 있습니다.")
 
 
 def _not_editable(status: str) -> AidamError:
@@ -1052,13 +1056,19 @@ def _parent_photos(
     *,
     max_per_note: int | None,
 ) -> dict[UUID, list[MediaUrl]]:
-    """게시 때 사진을 함께 보내기로 한 알림장만 선택 사진의 서명 URL을 싣는다. 한 번에 서명한다."""
-    chosen = {
-        draft.id: [UUID(media_id) for media_id in draft.selected_media_ids][:max_per_note]
-        if publication.include_photos
-        else []
-        for draft, publication in notes
-    }
+    """게시 때 사진을 함께 보내기로 한 알림장만 선택 사진의 서명 URL을 싣는다. 한 번에 서명한다.
+
+    볼 때마다 고를 때와 같은 범위로 다시 거른다. media는 동의 철회를 저장된 값을 고치지 않고
+    조회할 때 빼므로, 게시 뒤 함께 찍힌 아이가 ③을 철회하면 그 사진은 더 나가지 않는다(#174 리뷰).
+    """
+    chosen: dict[UUID, list[UUID]] = {}
+    for draft, publication in notes:
+        if not publication.include_photos:
+            chosen[draft.id] = []
+            continue
+        shareable = _shareable_photo_ids(db, draft.child_id, draft.record_date)
+        selected = [UUID(media_id) for media_id in draft.selected_media_ids]
+        chosen[draft.id] = [m for m in selected if m in shareable][:max_per_note]
     signed = {
         photo.media_id: photo
         for photo in _signed_photos(
