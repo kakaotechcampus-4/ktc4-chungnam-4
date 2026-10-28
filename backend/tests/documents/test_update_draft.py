@@ -33,6 +33,8 @@ from main import app
 TEACHER_ID = uuid.uuid4()
 PHOTO_A = uuid.uuid4()
 PHOTO_B = uuid.uuid4()
+VIDEO = uuid.uuid4()
+VOICE = uuid.uuid4()
 
 
 @pytest.fixture
@@ -172,10 +174,13 @@ def test_교사가_쓴_문장도_고치면_수정됨이다(client, db):
     assert _stored(db, draft)[1] == ("t1", "다시 고친 문장", True)
 
 
-def test_글자가_그대로인_문장은_고친_것으로_보지_않는다(client, db):
+@pytest.mark.parametrize(
+    "text", ["s1 원래 문장", " s1 원래 문장\n"], ids=["같음", "앞뒤_공백만_다름"]
+)
+def test_글자가_그대로인_문장은_고친_것으로_보지_않는다(client, db, text):
     draft = _draft(db)
 
-    _patch(client, draft, sentences=[{"sentence_id": "s1", "text": "s1 원래 문장"}])
+    _patch(client, draft, sentences=[{"sentence_id": "s1", "text": text}])
 
     assert _stored(db, draft)[0] == ("s1", "s1 원래 문장", False)
     assert _logs(db, draft) == []
@@ -230,8 +235,10 @@ def test_고칠_수_없는_상태면_409(client, db, status, expected_version, c
         {},
         {"sentences": [{"sentence_id": "s1", "text": "a"}, {"sentence_id": "s1", "text": "b"}]},
         {"selected_media_ids": [str(PHOTO_A), str(PHOTO_A)]},
+        {"sentences": [{"sentence_id": "s1", "text": "  \n"}]},
+        {"added_sentences": [{"text": " "}]},
     ],
-    ids=["바꿀_것_없음", "같은_문장_두_번", "같은_사진_두_번"],
+    ids=["바꿀_것_없음", "같은_문장_두_번", "같은_사진_두_번", "공백만_고침", "공백만_추가"],
 )
 def test_요청이_맞지_않으면_422(client, db, body):
     draft = _draft(db)
@@ -255,15 +262,23 @@ def test_다른_어린이집_교사는_고칠_수_없다(client, db):
 
 @pytest.fixture
 def photos(monkeypatch: pytest.MonkeyPatch) -> list[tuple]:
-    """그 원아·그 날짜에 고를 수 있는 사진은 PHOTO_A·PHOTO_B다. 서명 URL은 S3 없이 만든다."""
+    """그 원아·그 날짜에 고를 수 있는 사진은 PHOTO_A·PHOTO_B다. 서명 URL은 S3 없이 만든다.
+
+    collect_media_for_llm은 영상·음성메모도 돌려주므로 VIDEO·VOICE도 함께 싣는다.
+    """
     calls: list[tuple] = []
     taken = datetime(2026, 10, 27, 1, 0, tzinfo=UTC)
 
     def collect(db, child_id, target_date):
         calls.append((child_id, target_date))
         return [
-            MediaEvidence(media_id=media_id, type="photo", captured_at=taken, storage_url="s3://x")
-            for media_id in (PHOTO_A, PHOTO_B)
+            MediaEvidence(media_id=media_id, type=kind, captured_at=taken, storage_url="s3://x")
+            for media_id, kind in (
+                (PHOTO_A, "photo"),
+                (VIDEO, "video"),
+                (PHOTO_B, "photo"),
+                (VOICE, "voice_memo"),
+            )
         ]
 
     def sign(db, media_ids):
@@ -304,10 +319,13 @@ def test_빈_배열이면_사진을_모두_뺀다(client, db, photos):
     assert response.json()["media"] == []
 
 
-def test_고를_수_없는_사진이면_400이고_아무것도_바꾸지_않는다(client, db, photos):
+@pytest.mark.parametrize(
+    "media_id", [uuid.uuid4(), VIDEO, VOICE], ids=["범위_밖", "영상", "음성메모"]
+)
+def test_고를_수_없는_사진이면_400이고_아무것도_바꾸지_않는다(client, db, photos, media_id):
     draft = _draft(db)
 
-    response = _patch(client, draft, selected_media_ids=[str(PHOTO_A), str(uuid.uuid4())])
+    response = _patch(client, draft, selected_media_ids=[str(PHOTO_A), str(media_id)])
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "MEDIA_NOT_LINKED_TO_CHILD"

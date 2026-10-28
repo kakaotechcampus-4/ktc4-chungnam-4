@@ -190,6 +190,8 @@ def test_다른_어린이집_교사는_게시할_수_없다(client, db, class_id
     result = _publish(client, draft).json()["results"][0]
 
     assert (result["status"], result["error_code"]) == ("failed", "CHILD_ACCESS_DENIED")
+    # 다른 어린이집 원아 ID·버전이 응답에 실리지 않는다
+    assert (result["child_id"], result["version"]) == (None, None)
     assert _rounds(db, draft) == []
 
 

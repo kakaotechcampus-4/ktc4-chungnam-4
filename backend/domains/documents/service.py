@@ -93,6 +93,8 @@ from sqlalchemy.orm import Session
 from core.exceptions import (
     AccessLogFailed,
     AidamError,
+    ChildAccessDenied,
+    ChildNotFound,
     DraftAlreadyApproved,
     DraftAlreadyPublished,
     DraftNotApprovable,
@@ -540,11 +542,13 @@ def _ensure_selectable_photos(db: Session, draft: DraftDocument, media_ids: Sequ
 
     media의 collect_media_for_llm 범위(llm_allowed, 귀속 원아 전원 ③ 동의)를 그대로 쓴다 —
     다른 아이가 함께 찍힌 사진이 학부모에게 나가는 것을 줄이는 보수적인 범위다(임시 결정
-    (한상균), docs/api/documents.md "llm_allowed인 사진만 학부모에게" 제안).
+    (한상균), docs/api/documents.md "llm_allowed인 사진만 학부모에게" 제안). 그 함수는
+    영상·음성메모도 돌려주므로 사진만 남긴다.
     """
     selectable = {
         media.media_id
         for media in media_service.collect_media_for_llm(db, draft.child_id, draft.record_date)
+        if media.type == "photo"
     }
     if not set(media_ids) <= selectable:
         raise MediaNotLinkedToChild("이 원아의 그날 사진만 고를 수 있습니다.")
@@ -822,6 +826,9 @@ def publish_drafts(
         except AidamError as error:
             db.rollback()
             draft = db.get(DraftDocument, item.draft_id)
+            # 접근이 거부된 건에는 그 원아 ID·버전을 싣지 않는다 — 다른 어린이집 정보가 샌다
+            if isinstance(error, ChildAccessDenied | ChildNotFound):
+                draft = None
             results.append(
                 PublicationResult(
                     draft_id=item.draft_id,
