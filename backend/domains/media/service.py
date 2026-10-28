@@ -143,6 +143,14 @@ class TranscriptPart:
 
 
 @dataclass(frozen=True)
+class AttributedChild:
+    """미디어에 귀속된 원아 한 명. 교사가 확정한 귀속(`MediaChildLink`) 그대로입니다."""
+
+    child_id: UUID
+    method: str  # face_recognition / manual
+
+
+@dataclass(frozen=True)
 class MediaEvidence:
     """LLM 근거로 써도 되는 미디어 한 건. agents가 EvidenceItem으로 바꿉니다."""
 
@@ -152,6 +160,9 @@ class MediaEvidence:
     # 원본 객체 위치. 서명 URL이 아니라 서버 내부 참조입니다 — 학부모·브라우저에 그대로 주지 않습니다.
     storage_url: str
     transcript: tuple[TranscriptPart, ...] = ()
+    # 이 미디어에 귀속된 원아 전원(child_id 순). 사진 분석이 사진별 아이 수와 관찰 대상을 정하는 데
+    # 씁니다. 얼굴 인식·교사 확정은 브라우저에서 끝났고, 여기서는 저장된 결과를 싣기만 합니다.
+    child_links: tuple[AttributedChild, ...] = ()
 
 
 def _child_links_of(db: Session, media_id: UUID) -> list[MediaChildLink]:
@@ -174,7 +185,8 @@ def collect_media_for_llm(db: Session, child_id: UUID, target_date: date) -> lis
       `llm_allowed`를 고치지 않고 여기서 뺍니다 — 철회 처리가 중간에 실패해도 새지 않고,
       재동의하면 다시 쓰입니다. 음성메모는 얼굴이 없어 ③을 보지 않습니다.
 
-    영상·음성은 STT 구간을 함께 싣습니다. 해당하는 게 없으면 빈 리스트입니다.
+    영상·음성은 STT 구간을 함께 싣습니다. 귀속된 원아 전원(`child_links`)도 함께 싣습니다.
+    해당하는 게 없으면 빈 리스트입니다.
     """
     if isinstance(target_date, datetime):
         # datetime을 받으면 한국 시간 날짜로 읽습니다. naive면 UTC로 봅니다(DB는 UTC 저장).
@@ -199,12 +211,14 @@ def collect_media_for_llm(db: Session, child_id: UUID, target_date: date) -> lis
 
     media_ids = [asset.id for asset in assets]
     links: dict[UUID, set[UUID]] = {}
-    for media_id, linked_child in db.execute(
-        select(MediaChildLink.media_id, MediaChildLink.child_id).where(
-            MediaChildLink.media_id.in_(media_ids)
-        )
+    attributed: dict[UUID, list[AttributedChild]] = {}
+    for media_id, linked_child, method in db.execute(
+        select(MediaChildLink.media_id, MediaChildLink.child_id, MediaChildLink.method)
+        .where(MediaChildLink.media_id.in_(media_ids))
+        .order_by(MediaChildLink.child_id)
     ):
         links.setdefault(media_id, set()).add(linked_child)
+        attributed.setdefault(media_id, []).append(AttributedChild(linked_child, method))
 
     consented: dict[UUID, set[UUID]] = {}
     for class_id in {asset.class_id for asset in assets if asset.type in _FACE_MEDIA_TYPES}:
@@ -234,6 +248,7 @@ def collect_media_for_llm(db: Session, child_id: UUID, target_date: date) -> lis
                 captured_at=asset.captured_at,
                 storage_url=asset.storage_url,
                 transcript=tuple(segments.get(asset.id, ())),
+                child_links=tuple(attributed.get(asset.id, ())),
             )
         )
     return evidence

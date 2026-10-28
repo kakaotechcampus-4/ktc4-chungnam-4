@@ -1,6 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 
-import { api, putToUploadUrl } from "@/lib/api-client";
+import { ApiError, api, putToUploadUrl } from "@/lib/api-client";
 import type { ListResponse } from "@/types/api-draft/common";
 import type {
   ChildLinksResponse,
@@ -66,12 +66,34 @@ export const mediaKeys = {
 /** (임시 결정) 서버 STT가 끝날 때까지 발화 구간을 다시 받는 간격 */
 export const TRANSCRIPT_POLL_INTERVAL_MS = 2000;
 
+const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  heic: "image/heic",
+  heif: "image/heic",
+  mp4: "video/mp4",
+  mov: "video/quicktime",
+  m4a: "audio/mp4",
+  wav: "audio/wav",
+};
+
+/**
+ * 업로드 URL 요청에 실을 형식. 브라우저가 형식을 모르면(HEIC 등) file.type이 빈 값이라 서버가
+ * MEDIA_TYPE_NOT_ALLOWED로 거절하므로, 빈 값이면 확장자로 채웁니다(API 문서 §media).
+ */
+export function uploadContentType(file: { name: string; type: string }) {
+  if (file.type) return file.type;
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  return CONTENT_TYPE_BY_EXTENSION[extension] ?? "";
+}
+
 /** 서버가 upload-urls 한 번에 받는 파일 수. 넘으면 400 UPLOAD_BATCH_TOO_LARGE입니다(API 문서 §media, 임시 결정(김동건)). */
 export const UPLOAD_URLS_BATCH_SIZE = 10;
 
 /**
  * 여러 파일의 업로드 URL을 받습니다. 서버 상한에 맞춰 10개씩 나눠 요청하고 결과를 요청 순서대로 합칩니다.
- * 형식이 틀린 파일이 하나라도 있으면 그 묶음 전체가 MEDIA_TYPE_NOT_ALLOWED입니다.
+ * 형식이 틀린 파일은 그 파일만 status가 error로 오고, 나머지는 그대로 발급됩니다.
  */
 export async function requestUploadUrls(input: UploadUrlsInput) {
   const items: UploadUrlsResponse["items"] = [];
@@ -87,12 +109,22 @@ export async function requestUploadUrls(input: UploadUrlsInput) {
   return toUploadUrlsView({ items });
 }
 
-/** 받은 URL로 파일을 올립니다. media_id가 이미 있는 항목(등록된 파일)은 부르지 않습니다. 화면은 File을 넘깁니다. */
+/**
+ * 받은 URL로 파일을 올립니다. media_id가 이미 있는 항목(등록된 파일)은 부르지 않습니다. 화면은 File을 넘깁니다.
+ * 서버가 그 파일만 거절한 항목(status error)이면 서버 사유로 ApiError를 던집니다(API 문서 §media).
+ */
 export function uploadFile(
   item: UploadTicketView,
   file: Blob | Uint8Array<ArrayBuffer>,
   signal?: AbortSignal,
 ) {
+  if (item.status === "error") {
+    throw new ApiError(
+      400,
+      item.error?.code ?? "UPLOAD_URL_ERROR",
+      item.error?.message ?? "이 파일은 올릴 수 없어요.",
+    );
+  }
   if (!item.upload_url) throw new Error("업로드 URL이 없는 항목입니다(이미 등록된 파일).");
   return putToUploadUrl(item.upload_url, item.upload_headers, file, signal);
 }

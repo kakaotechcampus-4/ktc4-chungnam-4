@@ -17,9 +17,11 @@ from sqlalchemy.pool import StaticPool
 from core.base import Base
 from core.database import get_db
 from domains.agents import router as agents_router
+from domains.agents import service as agents_service
 from domains.agents.models import GenerationJob, Job, JobStatus
 from domains.auth.middleware import get_current_teacher
 from domains.auth.service import TeacherProfile
+from domains.documents.models import DraftDocument, DraftSentence, RevisionLog
 from domains.media.models import MediaAsset, MediaChildLink
 from domains.organization.models import Center, Child, Klass
 from main import app
@@ -50,6 +52,9 @@ def session_factory() -> sessionmaker[Session]:
             Center.__table__,
             Klass.__table__,
             Child.__table__,
+            DraftDocument.__table__,
+            DraftSentence.__table__,
+            RevisionLog.__table__,
         ],
     )
     factory = sessionmaker(bind=engine)
@@ -203,6 +208,36 @@ def test_같은_request_id로_다시_부르면_기존_작업을_돌려주고_큐
     assert len(enqueued) == 1
 
 
+def test_같은_request_id가_거의_동시에_와도_작업은_하나이고_늦은_요청은_그_작업을_돌려준다(
+    client: TestClient,
+    session_factory: sessionmaker[Session],
+    enqueued: list,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    photo = _add_photo(session_factory, DOYUN)
+    body = _body(photo)
+    first = _start(client, body)
+
+    # 늦은 요청이 앞 요청의 커밋 전에 조회한 경우를 만듭니다. 그때는 같은 request_id의 작업도,
+    # 진행 중인 작업도 보이지 않습니다. 그 뒤 INSERT가 유일 제약에 걸리면 다시 조회한 작업을
+    # 돌려줘야 합니다.
+    _set_status(session_factory, DOYUN, JobStatus.SUCCEEDED)
+    real_find = agents_service._find_job_by_request_id
+    calls = iter([None])
+    monkeypatch.setattr(
+        agents_service,
+        "_find_job_by_request_id",
+        lambda db, request_id: next(calls, real_find(db, request_id)),
+    )
+    second = _start(client, body)
+
+    assert second.status_code == 202
+    assert second.json()["job_id"] == first.json()["job_id"]
+    assert len(enqueued) == 1
+    with session_factory() as db:
+        assert len(db.scalars(select(GenerationJob)).all()) == 1
+
+
 def test_다른_어린이집_교사는_작업을_시작하지_못한다(
     client: TestClient, session_factory: sessionmaker[Session], enqueued: list
 ) -> None:
@@ -332,6 +367,40 @@ def test_폴링은_원아별_상태로_반_전체_상태와_진행률을_계산�
         str(DOYUN): "succeeded",
         str(YERIN): "failed",
     }
+
+
+def test_성공한_원아는_그날_초안이_있으면_drafted와_초안을_없으면_unclassified를_준다(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    photo = _add_photo(session_factory, DOYUN, YERIN)
+    job_id = _start(client, _body(photo)).json()["job_id"]
+    draft_id = uuid.uuid4()
+    with session_factory() as db:
+        db.add(
+            DraftDocument(
+                id=draft_id,
+                child_id=DOYUN,
+                author_teacher_id=TEACHER_ID,
+                doc_type="parent_note",
+                record_date=DAY,
+            )
+        )
+        db.commit()
+
+    pending = client.get(f"/api/v1/jobs/{job_id}").json()
+    _set_status(session_factory, DOYUN, JobStatus.SUCCEEDED)
+    _set_status(session_factory, YERIN, JobStatus.SUCCEEDED)
+    finished = client.get(f"/api/v1/jobs/{job_id}").json()
+
+    # 끝나기 전에는 초안이 있어도 결과를 싣지 않습니다.
+    assert all(child["outcome"] is None and child["drafts"] == [] for child in pending["children"])
+    children = {child["child_id"]: child for child in finished["children"]}
+    assert children[str(DOYUN)]["outcome"] == "drafted"
+    assert children[str(DOYUN)]["drafts"] == [
+        {"draft_id": str(draft_id), "doc_type": "parent_note"}
+    ]
+    assert children[str(YERIN)]["outcome"] == "unclassified"
+    assert children[str(YERIN)]["drafts"] == []
 
 
 def test_없는_작업을_조회하면_404(client: TestClient) -> None:

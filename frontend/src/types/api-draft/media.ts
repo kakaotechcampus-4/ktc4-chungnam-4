@@ -23,15 +23,21 @@ export interface UploadUrlsRequest {
   items: UploadUrlRequestItem[];
 }
 
+/** 업로드 URL 발급 결과. issued는 URL 발급, registered는 이미 등록된 파일, error는 그 파일만 실패입니다. */
+export type UploadUrlStatus = "issued" | "registered" | "error";
+
 /** POST /media/upload-urls 응답 항목. 순서는 요청과 같습니다. */
 export interface UploadUrlItem {
   client_photo_id: string;
+  status: UploadUrlStatus;
   /** null이 아니면 이미 등록된 파일입니다. 다시 올리지 않고 귀속 단계로 넘어갑니다. */
   media_id: string | null;
   upload_url: string | null;
   /** PUT에 그대로 붙여야 서명이 맞습니다. */
   upload_headers: Record<string, string> | null;
   upload_url_expires_at: string | null;
+  /** status가 error일 때만. 공통 에러 모양의 code·message입니다. */
+  error: { code: string; message: string } | null;
 }
 
 export interface UploadUrlsResponse {

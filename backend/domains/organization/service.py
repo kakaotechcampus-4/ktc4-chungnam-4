@@ -201,6 +201,30 @@ def list_class_children(
     )
 
 
+def get_class_child_names(db: Session, class_id: UUID) -> dict[UUID, list[str]]:
+    """반 원아 전체의 원아 ID → 이름들. agents가 근거 속 실명을 토큰으로 바꿀 때 씁니다 (H-2).
+    첫 값은 승인 전 초안 본문에 되돌려 넣는 호칭이고, 나머지는 본문에서 찾아 바꿀 다른 이름입니다.
+    졸업·퇴소 원아도 넣습니다 — 발화에서 불릴 수 있고, 빠뜨리면 실명이 LLM으로 갑니다.
+    반이 없거나 원아가 없으면 빈 딕셔너리입니다. 접근 검사는 하지 않습니다(worker가 부르는 내부 함수).
+    """
+    rows = db.execute(select(Child.id, Child.name).where(Child.class_id == class_id))
+    return {child_id: _name_variants(name) for child_id, name in rows}
+
+
+def _name_variants(name: str) -> list[str]:
+    """성명 하나에서 호칭과 바꿀 이름들을 만듭니다.
+
+    세 글자 이름("김민준")은 앞 한 글자를 성으로 보고 이름("민준")을 호칭으로, 성명을 그다음에
+    둡니다. 그 밖의 길이는 성을 가를 수 없어(두 글자 성·외자 이름) 성명만 씁니다 — 한 글자만
+    남기면 다른 낱말 속 글자까지 바꿔 버립니다.
+    TODO(이한나): 임시 결정. 호칭 형식("민준"/"민준이")·애칭 저장 여부는 agents(정은)와 확인.
+    """
+    full_name = name.strip()
+    if len(full_name) == 3:
+        return [full_name[1:], full_name]
+    return [full_name]
+
+
 @dataclass(frozen=True)
 class CenterSummary:
     """가입 코드로 찾은 어린이집. auth는 `center_id`를 교사 소속으로 저장하고,
