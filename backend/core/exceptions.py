@@ -133,6 +133,13 @@ class NotParentNote(AidamError):
     status_code = 409
 
 
+class AccessLogFailed(AidamError):
+    """열람 기록(AccessLog)을 남기지 못해 본문을 돌려주지 않은 경우 (NFR-05, H-4)."""
+
+    code = "ACCESS_LOG_FAILED"
+    status_code = 500
+
+
 class InvalidCredentials(AidamError):
     """이메일이 없거나 비밀번호가 틀렸습니다.
 
