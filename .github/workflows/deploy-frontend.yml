@@ -1,0 +1,196 @@
+# develop에 frontend/ 변경이 머지되면 화면을 S3에 올리고 CloudFront로 내보냅니다 (NFR-13, 이슈 #118).
+#
+# 흐름: deploy job — 빌드 → OIDC로 FE 전용 역할 받기 → S3 업로드(캐시 헤더 분리) → 스모크
+#       tag job    — 화면이 공개됐으면 fe-deploy-* 태그(스모크가 실패해도 남김)
+# AWS 액세스 키를 저장하지 않습니다 (NFR-14). FE 역할은 FE 버킷만 다루고, CloudFront 무효화·설정
+# 읽기 권한이 없어 FE_DISTRIBUTION_ID를 쓰지 않습니다(upload.sh 무효화·smoke.sh 5번이 건너뜀).
+# 자원 설정의 원본은 infra/frontend/aidam-fe.yaml, 절차는 infra/frontend/README.md입니다.
+#
+# FE 역할은 GitHub environment `frontend`를 쓰는 job만 받습니다(OIDC sub가 ...:environment:frontend).
+# 그 environment는 develop 브랜치만 쓸 수 있게 GitHub 설정에서 막아 두었습니다. 다른 워크플로에
+# environment: frontend를 붙이지 않습니다. 붙이면 그 워크플로도 FE 버킷을 쓸 수 있게 됩니다(#150 리뷰).
+#
+# 권한을 job별로 나눕니다. 빌드(서드파티 의존성 설치)가 도는 deploy job에는 저장소 쓰기 권한을 주지 않고,
+# 태그를 만드는 tag job에는 AWS 역할을 주지 않습니다(environment도 걸지 않음).
+#
+# 액션은 커밋 SHA로 고정합니다. 태그는 옮겨질 수 있어서, AWS 역할을 받는 job이 바뀐 코드를 실행하지 않게 하려는
+# 것입니다. 버전을 올릴 때는 그 버전의 릴리스 커밋 SHA로 바꾸고 주석의 버전도 같이 고칩니다.
+#
+# 되돌리기 (NFR-15): Actions → Deploy frontend → Run workflow
+#   - "Use workflow from"은 develop 그대로 둡니다(environment frontend가 develop만 받습니다)
+#   - rollback_tag에 되돌릴 fe-deploy-YYYYMMDD-HHMM을 넣습니다
+#   그 태그의 코드로 다시 빌드해 올리고, 새 fe-deploy-* 태그를 남깁니다.
+#   → "가장 최근 fe-deploy-* 태그 = 지금 떠 있는 화면"이 늘 맞습니다.
+#   스모크가 실패한 실행도 화면이 공개됐으면 태그가 남습니다. 되돌릴 대상은 Actions 실행 결과(빨간불)를
+#   보고 그 전 태그를 고릅니다.
+#
+# 필요한 GitHub 설정 (스택 Outputs에서 옮깁니다. 이 파일을 머지하기 전에 넣어야 첫 실행이 성공합니다)
+#   variables:   FE_BUCKET, FE_DOMAIN
+#   secrets:     FE_DEPLOY_ROLE_ARN — AWS는 계정 ID를 비밀로 보지 않지만, 공개 저장소라 노출을 줄이려고 secret에 둡니다
+#   environment: frontend — 배포 브랜치는 develop만
+name: Deploy frontend
+
+on:
+  push:
+    branches: [develop]
+    # 배포 워크플로라 필수 검사가 아니므로 경로 필터를 걸어도 됩니다(ci.yml 주석의 경고는 필수 검사 이야기).
+    # 템플릿(aidam-fe.yaml)만 바뀐 PR은 여기서 돌지 않습니다. 템플릿은 change set으로 적용합니다(README).
+    paths:
+      - "frontend/**"
+      - "infra/frontend/upload.sh"
+      - "infra/frontend/smoke.sh"
+      - ".github/workflows/deploy-frontend.yml"
+  workflow_dispatch:
+    inputs:
+      rollback_tag:
+        description: "되돌릴 fe-deploy-YYYYMMDD-HHMM 태그. 비우면 develop 최신을 배포합니다"
+        required: false
+        default: ""
+
+# job마다 필요한 권한만 따로 줍니다.
+permissions: {}
+
+# 배포가 겹치면 index.html과 자산이 섞일 수 있습니다. 앞 배포가 끝날 때까지 기다립니다.
+concurrency:
+  group: deploy-frontend
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-2
+
+jobs:
+  deploy:
+    # environment frontend가 develop만 받습니다. 다른 브랜치에서 수동 실행하면 environment에서
+    # 거절되기 전에 여기서 건너뜁니다.
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: frontend
+      url: https://${{ vars.FE_DOMAIN }}
+    permissions:
+      id-token: write # OIDC 토큰 발급. 역할은 environment frontend의 job만 받고 FE 버킷만 다룹니다
+      contents: read
+    outputs:
+      sha: ${{ steps.deployed.outputs.sha }}
+      published: ${{ steps.upload.outputs.published }}
+    env:
+      FE_BUCKET: ${{ vars.FE_BUCKET }}
+      FE_DOMAIN: ${{ vars.FE_DOMAIN }}
+    steps:
+      - name: 배포 대상 정하기
+        id: target
+        env:
+          # 입력값을 셸에 직접 끼워 넣지 않고 환경변수로 받습니다(스크립트 주입 방지).
+          ROLLBACK_TAG: ${{ inputs.rollback_tag }}
+        run: |
+          if [ -z "$ROLLBACK_TAG" ]; then
+            echo "ref=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+            echo "배포 대상: ${GITHUB_SHA:0:7} (develop)"
+            exit 0
+          fi
+          # 값 전체가 형식과 같아야 합니다. 줄 단위로 맞추는 grep을 쓰지 않고, 입력 원문은 로그에 찍지 않습니다.
+          if [[ ! "$ROLLBACK_TAG" =~ ^fe-deploy-[0-9]{8}-[0-9]{4}$ ]]; then
+            echo "::error::rollback_tag는 fe-deploy-YYYYMMDD-HHMM 형식이어야 합니다"
+            exit 1
+          fi
+          echo "ref=refs/tags/$ROLLBACK_TAG" >> "$GITHUB_OUTPUT"
+          echo "되돌리기 대상: $ROLLBACK_TAG"
+
+      # 배포 스크립트는 늘 이 워크플로를 띄운 커밋 것을 씁니다. 되돌릴 때 옛 태그의
+      # 스크립트(옛 캐시 규칙)가 쓰이지 않게 하려는 것입니다. 되돌릴 커밋이 develop 이력인지
+      # 확인하려고 전체 이력을 받습니다.
+      - name: 배포 도구 받기
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: 빌드할 코드 받기
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ steps.target.outputs.ref }}
+          path: target
+          persist-credentials: false
+
+      # 태그는 쓰기 권한이 있으면 아무 커밋에나 붙일 수 있습니다. develop에 머지된 커밋만 되돌릴 수 있게 합니다.
+      # merge commit만 쓰는 저장소라 first-parent로 봅니다(머지된 PR의 중간 커밋은 받지 않음).
+      - name: 되돌릴 커밋이 develop 이력인지 확인
+        if: inputs.rollback_tag != ''
+        run: |
+          TARGET_SHA=$(git -C target rev-parse HEAD)
+          git rev-list --first-parent "$GITHUB_SHA" > "$RUNNER_TEMP/develop-chain.txt"
+          grep -qx "$TARGET_SHA" "$RUNNER_TEMP/develop-chain.txt" \
+            || { echo "::error::되돌릴 태그가 develop 이력(first-parent) 밖의 커밋을 가리킵니다"; exit 1; }
+
+      # ci.yml frontend job과 같은 설정입니다(pnpm은 package.json, Node는 .nvmrc).
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0 (ci.yml의 @v4와 같은 커밋)
+        with:
+          package_json_file: target/frontend/package.json
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: target/frontend/.nvmrc
+          cache: pnpm
+          cache-dependency-path: target/frontend/pnpm-lock.yaml
+
+      - name: 의존성 설치
+        working-directory: target/frontend
+        run: pnpm install --frozen-lockfile
+
+      # 빌드에 tsc -b(타입 검사)가 들어 있습니다. 테스트를 배포 전에 다시 돌릴지는
+      # CI 범위와 함께 미정입니다(docs/open-questions.md §B).
+      # VITE_API_BASE_URL은 비워 둡니다 → 기본값 /api/v1(같은 주소, CloudFront가 BE로 넘김).
+      - name: 빌드
+        working-directory: target/frontend
+        run: pnpm build
+
+      - name: 배포할 커밋 기록
+        id: deployed
+        working-directory: target
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: AWS 자격증명 설정
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ secrets.FE_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: fe-deploy-${{ github.run_id }}
+          # 공개 저장소라 실행 로그에서 계정 ID를 가립니다(기본은 안 가림).
+          mask-aws-account-id: true
+
+      # index.html까지 올라가면 published=true를 남깁니다(tag job이 봅니다).
+      - name: S3 업로드
+        id: upload
+        run: bash infra/frontend/upload.sh target/frontend/dist
+
+      - name: 스모크 테스트
+        run: bash infra/frontend/smoke.sh
+
+  # 화면이 공개됐으면 뒤 단계가 실패해도 태그를 남깁니다(NFR-15 "배포된 버전은 Git 태그로 식별").
+  # 태그 생성이 실패해도 배포 자체는 성공입니다(deploy.yml과 같은 판단).
+  tag:
+    needs: deploy
+    if: ${{ always() && needs.deploy.outputs.published == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # 배포 태그 push (NFR-15)
+    steps:
+      - name: 배포 태그 남기기
+        continue-on-error: true
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        env:
+          DEPLOYED_SHA: ${{ needs.deploy.outputs.sha }}
+        with:
+          script: |
+            // NFR-15: 배포된 화면을 태그로 식별합니다. BE 태그(deploy-*)와 이름이 겹치지 않게 fe-를 붙입니다.
+            const now = new Date(Date.now() + 9 * 60 * 60 * 1000); // KST
+            const stamp = now.toISOString().slice(0, 16).replace(/[-T:]/g, '').replace(/(\d{8})(\d{4})/, '$1-$2');
+            await github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `refs/tags/fe-deploy-${stamp}`,
+              sha: process.env.DEPLOYED_SHA,
+            });
+            core.info(`태그 생성: fe-deploy-${stamp} → ${process.env.DEPLOYED_SHA.slice(0, 7)}`);

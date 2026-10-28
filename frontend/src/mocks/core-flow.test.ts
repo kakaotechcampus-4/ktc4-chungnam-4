@@ -4,6 +4,7 @@ import { createJob, isJobFinished, jobQueryOptions, type JobView } from "@/api/a
 import {
   approveDraft,
   classDraftsQueryOptions,
+  createDraft,
   draftQueryOptions,
   parentNoteQueryOptions,
   parentNotesQueryOptions,
@@ -125,7 +126,7 @@ describe("핵심 흐름 목", () => {
     );
     const note = await client.fetchQuery(draftQueryOptions(noteId));
     // api/documents.ts가 화면용 모양으로 바꿔 줍니다. 검증을 마친 verified만 "review"이고,
-    // 만드는 중·미분류·모르는 값은 잠깁니다(#107 리뷰).
+    // 만드는 중·회수·모르는 값은 잠깁니다(#107 리뷰, #106).
     expect(note.status).toBe("review");
     expect(note.sentences[0]?.text).toMatch(/^도윤이는 /);
     expect(note.sentences.flatMap((s) => s.evidences.map((e) => e.media_id))).toEqual([
@@ -133,9 +134,13 @@ describe("핵심 흐름 목", () => {
     ]);
     const edited = await patchDraft(noteId, {
       expected_version: note.version,
-      sentences: [{ sentence_index: 0, text: "도윤이는 블록을 높이 쌓았어요." }],
+      sentences: [
+        { sentence_id: note.sentences[0]!.sentence_id, text: "도윤이는 블록을 높이 쌓았어요." },
+      ],
     });
     expect(edited.version).toBe(note.version + 1);
+    // 고친 문장은 교사가 쓴 글이라 근거를 끊고 '수정됨'으로 표시합니다.
+    expect(edited.sentences[0]).toMatchObject({ is_edited_by_teacher: true, evidences: [] });
 
     // 4. 승인만으로는 학부모에게 보이지 않고, 게시해야 보입니다(H-1).
     const approved = await approveDraft(noteId, {
@@ -273,7 +278,7 @@ describe("목의 판정 규칙", () => {
     await expect(
       patchDraft(verified, {
         expected_version: 0,
-        sentences: [{ sentence_index: 0, text: "수정" }],
+        sentences: [{ sentence_id: "s1", text: "수정" }],
       }),
     ).rejects.toMatchObject({ status: 409, code: "DRAFT_VERSION_CONFLICT" });
     await expect(
@@ -549,5 +554,60 @@ describe("목의 판정 규칙", () => {
       error_code: "LLM_TIMEOUT",
     });
     expect(job.children[0]).toMatchObject({ status: "failed", drafts: [] });
+  });
+});
+
+// 문장 ID는 초안 안에서만 유일한 문자열입니다(AI 문장 s1…, 교사가 쓴 문장 t1…, #139). 서버와 같은 규칙인지 봅니다.
+describe("문장 ID", () => {
+  const VERIFIED = fixtureId("draft", 12); // version 1
+
+  it("초안에 없는 문장 ID로 고치면 400 INVALID_SENTENCE_ID다", async () => {
+    for (const sentenceId of ["s99", "0"]) {
+      await expect(
+        patchDraft(VERIFIED, {
+          expected_version: 1,
+          sentences: [{ sentence_id: sentenceId, text: "수정" }],
+        }),
+      ).rejects.toMatchObject({ status: 400, code: "INVALID_SENTENCE_ID" });
+    }
+  });
+
+  it("새로 쓴 문장은 t 번호 최댓값 다음 ID를 받고, 고친 문장만 수정됨이 된다", async () => {
+    const first = await patchDraft(VERIFIED, {
+      expected_version: 1,
+      added_sentences: [{ text: "하나" }],
+    });
+    const second = await patchDraft(VERIFIED, {
+      expected_version: first.version,
+      added_sentences: [{ text: "둘" }, { text: "셋" }],
+    });
+    const added = second.sentences.slice(-3);
+    expect(added.map((sentence) => sentence.sentence_id)).toEqual(["t1", "t2", "t3"]);
+    expect(added.every((sentence) => !sentence.is_edited_by_teacher)).toBe(true);
+
+    const aiSentence = second.sentences[0]!;
+    const edited = await patchDraft(VERIFIED, {
+      expected_version: second.version,
+      sentences: [{ sentence_id: "t1", text: "하나를 고쳤어요" }],
+    });
+    expect(edited.sentences.find((sentence) => sentence.sentence_id === "t1")).toMatchObject({
+      text: "하나를 고쳤어요",
+      is_edited_by_teacher: true,
+    });
+    // 고치지 않은 AI 문장은 근거와 표시가 그대로입니다.
+    expect(edited.sentences[0]).toEqual(aiSentence);
+  });
+
+  it("자료 없이 직접 쓴 초안은 t1부터 ID를 받는다", async () => {
+    const created = await createDraft(HAJUN, {
+      record_date: shiftDate(kstToday(), -30),
+      doc_type: "parent_note",
+      title: null,
+      sentences: [{ text: "첫 문장" }, { text: "둘째 문장" }],
+    });
+    expect(created.sentences).toEqual([
+      { sentence_id: "t1", text: "첫 문장", is_edited_by_teacher: false, evidences: [] },
+      { sentence_id: "t2", text: "둘째 문장", is_edited_by_teacher: false, evidences: [] },
+    ]);
   });
 });

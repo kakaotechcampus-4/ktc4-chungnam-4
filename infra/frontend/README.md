@@ -11,7 +11,7 @@ https://<무작위>.cloudfront.net
 | 파일 | 내용 |
 |---|---|
 | `aidam-fe.yaml` | CloudFormation 템플릿. 버킷·버킷 정책·OAC·SPA 함수·`/api` 응답 헤더 정책·배포·FE 배포 역할 |
-| `upload.sh` | 빌드 결과를 캐시 규칙대로 올립니다. 배포 워크플로(별도 PR)와 손 배포가 같이 씁니다 |
+| `upload.sh` | 빌드 결과를 캐시 규칙대로 올립니다. 배포 워크플로(`.github/workflows/deploy-frontend.yml`)와 손 배포가 같이 씁니다 |
 | `smoke.sh` | 배포 주소에서 화면·`/api`를 확인하고, 본인 권한일 때는 배포 설정까지 확인합니다 |
 
 **콘솔에서 설정을 고치지 않습니다.** 이 템플릿이 원본입니다. 콘솔에서 바꾸면 리뷰 없이 바뀐 설정이 남고, 일반 change set으로 적용해도 저절로 되돌아가지 않습니다(drift는 change set에 보이지 않습니다).
@@ -61,7 +61,9 @@ change set은 문법·이름 충돌 같은 사전 검증까지만 합니다(IAM 
 - 처음 만들 때 실행이 실패하면 스택이 `ROLLBACK_COMPLETE`로 남습니다. 이 상태에서는 지우는 것만 할 수 있습니다. `aws cloudformation describe-stack-events --region ap-northeast-2 --stack-name aidam-fe`로 `CREATE_FAILED` 줄을 확인하고, `delete-stack`과 `wait stack-delete-complete` 뒤 4단계부터 다시 합니다. 버킷은 `RetainExceptOnCreate`라 롤백 때 이미 지워졌습니다
 - 처음 만들 때 change set만 만들고 실행하지 않기로 했다면, `REVIEW_IN_PROGRESS`로 남은 빈 스택을 `delete-stack`으로 지웁니다. 설정을 바꿀 때는 스택을 지우지 말고 `aws cloudformation delete-change-set --region ap-northeast-2 --stack-name aidam-fe --change-set-name <이름>`으로 change set만 지웁니다
 
-**change set을 만들기 전에** `gh api repos/kakaotechcampus-4/ktc4-chungnam-4/actions/oidc/customization/sub`의 `sub_claim_prefix`가 템플릿의 `GitHubSubjectPrefix`와 같은지 봅니다. 적용 뒤에는 `aws iam get-role --role-name aidam-fe-deploy`로 신뢰 정책의 `sub`가 그 값 + `:ref:refs/heads/develop`인지 확인합니다. 이 저장소는 2026-07-15 이후에 만들어져 GitHub의 **불변 subject 형식**(`repo:<조직>@<조직ID>/<저장소>@<저장소ID>:...`)이 기본입니다([GitHub OIDC](https://docs.github.com/en/actions/reference/security/oidc)).
+**change set을 만들기 전에** `gh api repos/kakaotechcampus-4/ktc4-chungnam-4/actions/oidc/customization/sub`의 `sub_claim_prefix`가 템플릿의 `GitHubSubjectPrefix`와 같은지 봅니다. 적용 뒤에는 `aws iam get-role --role-name aidam-fe-deploy`로 신뢰 정책의 `sub`가 그 값 + `:environment:frontend`인지 확인합니다. 이 저장소는 2026-07-15 이후에 만들어져 GitHub의 **불변 subject 형식**(`repo:<조직>@<조직ID>/<저장소>@<저장소ID>:...`)이 기본입니다([GitHub OIDC](https://docs.github.com/en/actions/reference/security/oidc)).
+
+FE 배포 역할은 GitHub environment `frontend`를 쓰는 job만 받습니다. job에 environment가 걸리면 OIDC `sub`가 `...:ref:...`가 아니라 `...:environment:frontend`가 되고, 그 environment는 develop만 쓸 수 있게 GitHub 설정에서 막습니다. 그래서 environment가 없는 다른 워크플로(BE `deploy.yml` 등)는 develop에서 돌아도 이 역할을 받지 못합니다(#150 리뷰). 다른 워크플로에 `environment: frontend`를 붙이지 않습니다.
 
 ## 처음 만든 뒤 옮길 값
 
@@ -74,6 +76,8 @@ change set은 문법·이름 충돌 같은 사전 검증까지만 합니다(IAM 
 | `DeployRoleArn` | `FE_DEPLOY_ROLE_ARN` | **secret** — AWS는 계정 ID를 비밀로 보지 않지만, 공개 저장소라 노출을 줄이려고 secret에 둡니다 |
 | `DistributionId` | 넣지 않음 | FE 배포 역할에 무효화·설정 읽기 권한이 없습니다(NFR-14). 본인 권한으로 돌리는 `upload.sh` 무효화(5단계)와 `smoke.sh` 5번에만 씁니다 |
 
+GitHub에는 environment `frontend`도 만들어 둡니다(Settings → Environments). 배포 브랜치는 "Selected branches"로 `develop` 하나만 넣고, 승인 대기는 걸지 않습니다. 이 environment가 없으면 워크플로가 같은 이름으로 새로 만들어 브랜치 제한 없이 돌고, 역할은 받지만 develop 제한이 사라집니다.
+
 **FE 주소를 쓰는 곳** — 값은 모두 `https://<DistributionDomainName>`(끝 슬래시 없음)입니다.
 
 | 쓰는 곳 | 담당 | 언제부터 필요 |
@@ -82,15 +86,24 @@ change set은 문법·이름 충돌 같은 사전 검증까지만 합니다(IAM 
 | (제안) 미디어 업로드 버킷 CORS. 허용 출처는 이 주소(`*` 금지, 로컬 `http://localhost:5173`을 같은 버킷에 넣을지는 담당 확인), 메서드 PUT, 헤더는 `upload_headers`에 들어가는 것 | 김동건 | presigned 업로드가 들어온 뒤 |
 | 학부모 초대 링크 기준 주소 | BE | 초대 링크를 만들 때(`docs/open-questions.md`) |
 
-## 손으로 배포하기 (워크플로를 켜기 전 확인용)
+## 배포 워크플로
 
-머지 뒤 배포는 워크플로가 맡습니다. 워크플로 파일이 develop에 들어가기 전에는 실행할 수 없고 FE 배포 역할도 develop만 받으므로, 그 전 확인은 이 절차로 합니다. 빌드는 로컬에서, 업로드는 CloudShell에서 합니다(CloudShell에는 pnpm이 없고 Node 버전도 맞지 않습니다).
+`.github/workflows/deploy-frontend.yml`(Actions 이름 "Deploy frontend")이 배포를 맡습니다.
+
+- **언제 도나**: develop에 `frontend/`, `infra/frontend/upload.sh`·`smoke.sh`, 이 워크플로 파일이 바뀐 커밋이 들어올 때. 템플릿(`aidam-fe.yaml`)만 바뀌면 돌지 않습니다. 템플릿은 위 "처음 만들기와 설정 바꾸기" 순서로 적용합니다
+- **하는 일**: 빌드 → FE 배포 역할 받기 → `upload.sh` → `smoke.sh`(5번 제외) → 화면이 공개됐으면 `fe-deploy-YYYYMMDD-HHMM` 태그(NFR-15)
+- **되돌리기**: Actions → Deploy frontend → Run workflow. "Use workflow from"은 develop 그대로 두고 `rollback_tag`에 되돌릴 `fe-deploy-*` 태그를 넣습니다. 그 태그의 코드로 다시 빌드해 올리고 새 태그를 남깁니다. 태그를 골라 실행하면 environment에서 거절됩니다
+- **실패했을 때**: 업로드 전에 멈췄으면 화면은 그대로입니다. 업로드 뒤 스모크만 실패했으면 새 화면이 이미 나가 있으니(태그도 남음), 원인을 보고 고치거나 그 전 태그로 되돌립니다
+
+## 손으로 배포하기
+
+평소 배포는 워크플로가 맡습니다. 템플릿을 바꾼 뒤 확인하거나 워크플로를 쓸 수 없을 때 이 절차로 본인 권한(SSO)으로 올립니다. FE 배포 역할은 environment `frontend`의 job만 받으므로 CloudShell에서는 쓸 수 없습니다. 빌드는 로컬에서, 업로드는 CloudShell에서 합니다(CloudShell에는 pnpm이 없고 Node 버전도 맞지 않습니다).
 
 1. 로컬에서 빌드하고 저장소 밖(홈)에 묶습니다. Finder의 '압축'은 쓰지 않습니다(`__MACOSX/`가 섞여 버킷에 올라갑니다)
    ```bash
    cd frontend && pnpm install --frozen-lockfile && pnpm build && (cd dist && zip -qr "$HOME/fe-dist.zip" .)
    ```
-2. CloudShell에서 Actions → Upload file로 `fe-dist.zip`을 올립니다(홈에 올라갑니다). 위 "처음 만들기" 2단계처럼 같은 커밋을 받은 뒤, 홈에서 실행합니다. 지난번 `dist`가 남아 있으면 섞이므로 지우고 풉니다
+2. CloudShell에서 Actions(한국어 콘솔은 "작업") → Upload file로 `fe-dist.zip`을 올립니다(홈에 올라갑니다). 위 "처음 만들기" 2단계처럼 같은 커밋을 받은 뒤, 홈에서 실행합니다. 지난번 `dist`가 남아 있으면 섞이므로 지우고 풉니다
    ```bash
    cd ~ && rm -rf dist && unzip -q fe-dist.zip -d dist
    FE_BUCKET=<버킷> [FE_DISTRIBUTION_ID=<배포 ID>] bash ~/ktc4-chungnam-4/infra/frontend/upload.sh dist
