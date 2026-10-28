@@ -27,17 +27,21 @@ describe("media adapter (업로드·귀속)", () => {
       items: [
         {
           client_photo_id: "p1",
+          status: "issued",
           media_id: null,
           upload_url: "https://upload.example.com/p1",
           upload_headers: { "Content-Type": "image/jpeg" },
           upload_url_expires_at: "2026-09-15T05:10:00Z",
+          error: null,
         },
         {
           client_photo_id: "p2",
+          status: "registered",
           media_id: "m2",
           upload_url: null,
           upload_headers: null,
           upload_url_expires_at: null,
+          error: null,
         },
       ],
     };

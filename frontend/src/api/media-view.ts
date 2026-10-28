@@ -26,12 +26,16 @@ export interface UploadUrlsInput {
 /** 받은 업로드 URL 한 건. 순서는 요청과 같습니다. */
 export interface UploadTicketView {
   client_photo_id: string;
+  /** issued: URL 발급, registered: 이미 등록된 파일, error: 이 파일만 실패(나머지는 발급됨) */
+  status: "issued" | "registered" | "error";
   /** null이 아니면 이미 등록된 파일입니다. 다시 올리지 않고 귀속 단계로 넘어갑니다. */
   media_id: string | null;
   upload_url: string | null;
   /** PUT에 그대로 붙여야 서명이 맞습니다. */
   upload_headers: Record<string, string> | null;
   upload_url_expires_at: string | null;
+  /** status가 error일 때 서버가 준 사유. 화면은 message를 그대로 보여 줍니다. */
+  error: { code: string; message: string } | null;
 }
 
 export interface UploadUrlsView {
@@ -39,20 +43,29 @@ export interface UploadUrlsView {
 }
 
 /** 업로드 완료 통지 값. 파일 하나당 한 번 보냅니다. */
-export interface MediaCompleteInput {
+interface MediaCompleteBase {
   client_photo_id: string;
   class_id: string;
-  type: MediaTypeView;
   /** 촬영 시각(UTC) */
   captured_at: string;
-  /** 사진만 채우고 영상·음성은 null */
-  model_version: string | null;
-  /**
-   * 교사가 확정한 귀속. 사진은 필수이고 완료 통지와 함께 저장됩니다(API 문서 §media).
-   * 영상·음성은 교사 확인 전에 올라오므로 빼고, 귀속은 saveChildLinks로 따로 저장합니다.
-   */
-  attribution?: ChildLinksInput;
 }
+
+/**
+ * 업로드 완료 통지 값. 사진이면 귀속(attribution)이 필수라, 빠뜨리면 실행 전에 타입에서 걸립니다.
+ * 사진은 교사가 확정한 귀속을 완료 통지와 함께 저장합니다(API 문서 §media).
+ * 영상·음성은 교사 확인 전에 올라오므로 귀속 없이 보내고, 귀속은 saveChildLinks로 따로 저장합니다.
+ */
+export type MediaCompleteInput =
+  | (MediaCompleteBase & {
+      type: "photo";
+      model_version: string | null;
+      attribution: ChildLinksInput;
+    })
+  | (MediaCompleteBase & {
+      type: "video" | "voice_memo";
+      model_version: null;
+      attribution?: never;
+    });
 
 /** 업로드 완료 통지(ack) 응답 */
 export interface MediaAssetView {
