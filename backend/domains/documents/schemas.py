@@ -291,31 +291,45 @@ class RevokeResponse(BaseModel):
 
 
 # ---- 학부모용 ----
+# 학부모 응답에는 status·version·근거가 없다 — 교사용과 스키마를 나눈다 (H-1, documents/CLAUDE.md).
 
 
-class ParentLetterListItem(BaseModel):
-    """학부모 목록 조회 항목. 본문은 포함하지 않는다 — 상세 API에서만 제공."""
+class ParentNoteSummary(BaseModel):
+    """학부모 목록의 알림장 한 건. 본문 대신 앞부분 미리보기만 싣는다."""
 
-    model_config = ConfigDict(from_attributes=True)
-
-    letter_id: UUID
-    doc_type: DocType
+    parent_note_id: UUID
     record_date: date
     published_at: datetime
+    preview: str
+    # 앞 3장. "사진도 함께 보내기"를 끄고 게시했으면 빈 배열이다.
+    photos: list[MediaUrl]
+    is_read: bool
 
 
-class ParentLetterListResponse(BaseModel):
-    letters: list[ParentLetterListItem]
+class ParentNoteListResponse(BaseModel):
+    items: list[ParentNoteSummary]
+    next_cursor: str | None
+    unread_count: int
+    # KST 기준 이번 달 알림장 수(제안). 기록 날짜(record_date)로 센다.
+    this_month_count: int
 
 
-class ParentLetterDetailResponse(BaseModel):
-    """학부모 상세 열람 응답. 게이트(승인+공개대상 검사) 통과분만 여기로 온다.
-    내부 ID(evidence_bundle_id 등)는 노출하지 않는다."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    letter_id: UUID
-    doc_type: DocType
+class ParentNoteLink(BaseModel):
+    parent_note_id: UUID
     record_date: date
+
+
+class ParentNoteDetailResponse(BaseModel):
+    """학부모 본문. 단일 게이트를 통과한 게시본만 여기로 온다 (H-1)."""
+
+    parent_note_id: UUID
+    child_id: UUID
+    record_date: date
+    # 문장 단위로 줄을 바꾼다(\n).
     content: str
+    photos: list[MediaUrl]
+    author_name: str
     published_at: datetime
+    # 같은 자녀의 이전(더 오래된)·다음(더 최근) 게시본 (제안)
+    prev: ParentNoteLink | None
+    next: ParentNoteLink | None

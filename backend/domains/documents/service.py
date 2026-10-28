@@ -80,11 +80,13 @@ WHERE에 넣는다 — rowcount가 곧 판단 결과다.
 
 from __future__ import annotations
 
+import base64
 import re
 import uuid
 from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import ColumnElement, Exists, Subquery, delete, exists, func, or_, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -102,9 +104,11 @@ from core.exceptions import (
     DraftNotFound,
     DraftNotReady,
     DraftVersionConflict,
+    InvalidCursor,
     InvalidSentenceId,
     MediaNotLinkedToChild,
     NotParentNote,
+    ParentNoteNotFound,
     RequestValidationFailed,
 )
 
@@ -133,8 +137,10 @@ from domains.documents.schemas import (
     DraftVersionInfo,
     EvidenceView,
     MediaUrl,
-    ParentLetterDetailResponse,
-    ParentLetterListResponse,
+    ParentNoteDetailResponse,
+    ParentNoteLink,
+    ParentNoteListResponse,
+    ParentNoteSummary,
     PublicationResult,
     PublishItem,
     PublishRequest,
@@ -152,6 +158,10 @@ _TEACHER_SENTENCE_ID = re.compile(r"t(\d+)")
 
 # 게시 뒤 회수할 수 있는 기간 (테크스펙 파이프라인 9단계 "24시간 이내 회수").
 _REVOKE_WINDOW = timedelta(hours=24)
+
+# 학부모 목록에 싣는 알림장당 사진 수 (docs/api/documents.md "앞 3장").
+_LIST_PHOTOS_PER_NOTE = 3
+_KST = ZoneInfo("Asia/Seoul")
 
 # 반·날짜 목록의 미리보기 길이 (docs/api/documents.md §GET /classes/{class_id}/drafts, 제안).
 _PREVIEW_MAX_CHARS = 100
@@ -546,20 +556,24 @@ def update_draft(
 
 
 def _ensure_selectable_photos(db: Session, draft: DraftDocument, media_ids: Sequence[UUID]) -> None:
-    """알림장 사진은 그 원아·그 날짜에 LLM 근거로 쓸 수 있는 사진 중에서만 고른다.
+    """알림장 사진은 그 원아·그 날짜에 학부모에게 보여도 되는 사진 중에서만 고른다."""
+    if not set(media_ids) <= _shareable_photo_ids(db, draft.child_id, draft.record_date):
+        raise MediaNotLinkedToChild("이 원아의 그날 사진만 고를 수 있습니다.")
+
+
+def _shareable_photo_ids(db: Session, child_id: UUID, record_date: date) -> set[UUID]:
+    """그 원아·그 날짜에 학부모에게 보여도 되는 사진. 고를 때와 보여 줄 때 같은 범위를 쓴다.
 
     media의 collect_media_for_llm 범위(llm_allowed, 귀속 원아 전원 ③ 동의)를 그대로 쓴다 —
     다른 아이가 함께 찍힌 사진이 학부모에게 나가는 것을 줄이는 보수적인 범위다(임시 결정
     (한상균), docs/api/documents.md "llm_allowed인 사진만 학부모에게" 제안). 그 함수는
     영상·음성메모도 돌려주므로 사진만 남긴다.
     """
-    selectable = {
+    return {
         media.media_id
-        for media in media_service.collect_media_for_llm(db, draft.child_id, draft.record_date)
+        for media in media_service.collect_media_for_llm(db, child_id, record_date)
         if media.type == "photo"
     }
-    if not set(media_ids) <= selectable:
-        raise MediaNotLinkedToChild("이 원아의 그날 사진만 고를 수 있습니다.")
 
 
 def _not_editable(status: str) -> AidamError:
@@ -956,26 +970,201 @@ def revoke_publication(
 
 
 def list_letters_for_parent(
-    db: Session, *, child_id: UUID, parent_id: UUID
-) -> ParentLetterListResponse:
-    # TODO(한상균): 단일 게이트 — 활성 게시 회차(revoked_at is null) + 대상 원아 접근권한
-    #   (B와 협의: parent_id ↔ child_id 관계 조회) 검사. 목록 조회는 first_viewed_at을
-    #   건드리지 않는다 ("목록 조회는 상세 열람으로 취급하지 않는다").
-    raise NotImplementedError("학부모용 알림장 목록 조회 구현 예정")
+    db: Session, *, child_id: UUID, parent_id: UUID, limit: int, cursor: str | None
+) -> ParentNoteListResponse:
+    """학부모가 자녀의 게시된 알림장 목록을 본다 (FR-09, H-1).
+
+    - 단일 게이트(_parent_notes)를 통과한 게시본만 기록 날짜 최신순으로 담는다.
+    - 목록에도 미리보기와 사진이 보이므로 담은 알림장마다 AccessLog(view_list)를 남기고,
+      기록을 커밋한 뒤에 돌려준다 — 임시 결정(한상균), docs/api/documents.md. 목록은 회수
+      판단용 first_viewed_at을 건드리지 않는다.
+    - is_read·unread_count는 이 학부모가 본문을 연 적이 있는지(AccessLog view_detail)로 센다.
+    """
+    notes = _parent_notes(db, parent_id=parent_id, child_id=child_id)
+    after = _decode_cursor(cursor)
+    remaining = [note for note in notes if after is None or note[0].record_date < after]
+    page = remaining[:limit]
+    viewed = audit_service.viewed_target_ids(
+        db,
+        actor_type="parent",
+        actor_id=parent_id,
+        target_type="document_publication",
+        action="view_detail",
+        target_ids=[publication.id for _, publication in notes],
+    )
+    previews = _previews(db, [draft.id for draft, _ in page])
+    photos = _parent_photos(db, page, max_per_note=_LIST_PHOTOS_PER_NOTE)
+    this_month = datetime.now(_KST).date().replace(day=1)
+    response = ParentNoteListResponse(
+        items=[
+            ParentNoteSummary(
+                parent_note_id=draft.id,
+                record_date=draft.record_date,
+                published_at=publication.published_at,
+                preview=previews.get(draft.id, ""),
+                photos=photos[draft.id],
+                is_read=publication.id in viewed,
+            )
+            for draft, publication in page
+        ],
+        next_cursor=_encode_cursor(page[-1][0].record_date) if len(remaining) > limit else None,
+        unread_count=sum(publication.id not in viewed for _, publication in notes),
+        this_month_count=sum(draft.record_date >= this_month for draft, _ in notes),
+    )
+    _record_parent_views(db, parent_id, [publication.id for _, publication in page], "view_list")
+    return response
 
 
 def get_letter_for_parent(
     db: Session, *, letter_id: UUID, parent_id: UUID
-) -> ParentLetterDetailResponse:
-    # TODO(한상균): 대상 원아에 대한 학부모 접근 권한부터 확인(B와 협의, UPDATE 성공을
-    #   권한 통과로 착각하지 않는다). "이 편지를 보여줘도 되는가" 판단과
-    #   first_viewed_at 기록을 분리하지 않는다 — 모듈 docstring의 "열람·회수 공통
-    #   주의사항" 패턴대로 하나의 UPDATE로 합쳐서, 그 rowcount로 보여줄지 말지
-    #   정한다(조회로 먼저 판단 후 별도로 쓰기 금지 — 그 사이 회수가 끼어들면 이미
-    #   회수된 내용을 반환하게 된다). rowcount==0이면 404(회수됐거나 대상 아님).
-    #   통과 시 audit.record_access(actor_type="parent",
-    #   target_type="document_publication", action="view_detail")를 같은
-    #   트랜잭션에서 커밋한 뒤에만 본문을 응답한다 — 무조건 매번 호출한다
-    #   ("학부모 열람은 매번 AccessLog를 남긴다", NFR-05, audit/CLAUDE.md).
-    #   first_viewed_at이 이미 있었든 방금 채워졌든 관계없이 호출한다.
-    raise NotImplementedError("학부모용 알림장 상세 조회 구현 예정")
+) -> ParentNoteDetailResponse:
+    """학부모가 게시된 알림장 본문을 연다 (FR-09, FR-26, H-1, NFR-05).
+
+    - 없음·미게시·남의 자녀 것을 구분하지 않고 모두 404다. 졸업 후 1년이 지났으면 403이다.
+    - "보여 줘도 되는가"와 first_viewed_at 기록을 UPDATE 한 문장으로 합친다 — 그 사이 회수가
+      끼면 보여 주지 않는다 (모듈 docstring "열람·회수 공통 주의사항").
+    - AccessLog(view_detail)를 같은 트랜잭션에서 커밋한 뒤에만 본문을 돌려준다. 기록에
+      실패하면 본문 없이 500이다 (audit/CLAUDE.md).
+    """
+    draft = db.get(DraftDocument, letter_id)
+    if draft is None:
+        raise ParentNoteNotFound("알림장을 찾을 수 없습니다.")
+    try:
+        notes = _parent_notes(db, parent_id=parent_id, child_id=draft.child_id)
+    except ChildAccessDenied:
+        raise ParentNoteNotFound("알림장을 찾을 수 없습니다.") from None
+    index = next((i for i, (note, _) in enumerate(notes) if note.id == letter_id), None)
+    if index is None:
+        raise ParentNoteNotFound("알림장을 찾을 수 없습니다.")
+    publication = notes[index][1]
+    result = db.execute(
+        update(DocumentPublication)
+        .where(DocumentPublication.id == publication.id, _is_active_publication())
+        .values(
+            first_viewed_at=func.coalesce(DocumentPublication.first_viewed_at, datetime.now(UTC))
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount == 0:
+        db.rollback()
+        raise ParentNoteNotFound("알림장을 찾을 수 없습니다.")
+    sentences = db.scalars(
+        select(DraftSentence.text)
+        .where(DraftSentence.draft_id == letter_id)
+        .order_by(DraftSentence.position)
+    )
+    content = "\n".join(sentences)
+    photos = _parent_photos(db, [notes[index]], max_per_note=None)[letter_id]
+    _record_parent_views(db, parent_id, [publication.id], "view_detail")
+    older = notes[index + 1][0] if index + 1 < len(notes) else None
+    newer = notes[index - 1][0] if index > 0 else None
+    return ParentNoteDetailResponse(
+        parent_note_id=draft.id,
+        child_id=draft.child_id,
+        record_date=draft.record_date,
+        content=content,
+        photos=photos,
+        # TODO(한상균): 작성 교사 이름은 auth 조회 함수가 생기면 채운다(FR-26). FE 타입이 문자열이다.
+        author_name="",
+        published_at=publication.published_at,
+        prev=ParentNoteLink(parent_note_id=older.id, record_date=older.record_date)
+        if older
+        else None,
+        next=ParentNoteLink(parent_note_id=newer.id, record_date=newer.record_date)
+        if newer
+        else None,
+    )
+
+
+def _parent_notes(
+    db: Session, *, parent_id: UUID, child_id: UUID
+) -> list[tuple[DraftDocument, DocumentPublication]]:
+    """학부모에게 보여도 되는 알림장 — 학부모 노출의 단일 게이트다 (H-1, documents/CLAUDE.md).
+
+    네 가지를 함께 본다: 학부모–원아 관계와 NFR-03 열람 기간(organization), 승인됨, 회수되지
+    않은 게시 회차, 알림장(관찰일지는 학부모에게 가지 않음). 학부모 응답은 이 함수가 돌려준
+    것만 쓴다. 기록 날짜 최신순이다.
+    """
+    organization_service.ensure_parent_child_access(db, parent_id, child_id)
+    rows = db.execute(
+        select(DraftDocument, DocumentPublication)
+        .join(
+            DocumentPublication,
+            (DocumentPublication.draft_id == DraftDocument.id) & _is_active_publication(),
+        )
+        .where(
+            DraftDocument.child_id == child_id,
+            DraftDocument.status == DraftStatus.APPROVED.value,
+            DraftDocument.doc_type == DocType.PARENT_NOTE.value,
+        )
+        .order_by(DraftDocument.record_date.desc())
+    )
+    return list(rows.tuples())
+
+
+def _parent_photos(
+    db: Session,
+    notes: Sequence[tuple[DraftDocument, DocumentPublication]],
+    *,
+    max_per_note: int | None,
+) -> dict[UUID, list[MediaUrl]]:
+    """게시 때 사진을 함께 보내기로 한 알림장만 선택 사진의 서명 URL을 싣는다. 한 번에 서명한다.
+
+    볼 때마다 고를 때와 같은 범위로 다시 거른다. media는 동의 철회를 저장된 값을 고치지 않고
+    조회할 때 빼므로, 게시 뒤 함께 찍힌 아이가 ③을 철회하면 그 사진은 더 나가지 않는다(#174 리뷰).
+    """
+    chosen: dict[UUID, list[UUID]] = {}
+    for draft, publication in notes:
+        if not publication.include_photos:
+            chosen[draft.id] = []
+            continue
+        shareable = _shareable_photo_ids(db, draft.child_id, draft.record_date)
+        selected = [UUID(media_id) for media_id in draft.selected_media_ids]
+        chosen[draft.id] = [m for m in selected if m in shareable][:max_per_note]
+    signed = {
+        photo.media_id: photo
+        for photo in _signed_media(
+            db, list(dict.fromkeys(m for ids in chosen.values() for m in ids))
+        )
+    }
+    return {
+        draft_id: [signed[media_id] for media_id in media_ids if media_id in signed]
+        for draft_id, media_ids in chosen.items()
+    }
+
+
+def _record_parent_views(
+    db: Session, parent_id: UUID, publication_ids: Sequence[UUID], action: str
+) -> None:
+    """학부모 열람을 남기고 커밋한다. 실패하면 응답하지 않도록 드러낸다 (NFR-05, audit/CLAUDE.md).
+
+    로그에는 ID만 남긴다 (H-4). target은 게시 회차다 — 임시 결정(한상균).
+    """
+    try:
+        for publication_id in publication_ids:
+            audit_service.record_access(
+                db,
+                actor_type="parent",
+                actor_id=parent_id,
+                target_type="document_publication",
+                target_id=publication_id,
+                action=action,
+            )
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise AccessLogFailed("열람 기록을 남기지 못해 알림장을 보여 드릴 수 없습니다.") from None
+
+
+def _encode_cursor(record_date: date) -> str:
+    return base64.urlsafe_b64encode(record_date.isoformat().encode()).decode()
+
+
+def _decode_cursor(cursor: str | None) -> date | None:
+    """다음 쪽은 이 기록 날짜보다 오래된 알림장부터다. 한 자녀의 알림장은 날짜마다 하나다."""
+    if cursor is None:
+        return None
+    try:
+        return date.fromisoformat(base64.urlsafe_b64decode(cursor.encode()).decode())
+    except ValueError:
+        raise InvalidCursor("목록 위치를 읽을 수 없습니다.") from None
