@@ -156,7 +156,7 @@ export interface ParentNoteList {
   items: ParentNoteSummary[];
   next_cursor: string | null;
   unread_count: number;
-  /** (제안) KST 기준 이번 달 게시 수 */
+  /** (제안) 기록 날짜가 KST 기준 이번 달인 게시본 수. 게시 시각으로 세지 않습니다. */
   this_month_count: number;
 }
 

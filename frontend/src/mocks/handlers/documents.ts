@@ -1,6 +1,6 @@
 import { http, HttpResponse } from "msw";
 
-import { kstToday, toKstDate } from "@/lib/datetime";
+import { kstToday } from "@/lib/datetime";
 import type {
   ChildDraftItem,
   ClassDraftItem,
@@ -512,9 +512,8 @@ export const handlers = [
       items,
       next_cursor: offset + limit < notes.length ? String(offset + limit) : null,
       unread_count: notes.filter((draft) => !db.readParentNotes.includes(draft.draft_id)).length,
-      this_month_count: notes.filter(
-        (draft) => toKstDate(draft.published_at as string).slice(0, 7) === thisMonth,
-      ).length,
+      // 게시 시각이 아니라 기록 날짜(KST)로 셉니다(API 문서 §학부모 목록, #174).
+      this_month_count: notes.filter((draft) => draft.record_date.slice(0, 7) === thisMonth).length,
     });
   }),
 

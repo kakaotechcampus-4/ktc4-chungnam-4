@@ -9,7 +9,7 @@ import { fixtureId } from "@/mocks/fixtures/ids";
 import { apiPath, errorResponse } from "@/mocks/http";
 import { server } from "@/mocks/server";
 import { renderRoutes } from "@/test/render";
-import type { PublicationRequest } from "@/types/api-draft/documents";
+import type { DraftPatchRequest, PublicationRequest } from "@/types/api-draft/documents";
 
 import { DraftReviewPage } from "./DraftReviewPage";
 
@@ -118,6 +118,55 @@ describe("DraftReviewPage", () => {
       expect(screen.queryByRole("button", { name: /색색의 블록을 골라/ })).not.toBeInTheDocument(),
     );
     expect(screen.getByRole("button", { name: /모래 놀이터에서/ })).toBeInTheDocument();
+  });
+
+  // 고친 문장도 새 문장처럼 앞뒤 공백을 지워 보낸다(#170 리뷰). 공백만 달라진 문장은 고친 것이 아니다.
+  it("고친 문장은 앞뒤 공백을 지워 보내고, 공백만 바뀐 문장은 보내지 않는다", async () => {
+    const user = userEvent.setup();
+    let sent: DraftPatchRequest | null = null;
+    server.use(
+      http.patch(apiPath("/drafts/:draftId"), async ({ request }) => {
+        sent = (await request.clone().json()) as DraftPatchRequest;
+      }),
+    );
+    await renderAndWait();
+
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    const [first, second] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
+    await user.type(first as HTMLElement, " 오늘도 즐거웠어요.  ");
+    await user.type(second as HTMLElement, "  ");
+    await user.click(screen.getByRole("button", { name: "수정 완료" }));
+
+    await waitFor(() => expect(sent).not.toBeNull());
+    expect(sent!.sentences).toEqual([
+      { sentence_id: expect.any(String), text: expect.stringMatching(/ 오늘도 즐거웠어요\.$/) },
+    ]);
+  });
+
+  // 공백만 남은 문장은 정하지 않은 "문장 삭제"와 같아 저장하지 않는다(#170 리뷰).
+  it("고친 문장을 비우면 저장하지 않고 안내한다", async () => {
+    const user = userEvent.setup();
+    let patched = false;
+    server.use(
+      http.patch(apiPath("/drafts/:draftId"), () => {
+        patched = true;
+      }),
+    );
+    await renderAndWait();
+
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    const [first] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
+    await user.clear(first as HTMLElement);
+    await user.type(first as HTMLElement, "   ");
+    await user.click(screen.getByRole("button", { name: "수정 완료" }));
+
+    expect(screen.getByText(/비어 있는 문장은 저장할 수 없어요/)).toBeInTheDocument();
+    // 수정 중인 그대로 남아 교사가 바로 채울 수 있다.
+    expect(screen.getAllByRole("textbox", { name: "초안 문장 수정" })).not.toHaveLength(0);
+    expect(patched).toBe(false);
+
+    await user.type(first as HTMLElement, "다시 쓴 문장이에요.");
+    expect(screen.queryByText(/비어 있는 문장은 저장할 수 없어요/)).not.toBeInTheDocument();
   });
 
   // 교사가 새로 쓴 문장은 원문 근거가 없으므로 밑줄·클릭 없이 문단으로만 보인다.
