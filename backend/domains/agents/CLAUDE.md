@@ -37,7 +37,7 @@
 - 재시도 상한을 넘기면 예외로 터뜨리지 말고 documents의 미분류함으로 떨어뜨립니다.
 - 생성 문장은 `SentenceEvidence`로 근거(미디어·타임스탬프·원문)를 남깁니다. 근거 없는 문장은 통과시키지 않습니다. 문장은 순번이 아니라 `sentence_id`로 가리키고, `VerificationResult`는 `doc_version`까지 남겨 재생성 버전별 실패 사유를 구분합니다 (#75, #91).
 - 검증 판정(`VerificationResult.check_type`)은 PR #7의 `VerificationCheckType` 7종(`missing_evidence_ref`, `invalid_evidence_ref`, `plan_as_observed_fact`, `wrong_child_evidence`, `wrong_date_evidence`, `critic_content`, `critic_response_error`)에 생성 응답 형식 오류 `draft_response_error`를 더한 8종을 그대로 씁니다. 값의 뜻은 `docs/ai-data-contract.md` §검증 항목. `result`는 bool.
-- `_verify_and_record`는 `tools/verification/decision.py`(PR #7)의 `decide()`로 판정합니다. `RETRY_CRITIC`은 초안 재생성 횟수에 포함하지 않고 `service.py`의 `MAX_CRITIC_RETRIES`로 별도 제한합니다 — 이 상한 값은 스펙에 없어 임의로 정한 것이라 팀 확인이 필요합니다. 통과한 검사를 감사 로그로 남기는 방식과 `SentenceEvidence.source_timestamp` 계산(EvidenceItem.start_ms → 초 변환)도 같은 이유로 코드에 TODO로 남겨뒀습니다.
+- `_verify_and_record`는 `tools/verification/decision.py`(PR #7)의 `decide()`로 판정합니다. `RETRY_CRITIC`은 초안 재생성 횟수에 포함하지 않고 `service.py`의 `MAX_CRITIC_RETRIES`(1)로 별도 제한합니다 — 스펙에 값이 없어 정한 값이고 10/28 AI팀 PR 리뷰로 확정했습니다. 통과한 검사를 감사 로그로 남기는 방식과 `SentenceEvidence.source_timestamp` 계산(EvidenceItem.start_ms → 초 변환)은 스펙에 없어 코드에 TODO로 남겨뒀습니다.
 - 여기서 만든 것은 항상 **초안**입니다. 교사 검수를 위한 초안 저장·조회는 허용하되 학부모 공개·외부 공유는 승인 전 금지합니다. 승인 상태를 이 도메인에서 바꾸지 않습니다 (H-1).
 - 테스트에서 LLM을 실제로 호출하지 않습니다. 응답은 픽스처로 고정.
 - 모델 스냅샷·API 키는 `core/config.py`의 `Settings`에서 읽습니다.
