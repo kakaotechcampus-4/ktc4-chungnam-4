@@ -1039,7 +1039,7 @@ def get_letter_for_parent(
     publication = notes[index][1]
     result = db.execute(
         update(DocumentPublication)
-        .where(DocumentPublication.id == publication.id, DocumentPublication.revoked_at.is_(None))
+        .where(DocumentPublication.id == publication.id, _is_active_publication())
         .values(
             first_viewed_at=func.coalesce(DocumentPublication.first_viewed_at, datetime.now(UTC))
         )
@@ -1090,8 +1090,7 @@ def _parent_notes(
         select(DraftDocument, DocumentPublication)
         .join(
             DocumentPublication,
-            (DocumentPublication.draft_id == DraftDocument.id)
-            & DocumentPublication.revoked_at.is_(None),
+            (DocumentPublication.draft_id == DraftDocument.id) & _is_active_publication(),
         )
         .where(
             DraftDocument.child_id == child_id,
