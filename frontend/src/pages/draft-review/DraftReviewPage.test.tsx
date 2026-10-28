@@ -386,6 +386,42 @@ describe("DraftReviewPage", () => {
     expect(router.state.location.pathname).not.toBe("/t/notes/publish/done");
   });
 
+  // 서버는 초안의 원아로 권한을 보므로 게시 실패 코드가 CLASS_가 아니라 CHILD_로 옵니다
+  // (`_publish_one` → `_draft_for_teacher` → `ensure_child_access`). 표에 없으면 교사에게
+  // 코드가 그대로 보여서 무엇이 막혔는지 알 수 없습니다.
+  it("권한 때문에 실패하면 서버가 주는 CHILD_ 코드를 교사 말로 바꿔 보여 준다", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post(apiPath("/publications"), async ({ request }) => {
+        const body = (await request.json()) as PublicationRequest;
+        return HttpResponse.json({
+          results: body.items.map((item) => ({
+            draft_id: item.draft_id,
+            child_id: DOYUN,
+            status: "failed",
+            parent_note_id: null,
+            version: null,
+            published_at: null,
+            error_code: "CHILD_ACCESS_DENIED",
+          })),
+        });
+      }),
+    );
+    renderPage();
+    await screen.findByRole("button", { name: /김도윤/ });
+    await screen.findByRole("heading", { name: /작은 블록/ });
+
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+    await user.click(await screen.findByRole("button", { name: "게시하기" }));
+
+    expect(await screen.findByText(/김도윤: 이 아이의 기록은 다룰 수 없어요/)).toBeInTheDocument();
+    expect(screen.queryByText(/CHILD_ACCESS_DENIED/)).not.toBeInTheDocument();
+  });
+
   // 한 명만 게시돼도 날짜가 닫히면, 실패한 원아를 다시 올릴 방법이 없어집니다.
   // 승인한 것만 세면, 실패한 아이를 "다시 검토하기"로 되돌리는 순간 그날이 닫혀 실패
   // 안내까지 사라집니다. 안 나간 초안이 하나라도 있으면 열어 둬야 합니다(#108 리뷰 송유진 님).

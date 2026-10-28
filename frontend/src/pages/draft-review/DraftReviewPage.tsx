@@ -48,7 +48,10 @@ const PUBLISH_ERROR_LABEL_MAP: Record<string, string> = {
   DRAFT_NOT_APPROVED: "승인되지 않았어요",
   DRAFT_ALREADY_PUBLISHED: "이미 게시됐어요",
   DRAFT_NOT_FOUND: "초안을 찾을 수 없어요",
-  CLASS_ACCESS_DENIED: "담당 반이 아니에요",
+  // 서버는 초안의 원아로 권한을 보므로 CLASS_가 아니라 CHILD_로 옵니다
+  // (`_publish_one` → `_draft_for_teacher` → `ensure_child_access`).
+  CHILD_ACCESS_DENIED: "이 아이의 기록은 다룰 수 없어요",
+  CHILD_NOT_FOUND: "원아를 찾을 수 없어요",
   NOT_PARENT_NOTE: "알림장이 아니에요",
 };
 

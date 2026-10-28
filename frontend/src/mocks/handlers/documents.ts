@@ -234,7 +234,7 @@ export const handlers = [
       const draft = db.drafts[String(params.draftId)];
       if (!draft) return errorResponse(404, "DRAFT_NOT_FOUND", "초안을 찾을 수 없어요.");
       if (draft.class_id !== SUNSHINE_CLASS.class_id) {
-        return errorResponse(403, "CLASS_ACCESS_DENIED", "이 반을 볼 수 없어요.");
+        return errorResponse(403, "CHILD_ACCESS_DENIED", "이 아이의 기록은 볼 수 없어요.");
       }
       if (draft.status === "draft") {
         return errorResponse(409, "DRAFT_NOT_READY", "아직 초안을 만들고 있어요.");
@@ -300,7 +300,7 @@ export const handlers = [
     }
     const childId = String(params.childId);
     if (!SUNSHINE_CHILDREN.some((child) => child.child_id === childId)) {
-      return errorResponse(403, "CLASS_ACCESS_DENIED", "이 반을 볼 수 없어요.");
+      return errorResponse(403, "CHILD_ACCESS_DENIED", "이 아이의 기록은 볼 수 없어요.");
     }
     return updateDb((db) => {
       const exists = Object.values(db.drafts).some(
@@ -360,7 +360,7 @@ export const handlers = [
       const draft = db.drafts[String(params.draftId)];
       if (!draft) return errorResponse(404, "DRAFT_NOT_FOUND", "초안을 찾을 수 없어요.");
       if (draft.class_id !== SUNSHINE_CLASS.class_id) {
-        return errorResponse(403, "CLASS_ACCESS_DENIED", "이 반을 볼 수 없어요.");
+        return errorResponse(403, "CHILD_ACCESS_DENIED", "이 아이의 기록은 볼 수 없어요.");
       }
       if (draft.version !== body.expected_version) {
         return errorResponse(
@@ -397,7 +397,7 @@ export const handlers = [
       const draft = db.drafts[String(params.draftId)];
       if (!draft) return errorResponse(404, "DRAFT_NOT_FOUND", "초안을 찾을 수 없어요.");
       if (draft.class_id !== SUNSHINE_CLASS.class_id) {
-        return errorResponse(403, "CLASS_ACCESS_DENIED", "이 반을 볼 수 없어요.");
+        return errorResponse(403, "CHILD_ACCESS_DENIED", "이 아이의 기록은 볼 수 없어요.");
       }
       if (draft.version !== body.expected_version) {
         return errorResponse(
@@ -452,7 +452,7 @@ export const handlers = [
         });
         let result: PublicationResult;
         if (!draft) result = failed("DRAFT_NOT_FOUND");
-        else if (draft.class_id !== SUNSHINE_CLASS.class_id) result = failed("CLASS_ACCESS_DENIED");
+        else if (draft.class_id !== SUNSHINE_CLASS.class_id) result = failed("CHILD_ACCESS_DENIED");
         else if (draft.doc_type !== "parent_note") result = failed("NOT_PARENT_NOTE");
         else if (draft.status !== "approved") result = failed("DRAFT_NOT_APPROVED");
         else if (draft.version !== item.expected_version) result = failed("DRAFT_VERSION_CONFLICT");
