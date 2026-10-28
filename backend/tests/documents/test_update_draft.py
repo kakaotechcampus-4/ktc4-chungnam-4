@@ -166,10 +166,13 @@ def test_교사가_쓴_문장도_고치면_수정됨이다(client, db):
     assert _stored(db, draft)[1] == ("t1", "다시 고친 문장", True)
 
 
-def test_글자가_그대로인_문장은_고친_것으로_보지_않는다(client, db):
+@pytest.mark.parametrize(
+    "text", ["s1 원래 문장", " s1 원래 문장\n"], ids=["같음", "앞뒤_공백만_다름"]
+)
+def test_글자가_그대로인_문장은_고친_것으로_보지_않는다(client, db, text):
     draft = _draft(db)
 
-    _patch(client, draft, sentences=[{"sentence_id": "s1", "text": "s1 원래 문장"}])
+    _patch(client, draft, sentences=[{"sentence_id": "s1", "text": text}])
 
     assert _stored(db, draft)[0] == ("s1", "s1 원래 문장", False)
     assert _logs(db, draft) == []
@@ -224,8 +227,10 @@ def test_고칠_수_없는_상태면_409(client, db, status, expected_version, c
         {},
         {"sentences": [{"sentence_id": "s1", "text": "a"}, {"sentence_id": "s1", "text": "b"}]},
         {"selected_media_ids": [str(uuid.uuid4())]},
+        {"sentences": [{"sentence_id": "s1", "text": "  \n"}]},
+        {"added_sentences": [{"text": " "}]},
     ],
-    ids=["바꿀_것_없음", "같은_문장_두_번", "사진_선택_아직_미지원"],
+    ids=["바꿀_것_없음", "같은_문장_두_번", "사진_선택_아직_미지원", "공백만_고침", "공백만_추가"],
 )
 def test_요청이_맞지_않으면_422(client, db, body):
     draft = _draft(db)

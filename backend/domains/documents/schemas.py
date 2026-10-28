@@ -171,14 +171,15 @@ class DraftDetailResponse(BaseModel):
 
 
 class SentenceEdit(BaseModel):
-    model_config = ConfigDict(hide_input_in_errors=True)
+    # 앞뒤 공백을 지운 뒤 길이를 본다 — 공백만 있는 문장은 422, 공백만 다른 문장은 그대로인 문장이다.
+    model_config = ConfigDict(hide_input_in_errors=True, str_strip_whitespace=True)
 
     sentence_id: str = Field(min_length=1)
     text: str = Field(min_length=1)
 
 
 class AddedSentence(BaseModel):
-    model_config = ConfigDict(hide_input_in_errors=True)
+    model_config = ConfigDict(hide_input_in_errors=True, str_strip_whitespace=True)
 
     text: str = Field(min_length=1)
 
