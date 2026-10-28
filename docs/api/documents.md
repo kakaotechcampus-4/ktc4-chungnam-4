@@ -419,8 +419,8 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 - `include_photos`가 true이면 선택 사진 가운데 `llm_allowed == true`인 사진만 학부모에게 보입니다(제안). 다른 아이가 함께 찍힌 사진이 나가는 것을 줄이는 보수적인 안입니다.
 - "학부모 알림 발송" 체크박스는 FR과 데이터 모델이 없어 받지 않습니다. 상세 작성 범위에서는 UI를 숨깁니다.
 - 에러: 요청 전체에는 공통 에러만 있습니다(`items`가 비면 422). 건별 오류는 응답 200 안의 `error_code`로 옵니다.
-  - `DRAFT_NOT_FOUND` (건별) — 없는 초안일 때
-  - `CHILD_ACCESS_DENIED` (건별) — 다른 어린이집 원아의 초안일 때. 원아 기준으로 검사합니다 — 임시 결정(한상균), #156
+  - `DRAFT_NOT_FOUND` (건별) — 없는 초안일 때. `child_id`·`version`은 `null`입니다.
+  - `CHILD_ACCESS_DENIED` (건별) — 다른 어린이집 원아의 초안일 때. 원아 기준으로 검사합니다 — 임시 결정(한상균), #156. 다른 어린이집 정보가 새지 않게 `child_id`·`version`은 `null`입니다 — 임시 결정(한상균), #173 리뷰.
   - `NOT_PARENT_NOTE` (건별) — 관찰일지일 때(게시 대상 아님)
   - `DRAFT_NOT_APPROVED` (건별) — `approved`가 아닐 때
   - `DRAFT_VERSION_CONFLICT` (건별) — 승인 뒤 버전이 바뀌었을 때
