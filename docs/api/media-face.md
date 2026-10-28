@@ -8,7 +8,7 @@
 
 (막힘)은 정해져야 FE 목(MSW)과 BE schemas를 만들 수 있는 항목입니다. 막히면 작업하는 사람이 정하고 진행합니다. 정한 값은 같은 PR에서 이 파일에 반영하고, 항목을 `[x]`로 바꾼 뒤 `임시 결정(이름)`과 반영한 곳을 적습니다([README](README.md) §이 문서를 읽는 법). 담당의 답은 이슈 #58 댓글이나 이 파일을 고치는 PR로 받습니다.
 
-- [x] (막힘) child-links를 전체 교체(PUT)로 할지(PR #13 리뷰 [must]) → 임시 결정(김동건): 전체 교체. 보낸 목록이 최종 상태이고 빠진 원아의 링크는 지웁니다. 반영: 이 파일 `PUT /media/{media_id}/child-links` 절, backend `save_attributions`(브랜치 `feat/be/child-links-full-replace`, PR 전)
+- [x] (막힘) child-links를 전체 교체(PUT)로 할지(PR #13 리뷰 [must]) → 임시 결정(김동건): 전체 교체. 보낸 목록이 최종 상태이고 빠진 원아의 링크는 지웁니다. 반영: 이 파일 `PUT /media/{media_id}/child-links` 절, backend `media/service.py`의 `save_attributions`(develop 반영)
 - [ ] (막힘) `llm_allowed` 최종값 계산 주체와 규칙(정은과 함께). 제안: 사진은 "교사 확인 AND ③ 동의", 영상·음성은 교사 확인값 → 하단 §상의 필요 3
 - [x] (막힘) 영상·음성메모도 child-links로 수동 귀속(정은과 함께). 음성메모 근거가 초안에 들어가기 위한 전제 → 임시 결정(김동건): 영상·음성은 `PUT child-links`로, 발화에 연결한 아이들을 모두 넣음. 사진은 완료 통지에서 귀속까지 저장. 반영: 이 파일 `POST /media`·`PUT child-links` 절
 - [ ] `attributed_at` 추가와, 이를 쓰는 Job의 `MEDIA_NOT_READY` 판정(정은과 함께)

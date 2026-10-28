@@ -13,7 +13,7 @@
 
 ## B. 구조 · 인프라
 
-- [ ] **브라우저 얼굴 모델 파일을 어디서 받을지** (원래 질문: ONNX 모델을 git-lfs vs S3/CDN vs `public/` 직접 포함) — 얼굴 인식이 HUMAN(`@vladmandic/human`)으로 바뀌는 중이라(#121, 머지 전) 대상은 HUMAN의 얼굴 모델 파일입니다. 프론트엔드가 S3 + CloudFront로 배포되므로(아래 결정 기록) 빌드 때 모델 파일을 함께 올리면 화면과 같은 주소에서 받아 CORS가 필요 없습니다(제안, 송유진 #121 리뷰). 정할 것: 복사 방식(빌드 때 패키지에서 복사 vs 저장소에 커밋), 모델 파일 캐시 기간, 브라우저 IndexedDB 저장 여부(`frontend/CLAUDE.md` §온디바이스와 업로드 게이트). 김진하·송유진
+- [x] ~~**브라우저 얼굴 모델 파일을 어디서 받을지**~~ (원래 질문: ONNX 모델을 git-lfs vs S3/CDN vs `public/` 직접 포함) — **#149·#150에서 정했습니다.** 얼굴 인식은 HUMAN(`@vladmandic/human`, #121)이고, 모델 파일은 프론트엔드와 같은 주소(S3 + CloudFront)에서 내보냅니다. ① 복사 방식: 빌드 때 `scripts/copy-face-models.mjs`가 얼굴 모델 6개 파일을 `public/models/<해시>/`로 복사하고 저장소에는 커밋하지 않습니다(#149, 송유진 리뷰) ② 캐시 기간: 해시가 주소에 들어가 1년 `immutable`(#150) ③ IndexedDB: HUMAN 자체 모델 캐시는 끄고(`cacheModels: false`) HTTP 캐시에 맡깁니다(#149) — **`cacheModels: false`는 아직 develop에 없고 벡터 추출 PR에서 넣습니다.** 버전 문자열은 `docs/api/media-face.md` 정해 주셔야 할 것(#193)
 - [ ] 로컬 개발 환경: Docker Compose 통일 vs 각자 로컬 실행 — **백엔드만 남은 질문입니다.** 프론트엔드는 배포도 컨테이너가 아니라(S3 + CloudFront, 아래 결정 기록) Compose에 넣지 않고, 로컬은 `pnpm dev`(MSW 또는 Vite 프록시로 로컬 BE)입니다
 - [ ] CI에서 막을 것: 린트 / 타입체크 / 테스트 / 빌드 중 어디까지 — **현재** backend는 ruff lint·format·pytest, frontend는 Prettier·ESLint·tsc·Vitest·빌드입니다(`.github/workflows/ci.yml`). 머지 차단은 `develop-ci` 룰셋이 backend·frontend 두 검사를 필수로 걸고 있고, strict(머지 전 최신화 강제)는 꺼져 있습니다(10/07 확인). backend에 타입체크를 넣을지만 남았으면 이 항목을 결정 기록으로 내립니다
 - [ ] **죽은 참조·깨진 링크 CI 검사 도입 여부** — 문서의 `§제목`·경로 참조가 실제로 존재하는지 검사. 블랭킷 경로 검사는 오탐이 많아(`models.py` 같은 관례 표기까지 잡힘) 표적 검사로 짜야 합니다. 새 워크플로라 BE 리드 확인 필요
@@ -87,7 +87,7 @@
 - [ ] **[rule] H-2·`backend/domains/agents/CLAUDE.md`의 "미식별 얼굴이 남은 사진" 문구** — 교사가 미식별 얼굴을 전부 수동 분류하므로(FR-14) 서버에는 그런 사진이 도착하지 않습니다(09/15 확인). 서버가 검사할 대상이 아니라 교사 검수로 보장되는 성질이라 문구 조정이 필요합니다. 하드룰이라 팀 승인 대상
 - [ ] **미분류(귀속 0건) 미디어의 서버 보존·파기 기간** — FR-19는 미승인 *초안*을 다루고 미디어 쪽은 비어 있습니다. 09/19에 확정된 파기 조건이 "귀속된 원아가 전원 만료"인 이상, **링크 0건 사진은 별도 정책이 없으면 영원히 남습니다**
 
-- [ ] **파생본(프록시본·썸네일) 변환을 어디서 돌릴지** — 컬럼은 확정됐고(09/21, `MediaAsset.proxy_url`·`thumbnail_url`·`derivative_state`) 남은 것은 실행 위치입니다. **worker 컨테이너에 ffmpeg 의존성 추가가 필요해 BE 리드 확인 대상**이고, `media/tasks.py`에서 돌릴지는 Celery 범위 규칙(§C)과 함께 정합니다. **제안(김동건, 팀 승인 전)**: STT 음성 추출에 ffmpeg가 먼저 필요해 `Dockerfile`에 시스템 ffmpeg를 넣습니다(`feat/be/worker-ffmpeg-stt-celery` PR). 파생본 변환 위치는 그대로 미정
+- [ ] **파생본(프록시본·썸네일) 변환을 어디서 돌릴지** — 컬럼은 확정됐고(09/21, `MediaAsset.proxy_url`·`thumbnail_url`·`derivative_state`) 남은 것은 실행 위치입니다. worker 컨테이너의 ffmpeg는 STT 음성 추출 때문에 **#185로 `Dockerfile`에 시스템 패키지로 넣었습니다**(엄태은 님 찬성 코멘트, 승인 기록은 #202에서 사후 확인). Celery 범위는 1-B까지 넓혔고(§C), 파생본 변환을 `media/tasks.py`의 worker에서 돌릴지는 그대로 미정입니다
 - [ ] **발화·교사 메모 없이 사진 관찰만 있는 날의 알림장** (#137 리뷰, 송유진 제기) — 생성 프롬프트 규칙 2는 "발화·교사 메모 중심, 사진 관찰은 보강"인데 사진만 있는 날의 처리가 정해지지 않았습니다. 지금 FE `SendStep`은 영상·음성메모를 빈 귀속으로 보내서 연결 직후에는 모든 날이 사진만 있는 날이 됩니다. **제안(엄태은, 팀 결정 전)**: 사진 관찰만으로 쓰되 아이의 말은 인용하지 않는다를 규칙 2에 적는다. 미분류(`InsufficientEvidence`)로 보내면 연결 직후 모든 Job이 미분류가 됩니다
 
 ## D. 인증
