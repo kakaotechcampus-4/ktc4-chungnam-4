@@ -27,6 +27,10 @@ _TIMEOUT_SECONDS = 30
 # 재시도만 남음 (#102 리뷰, 엄태은)
 _SDK_MAX_RETRIES = 0
 
+# 사진 분석 응답 상한. 스파이크에서 아이 4명 사진 1건이 1,618토큰까지 나와 1024로는 잘릴 수 있다
+# (#179 리뷰, 유진). 과금은 실제 출력 토큰 기준이라 상한을 올려도 평소 비용은 같다.
+_VISION_MAX_TOKENS = 2048
+
 
 def call_claude(prompt: str) -> str:
     settings = get_settings()
@@ -66,7 +70,7 @@ def call_vision(instructions: str, image_urls: Sequence[str]) -> str | None:
     content += [{"type": "image_url", "image_url": {"url": url}} for url in image_urls]
     response = client.chat.completions.create(
         model=settings.vision_model,
-        max_tokens=1024,
+        max_tokens=_VISION_MAX_TOKENS,
         messages=[{"role": "user", "content": content}],
     )
     return response.choices[0].message.content
