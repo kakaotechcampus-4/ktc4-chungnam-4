@@ -26,7 +26,7 @@
 - **LLM을 부르는 단계는 `prompts/` 조립 함수와 `tools/` 파싱 함수를 한 쌍으로 두고, LLM 호출은 `service.py`가 합니다.** 그 밖의 단계(발화 정리·근거 선별·비식별화·코드 검증 7-A 등)는 `tools/` 순수 함수입니다. `tools/`·`prompts/`는 LLM·DB를 직접 부르지 않습니다(`backend/CLAUDE.md` §계층 규칙).
   - 초안 생성: `build_draft_prompt` → `call_claude` → `parse_draft_response`
   - Critic: `build_critic_prompt` → `call_claude` → `parse_critic_response`
-  - 사진 분석: `build_single_photo_prompt` → (service 연결 예정) → `parse_single_photo_analysis`
+  - 사진 분석: `build_single_photo_prompt` → `call_vision` → `parse_single_photo_analysis` (`_analyze_photos`, #179). 생성 파이프라인에는 아직 연결 전입니다
   - 예전 규칙 "에이전트 1~4는 각각 하나의 모듈, 하나의 진입 함수 `run(...) -> Result`"는 코드와 맞지 않아 바꿨습니다(#138, `[rule]`).
 - 에이전트 출력은 자유 텍스트로 받지 않고 **구조화된 JSON**으로 받아 Pydantic으로 검증합니다. 파싱 실패는 재시도 대상.
 - **규칙으로 되는 건 LLM에 맡기지 않습니다.** 동의 확인·귀속 판정·비식별화·노출은 전부 코드입니다 (테크스펙 책임 분담 표).
