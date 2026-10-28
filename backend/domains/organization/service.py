@@ -11,7 +11,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import date, datetime
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import ColumnElement, Exists, select
 from sqlalchemy.orm import Session
@@ -19,12 +21,19 @@ from sqlalchemy.orm import Session
 from core.exceptions import (
     CenterNotFound,
     ChildAccessDenied,
+    ChildAccessExpired,
     ChildNotFound,
     ChildNotInClass,
     ClassAccessDenied,
     ClassNotFound,
 )
-from domains.organization.models import Center, Child, ConsentRecord, Klass
+from domains.organization.models import (
+    Center,
+    Child,
+    ConsentRecord,
+    Klass,
+    ParentChildRelation,
+)
 from domains.organization.schemas import (
     ClassChildItem,
     ClassChildListResponse,
@@ -36,6 +45,8 @@ from domains.organization.schemas import (
 CHILD_STATUS_ENROLLED = "enrolled"
 # ConsentRecord.status 값. 철회는 같은 행의 revoked_at을 채우므로 둘 다 봅니다.
 CONSENT_STATUS_AGREED = "agreed"
+# 학부모 열람 기간의 "오늘"은 KST 날짜로 봅니다 (graduated_at이 날짜라서).
+_KST = ZoneInfo("Asia/Seoul")
 
 
 def _valid_consent_exists(child_id: ColumnElement[UUID] | UUID, consent_type: str) -> Exists:
@@ -149,6 +160,58 @@ def has_consent(db: Session, child_id: UUID, consent_type: str) -> bool:
     `False`일 때 어떻게 거절할지는 호출하는 쪽이 정합니다(face: `FACE_CONSENT_REQUIRED`).
     """
     return bool(db.scalar(select(_valid_consent_exists(child_id, consent_type))))
+
+
+def ensure_parent_child_access(
+    db: Session, parent_id: UUID, child_id: UUID, *, today: date | None = None
+) -> None:
+    """학부모가 이 원아의 자료를 봐도 되는지 확인하고, 안 되면 예외를 올립니다.
+
+    학부모 열람 권한 판단은 `ParentChildRelation` 조회 한 곳으로 모읍니다 (organization/CLAUDE.md).
+    열람은 졸업·퇴소 확정일(`Child.graduated_at`) 후 1년까지이고, 조회 시점에 판정합니다
+    (NFR-03, F-3). 1년이 되는 날까지는 열람할 수 있습니다. `today`는 테스트용이며 기본은 KST 오늘입니다.
+
+    - 관계가 없음(없는 원아 포함): `ChildAccessDenied` (403 `CHILD_ACCESS_DENIED`) — 없는 원아와
+      남의 원아를 구분하면 원아 ID가 있는지가 샙니다.
+    - 열람 기간이 지남: `ChildAccessExpired` (403 `CHILD_ACCESS_EXPIRED`)
+    """
+    row = db.execute(
+        select(Child.graduated_at)
+        .join(ParentChildRelation, ParentChildRelation.child_id == Child.id)
+        .where(ParentChildRelation.parent_id == parent_id, Child.id == child_id)
+    ).first()
+    if row is None:
+        raise ChildAccessDenied("이 원아에 접근할 권한이 없습니다.")
+    graduated_at = row.graduated_at
+    if graduated_at is None:
+        return
+    if (today or datetime.now(_KST).date()) > _one_year_after(graduated_at):
+        raise ChildAccessExpired("열람 기간이 지났습니다.")
+
+
+def _one_year_after(day: date) -> date:
+    """1년 뒤 같은 날. 2월 29일은 다음 해 2월 28일로 봅니다 — 기간을 늘리지 않는 쪽입니다."""
+    try:
+        return day.replace(year=day.year + 1)
+    except ValueError:
+        return day.replace(year=day.year + 1, day=28)
+
+
+def has_linked_parent(db: Session, child_id: UUID) -> bool:
+    """이 원아에게 연결된 학부모가 한 명이라도 있는가.
+
+    documents가 알림장을 게시할 때 받을 사람이 없는 원아를 `NO_LINKED_PARENT`로 거릅니다 (#173).
+    없는 원아도 `False`입니다.
+    """
+    return bool(
+        db.scalar(
+            select(
+                select(ParentChildRelation.id)
+                .where(ParentChildRelation.child_id == child_id)
+                .exists()
+            )
+        )
+    )
 
 
 def list_classes(db: Session, center_id: UUID | None) -> ClassListResponse:
