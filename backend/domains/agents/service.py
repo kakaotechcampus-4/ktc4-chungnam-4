@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.database import SessionLocal
@@ -80,9 +81,18 @@ _STALE_JOB_AFTER = timedelta(seconds=180 * 3 + 60)
 
 
 @dataclass(frozen=True)
+class JobDraft:
+    draft_id: UUID
+    doc_type: str
+
+
+@dataclass(frozen=True)
 class ChildJobStatus:
     child_id: UUID
     status: JobStatus
+    # succeeded일 때만 채운다. 초안이 있으면 drafted, 없으면 unclassified (docs/api/agents.md).
+    outcome: str | None = None
+    drafts: tuple[JobDraft, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -120,11 +130,9 @@ def start_generation_job(
     그 원아가 귀속된 사진만 근거 수집에서 빠진다(H-2·H-3). 커밋과 큐 넣기는 호출자가 한다.
     """
     ensure_class_access(db, class_id, center_id)
-    existing = db.scalar(select(GenerationJob).where(GenerationJob.request_id == str(request_id)))
+    existing = _find_job_by_request_id(db, request_id)
     if existing is not None:
-        # request_id가 작업을 가리키므로, 경로의 반과 다르면 그 작업의 반으로 다시 확인한다.
-        ensure_class_access(db, existing.class_id, center_id)
-        return StartedGenerationJob(status=_job_status(db, existing), to_enqueue=[])
+        return _started_again(db, existing, center_id)
 
     if record_date > datetime.now(_KST).date():
         raise InvalidRecordDate("오늘보다 뒤 날짜의 초안은 만들 수 없습니다.")
@@ -159,8 +167,17 @@ def start_generation_job(
         request_id=str(request_id),
         requested_by_teacher_id=teacher_id,
     )
-    db.add(generation_job)
-    db.flush()
+    # 같은 request_id가 거의 동시에 두 번 오면 둘 다 위 조회를 통과한다. 늦은 쪽은 유일 제약에
+    # 걸리므로, 그 작업을 돌려줘 문서의 멱등성을 지킨다 (#161 리뷰 4번, 엄태은).
+    try:
+        with db.begin_nested():
+            db.add(generation_job)
+            db.flush()
+    except IntegrityError:
+        existing = _find_job_by_request_id(db, request_id)
+        if existing is None:
+            raise
+        return _started_again(db, existing, center_id)
     # 근거 수집이 이 값을 KST 날짜로 읽는다(collect_media_for_llm). 그 날 0시(KST)로 둔다.
     target_date = datetime.combine(record_date, time.min, tzinfo=_KST)
     jobs = [
@@ -173,6 +190,19 @@ def start_generation_job(
         status=_job_status(db, generation_job),
         to_enqueue=[(job.id, job.child_id) for job in jobs],
     )
+
+
+def _find_job_by_request_id(db: Session, request_id: UUID) -> GenerationJob | None:
+    return db.scalar(select(GenerationJob).where(GenerationJob.request_id == str(request_id)))
+
+
+def _started_again(
+    db: Session, existing: GenerationJob, center_id: UUID | None
+) -> StartedGenerationJob:
+    """같은 request_id로 다시 온 요청. 새로 만들지 않고 그 작업을 돌려준다."""
+    # request_id가 작업을 가리키므로, 경로의 반과 다르면 그 작업의 반으로 다시 확인한다.
+    ensure_class_access(db, existing.class_id, center_id)
+    return StartedGenerationJob(status=_job_status(db, existing), to_enqueue=[])
 
 
 def get_generation_job(db: Session, *, job_id: UUID, center_id: UUID | None) -> GenerationJobStatus:
@@ -188,7 +218,7 @@ def _job_status(db: Session, generation_job: GenerationJob) -> GenerationJobStat
     jobs = db.scalars(
         select(Job).where(Job.generation_job_id == generation_job.id).order_by(Job.child_id)
     ).all()
-    children = [ChildJobStatus(child_id=job.child_id, status=JobStatus(job.status)) for job in jobs]
+    children = [_child_status(db, job, generation_job.record_date) for job in jobs]
     finished = sum(child.status not in _UNFINISHED_STATUSES for child in children)
     # TODO(eun): 문서의 진행률은 원아별로 끝낸 단계 수로 세지만 Job에 단계 컬럼이 없다.
     #   지금은 끝난 원아 비율로 센다 (docs/api/agents.md 임시 결정(정은)).
@@ -201,6 +231,30 @@ def _job_status(db: Session, generation_job: GenerationJob) -> GenerationJobStat
         children=children,
         # 원아별 Job이 바뀌어도 부모 행은 갱신되지 않으므로 가장 늦은 시각을 쓴다.
         updated_at=max([generation_job.updated_at, *(job.updated_at for job in jobs)]),
+    )
+
+
+def _child_status(db: Session, job: Job, record_date: date) -> ChildJobStatus:
+    """원아별 상태. 성공한 원아는 그날 초안이 있는지로 결과를 정한다.
+
+    Job에 결과 컬럼이 없어도 초안은 원아·종류·날짜당 하나라서 찾을 수 있다. FE는 drafts로 초안
+    검토 화면에 넘어간다 (docs/api/agents.md). 같은 날 앞선 작업이 만든 초안이 있으면 이번 작업이
+    미분류로 끝났어도 drafted로 보인다 — 재생성 규칙(get_draft_version)을 붙일 때 함께 다룬다.
+    TODO(eun): 미분류 사유(unclassified_reason)·단계는 Job 결과 컬럼이 생기면 채운다.
+    """
+    status = JobStatus(job.status)
+    if status != JobStatus.SUCCEEDED:
+        return ChildJobStatus(child_id=job.child_id, status=status)
+    draft = documents.get_draft_version(
+        db, child_id=job.child_id, doc_type=DAILY_DOC_TYPE, record_date=record_date
+    )
+    if draft is None:
+        return ChildJobStatus(child_id=job.child_id, status=status, outcome="unclassified")
+    return ChildJobStatus(
+        child_id=job.child_id,
+        status=status,
+        outcome="drafted",
+        drafts=(JobDraft(draft_id=draft.draft_id, doc_type=DAILY_DOC_TYPE.value),),
     )
 
 

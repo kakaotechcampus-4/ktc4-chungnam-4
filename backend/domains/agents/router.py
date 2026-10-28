@@ -20,6 +20,7 @@ from domains.agents.schemas import (
     ChildJobResponse,
     GenerationJobCreateRequest,
     GenerationJobResponse,
+    JobDraftResponse,
     JobProgressResponse,
 )
 from domains.agents.tasks import enqueue_generate_drafts
@@ -41,7 +42,15 @@ def _to_response(status: service.GenerationJobStatus) -> GenerationJobResponse:
             finished_children=status.finished_children,
         ),
         children=[
-            ChildJobResponse(child_id=child.child_id, status=child.status.value)
+            ChildJobResponse(
+                child_id=child.child_id,
+                status=child.status.value,
+                outcome=child.outcome,
+                drafts=[
+                    JobDraftResponse(draft_id=draft.draft_id, doc_type=draft.doc_type)
+                    for draft in child.drafts
+                ],
+            )
             for child in status.children
         ],
         created_at=generation_job.created_at,

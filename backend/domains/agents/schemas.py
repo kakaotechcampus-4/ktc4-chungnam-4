@@ -81,8 +81,8 @@ class JobDraftResponse(BaseModel):
 class ChildJobResponse(BaseModel):
     child_id: UUID
     status: JobStatusValue
-    # TODO(eun): 아래 값을 채울 컬럼이 Job에 없어 지금은 항상 null·빈 배열이다
-    #   (docs/api/agents.md 임시 결정(정은)).
+    # outcome·drafts는 succeeded인 원아만 그날 초안이 있는지로 채운다(service._child_status).
+    # TODO(eun): 나머지는 채울 컬럼이 Job에 없어 지금은 항상 null이다 (docs/api/agents.md 임시 결정(정은)).
     stage: JobStage | None = None
     outcome: Literal["drafted", "unclassified"] | None = None
     unclassified_reason: (
