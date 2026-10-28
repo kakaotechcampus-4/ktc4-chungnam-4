@@ -8,7 +8,7 @@
 
 (막힘)은 정해져야 FE 목(MSW)과 BE schemas를 만들 수 있는 항목입니다. 막히면 작업하는 사람이 정하고 진행합니다. 정한 값은 같은 PR에서 이 파일에 반영하고, 항목을 `[x]`로 바꾼 뒤 `임시 결정(이름)`과 반영한 곳을 적습니다([README](README.md) §이 문서를 읽는 법). 담당의 답은 이슈 #58 댓글이나 이 파일을 고치는 PR로 받습니다.
 
-- [x] (막힘) child-links를 전체 교체(PUT)로 할지(PR #13 리뷰 [must]) → 임시 결정(김동건): 전체 교체. 보낸 목록이 최종 상태이고 빠진 원아의 링크는 지웁니다. 반영: 이 파일 `PUT /media/{media_id}/child-links` 절, backend `save_attributions`(브랜치 `feat/be/child-links-full-replace`, PR 전)
+- [x] (막힘) child-links를 전체 교체(PUT)로 할지(PR #13 리뷰 [must]) → 임시 결정(김동건): 전체 교체. 보낸 목록이 최종 상태이고 빠진 원아의 링크는 지웁니다. 반영: 이 파일 `PUT /media/{media_id}/child-links` 절, backend `media/service.py`의 `save_attributions`(develop 반영)
 - [ ] (막힘) `llm_allowed` 최종값 계산 주체와 규칙(정은과 함께). 제안: 사진은 "교사 확인 AND ③ 동의", 영상·음성은 교사 확인값 → 하단 §상의 필요 3
 - [x] (막힘) 영상·음성메모도 child-links로 수동 귀속(정은과 함께). 음성메모 근거가 초안에 들어가기 위한 전제 → 임시 결정(김동건): 영상·음성은 `PUT child-links`로, 발화에 연결한 아이들을 모두 넣음. 사진은 완료 통지에서 귀속까지 저장. 반영: 이 파일 `POST /media`·`PUT child-links` 절
 - [ ] `attributed_at` 추가와, 이를 쓰는 Job의 `MEDIA_NOT_READY` 판정(정은과 함께)
@@ -19,7 +19,7 @@
 - [x] `load_embedding_cache`가 `model_version`도 돌려주게 할지 → 돌려줍니다. 김동건 님이 반영하셨고 PR #130으로 머지됐습니다(이슈 #120). 반영: develop `backend/domains/face/service.py`의 `CachedEmbedding.model_version`, `GET /classes/{class_id}/face-embeddings` 응답
 - [x] 서명 함수(`get_signed_urls`) 제공 → 임시 결정(김동건): `get_signed_urls(db, media_ids) -> list[SignedMediaUrl]`(`{media_id, type, url, url_expires_at}`), 재생 URL 만료 15분(`S3_PLAYBACK_URL_EXPIRES_SECONDS`). 승인·접근 판정과 AccessLog는 부르는 쪽(documents)이 합니다. 반영: 하단 §상의 필요 5. documents 응답에 담는 일은 한상균 님 몫으로 남습니다
 - [x] develop(PR #13)과 다른 점(귀속 에러 코드 이름 `MEDIA_INVALID_ATTRIBUTION_METHOD`, 서명·만료 없는 `get_playback_url`) → 에러 코드는 #132에서 `INVALID_ATTRIBUTION_METHOD`로, `get_playback_url`은 #143에서 `get_signed_urls`로 이 문서에 맞춤
-- [ ] 영상·음성 서버 STT를 어디서 시작할지(동기 vs Celery)
+- [x] 영상·음성 서버 STT를 어디서 시작할지(동기 vs Celery) → Celery worker(#185, `[rule]`). 몇 분짜리 영상의 음성 추출·조각 호출은 CloudFront 응답 대기 30초 안에 끝나지 않습니다. worker에 ffmpeg를 넣었습니다. 반영: `backend/CLAUDE.md` §비동기 · Celery, 테크스펙 1-B, `docs/open-questions.md` §C(승인 기록은 #202에서 사후 확인)
 - [x] 발화 구간 조회·수정의 요청·응답 → 임시 결정(김동건): 상세 작성으로 채움. 반영: 이 파일 `GET /media/{media_id}/transcript-segments`·`PATCH /transcript-segments/{segment_id}` 절, FE `types/api-draft/media.ts`·`mocks/handlers/media.ts`. 테크스펙에 없는 필드와 업로드 시점은 하단 §상의 필요 6
 - [x] 얼굴 등록 사진 수 → 임시 결정(김동건): 1~3장. 3장을 강제하지 않고, 다시 등록하면 전체가 바뀐다고 화면에 알림. 반영: 이 파일 `PUT /children/{child_id}/face-embedding` 절, FE 얼굴 정보 등록 화면
 - [ ] `face/CLAUDE.md`의 `/face` 표기 수정
