@@ -92,6 +92,8 @@ from sqlalchemy.orm import Session
 
 from core.exceptions import (
     AidamError,
+    ChildAccessDenied,
+    ChildNotFound,
     DraftAlreadyApproved,
     DraftAlreadyPublished,
     DraftNotApprovable,
@@ -777,6 +779,9 @@ def publish_drafts(
         except AidamError as error:
             db.rollback()
             draft = db.get(DraftDocument, item.draft_id)
+            # 접근이 거부된 건에는 그 원아 ID·버전을 싣지 않는다 — 다른 어린이집 정보가 샌다
+            if isinstance(error, ChildAccessDenied | ChildNotFound):
+                draft = None
             results.append(
                 PublicationResult(
                     draft_id=item.draft_id,
