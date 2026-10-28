@@ -88,6 +88,13 @@ class DraftNotApproved(AidamError):
     status_code = 409
 
 
+class DraftAlreadyExists(AidamError):
+    """직접 쓰려는 원아·문서 종류·날짜의 초안이 이미 있습니다. 있는 초안을 고쳐 씁니다."""
+
+    code = "DRAFT_ALREADY_EXISTS"
+    status_code = 409
+
+
 class DraftAlreadyPublished(AidamError):
     """학부모에게 게시된 초안의 승인을 되돌리려 한 경우. 회수가 따로 필요하다 (H-1)."""
 

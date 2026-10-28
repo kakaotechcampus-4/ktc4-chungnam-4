@@ -98,6 +98,7 @@ from core.exceptions import (
     ChildAccessDenied,
     ChildNotFound,
     DraftAlreadyApproved,
+    DraftAlreadyExists,
     DraftAlreadyPublished,
     DraftNotApprovable,
     DraftNotApproved,
@@ -130,6 +131,7 @@ from domains.documents.models import (
 from domains.documents.schemas import (
     ClassDraftItem,
     ClassDraftListResponse,
+    DraftCreateRequest,
     DraftDetailResponse,
     DraftSaveInput,
     DraftSentenceView,
@@ -483,6 +485,63 @@ def get_draft_for_teacher(
         db.rollback()
         raise AccessLogFailed("열람 기록을 남기지 못해 초안을 보여 드릴 수 없습니다.") from None
     return detail
+
+
+def create_draft(
+    db: Session,
+    *,
+    child_id: UUID,
+    teacher_id: UUID,
+    center_id: UUID | None,
+    request: DraftCreateRequest,
+) -> DraftDetailResponse:
+    """교사가 자료 없는 원아의 초안을 직접 쓴다 (docs/api/documents.md §POST /children/{child_id}/drafts).
+
+    - 같은 어린이집 원아만 쓴다. 원아 기준으로 검사한다 — 임시 결정(한상균), #156.
+    - verified·version 1로 만들어 바로 승인할 수 있다. 근거와 사진은 없다.
+    - 문장은 보낸 순서대로 t1, t2…를 붙인다. 수정이 아니라 생성이라 RevisionLog를 남기지 않고,
+      t 문장이 있어 AI 재생성이 이 문서를 덮어쓰지 않는다 (_has_teacher_edits, 임시 결정(정은), #139).
+    - 같은 원아·문서 종류·날짜의 초안이 이미 있으면 DRAFT_ALREADY_EXISTS다. 동시에 두 번 와도
+      유일 제약(uq_draft_child_type_date)이 하나만 남긴다.
+
+    TODO(한상균): "만들면 그 원아·날짜의 미분류 항목을 해소한다"(API 문서)는 UnclassifiedItem에
+      원아·날짜가 생긴 뒤에 붙인다 (#196).
+    """
+    organization_service.ensure_child_access(db, child_id, center_id)
+    draft = DraftDocument(
+        child_id=child_id,
+        author_teacher_id=teacher_id,
+        doc_type=request.doc_type.value,
+        record_date=request.record_date,
+        status=DraftStatus.VERIFIED.value,
+    )
+    db.add(draft)
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        existing = db.scalar(
+            select(DraftDocument.id).where(
+                DraftDocument.child_id == child_id,
+                DraftDocument.doc_type == request.doc_type.value,
+                DraftDocument.record_date == request.record_date,
+            )
+        )
+        if existing is None:
+            raise
+        raise DraftAlreadyExists("이 날짜의 초안이 이미 있습니다.") from None
+    db.add_all(
+        DraftSentence(
+            draft_id=draft.id,
+            sentence_id=f"t{position + 1}",
+            position=position,
+            text=sentence.text,
+            is_edited_by_teacher=False,
+        )
+        for position, sentence in enumerate(request.sentences)
+    )
+    db.commit()
+    return _teacher_detail(db, draft.id)
 
 
 def update_draft(

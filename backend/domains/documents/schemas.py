@@ -214,6 +214,22 @@ class DraftUpdateRequest(BaseModel):
         return self
 
 
+class DraftCreateRequest(BaseModel):
+    """POST /api/v1/children/{child_id}/drafts. 자료 없는 원아의 초안을 교사가 직접 쓴다.
+
+    사진·발화가 없어 근거를 함께 받지 않는다 — 임시 결정(김진하). sentences는 교사가 쓴 글을
+    줄바꿈으로 나눈 순서다. 제목은 저장할 칸이 없어(AI 초안도 null) null만 받는다 — 보낸
+    제목을 말없이 버리지 않으려는 것이다. 임시 결정(한상균).
+    """
+
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    record_date: date
+    doc_type: DocType
+    title: None = None
+    sentences: list[AddedSentence] = Field(min_length=1)
+
+
 class ApproveRequest(BaseModel):
     """POST /api/v1/drafts/{draft_id}/approve.
 

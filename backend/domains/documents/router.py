@@ -20,6 +20,7 @@ from domains.documents.models import DocType
 from domains.documents.schemas import (
     ApproveRequest,
     ClassDraftListResponse,
+    DraftCreateRequest,
     DraftDetailResponse,
     DraftUpdateRequest,
     ParentNoteDetailResponse,
@@ -58,6 +59,22 @@ def list_class_drafts(
         record_date=record_date,
         doc_type=doc_type,
         published=published,
+    )
+
+
+@router.post("/children/{child_id}/drafts", response_model=DraftDetailResponse, status_code=201)
+def create_draft(
+    child_id: UUID,
+    body: DraftCreateRequest,
+    db: Annotated[Session, Depends(get_db)],
+    teacher: CurrentTeacher,
+) -> DraftDetailResponse:
+    return service.create_draft(
+        db,
+        child_id=child_id,
+        teacher_id=teacher.teacher_id,
+        center_id=teacher.center_id,
+        request=body,
     )
 
 
