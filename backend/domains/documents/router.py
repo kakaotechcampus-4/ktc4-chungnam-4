@@ -122,10 +122,10 @@ def reopen_draft(
 def create_publications(
     body: PublishRequest,
     db: Annotated[Session, Depends(get_db)],
-    teacher_id: Annotated[UUID, Depends(get_current_teacher_id)],
+    teacher: CurrentTeacher,
 ) -> PublishResponse:
     return service.publish_drafts(
-        db, items=body.items, request_id=body.request_id, teacher_id=teacher_id
+        db, request=body, teacher_id=teacher.teacher_id, center_id=teacher.center_id
     )
 
 

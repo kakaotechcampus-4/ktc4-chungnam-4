@@ -126,6 +126,13 @@ class MediaNotLinkedToChild(AidamError):
     status_code = 400
 
 
+class NotParentNote(AidamError):
+    """관찰일지를 학부모에게 게시하려 한 경우. 게시 대상은 알림장뿐이다."""
+
+    code = "NOT_PARENT_NOTE"
+    status_code = 409
+
+
 class InvalidCredentials(AidamError):
     """이메일이 없거나 비밀번호가 틀렸습니다.
 
