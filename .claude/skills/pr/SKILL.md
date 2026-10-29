@@ -15,7 +15,8 @@ description: PR을 만들거나 PR 리뷰 코멘트를 달 때 사용. "PR 올�
 
 - **300줄 이하** 목표. 넘으면 나눌 수 있는지 먼저 검토합니다.
 - 리뷰어 **1명 승인 + CI 통과** 후 **Squash merge**. 승인을 받았으면 **작성자가 직접 머지**합니다 — 리드를 기다리지 않습니다.
-- **PR을 올리기 전에 `develop`을 먼저 머지해 최신화**합니다. 충돌은 올린 사람이 풉니다.
+- **장수 브랜치끼리는 Merge로만 합칩니다** — `develop-next` → `develop`, `develop` → `develop-next`, `develop` → `main`. Squash하면 다음 주에 지난 변경이 다시 올라오고 충돌이 납니다. Squash는 작업 브랜치 PR에만 씁니다.
+- **PR을 올리기 전에 base 브랜치를 먼저 머지해 최신화**합니다(`feat`는 `develop-next`, `refactor`는 `develop`). 충돌은 올린 사람이 풉니다.
 
 ## 리뷰어 지정
 
@@ -38,4 +39,25 @@ description: PR을 만들거나 PR 리뷰 코멘트를 달 때 사용. "PR 올�
 
 ## 주간 흐름
 
-`main`은 보호 브랜치입니다. `develop` → `main` PR만 허용되고 멘토 리뷰 후 approve 시 merge됩니다. 작업 브랜치는 항상 `develop`으로 PR을 올립니다.
+`main`은 보호 브랜치입니다. `develop` → `main` PR만 허용되고 멘토 리뷰 후 approve 시 merge됩니다.
+
+**PR base는 타입이 정합니다.** `feat/*` → `develop-next`, `refactor/*`(리뷰 반영) → `develop`. 기본 브랜치가 `develop-next`라 `refactor` PR은 base를 직접 `develop`으로 바꿔야 합니다.
+
+```
+월 ~ 수 18:00 전
+  feat/* ──PR──▶ develop-next          (수시로 머지)
+  develop-next ──PR(merge)──▶ develop  (수 18:00 전, 이번 주 리뷰 범위 확정)
+  develop ──PR──▶ main                 (수 18:00, 팀장이 주간 PR 생성)
+
+수 18:00 ~ 일 (리뷰 기간)
+  feat/* ──PR──▶ develop-next          (계속 머지)
+  refactor/* ──PR──▶ develop           (리뷰 반영만 develop으로)
+  develop ──merge──▶ develop-next      (리뷰 반영이 들어갈 때마다 역머지)
+
+일
+  develop ──merge──▶ main              (멘토 승인 뒤, 23:59까지)
+  develop ──merge──▶ develop-next      (남은 역머지 마무리)
+```
+
+- **리뷰 기간의 `develop`에는 리뷰 반영만 넣습니다.** 새 기능은 `develop-next`로 보냅니다.
+- **역머지를 미루지 않습니다.** 리뷰 반영이 `develop`에 들어가면 바로 `develop` → `develop-next`로 합칩니다. 늦어도 일요일 병합 직후에는 합쳐야 수요일 `develop-next` → `develop`이 깨끗합니다.
