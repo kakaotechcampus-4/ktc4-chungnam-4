@@ -46,25 +46,19 @@
 
 ## develop 코드와 다른 점
 
-develop의 documents(PR #14)는 경로·요청·응답 모양만 있고, 서비스 함수는 모두 구현 전(`NotImplementedError`)입니다. 로그인한 교사·학부모를 알아내는 의존성도 자리만 있습니다.
+이 문서의 상세 작성 엔드포인트 10개는 모두 develop에 구현돼 있고, 요청·응답의 원본은 OpenAPI(`/docs`)입니다([README](README.md) §이 문서를 읽는 법). 아래는 지금 코드가 이 문서와 **아직 다른 곳만** 남깁니다(10/29 기준). PR #14 골격 기준으로 적었던 게시 요청(`include_photos`)·게시 건별 결과·서명 URL·에러 코드 행은 구현하면서 이 문서대로 맞춰져 지웠습니다.
 
-아래는 그 모양이 이 문서의 제안과 다른 곳입니다(재생 URL은 media의 PR #13). 이 문서의 제안값은 바꾸지 않았습니다. 어느 쪽으로 맞출지 막히면 작업하는 사람이 정하고, 이 표와 해당 절에 `임시 결정(이름)`으로 반영합니다.
-
-| 항목 | 이 문서(제안) | develop 코드 |
+| 항목 | 이 문서 | 지금 코드 |
 |---|---|---|
-| 알림장 이름 | `parent_note`, `parent_note_id` | 경로는 맞췄고, 스키마·서비스 함수 이름에 `letter`가 남아 있음(용어표에서 쓰지 않는 말). `doc_type` 값은 `parent_note`로 같음 |
-| 초안 `status` 값 | `draft`·`verified`·`approved`·`unclassified` | `draft`·`verified`·`approved`·`revoked` |
-| 반·날짜 초안 목록의 `unclassified` | 초안 없이 미분류로 끝난 원아의 사유 | 항상 `null`. agents가 미분류를 기록하지 않고(`_send_to_unclassified`가 빈 함수), `UnclassifiedItem`에 원아·날짜가 없음 |
-| 초안 상세 응답(수정·승인·되돌리기 응답) | 위 모양 그대로, 작성 교사 이름이 채워짐 | 모양은 같음. 작성 교사 이름(`author_name`)만 auth 조회 함수가 생기기 전까지 빈 문자열이고, `title`은 AI가 만들지 않아 `null` |
-| 게시 요청 | `request_id`·`include_photos`·`items[]` | `request_id`·`items[]`(`include_photos` 없음) |
-| 게시 건별 결과(둘 다 `draft_id`·`status`·`published_at`·`error_code` 있음) | `child_id`·`parent_note_id`·`version` 있음 | `publication_id`·`round_number`·`revoke_deadline` 있음 |
-| 학부모 응답의 `author_name` | 작성 교사 이름 | auth 조회 함수가 생기기 전까지 빈 문자열 |
-| 미분류 표시 | 반·날짜 목록의 `unclassified`에 UnclassifiedItem을 원아별로 붙임 | `UnclassifiedItem`은 `ref_type`·`ref_id`로만 대상을 가리킴. `child_id`·`record_date` 없음 |
-| 재생 URL | `media[]`·`photos`에 `{media_id, type, url, url_expires_at}` 서명 URL | media의 `get_playback_url`(PR #13)이 한 건씩 서명·만료 없는 URL 문자열을 줌. 초안·학부모 응답에 URL 필드 없음 |
-| 회수 | 경로만(`POST /api/v1/drafts/{draft_id}/revoke`, 화면 없음) | `POST /drafts/{draft_id}/revoke`의 요청·응답까지 있음. 게시 후 24시간 안, 학부모가 아직 보지 않았을 때만 회수. 회수하면 `revoked`가 되고 다시 게시하려면 재승인 |
-| 에러 코드 | 엔드포인트마다 정함(`DRAFT_VERSION_CONFLICT` 등) | 아직 없음. 버전이 다르면 409를 준다는 방침만 있음 |
+| 알림장 이름 | `parent_note`, `parent_note_id` | 경로·스키마는 맞췄고, 함수 이름 3곳에 `letter`가 남아 있음(`router.revoke_letter`, `service.list_letters_for_parent`·`get_letter_for_parent`). 용어표에서 쓰지 않는 말 |
+| 초안 `status` 값 | `draft`·`verified`·`approved`·`unclassified` | `draft`·`verified`·`approved`·`revoked`. `unclassified`는 #158 9번·#196에서 정함 |
+| 미분류 | 반·날짜 목록의 `unclassified`에 원아별 사유, 직접 작성하면 그 원아·날짜의 미분류 해소 | `unclassified`는 항상 `null`이고 해소도 하지 않음. agents가 미분류를 기록하지 않고(`_send_to_unclassified`가 빈 함수), `UnclassifiedItem`에 원아·날짜가 없음(#196) |
+| 작성 교사 이름 `author_name` | 교사용·학부모용 응답에 작성 교사 이름 | 빈 문자열. auth 조회 함수(`get_teacher_names`, 엄태은)가 생기면 채움 |
+| `title` | 응답 예시에 제목이 있음 | 항상 `null`. AI가 만들지 않고 저장할 칸도 없음(위 §정해 주셔야 할 것). 직접 작성도 `null`만 받음 |
+| 분석 못 한 사진 `failed_media_ids` | 교사 상세에 실음 | 응답에 없음. agents가 목록을 저장하면(사진 분석 연결 PR) 붙임 |
+| 회수 | 경로만(`POST /api/v1/drafts/{draft_id}/revoke`, 화면 없음) | 요청·응답 모양만 있고 서비스는 구현 전(`NotImplementedError` → 500). FE는 부르지 않음 |
 
-- [ ] 위 차이를 이 문서에 맞출지 develop에 맞출지(한상균. 재생 URL은 김동건과 함께). 기본 경로와 경로 이름은 이 문서에 맞췄습니다 — `main.py`가 `/api/v1`을 붙입니다(#136 리뷰 합의)
+- [ ] 남은 차이 정리(한상균). 기본 경로와 경로 이름은 이 문서에 맞췄습니다 — `main.py`가 `/api/v1`을 붙입니다(#136 리뷰 합의)
 
 ## 이 도메인의 규칙
 
