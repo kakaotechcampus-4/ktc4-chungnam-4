@@ -46,15 +46,14 @@
 
 ## develop 코드와 다른 점
 
-이 문서의 상세 작성 엔드포인트 10개는 모두 develop에 구현돼 있고, 요청·응답의 원본은 OpenAPI(`/docs`)입니다([README](README.md) §이 문서를 읽는 법). 아래는 지금 코드가 이 문서와 **아직 다른 곳만** 남깁니다(10/29 기준). PR #14 골격 기준으로 적었던 게시 요청(`include_photos`)·게시 건별 결과·서명 URL·에러 코드 행은 구현하면서 이 문서대로 맞춰져 지웠습니다.
+이 문서의 상세 작성 엔드포인트 10개는 모두 develop에 구현돼 있고, 요청·응답의 원본은 OpenAPI(로컬 서버의 `/docs`. `APP_ENV=production`이면 꺼짐)입니다([README](README.md) §이 문서를 읽는 법). 아래는 지금 코드가 이 문서와 **아직 다른 곳만** 남깁니다(10/29 기준). PR #14 골격 기준으로 적었던 게시 요청(`include_photos`)·게시 건별 결과·서명 URL·에러 코드 행은 구현하면서 이 문서대로 맞춰져 지웠습니다.
 
 | 항목 | 이 문서 | 지금 코드 |
 |---|---|---|
-| 알림장 이름 | `parent_note`, `parent_note_id` | 경로·스키마는 맞췄고, 함수 이름 3곳에 `letter`가 남아 있음(`router.revoke_letter`, `service.list_letters_for_parent`·`get_letter_for_parent`). 용어표에서 쓰지 않는 말 |
-| 초안 `status` 값 | `draft`·`verified`·`approved`·`unclassified` | `draft`·`verified`·`approved`·`revoked`. `unclassified`는 #158 9번·#196에서 정함 |
+| 알림장 이름 | `parent_note`, `parent_note_id` | 경로·스키마는 맞췄고, 함수·인자 이름과 OpenAPI 요약에 `letter`가 남아 있음(예: `router.revoke_letter` → 요약 "Revoke Letter", `service.get_letter_for_parent`의 `letter_id`). 용어표에서 쓰지 않는 말 |
+| 초안 `status` 값 | `draft`·`verified`·`approved`·`unclassified` | `draft`·`verified`·`approved`·`revoked`. `unclassified`를 상태값으로 둘지는 미정(#158 9번·#196) |
 | 미분류 | 반·날짜 목록의 `unclassified`에 원아별 사유, 직접 작성하면 그 원아·날짜의 미분류 해소 | `unclassified`는 항상 `null`이고 해소도 하지 않음. agents가 미분류를 기록하지 않고(`_send_to_unclassified`가 빈 함수), `UnclassifiedItem`에 원아·날짜가 없음(#196) |
 | 작성 교사 이름 `author_name` | 교사용·학부모용 응답에 작성 교사 이름 | 빈 문자열. auth 조회 함수(`get_teacher_names`, 엄태은)가 생기면 채움 |
-| `title` | 응답 예시에 제목이 있음 | 항상 `null`. AI가 만들지 않고 저장할 칸도 없음(위 §정해 주셔야 할 것). 직접 작성도 `null`만 받음 |
 | 분석 못 한 사진 `failed_media_ids` | 교사 상세에 실음 | 응답에 없음. agents가 목록을 저장하면(사진 분석 연결 PR) 붙임 |
 | 회수 | 경로만(`POST /api/v1/drafts/{draft_id}/revoke`, 화면 없음) | 요청·응답 모양만 있고 서비스는 구현 전(`NotImplementedError` → 500). FE는 부르지 않음 |
 
@@ -198,7 +197,7 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
   "record_date": "2026-09-15",
   "status": "verified",
   "version": 3,
-  "title": "작은 블록으로 큰 세상을 만들었어요",
+  "title": null,
   "sentences": [
     {
       "sentence_id": "s1",
