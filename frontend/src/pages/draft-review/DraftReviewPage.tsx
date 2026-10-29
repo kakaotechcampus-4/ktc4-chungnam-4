@@ -158,7 +158,31 @@ export function DraftReviewPage() {
     setConfirmed(false);
     setSelectedSentenceId(null);
     setEditing(null);
+    setAddedTexts([]);
     setNewText("");
+    // 빈 문장 안내도 그 원아의 편집에 딸린 것이라, 다른 원아로 넘어가면 지웁니다(#206 멘토님 리뷰).
+    setEmptyEdit(false);
+  }
+
+  // 화면의 원아·날짜가 바뀌면 그 원아에 딸린 상태를 비웁니다. 레일 클릭뿐 아니라 뒤로·앞으로 가기로
+  // 바뀔 때도 비워야 합니다. 문장 ID는 초안마다 s1부터 다시 시작해서, 남겨 두면 앞 원아에서 고치던
+  // 문장이 이 원아 초안에 저장되고 "사진과 본문을 확인했어요" 체크도 넘어옵니다(H-1). #206 멘토님 리뷰의
+  // 빈 문장 안내를 고치다가 같은 원인으로 찾은 경로입니다.
+  // effect를 기다리지 않고 렌더 중에 직전 값과 견줘 바로 비웁니다.
+  const shownKey = `${selectedChildId}|${recordDate}`;
+  const [lastShownKey, setLastShownKey] = useState(shownKey);
+  if (lastShownKey !== shownKey) {
+    setLastShownKey(shownKey);
+    resetDraftState();
+  }
+
+  // 같은 초안이라도 버전이 오르면(버전 충돌 뒤 새로 불러온 본문 등) 확인 체크를 다시 받습니다.
+  // reviewed는 최신 본문을 확인했다는 표시라, 보지 않은 본문이 체크된 채 승인되면 안 됩니다(H-1).
+  const shownVersion = `${draft?.draft_id ?? ""}|${draft?.version ?? ""}`;
+  const [lastShownVersion, setLastShownVersion] = useState(shownVersion);
+  if (lastShownVersion !== shownVersion) {
+    setLastShownVersion(shownVersion);
+    setConfirmed(false);
   }
 
   // 버전이 밀리면 화면이 든 version이 낡은 값입니다. 다시 받아 두지 않으면 교사가 다시 눌러도
@@ -175,9 +199,9 @@ export function DraftReviewPage() {
 
   // 자료가 없는 원아도 교사가 직접 써서 검토·승인할 수 있게 합니다.
   const createMutation = useMutation({
-    mutationFn: (input: { childId: string; text: string }) =>
+    mutationFn: (input: { childId: string; recordDate: string; text: string }) =>
       createDraft(input.childId, {
-        record_date: recordDate,
+        record_date: input.recordDate,
         doc_type: "parent_note",
         title: null,
         sentences: toSentences(input.text),
@@ -246,6 +270,8 @@ export function DraftReviewPage() {
     mutationFn: (input: {
       items: { draft_id: string; expected_version: number }[];
       includePhotos: boolean;
+      /** 요청에는 싣지 않습니다. 실패 문구를 그 날짜를 볼 때만 보여 주려고 함께 둡니다. */
+      recordDate: string;
     }) =>
       publishParentNotes({
         request_id: crypto.randomUUID(),
@@ -286,6 +312,22 @@ export function DraftReviewPage() {
     },
     onError: (error) => refetchOnVersionConflict(error),
   });
+
+  // 실패 문구는 그 원아·날짜를 보고 있을 때만 보여 줍니다. 요청 상태는 화면을 바꿔도 남아 있어서,
+  // 거르지 않으면 앞 원아의 저장·승인 실패가 다음 원아 화면에 그대로 뜹니다. 같은 원아로 돌아오면 다시
+  // 보여 줍니다 — 고치던 문장은 비워졌지만 저장되지 않았다는 것을 교사가 알 수 있게 둡니다.
+  // 게시는 반·날짜 단위라 날짜로만 거릅니다.
+  const errorOnShownDraft = (mutation: { error: Error | null; variables?: { draftId: string } }) =>
+    mutation.variables?.draftId === draft?.draft_id ? mutation.error : null;
+  const createVariables = createMutation.variables;
+  const createError =
+    createVariables?.childId === selectedChildId && createVariables.recordDate === recordDate
+      ? createMutation.error
+      : null;
+  const draftError = errorOnShownDraft(patchMutation) ?? errorOnShownDraft(reopenMutation);
+  const publishError =
+    publishMutation.variables?.recordDate === recordDate ? publishMutation.error : null;
+  const footerError = errorOnShownDraft(approveMutation) ?? publishError;
 
   if (classPending) {
     return (
@@ -353,7 +395,9 @@ export function DraftReviewPage() {
   const canPublish = publishTargets.length > 0 && !hasUnreviewedDraft;
 
   function selectChild(id: string) {
-    resetDraftState();
+    // 지금 원아를 다시 누르면 아무것도 하지 않습니다. 고치던 문장을 지우거나 같은 주소를 이력에 또 쌓지
+    // 않습니다. 다른 원아로 바뀔 때의 정리는 위의 렌더 중 비우기(shownKey)가 맡습니다.
+    if (id === selectedChildId) return;
     const query = searchParams.toString();
     navigate(`/t/today/review/${id}${query ? `?${query}` : ""}`);
   }
@@ -465,13 +509,15 @@ export function DraftReviewPage() {
                 placeholder="예) 지우가 블록을 쌓는 동안 옆에서 색을 골라 건네주었어요."
                 onChange={(event) => setNewText(event.target.value)}
               />
-              {createMutation.isError ? (
-                <p className="text-caption text-destructive">{failureText(createMutation.error)}</p>
+              {createError ? (
+                <p className="text-caption text-destructive">{failureText(createError)}</p>
               ) : null}
               <Button
                 className="self-start"
                 disabled={newText.trim() === "" || createMutation.isPending}
-                onClick={() => createMutation.mutate({ childId: selectedChildId, text: newText })}
+                onClick={() =>
+                  createMutation.mutate({ childId: selectedChildId, recordDate, text: newText })
+                }
               >
                 저장하기
               </Button>
@@ -603,10 +649,8 @@ export function DraftReviewPage() {
                     비어 있는 문장은 저장할 수 없어요. 내용을 채운 뒤 수정 완료를 눌러 주세요.
                   </p>
                 ) : null}
-                {patchMutation.isError || reopenMutation.isError ? (
-                  <p className="text-caption text-destructive">
-                    {failureText(patchMutation.error ?? reopenMutation.error)}
-                  </p>
+                {draftError ? (
+                  <p className="text-caption text-destructive">{failureText(draftError)}</p>
                 ) : null}
               </div>
             </>
@@ -619,10 +663,8 @@ export function DraftReviewPage() {
       <div className="mt-6 flex items-center justify-between border-t border-line pt-4">
         <p className="text-caption text-ink-muted">승인 전에는 학부모에게 공개되지 않아요.</p>
         <div className="flex items-center gap-4">
-          {approveMutation.isError || publishMutation.isError ? (
-            <p className="text-caption text-destructive">
-              {failureText(approveMutation.error ?? publishMutation.error)}
-            </p>
+          {footerError ? (
+            <p className="text-caption text-destructive">{failureText(footerError)}</p>
           ) : null}
           {/* 건별 실패는 HTTP 200 안에 섞여 오므로 isError로는 잡히지 않습니다.
               성공 수를 함께 알립니다 — 실패만 뜨면 나머지가 나갔는지 교사가 알 수 없습니다. */}
@@ -689,7 +731,7 @@ export function DraftReviewPage() {
         onConfirm={() => {
           setPublishFailures([]);
           setPublishedCount(0);
-          publishMutation.mutate({ items: publishable, includePhotos });
+          publishMutation.mutate({ items: publishable, includePhotos, recordDate });
         }}
       />
     </>
