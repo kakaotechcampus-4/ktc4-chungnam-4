@@ -13,6 +13,7 @@ from sqlalchemy.pool import StaticPool
 
 from core.base import Base
 from core.database import get_db
+from core.exceptions import StorageNotConfigured
 from domains.agents.models import SentenceEvidence
 from domains.auth.middleware import get_current_user
 from domains.auth.service import TeacherProfile
@@ -336,6 +337,26 @@ def test_고른_사진을_그_순서로_저장하고_서명_URL을_돌려준다(
     assert draft.selected_media_ids == [str(PHOTO_B), str(PHOTO_A)]
     # 그 원아·그 날짜의 고를 수 있는 사진 범위로 확인한다
     assert photos == [(draft.child_id, draft.record_date)]
+
+
+def test_응답을_만들다_실패하면_고친_문장도_이력도_남지_않는다(client, db, photos, monkeypatch):
+    draft = _draft(db)
+    draft.selected_media_ids = [str(PHOTO_A)]  # 응답에 서명 URL이 필요하다
+    db.commit()
+
+    def broken(db, media_ids):
+        raise StorageNotConfigured("파일 저장소에 접근할 수 없어요.")
+
+    monkeypatch.setattr(documents_service.media_service, "get_signed_urls", broken)
+
+    response = _patch(client, draft, sentences=[{"sentence_id": "s1", "text": "고친 문장"}])
+
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "STORAGE_NOT_CONFIGURED"
+    assert _stored(db, draft)[0] == ("s1", "s1 원래 문장", False)
+    assert _logs(db, draft) == []
+    db.refresh(draft)
+    assert draft.version == 3
 
 
 def test_빈_배열이면_사진을_모두_뺀다(client, db, photos):
