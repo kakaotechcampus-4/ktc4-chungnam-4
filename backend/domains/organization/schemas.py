@@ -6,9 +6,12 @@ ORM 모델을 그대로 응답하지 않고 화면에 필요한 필드만 옮깁
 
 from __future__ import annotations
 
+from datetime import date, datetime
+from enum import StrEnum
+from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StringConstraints
 
 
 class ClassItem(BaseModel):
@@ -62,3 +65,69 @@ class MyChildItem(BaseModel):
 class MyChildListResponse(BaseModel):
     items: list[MyChildItem]
     next_cursor: str | None = None
+
+
+class PlanType(StrEnum):
+    """교육 계획 종류 (FR-20, FR-21)."""
+
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
+
+
+class NuriDomain(StrEnum):
+    """누리과정 5영역 코드. 화면 이름(신체운동·건강 등)은 FE가 붙입니다."""
+
+    PHYSICAL = "physical"
+    COMMUNICATION = "communication"
+    SOCIAL = "social"
+    ART = "art"
+    NATURE = "nature"
+
+
+Weekday = Literal["mon", "tue", "wed", "thu", "fri"]
+PlanTitle = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+PlanGoal = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class EducationPlanItem(BaseModel):
+    """교육 계획 목록 항목과 단건. 작성 교사(`teacher_id`)는 화면에 쓰지 않아 싣지 않습니다."""
+
+    plan_id: UUID
+    class_id: UUID
+    plan_type: PlanType
+    start_date: date
+    end_date: date
+    title: str
+    goal: str
+    daily_activities: dict[Weekday, str]
+    domains: list[NuriDomain]
+    created_at: datetime
+    updated_at: datetime
+
+
+class EducationPlanListResponse(BaseModel):
+    items: list[EducationPlanItem]
+    # 반의 계획 수가 적어 지금은 항상 null입니다.
+    next_cursor: str | None = None
+
+
+class EducationPlanCreateRequest(BaseModel):
+    plan_type: PlanType
+    start_date: date
+    end_date: date
+    title: PlanTitle
+    goal: PlanGoal
+    daily_activities: dict[Weekday, str] = Field(default_factory=dict)
+    domains: list[NuriDomain] = Field(default_factory=list)
+
+
+class EducationPlanUpdateRequest(BaseModel):
+    """보낸 필드만 바꿉니다. 기간·종류처럼 서로 얽힌 조건은 합친 뒤 service가 확인합니다."""
+
+    plan_type: PlanType | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    title: PlanTitle | None = None
+    goal: PlanGoal | None = None
+    daily_activities: dict[Weekday, str] | None = None
+    domains: list[NuriDomain] | None = None
