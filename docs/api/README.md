@@ -145,7 +145,7 @@ sequenceDiagram
 | [media-face.md](media-face.md) | `PUT /api/v1/children/{child_id}/face-embedding` | 얼굴 정보 등록·갱신. 브라우저가 뽑은 벡터만 보냅니다(임시 결정(김동건)) |
 | [media-face.md](media-face.md) | `DELETE /api/v1/children/{child_id}/face-embedding` | 얼굴 정보 삭제. 파기는 DeletionLog에 남깁니다(임시 결정(김동건)) |
 | [media-face.md](media-face.md) | `GET /api/v1/media/{media_id}/transcript-segments` | 영상·음성의 서버 STT 발화. 끝날 때까지 폴링합니다(임시 결정(김동건)) |
-| [media-face.md](media-face.md) | `PATCH /api/v1/transcript-segments/{segment_id}` | 발화를 아이에게 연결·제외하고 화자·문장을 고칩니다(임시 결정(김동건)) |
+| [media-face.md](media-face.md) | `PATCH /api/v1/transcript-segments/{segment_id}` | 발화를 제외하고 화자·문장을 고칩니다(아이 연결은 파일 단위 `PUT child-links`, 10/29 #163)(임시 결정(김동건)) |
 | [agents.md](agents.md) | `POST /api/v1/classes/{class_id}/jobs` | (제안) 반·날짜의 초안 생성을 시작합니다. 전송이 끝나면 FE가 자동으로 부릅니다 |
 | [agents.md](agents.md) | `GET /api/v1/jobs/{job_id}` | 초안 생성 진행률과 원아별 결과. 2초마다 폴링합니다(제안) |
 | [documents.md](documents.md) | `GET /api/v1/classes/{class_id}/drafts?record_date=` | 반·날짜별 원아 초안 상태 목록. 레일과 게시 대상 고르기에 씁니다 |
