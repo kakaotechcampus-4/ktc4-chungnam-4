@@ -471,7 +471,7 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 - **업로드 시점**: 영상·음성은 처리 중(분류) 화면에서 바로 upload-urls → S3 PUT → ack까지 합니다(`features/classify/clip-upload.ts`). 귀속 저장(child-links)은 서버 전송 단계에서 합니다. 사진은 지금처럼 교사 확정 뒤에만 올립니다(H-3 그대로).
   - 영상·음성은 원래도 검수 없이 업로드 대상이라(`uploadTargets`, 테크스펙 ⑧) 올리는 **때**만 앞당깁니다.
   - 교사가 전송 전에 취소하면 올라간 영상·음성이 남습니다. 파기 규칙(흐름 F)에 넣을지 정해야 합니다.
-- **STT 시작**: 서버가 ack를 받으면 STT를 시작합니다. 지금 본문 체크리스트의 "STT를 어디서 시작할지(동기 vs Celery)"와 같은 질문입니다. 분류 결과 화면은 STT가 끝나야(`pending`이 없어야) 확인을 마칠 수 있고, `failed`면 발화 없이 넘어갑니다.
+- **STT 시작**: 서버가 ack를 받으면 Celery worker에서 STT를 시작합니다(본문 체크리스트, #185). 분류 결과 화면은 STT가 끝나야(`pending`이 없어야) 확인을 마칠 수 있고, `failed`면 발화 없이 넘어갑니다.
 - **발화 확인**: `TranscriptSegment`에 `text`(교사 수정), `speaker`, `child_ids`, `excluded`, `reviewed_at`을 더하자고 제안합니다(위 두 절). Figma 수동 분류 · 발화(1:3064)의 아이 연결·화자·문장 수정에 맞춘 것입니다.
 - 충돌하는 곳(받으면 같이 고칠 곳):
   - 테크스펙 흐름 표 C(C-3 STT가 업로드 구간 끝), 데이터 모델 ③ `TranscriptSegment` 필드, ⑧ 부근의 "음성 메모는 교사 검수 대상이 아닙니다"
