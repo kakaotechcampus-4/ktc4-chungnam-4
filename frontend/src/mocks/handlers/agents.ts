@@ -14,7 +14,7 @@ import { nextId, nowIso, readDb, updateDb } from "../db";
 import type { JobChildRecord, JobRecord, MediaRecord, MockDb } from "../db";
 import { nextEvidenceId, teacherEvidence } from "../fixtures/agents";
 import { buildDrafts } from "../fixtures/documents";
-import { SUNSHINE_CHILDREN } from "../fixtures/organization";
+import { FACE_CONSENTED_CHILD_IDS, SUNSHINE_CHILDREN } from "../fixtures/organization";
 import { requireTeacher, requireTeacherOfClass } from "../guards";
 import { apiPath, errorResponse, listResponse, validationError } from "../http";
 import { isMockScenario } from "../scenario";
@@ -22,6 +22,7 @@ import { isMockScenario } from "../scenario";
 // API 문서 §agents 목입니다. 서버 전송이 끝나면 FE가 POST /jobs를 한 번 부르고(#60 B안), GET /jobs/{job_id}를 폴링합니다.
 // - 폴링할 때마다 안 끝난 원아가 한 단계씩 나아갑니다(4번이면 끝). 2초 간격이면 약 8초입니다.
 // - 근거는 요청의 media_ids 가운데 그 원아에게 귀속되고 llm_allowed인 자료만 씁니다(김동건 님 #60 [must], 잠정).
+//   사진은 서버 collect_media_for_llm처럼 귀속 원아가 모두 ③ 동의일 때만 씁니다(H-2).
 //   근거가 없으면 미분류(insufficient_evidence)로 끝납니다. ③ 미동의 원아만 귀속된 사진이 여기에 해당합니다.
 // - 날짜 대조("이 반·날짜의 자료가 아닌 것")는 목에서 하지 않습니다. 시연 파일의 촬영일이 제각각이라서입니다.
 // 시나리오: agents.job-fails(첫 원아가 생성 단계에서 LLM_TIMEOUT으로 실패)
@@ -102,7 +103,9 @@ function finishChild(db: MockDb, job: JobRecord, child: JobChildRecord, now: str
       (media): media is MediaRecord =>
         media !== undefined &&
         media.llm_allowed &&
-        media.child_links.some((link) => link.child_id === child.child_id),
+        media.child_links.some((link) => link.child_id === child.child_id) &&
+        (media.type !== "photo" ||
+          media.child_links.every((link) => FACE_CONSENTED_CHILD_IDS.has(link.child_id))),
     );
   const sameDay = (item: { child_id: string; record_date: string }) =>
     item.child_id === child.child_id && item.record_date === job.record_date;

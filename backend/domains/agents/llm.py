@@ -1,14 +1,35 @@
+from collections.abc import Sequence
+
+import openai
 from openai import OpenAI
 
 from core.config import get_settings
+
+# 다시 부르면 풀릴 수 있는 호출 실패만 재시도 대상입니다 (테크스펙 예외 처리 표: "LLM 호출
+# 실패, 타임아웃"). 인증·요청 형식 오류는 다시 불러도 같아서 넣지 않습니다.
+# APITimeoutError는 APIConnectionError의 하위 클래스라 함께 잡힙니다.
+RETRYABLE_LLM_ERRORS: tuple[type[Exception], ...] = (
+    openai.APIConnectionError,
+    openai.RateLimitError,
+    openai.InternalServerError,
+)
 
 # 테크스펙엔 "Claude Sonnet 계열"이라고만 되어 있고, 나중에 모델명이 바뀔 수 있음
 # 게이트웨이의 모델 ID 형식(제공자/모델명)을 그대로 사용
 _MODEL = get_settings().anthropic_model
 
-# SDK 기본값(10분)이면 Celery soft_time_limit(180초)이 먼저 끊어 SDK 재시도가 돌지 못함
-# 1회 호출 상한을 둬서 느린 호출은 SDK가 끊고 다시 시도하게 함 (테크스펙 파이프라인 4단계)
+# SDK 기본값(10분)이면 Celery soft_time_limit(180초)이 먼저 끊어 버림
+# 1회 호출 상한을 둬서 느린 호출은 SDK가 끊고 오류로 올림 (테크스펙 파이프라인 4단계)
 _TIMEOUT_SECONDS = 30
+
+# 재시도는 Celery(tasks.py, 상한 2회) 한 곳에서만 함. SDK 기본 재시도(2회)를 두면 겹쳐서
+# 실패한 호출 한 지점에서 HTTP 요청이 최대 3×3=9번 나가고, Job.retry_count에는 Celery
+# 재시도만 남음 (#102 리뷰, 엄태은)
+_SDK_MAX_RETRIES = 0
+
+# 사진 분석 응답 상한. 스파이크에서 아이 4명 사진 1건이 1,618토큰까지 나와 1024로는 잘릴 수 있다
+# (#179 리뷰, 유진). 과금은 실제 출력 토큰 기준이라 상한을 올려도 평소 비용은 같다.
+_VISION_MAX_TOKENS = 2048
 
 
 def call_claude(prompt: str) -> str:
@@ -17,11 +38,40 @@ def call_claude(prompt: str) -> str:
         api_key=settings.anthropic_api_key.get_secret_value(),
         base_url=settings.llm_gateway_base_url,
         timeout=_TIMEOUT_SECONDS,
+        max_retries=_SDK_MAX_RETRIES,
     )
     response = client.chat.completions.create(
         model=_MODEL,
         max_tokens=1024,
         messages=[{"role": "user", "content": prompt}],
+    )
+    return response.choices[0].message.content
+
+
+def call_vision(instructions: str, image_urls: Sequence[str]) -> str | None:
+    """사진 분석 모델(GLM, 엘리스 ML API)을 부른다 (파이프라인 5단계, NFR-09).
+
+    image_urls는 prompts/perception의 images 순서대로 붙인다. 서명 URL(https)과
+    data URL(base64)을 모두 받는다 — 지금은 서버가 S3 서명 URL을 넘긴다.
+    본문이 없으면 None을 돌려준다. 파서가 응답 오류로 다룬다.
+
+    키는 Claude와 같은 캠퍼스 게이트웨이 키를 쓰고 주소·모델만 따로 둔다
+    (.env.example, #98). TODO(eun): 게이트웨이가 URL 이미지를 받지 않으면 S3에서 읽어
+    data URL로 바꾼다. HEIC는 모델이 읽지 못할 수 있어 JPEG 변환이 필요하다(Pillow, 팀 확인).
+    """
+    settings = get_settings()
+    client = OpenAI(
+        api_key=settings.anthropic_api_key.get_secret_value(),
+        base_url=settings.vision_gateway_base_url,
+        timeout=_TIMEOUT_SECONDS,
+        max_retries=_SDK_MAX_RETRIES,
+    )
+    content: list[dict] = [{"type": "text", "text": instructions}]
+    content += [{"type": "image_url", "image_url": {"url": url}} for url in image_urls]
+    response = client.chat.completions.create(
+        model=settings.vision_model,
+        max_tokens=_VISION_MAX_TOKENS,
+        messages=[{"role": "user", "content": content}],
     )
     return response.choices[0].message.content
 

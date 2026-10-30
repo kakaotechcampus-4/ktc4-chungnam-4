@@ -19,6 +19,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 
 from sqlalchemy import (
+    JSON,
+    Boolean,
     Column,
     Date,
     DateTime,
@@ -27,6 +29,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
 )
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -55,25 +58,25 @@ class DraftStatus(StrEnum):
     REVOKED는 게시된 것을 회수했다는 뜻이며, 재게시 전에 반드시 APPROVED로
     재전이(재승인)해야 한다 — "회수 후 수정 → 재승인 → 재게시" 규칙.
 
-    테크스펙 ERD의 값(draft/verified/approved/unclassified)과 다르다 — "verified"는
-    AI Critic 검증 통과 여부(별도로 agents.VerificationResult가 추적)라 교사
-    검토·승인 워크플로 상태와 축이 다르고, "unclassified"는 이 문서가
-    UnclassifiedItem으로 빠졌다는 뜻이라 상태값보다는 ref_type=draft_document인
-    UnclassifiedItem 존재 여부로 보는 쪽이 자연스럽다. 이 축소·차이도
-    docs/open-questions.md에 제안으로 남긴다.
+    VERIFIED는 agents가 검증을 통과한 초안을 저장한 상태(교사 검토 대기)다. 교사는
+    이 상태에서 수정·승인한다 (#75·#106). DRAFT는 생성·검증 중이라 화면이 잠근다.
+
+    테크스펙의 "unclassified"는 아직 값으로 두지 않는다 — 이 문서가 UnclassifiedItem으로
+    빠졌다는 뜻이라 ref_type=draft_document인 UnclassifiedItem 존재 여부로 보는 안과 함께
+    docs/open-questions.md에 남아 있다.
     """
 
     DRAFT = "draft"
-    IN_REVIEW = "in_review"
+    VERIFIED = "verified"
     APPROVED = "approved"
     REVOKED = "revoked"
 
 
 class DraftDocument(Base):
-    """관찰일지·알림장 초안 한 건.
+    """관찰일지·알림장 초안 한 건. 본문은 DraftSentence에 문장 단위로 저장한다 (#75).
 
     child_id·doc_type·record_date 조합당 하나만 유지한다 — AI 재생성은 새 행이
-    아니라 같은 행의 content·ai_version을 갱신하는 것으로 본다.
+    아니라 같은 행의 ai_version을 올리고 문장을 바꿔 넣는 것으로 본다.
     """
 
     __tablename__ = "draft_documents"
@@ -91,7 +94,6 @@ class DraftDocument(Base):
     doc_type = Column(String, nullable=False)
     record_date = Column(Date, nullable=False)
     status = Column(String, nullable=False, default=DraftStatus.DRAFT.value)
-    content = Column(Text, nullable=False, default="")
     # agents.EvidenceBundle 참조 — 근거 상세는 agents 도메인이 소유, 여기선 추적용 링크만 둔다.
     evidence_bundle_id = Column(UUID(as_uuid=True), nullable=True)
     # AI 생성 회차. tools/contracts.py DraftDocument.version과 대응 — 교사 수정 횟수와는 다르다.
@@ -103,6 +105,40 @@ class DraftDocument(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
     approved_at = Column(DateTime(timezone=True), nullable=True)
+    # 교사가 알림장에 고른 사진의 순서(media_id 문자열 배열). 그 원아·그 날짜에 LLM 근거로 쓸 수
+    # 있는 사진 중에서만 고른다(임시 결정(한상균), 테크스펙 ④) — 학부모에게 보일 사진 범위다.
+    selected_media_ids = Column(JSON, nullable=False, default=list, server_default="[]")
+
+
+class DraftSentence(Base):
+    """초안 본문의 문장 하나 (#75).
+
+    근거(agents.SentenceEvidence)와 교사 수정(RevisionLog)이 문장을 가리켜야 해서 본문을
+    문장 단위로 저장한다 — 합친 문자열을 다시 자르면 문장과 근거가 어긋난다.
+
+    문장은 순번이 아니라 sentence_id로 가리킨다. 순번이면 교사가 문장을 끼워 넣거나 지울 때
+    뒤 번호가 밀려 근거가 다른 문장을 가리킨다. AI 문장은 contracts.DraftSentence.sentence_id를
+    그대로 쓰고, 교사가 쓴 문장은 서버가 t1, t2…를 붙인다 (임시 결정(정은), #75).
+    """
+
+    __tablename__ = "draft_sentences"
+    __table_args__ = (
+        # sentence_id는 문서 안에서만 유일하다.
+        UniqueConstraint("draft_id", "sentence_id", name="uq_draft_sentence_id"),
+        UniqueConstraint("draft_id", "position", name="uq_draft_sentence_position"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    draft_id = Column(UUID(as_uuid=True), ForeignKey("draft_documents.id"), nullable=False)
+    sentence_id = Column(String, nullable=False)
+    # 표시 순서. 0부터 센다.
+    position = Column(Integer, nullable=False)
+    text = Column(Text, nullable=False)
+    # 교사가 직접 고친 문장("수정됨" 표시). 고친 문장의 근거 행은 지우지 않고 교사 응답에서만
+    # 비운다 — 나중에 재검증할 때 대조할 원래 근거가 있어야 한다 (#75).
+    is_edited_by_teacher = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
 
 
 class DocumentPublication(Base):
@@ -125,7 +161,7 @@ class DocumentPublication(Base):
 
     __tablename__ = "document_publications"
     __table_args__ = (
-        # 한 request_id로 여러 draft_id를 한 번에 게시하므로(POST /letters/publish),
+        # 한 request_id로 여러 draft_id를 한 번에 게시하므로(POST /publications),
         # 멱등 판단은 draft_id별로 해야 한다 — request_id 단독 유니크는 두 번째
         # draft부터 저장이 막힌다.
         UniqueConstraint("publish_request_id", "draft_id", name="uq_publication_request_draft"),
@@ -147,6 +183,8 @@ class DocumentPublication(Base):
     # (audit/CLAUDE.md — router 없음), 회수 가능 여부는 이 필드로 직접 판단한다.
     # "목록 조회는 상세 열람으로 취급하지 않는다" — 이 필드는 상세 열람 API에서만 채운다.
     first_viewed_at = Column(DateTime(timezone=True), nullable=True)
+    # 게시 확인 모달의 "사진도 함께 보내기"(반 전체에 한 번, 임시 결정(김진하)). false면 글만 간다.
+    include_photos = Column(Boolean, nullable=False, default=False, server_default=false())
 
 
 class RevisionAction(StrEnum):
@@ -156,6 +194,7 @@ class RevisionAction(StrEnum):
     APPROVE = "approve"
     REVOKE = "revoke"
     RESEND = "resend"
+    REOPEN = "reopen"  # 게시 전 승인 되돌리기 (임시 결정(한상균))
 
 
 class EditMethod(StrEnum):
@@ -182,8 +221,9 @@ class RevisionLog(Base):
     # edit_method=prompt일 때 교사가 입력한 요청문 원문. NFR-11(지적사항 반영 확인)·
     # NFR-10(페르소나 갱신)의 원천 데이터.
     instruction_prompt = Column(Text, nullable=True)
-    # 특정 문장만 수정한 경우 그 위치. 문서 전체 수정/승인/회수/재게시면 null.
-    target_sentence_index = Column(Integer, nullable=True)
+    # 특정 문장만 수정한 경우 그 문장의 DraftSentence.sentence_id. 문서 전체 수정/승인/
+    # 회수/재게시면 null. 순번은 문장을 끼워 넣거나 지우면 밀려서 ID로 가리킨다 (#75).
+    target_sentence_id = Column(String, nullable=True)
     # 문체다듬기/사실이다름 등. "사실이다름"은 사실 오류 지표 측정에 쓰인다.
     reason = Column(Text, nullable=True)
     before_content = Column(Text, nullable=True)

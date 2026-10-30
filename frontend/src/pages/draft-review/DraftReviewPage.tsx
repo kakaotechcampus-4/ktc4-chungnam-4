@@ -48,7 +48,10 @@ const PUBLISH_ERROR_LABEL_MAP: Record<string, string> = {
   DRAFT_NOT_APPROVED: "승인되지 않았어요",
   DRAFT_ALREADY_PUBLISHED: "이미 게시됐어요",
   DRAFT_NOT_FOUND: "초안을 찾을 수 없어요",
-  CLASS_ACCESS_DENIED: "담당 반이 아니에요",
+  // 서버는 초안의 원아로 권한을 보므로 CLASS_가 아니라 CHILD_로 옵니다
+  // (`_publish_one` → `_draft_for_teacher` → `ensure_child_access`).
+  CHILD_ACCESS_DENIED: "이 아이의 기록은 다룰 수 없어요",
+  CHILD_NOT_FOUND: "원아를 찾을 수 없어요",
   NOT_PARENT_NOTE: "알림장이 아니에요",
 };
 
@@ -59,7 +62,8 @@ function failureText(error: unknown) {
 }
 
 // 근거가 문장 단위로 붙어서 수정도 문장별 칸으로 받습니다. 한 칸으로 합치면 교사가 문장을
-// 합치거나 쪼갤 때 sentence_index가 어긋나 안 고친 문장의 근거까지 엉뚱한 곳에 붙습니다.
+// 합치거나 쪼갤 때 어느 문장(sentence_id)의 글인지 알 수 없어, 안 고친 문장의 근거까지
+// 엉뚱한 곳에 붙습니다.
 // 대신 칸의 테두리·그림자를 지워 읽을 때와 같은 한 덩어리 글로 보이게 합니다.
 // dark:bg-input/30은 Textarea 기본 클래스에 있고 변종이 달라 bg-transparent로 덮이지 않습니다.
 // 이 앱에는 다크 토큰이 없어서 OS가 다크면 그 칸만 색이 깔립니다. 그래서 같이 지웁니다.
@@ -118,11 +122,13 @@ export function DraftReviewPage() {
   });
 
   const [confirmed, setConfirmed] = useState(false);
-  const [selectedSentenceIndex, setSelectedSentenceIndex] = useState<number | null>(null);
-  /** 편집 중인 문장 텍스트(sentence_index → text). null이면 읽기 모드 */
-  const [editing, setEditing] = useState<Record<number, string> | null>(null);
+  const [selectedSentenceId, setSelectedSentenceId] = useState<string | null>(null);
+  /** 편집 중인 문장 텍스트(sentence_id → text). null이면 읽기 모드 */
+  const [editing, setEditing] = useState<Record<string, string> | null>(null);
   /** 편집 중 새로 쓴 문장. 저장할 때 added_sentences로 보냅니다. */
   const [addedTexts, setAddedTexts] = useState<string[]>([]);
+  /** 고친 문장을 비운 채 "수정 완료"를 누르면 저장하지 않고 이 안내를 보여 줍니다. */
+  const [emptyEdit, setEmptyEdit] = useState(false);
   /** 초안이 없는 원아에게 교사가 직접 쓰는 글 */
   const [newText, setNewText] = useState("");
   const [publishOpen, setPublishOpen] = useState(false);
@@ -130,10 +136,16 @@ export function DraftReviewPage() {
   const [excludedChildIds, setExcludedChildIds] = useState<Set<string>>(new Set());
   /** 선택 사진을 학부모에게 함께 보낼지. 기본은 보냄 */
   const [includePhotos, setIncludePhotos] = useState(true);
-  /** 게시가 건별로 실패한 결과. 하나라도 있으면 발행 완료로 넘어가지 않습니다. */
-  const [publishFailures, setPublishFailures] = useState<PublicationResultView[]>([]);
-  /** 같은 게시에서 성공한 인원. 실패만 알리면 나머지가 나갔는지 교사가 알 수 없습니다. */
-  const [publishedCount, setPublishedCount] = useState(0);
+  /**
+   * 게시가 건별로 실패한 결과와 같은 게시에서 성공한 인원. 실패가 하나라도 있으면 발행 완료로
+   * 넘어가지 않습니다. 성공 수도 함께 둡니다 — 실패만 알리면 나머지가 나갔는지 교사가 알 수 없습니다.
+   * 게시는 날짜 단위라 결과에 날짜를 같이 두고, 그 날짜를 볼 때만 보여 줍니다(#209 리뷰).
+   */
+  const [publishOutcome, setPublishOutcome] = useState<{
+    recordDate: string;
+    failures: PublicationResultView[];
+    publishedCount: number;
+  } | null>(null);
 
   const children = childrenQuery.data ?? [];
   const draftItems = draftsQuery.data ?? [];
@@ -150,9 +162,41 @@ export function DraftReviewPage() {
 
   function resetDraftState() {
     setConfirmed(false);
-    setSelectedSentenceIndex(null);
+    setSelectedSentenceId(null);
     setEditing(null);
+    setAddedTexts([]);
     setNewText("");
+    // 빈 문장 안내도 그 원아의 편집에 딸린 것이라, 다른 원아로 넘어가면 지웁니다(#206 멘토님 리뷰).
+    setEmptyEdit(false);
+  }
+
+  // 화면의 원아·날짜가 바뀌면 그 원아에 딸린 상태를 비웁니다. 레일 클릭뿐 아니라 뒤로·앞으로 가기로
+  // 바뀔 때도 비워야 합니다. 문장 ID는 초안마다 s1부터 다시 시작해서, 남겨 두면 앞 원아에서 고치던
+  // 문장이 이 원아 초안에 저장되고 "사진과 본문을 확인했어요" 체크도 넘어옵니다(H-1). #206 멘토님 리뷰의
+  // 빈 문장 안내를 고치다가 같은 원인으로 찾은 경로입니다.
+  // effect를 기다리지 않고 렌더 중에 직전 값과 견줘 바로 비웁니다.
+  const shownKey = `${selectedChildId}|${recordDate}`;
+  const [lastShownKey, setLastShownKey] = useState(shownKey);
+  if (lastShownKey !== shownKey) {
+    setLastShownKey(shownKey);
+    resetDraftState();
+  }
+
+  // 이번 게시에서 뺄 원아는 그 날짜의 게시에 딸린 선택이라, 날짜가 바뀌면 비웁니다. 원아만 바뀔 때는
+  // 같은 날짜의 게시 준비이므로 남깁니다(#209 리뷰).
+  const [lastPublishDate, setLastPublishDate] = useState(recordDate);
+  if (lastPublishDate !== recordDate) {
+    setLastPublishDate(recordDate);
+    setExcludedChildIds(new Set());
+  }
+
+  // 같은 초안이라도 버전이 오르면(버전 충돌 뒤 새로 불러온 본문 등) 확인 체크를 다시 받습니다.
+  // reviewed는 최신 본문을 확인했다는 표시라, 보지 않은 본문이 체크된 채 승인되면 안 됩니다(H-1).
+  const shownVersion = `${draft?.draft_id ?? ""}|${draft?.version ?? ""}`;
+  const [lastShownVersion, setLastShownVersion] = useState(shownVersion);
+  if (lastShownVersion !== shownVersion) {
+    setLastShownVersion(shownVersion);
+    setConfirmed(false);
   }
 
   // 버전이 밀리면 화면이 든 version이 낡은 값입니다. 다시 받아 두지 않으면 교사가 다시 눌러도
@@ -169,9 +213,9 @@ export function DraftReviewPage() {
 
   // 자료가 없는 원아도 교사가 직접 써서 검토·승인할 수 있게 합니다.
   const createMutation = useMutation({
-    mutationFn: (input: { childId: string; text: string }) =>
+    mutationFn: (input: { childId: string; recordDate: string; text: string }) =>
       createDraft(input.childId, {
-        record_date: recordDate,
+        record_date: input.recordDate,
         doc_type: "parent_note",
         title: null,
         sentences: toSentences(input.text),
@@ -203,7 +247,7 @@ export function DraftReviewPage() {
     mutationFn: (input: {
       draftId: string;
       version: number;
-      sentences: { sentence_index: number; text: string }[];
+      sentences: { sentence_id: string; text: string }[];
       addedSentences: { text: string }[];
     }) =>
       patchDraft(input.draftId, {
@@ -240,13 +284,15 @@ export function DraftReviewPage() {
     mutationFn: (input: {
       items: { draft_id: string; expected_version: number }[];
       includePhotos: boolean;
+      /** 요청에는 싣지 않습니다. 실패 문구를 그 날짜를 볼 때만 보여 주려고 함께 둡니다. */
+      recordDate: string;
     }) =>
       publishParentNotes({
         request_id: crypto.randomUUID(),
         include_photos: input.includePhotos,
         items: input.items,
       }),
-    onSuccess: async (results) => {
+    onSuccess: async (results, variables) => {
       // 게시하면 published_at과 include_photos가 정해집니다. 비워 두지 않으면 알림장 상세가
       // 게시 전 캐시(include_photos가 null)를 읽어 사진을 뺀 게시본에도 사진을 보여 줍니다.
       // 원아별 목록(알림장 목록·상세의 ‹ ›)도 함께 비웁니다. 안 비우면 게시판에는 있는데
@@ -270,9 +316,13 @@ export function DraftReviewPage() {
       ]);
       // 게시는 HTTP 200 안에서 건별로 성공·실패가 옵니다. 실패를 두고 발행 완료로 넘어가면
       // "전달했어요"만 보여서 교사가 못 올린 원아를 영영 모릅니다. 그래서 남아서 알립니다.
+      // 결과에는 요청 때의 날짜를 둡니다. 응답을 기다리는 사이 다른 날짜로 옮겨도 그 날짜에 뜨지 않습니다.
       const failures = results.filter((result) => !isPublished(result));
-      setPublishFailures(failures);
-      setPublishedCount(results.length - failures.length);
+      setPublishOutcome({
+        recordDate: variables.recordDate,
+        failures,
+        publishedCount: results.length - failures.length,
+      });
       if (failures.length > 0) return;
       navigate("/t/notes/publish/done", {
         state: { publishedCount: results.length },
@@ -280,6 +330,24 @@ export function DraftReviewPage() {
     },
     onError: (error) => refetchOnVersionConflict(error),
   });
+
+  // 실패 문구는 그 원아·날짜를 보고 있을 때만 보여 줍니다. 요청 상태는 화면을 바꿔도 남아 있어서,
+  // 거르지 않으면 앞 원아의 저장·승인 실패가 다음 원아 화면에 그대로 뜹니다. 같은 원아로 돌아오면 다시
+  // 보여 줍니다 — 고치던 문장은 비워졌지만 저장되지 않았다는 것을 교사가 알 수 있게 둡니다.
+  // 게시는 반·날짜 단위라 날짜로만 거릅니다.
+  const errorOnShownDraft = (mutation: { error: Error | null; variables?: { draftId: string } }) =>
+    mutation.variables?.draftId === draft?.draft_id ? mutation.error : null;
+  const createVariables = createMutation.variables;
+  const createError =
+    createVariables?.childId === selectedChildId && createVariables.recordDate === recordDate
+      ? createMutation.error
+      : null;
+  const draftError = errorOnShownDraft(patchMutation) ?? errorOnShownDraft(reopenMutation);
+  const publishError =
+    publishMutation.variables?.recordDate === recordDate ? publishMutation.error : null;
+  // HTTP 200 안에 섞여 오는 건별 실패도 같은 기준으로 그 날짜에서만 보여 줍니다.
+  const shownPublishOutcome = publishOutcome?.recordDate === recordDate ? publishOutcome : null;
+  const footerError = errorOnShownDraft(approveMutation) ?? publishError;
 
   if (classPending) {
     return (
@@ -304,7 +372,7 @@ export function DraftReviewPage() {
   /** 실패를 알릴 때 id 대신 이름을 보여 줍니다. 못 찾으면 빈 문자열이라 사유 코드로 갈음합니다. */
   const nameOf = (id: string | null) => children.find((child) => child.child_id === id)?.name ?? "";
   const selectedSentence =
-    draft?.sentences.find((sentence) => sentence.sentence_index === selectedSentenceIndex) ?? null;
+    draft?.sentences.find((sentence) => sentence.sentence_id === selectedSentenceId) ?? null;
   // 게시 전 초안이라 교사가 고른 사진을 그대로 보여 줍니다. 게시본을 되짚어 보는 화면은
   // adapter의 sentPhotos를 써서 실제로 나간 사진만 봅니다.
   const photos = selectedPhotos(draft);
@@ -347,7 +415,9 @@ export function DraftReviewPage() {
   const canPublish = publishTargets.length > 0 && !hasUnreviewedDraft;
 
   function selectChild(id: string) {
-    resetDraftState();
+    // 지금 원아를 다시 누르면 아무것도 하지 않습니다. 고치던 문장을 지우거나 같은 주소를 이력에 또 쌓지
+    // 않습니다. 다른 원아로 바뀔 때의 정리는 위의 렌더 중 비우기(shownKey)가 맡습니다.
+    if (id === selectedChildId) return;
     const query = searchParams.toString();
     navigate(`/t/today/review/${id}${query ? `?${query}` : ""}`);
   }
@@ -357,21 +427,30 @@ export function DraftReviewPage() {
     if (editing === null) {
       // 고치기 전 문장을 보고 눌러 둔 체크입니다. 수정이 끝나면 다시 확인해야 합니다.
       setConfirmed(false);
-      setSelectedSentenceIndex(null);
+      setSelectedSentenceId(null);
       setEditing(
         Object.fromEntries(
-          draft.sentences.map((sentence) => [sentence.sentence_index, sentence.text]),
+          draft.sentences.map((sentence) => [sentence.sentence_id, sentence.text]),
         ),
       );
       setAddedTexts([]);
+      setEmptyEdit(false);
       return;
     }
-    const changed = draft.sentences.flatMap((sentence) => {
-      const text = editing[sentence.sentence_index];
-      return text !== undefined && text !== sentence.text
-        ? [{ sentence_index: sentence.sentence_index, text }]
-        : [];
+    // 고친 문장도 새 문장처럼 앞뒤 공백을 지운 값으로 비교하고 보냅니다(#170 리뷰). 끝 공백이나
+    // 줄바꿈만 달라진 문장은 고친 것으로 보지 않아 근거가 끊기지 않습니다. 공백만 남은 문장은
+    // 정하지 않은 "문장 삭제"와 같아서 저장하지 않습니다.
+    const edited = draft.sentences.flatMap((sentence) => {
+      const text = editing[sentence.sentence_id];
+      return text === undefined ? [] : [{ sentence, text: text.trim() }];
     });
+    if (edited.some(({ text }) => text === "")) {
+      setEmptyEdit(true);
+      return;
+    }
+    const changed = edited.flatMap(({ sentence, text }) =>
+      text !== sentence.text.trim() ? [{ sentence_id: sentence.sentence_id, text }] : [],
+    );
     const added = addedTexts
       .map((text) => text.trim())
       .filter((text) => text !== "")
@@ -450,13 +529,15 @@ export function DraftReviewPage() {
                 placeholder="예) 지우가 블록을 쌓는 동안 옆에서 색을 골라 건네주었어요."
                 onChange={(event) => setNewText(event.target.value)}
               />
-              {createMutation.isError ? (
-                <p className="text-caption text-destructive">{failureText(createMutation.error)}</p>
+              {createError ? (
+                <p className="text-caption text-destructive">{failureText(createError)}</p>
               ) : null}
               <Button
                 className="self-start"
                 disabled={newText.trim() === "" || createMutation.isPending}
-                onClick={() => createMutation.mutate({ childId: selectedChildId, text: newText })}
+                onClick={() =>
+                  createMutation.mutate({ childId: selectedChildId, recordDate, text: newText })
+                }
               >
                 저장하기
               </Button>
@@ -492,17 +573,18 @@ export function DraftReviewPage() {
                   <>
                     {draft.sentences.map((sentence) => (
                       <Textarea
-                        key={sentence.sentence_index}
-                        value={editing[sentence.sentence_index] ?? sentence.text}
+                        key={sentence.sentence_id}
+                        value={editing[sentence.sentence_id] ?? sentence.text}
                         rows={1}
                         className={EDIT_FIELD_CLASS}
                         aria-label="초안 문장 수정"
-                        onChange={(event) =>
+                        onChange={(event) => {
+                          setEmptyEdit(false);
                           setEditing((prev) => ({
                             ...prev,
-                            [sentence.sentence_index]: event.target.value,
-                          }))
-                        }
+                            [sentence.sentence_id]: event.target.value,
+                          }));
+                        }}
                       />
                     ))}
                     {addedTexts.map((text, index) => (
@@ -534,24 +616,24 @@ export function DraftReviewPage() {
                     // 교사가 직접 쓴 글과 교사가 고친 문장(서버가 근거를 끊음)이 여기에 해당합니다.
                     sentence.evidences.length === 0 ? (
                       <p
-                        key={sentence.sentence_index}
+                        key={sentence.sentence_id}
                         className="text-lead whitespace-pre-line text-ink"
                       >
                         {sentence.text}
                       </p>
                     ) : (
                       <button
-                        key={sentence.sentence_index}
+                        key={sentence.sentence_id}
                         type="button"
                         // 올리기만 해도 옆 근거 상세가 바뀝니다. 벗어나도 되돌리지 않아야
                         // 근거를 읽는 동안 패널이 비지 않습니다. 클릭·키보드 초점도 같습니다.
-                        onMouseEnter={() => setSelectedSentenceIndex(sentence.sentence_index)}
-                        onFocus={() => setSelectedSentenceIndex(sentence.sentence_index)}
-                        onClick={() => setSelectedSentenceIndex(sentence.sentence_index)}
-                        aria-pressed={sentence.sentence_index === selectedSentenceIndex}
+                        onMouseEnter={() => setSelectedSentenceId(sentence.sentence_id)}
+                        onFocus={() => setSelectedSentenceId(sentence.sentence_id)}
+                        onClick={() => setSelectedSentenceId(sentence.sentence_id)}
+                        aria-pressed={sentence.sentence_id === selectedSentenceId}
                         className={cn(
                           "block text-left text-lead whitespace-pre-line text-ink underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50",
-                          sentence.sentence_index === selectedSentenceIndex && "underline",
+                          sentence.sentence_id === selectedSentenceId && "underline",
                         )}
                       >
                         {sentence.text}
@@ -582,34 +664,37 @@ export function DraftReviewPage() {
                     다시 검토하기
                   </button>
                 ) : null}
-                {patchMutation.isError || reopenMutation.isError ? (
+                {emptyEdit ? (
                   <p className="text-caption text-destructive">
-                    {failureText(patchMutation.error ?? reopenMutation.error)}
+                    비어 있는 문장은 저장할 수 없어요. 내용을 채운 뒤 수정 완료를 눌러 주세요.
                   </p>
+                ) : null}
+                {draftError ? (
+                  <p className="text-caption text-destructive">{failureText(draftError)}</p>
                 ) : null}
               </div>
             </>
           )}
         </section>
 
-        <EvidencePanel sentence={selectedSentence} onClose={() => setSelectedSentenceIndex(null)} />
+        <EvidencePanel sentence={selectedSentence} onClose={() => setSelectedSentenceId(null)} />
       </div>
 
       <div className="mt-6 flex items-center justify-between border-t border-line pt-4">
         <p className="text-caption text-ink-muted">승인 전에는 학부모에게 공개되지 않아요.</p>
         <div className="flex items-center gap-4">
-          {approveMutation.isError || publishMutation.isError ? (
-            <p className="text-caption text-destructive">
-              {failureText(approveMutation.error ?? publishMutation.error)}
-            </p>
+          {footerError ? (
+            <p className="text-caption text-destructive">{failureText(footerError)}</p>
           ) : null}
           {/* 건별 실패는 HTTP 200 안에 섞여 오므로 isError로는 잡히지 않습니다.
               성공 수를 함께 알립니다 — 실패만 뜨면 나머지가 나갔는지 교사가 알 수 없습니다. */}
-          {publishFailures.length > 0 ? (
+          {shownPublishOutcome && shownPublishOutcome.failures.length > 0 ? (
             <p className="text-caption text-destructive">
-              {publishedCount > 0 ? `${String(publishedCount)}명은 게시했고, ` : ""}
-              {publishFailures.length}명은 게시하지 못했어요 —{" "}
-              {publishFailures
+              {shownPublishOutcome.publishedCount > 0
+                ? `${String(shownPublishOutcome.publishedCount)}명은 게시했고, `
+                : ""}
+              {shownPublishOutcome.failures.length}명은 게시하지 못했어요 —{" "}
+              {shownPublishOutcome.failures
                 .map(
                   (failure) =>
                     `${nameOf(failure.child_id) || "원아"}: ${
@@ -666,9 +751,8 @@ export function DraftReviewPage() {
         includePhotos={includePhotos}
         onIncludePhotosChange={setIncludePhotos}
         onConfirm={() => {
-          setPublishFailures([]);
-          setPublishedCount(0);
-          publishMutation.mutate({ items: publishable, includePhotos });
+          setPublishOutcome(null);
+          publishMutation.mutate({ items: publishable, includePhotos, recordDate });
         }}
       />
     </>
