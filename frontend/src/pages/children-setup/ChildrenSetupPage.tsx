@@ -32,13 +32,18 @@ function faceGuide(child: ClassChildView) {
 function ChildSetupCard({ child }: ChildSetupCardProps) {
   const base = `/t/children/${child.child_id}`;
   const locked = faceStatus(child) === "locked";
+  const consent = consentSummary(child.consent_agreed_count, child.consent_total);
 
   return (
     <li className="flex flex-col gap-4 rounded-2xl bg-paper p-6">
       <h2 className="text-h3 font-bold text-ink">{child.name}</h2>
       <p className="flex gap-3 text-label text-ink-muted">
-        <span>{consentSummary(child.consent_agreed_count, child.consent_total)}</span>
-        <span aria-hidden="true">·</span>
+        {consent ? (
+          <>
+            <span>{consent}</span>
+            <span aria-hidden="true">·</span>
+          </>
+        ) : null}
         <span>{FACE_STATUS_LABEL_MAP[faceStatus(child)]}</span>
       </p>
       <div className="flex gap-3">
@@ -101,12 +106,20 @@ export function ChildrenSetupPage() {
   }
 
   const children = childrenQuery.data;
+  // 동의 수를 모르는 원아가 있으면 '동의 완료 N명'을 셀 수 없어 빼고 보여 줍니다.
+  const consentKnown = children?.every(
+    (c) => c.consent_agreed_count !== null && c.consent_total !== null,
+  );
   const subtitle = children
     ? [
         `원아 ${children.length}명`,
-        `동의 완료 ${children.filter((c) => c.consent_agreed_count === c.consent_total).length}명`,
+        consentKnown
+          ? `동의 완료 ${children.filter((c) => c.consent_agreed_count === c.consent_total).length}명`
+          : null,
         `얼굴 정보 등록 ${children.filter((c) => faceStatus(c) === "registered").length}명`,
-      ].join(" · ")
+      ]
+        .filter((part) => part !== null)
+        .join(" · ")
     : undefined;
 
   return (
