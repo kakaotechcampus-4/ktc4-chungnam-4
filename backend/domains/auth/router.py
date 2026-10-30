@@ -20,14 +20,35 @@ from domains.auth.middleware import (
     set_session_cookie,
 )
 from domains.auth.schemas import (
+    AccountCreateRequest,
     MeResponse,
     SessionCreateRequest,
     SessionResponse,
+    TeacherMeResponse,
     to_me_response,
 )
 
 # 베이스 경로 /api/v1은 main.py에서 붙입니다. 라우터에는 리소스 경로만 둡니다.
 router = APIRouter(tags=["auth"])
+
+
+@router.post("/accounts", status_code=HTTPStatus.CREATED, response_model=TeacherMeResponse)
+def create_account(
+    body: AccountCreateRequest,
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+) -> TeacherMeResponse:
+    """교사 회원가입 (FR-23·FR-24). 가입하면 바로 로그인 쿠키를 내려 줘 온보딩으로 이어 갑니다."""
+    signed_up = service.sign_up_teacher(
+        db,
+        email=body.email,
+        password=body.password,
+        name=body.name,
+        center_code=body.center_code,
+        new_center=body.to_new_center(),
+    )
+    set_session_cookie(response, service.create_access_token(signed_up.account))
+    return to_me_response(signed_up.profile)
 
 
 @router.post("/sessions", status_code=HTTPStatus.CREATED, response_model=SessionResponse)
