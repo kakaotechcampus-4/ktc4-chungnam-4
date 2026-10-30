@@ -138,6 +138,7 @@ def test_교육_계획을_등록하면_goal로_돌려주고_작성_교사를_남
         {"domains": ["art", "art"]},
         {"domains": ["music"]},
         {"daily_activities": {"sat": "소풍"}},
+        {"daily_activities": {"mon": "  "}},  # 비운 요일은 키를 뺍니다
         {"title": "   "},
     ],
 )

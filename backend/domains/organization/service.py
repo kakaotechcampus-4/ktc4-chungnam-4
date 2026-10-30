@@ -381,6 +381,8 @@ class ActivityPlanSummary:
 
     계획은 "했다"가 아니라 "하려던 것"입니다 — 관찰 사실로 쓰지 않는 규칙은 agents 프롬프트에
     있습니다. 작성 교사(`teacher_id`)는 넘기지 않습니다(LLM 입력에 교사 정보를 넣지 않음, H-2).
+    `title`·`goal`·`daily_activities`는 교사가 쓴 자유 텍스트라 원아 실명이 들어 있을 수 있습니다 —
+    LLM에 넣기 전에 실명 치환(`tools/generation/pseudonymize.py`)을 거쳐야 합니다 (H-2, #210 리뷰).
     """
 
     plan_id: UUID
@@ -433,7 +435,9 @@ def get_activity_plans_for_date(
 @dataclass(frozen=True)
 class TeacherPersonaSummary:
     """교사 문체 프로필의 최신 버전. agents가 `context_lookup["teacher_persona"]`에 넣습니다
-    (NFR-07). 교사 실명은 담지 않습니다 — 페르소나에는 문체만 둡니다 (organization/CLAUDE.md)."""
+    (NFR-07). 교사 실명은 담지 않습니다 — 페르소나에는 문체만 둡니다 (organization/CLAUDE.md).
+    `sample_phrases`·`style_rules`는 교사 글에서 뽑은 문장이라 원아 실명이 섞일 수 있어, LLM에
+    넣기 전에 실명 치환을 거쳐야 합니다 (H-2, #210 리뷰)."""
 
     persona_id: UUID
     version: int

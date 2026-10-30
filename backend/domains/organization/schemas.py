@@ -87,6 +87,8 @@ class NuriDomain(StrEnum):
 Weekday = Literal["mon", "tue", "wed", "thu", "fri"]
 PlanTitle = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 PlanGoal = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+# 요일별 놀이 한 칸. 비운 요일은 값을 빈 문자열로 두지 않고 키를 뺍니다(FE plan-form-schema).
+DailyActivity = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
 class EducationPlanItem(BaseModel):
@@ -117,7 +119,7 @@ class EducationPlanCreateRequest(BaseModel):
     end_date: date
     title: PlanTitle
     goal: PlanGoal
-    daily_activities: dict[Weekday, str] = Field(default_factory=dict)
+    daily_activities: dict[Weekday, DailyActivity] = Field(default_factory=dict)
     domains: list[NuriDomain] = Field(default_factory=list)
 
 
@@ -129,5 +131,5 @@ class EducationPlanUpdateRequest(BaseModel):
     end_date: date | None = None
     title: PlanTitle | None = None
     goal: PlanGoal | None = None
-    daily_activities: dict[Weekday, str] | None = None
+    daily_activities: dict[Weekday, DailyActivity] | None = None
     domains: list[NuriDomain] | None = None
