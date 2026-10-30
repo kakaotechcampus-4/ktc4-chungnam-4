@@ -70,6 +70,8 @@ WHERE에 넣는다 — rowcount가 곧 판단 결과다.
 - 열람: first_viewed_at 갱신과 audit.record_access() 호출을 같은 트랜잭션에서
   커밋한 뒤에 본문을 응답한다. audit 기록이 실패하면 응답도 실패해야 한다
   (audit/CLAUDE.md — "기록 실패가 본 작업을 조용히 통과시키면 안 된다").
+- 교사 쓰기(직접 작성·수정·승인·되돌리기): 응답을 다 만든 뒤에 커밋하고, 응답 준비가
+  실패하면 쓰기도 롤백한다(_commit_with_detail).
 
 권한 검사는 이 UPDATE들과 별개다: 위 rowcount 조건은 "게시 상태가 유효한가"만
 확인하고, "이 교사가 이 초안의 검수 권한이 있는가"·"이 학부모가 이 원아에 대한
@@ -580,8 +582,7 @@ def create_draft(
         )
         for position, sentence in enumerate(request.sentences)
     )
-    db.commit()
-    return _teacher_detail(db, draft.id)
+    return _commit_with_detail(db, draft.id)
 
 
 def update_draft(
@@ -651,8 +652,7 @@ def update_draft(
         )
         logs.append(_edit_log(draft_id, teacher_id, sentence_id, None, added.text))
     db.add_all(logs)
-    db.commit()
-    return _teacher_detail(db, draft_id)
+    return _commit_with_detail(db, draft_id)
 
 
 def _ensure_selectable_photos(db: Session, draft: DraftDocument, media_ids: Sequence[UUID]) -> None:
@@ -732,7 +732,7 @@ def approve_draft(
         action=RevisionAction.APPROVE,
         wrong_status=lambda _: DraftNotApprovable("검토 대기 중인 초안만 승인할 수 있습니다."),
     )
-    return _teacher_detail(db, draft_id)
+    return _commit_with_detail(db, draft_id)
 
 
 def reopen_draft(
@@ -762,7 +762,7 @@ def reopen_draft(
             DraftAlreadyPublished("게시한 알림장은 회수한 뒤에 고칠 수 있습니다."),
         ),
     )
-    return _teacher_detail(db, draft_id)
+    return _commit_with_detail(db, draft_id)
 
 
 def _draft_for_teacher(db: Session, draft_id: UUID, center_id: UUID | None) -> DraftDocument:
@@ -792,8 +792,9 @@ def _change_status(
     """초안 상태를 바꾸는 유일한 곳 (documents/CLAUDE.md "상태 전이는 한 함수에서만").
 
     버전 검사와 상태 갱신을 _claim_version의 UPDATE 한 문장으로 하고, 같은 트랜잭션에서
-    RevisionLog를 남긴 뒤 커밋한다. 둘이 함께여야 재생성 거부·get_draft_version이 교사가
-    손댄 문서를 알아본다(_has_teacher_edits).
+    RevisionLog를 남긴다. 둘이 함께여야 재생성 거부·get_draft_version이 교사가 손댄 문서를
+    알아본다(_has_teacher_edits). 커밋하지 않는다 — 부르는 쪽이 _commit_with_detail로
+    응답까지 만든 뒤에 커밋한다.
     """
     approved_at = datetime.now(UTC) if to_status == DraftStatus.APPROVED else None
     _claim_version(
@@ -806,7 +807,6 @@ def _change_status(
         unless_exists=unless_exists,
     )
     db.add(RevisionLog(draft_id=draft_id, editor_id=teacher_id, action=action.value))
-    db.commit()
 
 
 def _claim_version(
@@ -862,6 +862,22 @@ def _signed_media(db: Session, media_ids: Sequence[UUID]) -> list[MediaUrl]:
         )
         for signed in media_service.get_signed_urls(db, media_ids)
     ]
+
+
+def _commit_with_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
+    """교사용 상세 응답을 다 만든 뒤에 커밋한다 — 직접 작성·수정·승인·되돌리기가 함께 쓴다.
+
+    응답을 만들다(서명 URL 등) 실패하면 롤백해 상태·버전·이력도 그대로 둔다. 먼저 커밋하면
+    반영은 됐는데 화면에는 실패로 보이고, 다시 누르면 버전이 이미 올라 있어 409가 난다
+    (#206 멘토 리뷰). 커밋 전이라도 같은 트랜잭션이라 방금 쓴 값을 읽는다.
+    """
+    try:
+        detail = _teacher_detail(db, draft_id)
+    except Exception:
+        db.rollback()
+        raise
+    db.commit()
+    return detail
 
 
 def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:

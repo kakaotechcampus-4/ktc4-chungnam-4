@@ -13,9 +13,11 @@ from sqlalchemy.pool import StaticPool
 
 from core.base import Base
 from core.database import get_db
+from core.exceptions import StorageNotConfigured
 from domains.agents.models import SentenceEvidence
 from domains.auth.middleware import get_current_user
 from domains.auth.service import ParentProfile, TeacherProfile
+from domains.documents import service as documents_service
 from domains.documents.models import (
     DocType,
     DocumentPublication,
@@ -125,6 +127,51 @@ def test_검토_대기_초안을_승인하면_상세_모양으로_돌려주고_�
     assert [s["sentence_id"] for s in body["sentences"]] == ["s1", "s2"]
     assert db.scalar(select(RevisionLog.editor_id)) == TEACHER_ID
     assert _actions(db, draft) == [RevisionAction.APPROVE.value]
+
+
+def _break_photo_signing(
+    db: Session, draft: DraftDocument, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """응답에 서명 URL이 필요한 사진을 고르고, 서명을 저장소 설정 문제로 실패하게 한다."""
+    draft.selected_media_ids = [str(uuid.uuid4())]
+    db.commit()
+
+    def broken(db, media_ids):
+        raise StorageNotConfigured("파일 저장소에 접근할 수 없어요.")
+
+    monkeypatch.setattr(documents_service.media_service, "get_signed_urls", broken)
+
+
+def test_응답을_만들다_실패하면_승인하지_않고_같은_버전으로_다시_승인할_수_있다(
+    client, db, monkeypatch
+):
+    center_id, draft = _draft(db)
+    _login_as_teacher(center_id)
+    _break_photo_signing(db, draft, monkeypatch)
+
+    response = _approve(client, draft)
+
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "STORAGE_NOT_CONFIGURED"
+    db.refresh(draft)
+    assert (draft.status, draft.version, draft.approved_at) == ("verified", 3, None)
+    assert _actions(db, draft) == []
+
+    monkeypatch.setattr(documents_service.media_service, "get_signed_urls", lambda db, ids: [])
+    assert _approve(client, draft).status_code == 200  # 버전이 그대로라 409가 나지 않는다
+
+
+def test_되돌리다가_응답을_만들지_못하면_승인_상태를_그대로_둔다(client, db, monkeypatch):
+    center_id, draft = _draft(db, DraftStatus.APPROVED)
+    _login_as_teacher(center_id)
+    _break_photo_signing(db, draft, monkeypatch)
+
+    response = client.post(f"/api/v1/drafts/{draft.id}/reopen", json={"expected_version": 3})
+
+    assert response.status_code == 500
+    db.refresh(draft)
+    assert (draft.status, draft.version) == ("approved", 3)
+    assert _actions(db, draft) == []
 
 
 def test_승인한_초안은_AI_재생성이_덮어쓰지_않는다(client, db):
