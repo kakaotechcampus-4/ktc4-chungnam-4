@@ -569,6 +569,15 @@ describe("얼굴 정보", () => {
     expect(Object.keys(requests[0] as object).sort()).toEqual(["embedding", "model_version"]);
   });
 
+  // 동의·등록 상태 조회 API가 아직 없습니다. 고정 예시 값을 두면 등록하지 않은 원아도 "등록됨"으로 보입니다.
+  it("서버 값이 없는 동안에는 예시 등록 상태를 보이지 않는다", async () => {
+    renderAt(`/t/children/${DOYUN}/face`);
+
+    await screen.findByRole("button", { name: "얼굴 정보 등록 · 갱신" });
+    expect(screen.queryByText(/등록됨 ·/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/동의 3 \/ 3/)).not.toBeInTheDocument();
+  });
+
   it("등록 전에는 칸마다 사진을 뺄 수 있다", async () => {
     const user = userEvent.setup();
     renderAt(`/t/children/${DOYUN}/face`);
