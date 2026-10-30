@@ -137,8 +137,41 @@ auth의 상세 작성 엔드포인트는 3개입니다. 교사·학부모 공용
 
 | 메서드·경로 | 하는 일 | 단계 | BE 담당 |
 |---|---|---|---|
-| `POST /api/v1/accounts` | 교사 회원가입 | 경로만 | 엄태은(`center_code` 검증은 이한나) |
+| `POST /api/v1/accounts` | 교사 회원가입 | 구현(아래 §교사 회원가입) | 엄태은(`center_code` 검증은 이한나) |
 | `POST /api/v1/password-resets` | 비밀번호 재설정 링크 보내기 | 경로만 | 엄태은 |
 | `PATCH /api/v1/me` | 내 계정 정보 고치기 | 경로만 | 엄태은 |
 | `POST /api/v1/sessions` | `remember_me`(로그인 유지) 추가 | 확장(경로만) | 엄태은 |
 | `GET /api/v1/me` | `onboarding_step`(온보딩 진행 단계) 추가 | 확장(경로만) | 엄태은 |
+
+### 교사 회원가입 `POST /api/v1/accounts`
+
+요청·응답은 FE 가입 화면(1단계 이메일·비밀번호, 2단계 교사 정보)에 맞춰 정했습니다 → 임시 결정(엄태은). 코드가 생겼으므로 원본은 `/docs`의 OpenAPI입니다.
+
+- 1단계와 2단계를 **"가입 완료하기"에서 한 번에** 보냅니다(`docs/api/organization.md` 교사 정보 입력 항목). 1단계 값은 FE가 들고 있다가 2단계에서 함께 보냅니다. 그래서 FE 임시 경로 `PUT /teachers/me/profile`은 만들지 않았습니다.
+- 소속은 `center_code`(가입 코드)와 `new_center`(직접 등록) 중 **정확히 하나**입니다. 둘 다 오거나 둘 다 없으면 422 `VALIDATION_ERROR`입니다.
+
+```json
+{
+  "email": "new.teacher@example.com",
+  "password": "example-password",
+  "name": "김하늘",
+  "center_code": "ABCD2345"
+}
+```
+
+```json
+{
+  "email": "new.teacher@example.com",
+  "password": "example-password",
+  "name": "김하늘",
+  "new_center": { "name": "햇살어린이집", "address": "충남 천안시 …" }
+}
+```
+
+- 응답 `201`: `GET /me`의 교사 응답(`TeacherMe`)과 같은 모양입니다. 로그인 쿠키도 함께 내려 줘, 바로 반 고르기(`/onboarding/class`)로 이어 갑니다.
+- 계정·교사·어린이집은 한 트랜잭션입니다. 어린이집을 못 만들면 계정도 남지 않습니다. 어린이집 생성은 organization의 `create_center`를 부릅니다(`POST /centers`는 HTTP 경로가 없음, #212).
+- 에러:
+  - `ACCOUNT_ALREADY_EXISTS` (409) — 이 이메일(대소문자 무시)로 이미 가입됨. 로그인과 달리 가입은 이유를 알려야 로그인·비밀번호 찾기로 갈 수 있어 구분합니다.
+  - `CENTER_NOT_FOUND` (404) — 없는 가입 코드. 계정을 만들지 않습니다. 가입 코드는 계정 존재 여부가 아니라서 구분해도 됩니다(`auth/CLAUDE.md`).
+  - `VALIDATION_ERROR` (422) — 위 소속 조합, 빈 이름, 이메일 형식(`@` 앞뒤가 있는지만), 72바이트를 넘는 비밀번호(bcrypt가 조용히 자르지 않게).
+- 미정: 비밀번호 규칙(길이·조합)은 스펙에 없어 FE처럼 비었는지만 봅니다. 이메일 인증(가입 확인 메일)도 하지 않습니다.
