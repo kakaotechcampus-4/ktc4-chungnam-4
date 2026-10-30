@@ -58,6 +58,10 @@ class MediaAsset(Base):
     thumbnail_url = Column(String, nullable=True)  # 목록용 정지 이미지
     derivative_state = Column(String, nullable=True)  # pending / ready / failed
 
+    # 영상·음성의 STT 진행 상태 (파이프라인 1-B). 사진은 null. 완료 통지 때 pending으로 만들고
+    # worker가 done/failed로 바꿉니다. 실패 사유는 저장하지 않고 로그에만 남깁니다 (10/30 김동건).
+    transcript_status = Column(String, nullable=True)  # pending / done / failed
+
 
 class MediaUpload(Base):
     """브라우저에 업로드 URL을 내준 기록 (파일당 1행, 테크스펙 데이터 모델 ③).
