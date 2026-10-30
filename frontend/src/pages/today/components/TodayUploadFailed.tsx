@@ -40,7 +40,7 @@ const ACTION_CLASS =
   "rounded-xs text-nav outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50";
 
 // FR-15. 완료된 자료는 두고 실패한 파일만 다시 올립니다. 형식이 안 맞는 파일은 다시 시도해도 실패하므로 제외만 둡니다.
-// TODO(정은): 업로드 큐(Zustand) PR에서 TodayPage에 연결합니다. 지금은 props로만 그립니다.
+// TodayPage가 업로드 큐에서 형식이 안 맞아 빠진 파일(rejected)을 넘깁니다.
 export function TodayUploadFailed({
   total,
   failures,

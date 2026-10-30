@@ -25,6 +25,18 @@ describe("업로드 큐", () => {
     expect(mediaKindOf("memo.pdf")).toBeNull();
   });
 
+  it("형식이 안 맞는 파일은 이름만 한 번 남기고, 제외하거나 비우면 사라진다", () => {
+    const queue = useUploadQueue.getState();
+    queue.addFiles([file("memo.pdf"), file("a.jpg")]);
+    queue.addFiles([file("memo.pdf"), file("notes.zip")]);
+
+    expect(useUploadQueue.getState().rejected).toEqual(["memo.pdf", "notes.zip"]);
+    queue.removeRejected("memo.pdf");
+    expect(useUploadQueue.getState().rejected).toEqual(["notes.zip"]);
+    queue.reset();
+    expect(useUploadQueue.getState().rejected).toEqual([]);
+  });
+
   it("불러오기는 세 개씩 진행되고, 전부 100이면 끝난다", () => {
     const queue = useUploadQueue.getState();
     queue.addFiles([file("a.jpg"), file("b.jpg"), file("c.jpg"), file("d.jpg")]);

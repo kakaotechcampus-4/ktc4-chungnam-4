@@ -1,8 +1,9 @@
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http } from "msw";
 
 import { organizationKeys } from "@/api/organization";
+import { useUploadQueue } from "@/features/upload-queue/upload-queue-store";
 import { fixtureId } from "@/mocks/fixtures/ids";
 import { apiPath, errorResponse, listResponse } from "@/mocks/http";
 import { server } from "@/mocks/server";
@@ -42,7 +43,47 @@ function mockDrafts(items: ClassDraftItem[]) {
   server.use(http.get(apiPath("/classes/:classId/drafts"), () => listResponse(items)));
 }
 
+function dropFiles(files: File[]) {
+  fireEvent.drop(screen.getByRole("heading", { name: "오늘은 어떤 순간이 있었나요?" }), {
+    dataTransfer: { files },
+  });
+}
+
 describe("TodayPage", () => {
+  afterEach(() => useUploadQueue.getState().reset());
+
+  it("파일을 끌어다 놓으면 업로드 중으로 바뀌고, 취소하면 빈 상태로 돌아간다", async () => {
+    const user = userEvent.setup();
+    renderRoute(<TodayPage />);
+    await screen.findByRole("heading", { name: "아직 담긴 순간이 없어요" });
+
+    dropFiles([new File(["x"], "IMG_0001.jpg"), new File(["x"], "VID_0001.mp4")]);
+
+    expect(screen.getByRole("heading", { name: "이 기기로 불러오는 중이에요" })).toBeVisible();
+    expect(screen.getByText("사진 1장 중 0장")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "취소하고 돌아가기" }));
+    expect(useUploadQueue.getState().items).toEqual([]);
+    expect(
+      await screen.findByRole("heading", { name: "아직 담긴 순간이 없어요" }),
+    ).toBeInTheDocument();
+  });
+
+  it("형식이 안 맞는 파일만 놓으면 업로드 실패를 보여 주고, 제외하면 빈 상태로 돌아간다", async () => {
+    const user = userEvent.setup();
+    renderRoute(<TodayPage />);
+    await screen.findByRole("heading", { name: "아직 담긴 순간이 없어요" });
+
+    dropFiles([new File(["x"], "활동기록.zip")]);
+
+    expect(screen.getByRole("heading", { name: "올리지 못한 파일이 있어요" })).toBeVisible();
+    expect(screen.getByText("1개는 지원하지 않는 형식이에요.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /다시 시도/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "활동기록.zip 목록에서 제외" }));
+    expect(
+      await screen.findByRole("heading", { name: "아직 담긴 순간이 없어요" }),
+    ).toBeInTheDocument();
+  });
+
   it("빈 상태에서 자료 올리기로 보낸다", async () => {
     renderRoute(<TodayPage />);
 

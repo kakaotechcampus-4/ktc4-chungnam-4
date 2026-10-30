@@ -7,15 +7,14 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import {
   ACCEPTED_EXTENSIONS,
-  IMPORT_TICK_AMOUNT,
-  IMPORT_TICK_MS,
   isImportDone,
   useUploadQueue,
 } from "@/features/upload-queue/upload-queue-store";
-import { useInterval } from "@/lib/use-interval";
+import { useImportTicker } from "@/features/upload-queue/use-import-ticker";
 import { cn } from "@/lib/utils";
 
 import { ImportList } from "./components/ImportList";
+import { RejectedList } from "./components/RejectedList";
 
 const GUIDES = [
   {
@@ -33,20 +32,18 @@ const GUIDES = [
 ];
 
 // FR-15. 고른 자료를 이 기기로 불러옵니다. 서버로는 아직 보내지 않습니다 — 교사가 확인한 것만 처리 중 화면에서 보냅니다(H-3).
-// TODO(정은): 형식이 안 맞는 파일은 지금 조용히 빠집니다. 업로드 실패 화면(1:2520)과 연결할 때 안내합니다.
+// 형식이 안 맞는 파일은 담지 않고 드롭존 아래에 이름을 알려 줍니다.
 export function UploadPage() {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const items = useUploadQueue((state) => state.items);
+  const rejected = useUploadQueue((state) => state.rejected);
   const addFiles = useUploadQueue((state) => state.addFiles);
-  const advanceImport = useUploadQueue((state) => state.advanceImport);
+  const removeRejected = useUploadQueue((state) => state.removeRejected);
   const done = isImportDone(items);
 
-  useInterval(
-    () => advanceImport(IMPORT_TICK_AMOUNT),
-    items.length > 0 && !done ? IMPORT_TICK_MS : null,
-  );
+  useImportTicker();
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -99,6 +96,9 @@ export function UploadPage() {
             />
           </div>
 
+          {rejected.length > 0 ? (
+            <RejectedList fileNames={rejected} onRemove={removeRejected} />
+          ) : null}
           {items.length > 0 ? <ImportList items={items} /> : null}
         </div>
 
