@@ -48,16 +48,51 @@ export function toUploadUrlsBody(input: UploadUrlsInput): UploadUrlsRequest {
   };
 }
 
+// 쓸 수 없는 응답이면 상태 값만 남깁니다(H-4). 긴 문자열·객체가 콘솔에 통째로 남지 않게 줄입니다.
+function warnUnusableUploadTicket(status: unknown): "unknown" {
+  console.warn(
+    "쓸 수 없는 업로드 URL 응답",
+    typeof status === "string" ? status.slice(0, 32) : typeof status,
+  );
+  return "unknown";
+}
+
+// 상태마다 서버가 채우는 값이 다릅니다(API 문서 §media, 서버 UploadUrlResponseItem). 그 값이 빠졌거나
+// 비어 있으면 화면이 쓸 수 없는 응답이라 unknown으로 바꾸고, 값을 지어 채우지 않습니다. null만 보지 않고
+// 값이 있는지를 보는 것은, 키가 빠지거나 빈 문자열이 오면 빈 주소로 PUT하게 되기 때문입니다.
+// 서버 타입에 상태가 늘면 여기서 컴파일 에러가 납니다.
 function toUploadTicketView(raw: UploadUrlItem): UploadTicketView {
-  return {
-    client_photo_id: raw.client_photo_id,
-    status: raw.status,
-    media_id: raw.media_id,
-    upload_url: raw.upload_url,
-    upload_headers: raw.upload_headers === null ? null : { ...raw.upload_headers },
-    upload_url_expires_at: raw.upload_url_expires_at,
-    error: raw.error === null ? null : { code: raw.error.code, message: raw.error.message },
-  };
+  const base = { client_photo_id: raw.client_photo_id };
+  switch (raw.status) {
+    case "issued":
+      if (raw.upload_url && raw.upload_headers && raw.upload_url_expires_at) {
+        return {
+          ...base,
+          status: "issued",
+          upload_url: raw.upload_url,
+          upload_headers: { ...raw.upload_headers },
+          upload_url_expires_at: raw.upload_url_expires_at,
+        };
+      }
+      break;
+    case "registered":
+      if (raw.media_id) return { ...base, status: "registered", media_id: raw.media_id };
+      break;
+    case "error":
+      if (raw.error) {
+        return {
+          ...base,
+          status: "error",
+          error: { code: raw.error.code, message: raw.error.message },
+        };
+      }
+      break;
+    default: {
+      const unexpected: never = raw.status;
+      return { ...base, status: warnUnusableUploadTicket(unexpected) };
+    }
+  }
+  return { ...base, status: warnUnusableUploadTicket(raw.status) };
 }
 
 export function toUploadUrlsView(raw: UploadUrlsResponse): UploadUrlsView {
