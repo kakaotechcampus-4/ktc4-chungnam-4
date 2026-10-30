@@ -6,9 +6,12 @@ ORM 모델을 그대로 응답하지 않고 화면에 필요한 필드만 옮깁
 
 from __future__ import annotations
 
+from datetime import date
+from enum import StrEnum
+from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, StringConstraints
 
 
 class ClassItem(BaseModel):
@@ -62,3 +65,75 @@ class MyChildItem(BaseModel):
 class MyChildListResponse(BaseModel):
     items: list[MyChildItem]
     next_cursor: str | None = None
+
+
+class AgeBand(StrEnum):
+    """연령 구분 코드. 표시용 `age_group`과 나눕니다 (docs/api/organization.md, 임시 결정(이한나))."""
+
+    INFANT = "infant"  # 만 0~2세, 표준보육과정
+    PRESCHOOL = "preschool"  # 만 3~5세, 누리과정
+
+
+NonBlankName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class ClassSummary(BaseModel):
+    """반 고르기 카드 한 개 (`GET /centers/{center_id}/classes`, `POST /classes`)."""
+
+    class_id: UUID
+    center_id: UUID
+    center_name: str
+    name: str
+    age_group: str
+    age_band: AgeBand
+    child_count: int
+    # TODO(이한나): 교사별 즐겨찾기를 저장할 곳이 아직 없어 항상 false입니다.
+    is_favorite: bool = False
+    # TODO(이한나): 오늘 기록 여부는 media·documents 데이터라 어느 도메인이 줄지 정해지면 채웁니다.
+    needs_record_today: bool = False
+
+
+class ClassSummaryListResponse(BaseModel):
+    items: list[ClassSummary]
+    next_cursor: str | None = None
+
+
+class ClassCreateRequest(BaseModel):
+    center_id: UUID
+    name: NonBlankName
+    age_band: AgeBand
+
+
+class ChildCreateRequest(BaseModel):
+    """원아 등록 본문. `class_id`는 경로와 같아야 합니다(FE가 수정과 같은 본문을 씀)."""
+
+    name: NonBlankName
+    birth_date: date
+    class_id: UUID
+
+
+class ConsentItem(BaseModel):
+    consent_type: str
+    agreed: bool
+
+
+class ChildDetail(BaseModel):
+    """원아 한 명 상세 (원아 추가·수정 화면). 지금은 원아 등록 응답에서만 씁니다."""
+
+    child_id: UUID
+    class_id: UUID
+    name: str
+    birth_date: date
+    age_group: str
+    consent_agreed_count: int
+    consent_total: int
+    is_face_registered: bool
+    face_feature_agreed: bool
+    face_photo_count: int
+    parent_linked: bool
+    class_name: str
+    consents: list[ConsentItem]
+    consent_checked_at: date | None
+    consent_checked_by: str | None
+    month_record_count: int
+    today_note_sent: bool

@@ -26,7 +26,7 @@
 
 ## 이 도메인의 규칙
 
-organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. 교사의 반 목록, 반 원아 명단, 학부모의 자녀 목록입니다. 반·원아·동의를 만들거나 바꾸는 엔드포인트는 모두 경로만 정했습니다.
+organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. 교사의 반 목록, 반 원아 명단, 학부모의 자녀 목록입니다. 온보딩의 반 고르기·반 만들기·원아 등록은 아래 §② 화면용으로 채운 엔드포인트의 모양대로 구현했습니다. 그 밖에 반·원아·동의를 만들거나 바꾸는 엔드포인트는 경로만 정했습니다.
 
 ## 상세 작성 엔드포인트
 
@@ -245,6 +245,10 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 | `PATCH /classes/{class_id}/favorite` **(추가)** | `{ "is_favorite": true }` | `200 ClassSummary` | `CLASS_NOT_FOUND`(404) |
 
 - 반 선택 화면의 `center_id`는 `GET /me`(교사)의 `center_id`를 씁니다.
+- 구현: `GET /centers/{center_id}/classes`, `POST /classes`. 소속이 아닌 어린이집(소속이 없는 교사 포함)은 403 `CENTER_ACCESS_DENIED`입니다 → 임시 결정(이한나). 다른 어린이집이 있는지 없는지는 알려 주지 않습니다.
+- `POST /classes`는 담당교사 폐지로 담임 배정을 하지 않고 만든 교사만 `Klass.teacher_id`에 남깁니다. 표시용 `age_group`은 `infant` → "만 0~2세", `preschool` → "만 3~5세"로 채웁니다 → 임시 결정(이한나). 같은 이름의 반은 막지 않습니다. `POST /classes/{class_id}/assign`은 담당교사 폐지로 만들지 않았습니다.
+- `ClassSummary`의 `is_favorite`·`needs_record_today`는 아직 항상 `false`입니다(즐겨찾기 저장소 없음, 오늘 기록 여부는 media·documents 데이터).
+- `POST /centers`는 HTTP 경로 없이 service 함수 `create_center`만 만들었습니다. 교사 소속 저장(auth)과 한 트랜잭션이어야 해서 `POST /accounts`(엄태은)가 부릅니다. 계약 상태는 `trial`로 시작합니다(FR-24). 가입 코드는 대문자·숫자 8자리(헷갈리는 0·O·1·I 제외)로 서버가 발급합니다 → 임시 결정(이한나), #158 3번에서 정해지면 바꿉니다.
 
 ### 원아
 
@@ -254,6 +258,8 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 | `GET /children/{child_id}` | — | `200 ChildDetail` | `CHILD_NOT_FOUND`(404) |
 | `PATCH /children/{child_id}` | `{ "name", "birth_date", "class_id" }` | `200 ChildDetail` | `CHILD_NOT_FOUND`(404) |
 | `GET /children/{child_id}/overview` **(임시 경로)** | — | `200 ChildOverview` | `CHILD_NOT_FOUND`(404) |
+
+- 구현: `POST /classes/{class_id}/children`. 재원(`enrolled`)·입소일 오늘(KST)로 만들고, 응답의 동의·얼굴·기록 값은 모두 빈 상태입니다. 본문 `class_id`가 경로와 다르거나 `birth_date`가 오늘 이후면 422 `VALIDATION_ERROR`입니다 → 임시 결정(이한나). 없는 반 404 `CLASS_NOT_FOUND`, 다른 어린이집 반 403 `CLASS_ACCESS_DENIED`.
 
 `ChildOverview` — 원아 개인 페이지의 최근 알림장과 누리과정 5영역별 기록 수
 
@@ -302,11 +308,11 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 | 메서드·경로 | 하는 일 | 단계 | BE 담당 |
 |---|---|---|---|
 | `GET /api/v1/centers?center_code=` | 가입 코드로 어린이집 찾기 | 경로만 | 이한나 |
-| `POST /api/v1/centers` | 어린이집 새로 등록 | 경로만 | 이한나 |
-| `GET /api/v1/centers/{center_id}/classes` | 어린이집의 반 목록(반 고르기) | 경로만 | 이한나 |
-| `POST /api/v1/classes` | 반 만들기 | 경로만 | 이한나 |
+| `POST /api/v1/centers` | 어린이집 새로 등록 | service 함수만(auth 가입에서 호출) | 이한나 |
+| `GET /api/v1/centers/{center_id}/classes` | 어린이집의 반 목록(반 고르기) | 구현 | 이한나 |
+| `POST /api/v1/classes` | 반 만들기 | 구현 | 이한나 |
 | `POST /api/v1/classes/{class_id}/assign` | 그 반의 담임으로 배정 | 경로만 | 이한나 |
-| `POST /api/v1/classes/{class_id}/children` | 원아 등록 | 경로만 | 이한나 |
+| `POST /api/v1/classes/{class_id}/children` | 원아 등록 | 구현 | 이한나 |
 | `PATCH /api/v1/children/{child_id}` | 원아 정보 수정 | 경로만 | 이한나 |
 | `GET /api/v1/classes/{class_id}/children` | `?status=`, 동의·얼굴 등록(`is_face_registered`)·보호자 연결 필드 추가 | 확장(경로만) | 이한나 |
 | `GET /api/v1/children/{child_id}` | 원아 한 명 상세 | 경로만 | 이한나 |

@@ -366,6 +366,13 @@ class CenterNotFound(AidamError):
     status_code = 404
 
 
+class CenterAccessDenied(AidamError):
+    """교사가 소속되지 않은 어린이집입니다. 소속이 없는 교사도 여기에 걸립니다."""
+
+    code = "CENTER_ACCESS_DENIED"
+    status_code = 403
+
+
 class RequestValidationFailed(AidamError):
     """요청 값의 조합이 맞지 않습니다. 필드 하나의 형식 오류는 Pydantic이 422로 막고,
     이 예외는 서비스가 판단하는 조합 조건에 씁니다 (테크스펙 §공통 API 규약 VALIDATION_ERROR)."""

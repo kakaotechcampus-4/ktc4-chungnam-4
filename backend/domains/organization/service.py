@@ -4,21 +4,24 @@ face·media·agents는 organization 테이블(Child·ConsentRecord 등)을 직�
 이 함수들을 부릅니다 (backend/CLAUDE.md 계층 규칙). 동의 규칙이 바뀌어도 이 파일
 한 곳만 고치면 되도록 판정을 여기로 모읍니다 (#105, FR-04, H-2, H-3).
 
-조회만 하므로 커밋·flush하지 않습니다.
+판정·조회 함수는 커밋·flush하지 않습니다. 커밋은 온보딩 쓰기 함수(반 만들기·원아 등록)만
+합니다. 어린이집 만들기는 auth 가입 트랜잭션 안에서 불리므로 flush까지만 합니다.
 """
 
 from __future__ import annotations
 
+import secrets
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import ColumnElement, Exists, select
+from sqlalchemy import ColumnElement, Exists, func, select
 from sqlalchemy.orm import Session
 
 from core.exceptions import (
+    CenterAccessDenied,
     CenterNotFound,
     ChildAccessDenied,
     ChildAccessExpired,
@@ -26,6 +29,7 @@ from core.exceptions import (
     ChildNotInClass,
     ClassAccessDenied,
     ClassNotFound,
+    RequestValidationFailed,
 )
 from domains.organization.models import (
     Center,
@@ -35,10 +39,17 @@ from domains.organization.models import (
     ParentChildRelation,
 )
 from domains.organization.schemas import (
+    AgeBand,
+    ChildCreateRequest,
+    ChildDetail,
     ClassChildItem,
     ClassChildListResponse,
+    ClassCreateRequest,
     ClassItem,
     ClassListResponse,
+    ClassSummary,
+    ClassSummaryListResponse,
+    ConsentItem,
     MyChildItem,
     MyChildListResponse,
 )
@@ -363,4 +374,185 @@ def list_my_children(
             )
             for row in rows
         ]
+    )
+
+
+# 원아 동의 항목 전체. 원아 상세의 동의 목록은 이 순서로 줍니다 (organization/CLAUDE.md).
+CONSENT_TYPES = ("personal_info", "activity_media", "face_feature")
+CONTRACT_STATUS_TRIAL = "trial"
+# 반 만들기 화면의 2택 문구를 표시용 age_group으로 씁니다 (FE types/api-draft/organization.ts AgeBand).
+_AGE_GROUP_LABELS = {AgeBand.INFANT: "만 0~2세", AgeBand.PRESCHOOL: "만 3~5세"}
+# 가입 코드 문자 — 헷갈리는 0/O, 1/I를 뺀 대문자·숫자. TODO(이한나): 임시 결정, #158 3번에서
+#   길이·문자셋·재발급 여부가 정해지면 _new_center_code만 고칩니다.
+_CENTER_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+_CENTER_CODE_LENGTH = 8
+_CENTER_CODE_ATTEMPTS = 5
+
+
+@dataclass(frozen=True)
+class CreatedCenter:
+    """새로 만든 어린이집. auth는 `center_id`를 교사 소속으로 저장하고, 화면은 `center_code`를
+    다른 교사에게 알려 줄 가입 코드로 보여 줍니다."""
+
+    center_id: UUID
+    name: str
+    center_code: str
+
+
+def _new_center_code(db: Session) -> str:
+    """겹치지 않는 가입 코드를 만듭니다. 몇 번 시도해도 겹치면 서버 오류로 둡니다(코드 공간이 큼)."""
+    for _ in range(_CENTER_CODE_ATTEMPTS):
+        code = "".join(secrets.choice(_CENTER_CODE_ALPHABET) for _ in range(_CENTER_CODE_LENGTH))
+        if db.scalar(select(Center.id).where(Center.center_code == code)) is None:
+            return code
+    raise RuntimeError("어린이집 가입 코드를 만들지 못했습니다.")
+
+
+def create_center(
+    db: Session, *, name: str, address: str | None, created_by_teacher_id: UUID | None
+) -> CreatedCenter:
+    """교사가 직접 어린이집을 등록합니다 (FR-24). 가입 코드는 서버가 발급합니다 (FR-23).
+
+    교사 회원가입에서 auth가 부릅니다 — 교사 소속(`center_id`) 저장은 auth 몫이라, 같은
+    트랜잭션으로 묶을 수 있게 커밋하지 않고 flush까지만 합니다. 계약 상태는 `trial`로 시작하고
+    가입 흐름에서 올리지 않습니다 (organization/CLAUDE.md).
+    TODO(이한나): 같은 어린이집 중복 등록 검증(open-questions 78행)은 #158 3번과 함께 정합니다.
+    """
+    clean_name = name.strip()
+    if not clean_name:
+        raise RequestValidationFailed("어린이집 이름이 비어 있습니다.")
+    center = Center(
+        center_code=_new_center_code(db),
+        name=clean_name,
+        address=(address or "").strip() or None,
+        contract_status=CONTRACT_STATUS_TRIAL,
+        created_by_teacher_id=created_by_teacher_id,
+    )
+    db.add(center)
+    db.flush()
+    return CreatedCenter(center_id=center.id, name=center.name, center_code=center.center_code)
+
+
+def _ensure_own_center(center_id: UUID, teacher_center_id: UUID | None) -> None:
+    """교사가 소속된 어린이집인지 확인합니다. 다른 어린이집이 있는지 없는지는 알려 주지 않습니다.
+
+    - 소속이 아니거나 소속이 없음: `CenterAccessDenied` (403 `CENTER_ACCESS_DENIED`)
+    """
+    if teacher_center_id is None or center_id != teacher_center_id:
+        raise CenterAccessDenied("이 어린이집에 접근할 권한이 없습니다.")
+
+
+def _class_summaries(db: Session, *class_filter: ColumnElement[bool]) -> list[ClassSummary]:
+    child_count = (
+        select(func.count(Child.id))
+        .where(Child.class_id == Klass.id, Child.status == CHILD_STATUS_ENROLLED)
+        .scalar_subquery()
+    )
+    rows = db.execute(
+        select(
+            Klass.id,
+            Klass.center_id,
+            Center.name,
+            Klass.name,
+            Klass.age_group,
+            Klass.age_band,
+            child_count,
+        )
+        .join(Center, Center.id == Klass.center_id)
+        .where(*class_filter)
+        .order_by(Klass.name, Klass.id)
+    )
+    return [
+        ClassSummary(
+            class_id=class_id,
+            center_id=class_center_id,
+            center_name=center_name,
+            name=name,
+            age_group=age_group,
+            age_band=age_band,
+            child_count=count,
+        )
+        for class_id, class_center_id, center_name, name, age_group, age_band, count in rows
+    ]
+
+
+def list_center_classes(
+    db: Session, center_id: UUID, teacher_center_id: UUID | None
+) -> ClassSummaryListResponse:
+    """반 고르기 화면의 반 목록, 이름순 (FR-25). 같은 어린이집 반 전체가 후보입니다."""
+    _ensure_own_center(center_id, teacher_center_id)
+    return ClassSummaryListResponse(items=_class_summaries(db, Klass.center_id == center_id))
+
+
+def create_class(
+    db: Session, *, teacher_id: UUID, teacher_center_id: UUID | None, request: ClassCreateRequest
+) -> ClassSummary:
+    """반을 만듭니다 (FR-25). 소속 어린이집에만 만들 수 있습니다.
+
+    담당교사 개념이 폐지돼 담임 배정은 하지 않고, `Klass.teacher_id`에 만든 교사만 기록합니다.
+    같은 이름의 반도 막지 않습니다. 표시용 `age_group`은 연령 구분의 화면 문구로 채웁니다.
+    """
+    _ensure_own_center(request.center_id, teacher_center_id)
+    klass = Klass(
+        center_id=request.center_id,
+        teacher_id=teacher_id,
+        name=request.name,
+        age_group=_AGE_GROUP_LABELS[request.age_band],
+        age_band=request.age_band.value,
+    )
+    db.add(klass)
+    db.commit()
+    return _class_summaries(db, Klass.id == klass.id)[0]
+
+
+def create_child(
+    db: Session,
+    class_id: UUID,
+    *,
+    teacher_center_id: UUID | None,
+    request: ChildCreateRequest,
+    today: date | None = None,
+) -> ChildDetail:
+    """반에 원아를 등록합니다. 재원(`enrolled`)으로 시작하고 입소일은 오늘(KST)입니다.
+
+    동의는 학부모가 초대 링크로 직접 하므로(FR-28) 동의 0건·보호자 미연결로 만들고,
+    얼굴·기록 관련 값도 모두 비어 있는 상태로 돌려줍니다.
+
+    - 본문 `class_id`가 경로와 다름, 생년월일이 오늘 이후: `RequestValidationFailed` (422)
+    - 없는 반 404 `CLASS_NOT_FOUND`, 다른 어린이집 반 403 `CLASS_ACCESS_DENIED`
+    """
+    ensure_class_access(db, class_id, teacher_center_id)
+    if request.class_id != class_id:
+        raise RequestValidationFailed("본문의 class_id가 경로의 반과 다릅니다.")
+    today = today or datetime.now(_KST).date()
+    if request.birth_date > today:
+        raise RequestValidationFailed("생년월일이 오늘 이후입니다.")
+    klass = db.get(Klass, class_id)
+    child = Child(
+        class_id=class_id,
+        name=request.name,
+        birth_date=request.birth_date,
+        status=CHILD_STATUS_ENROLLED,
+        enrolled_at=today,
+    )
+    db.add(child)
+    db.commit()
+    return ChildDetail(
+        child_id=child.id,
+        class_id=class_id,
+        name=child.name,
+        birth_date=child.birth_date,
+        age_group=klass.age_group,
+        consent_agreed_count=0,
+        consent_total=len(CONSENT_TYPES),
+        is_face_registered=False,
+        face_feature_agreed=False,
+        face_photo_count=0,
+        parent_linked=False,
+        class_name=klass.name,
+        consents=[ConsentItem(consent_type=kind, agreed=False) for kind in CONSENT_TYPES],
+        consent_checked_at=None,
+        consent_checked_by=None,
+        month_record_count=0,
+        today_note_sent=False,
     )
