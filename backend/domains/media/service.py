@@ -5,10 +5,13 @@
 """
 
 import logging
+import tempfile
+import time as clock
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from functools import cache
+from pathlib import Path
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
@@ -16,10 +19,11 @@ import boto3
 from botocore.client import BaseClient
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from core.config import get_settings
+from core.database import SessionLocal
 from core.exceptions import (
     AidamError,
     ClientPhotoIdConflict,
@@ -34,6 +38,7 @@ from core.exceptions import (
     UploadBatchTooLarge,
 )
 from domains.audit import service as audit
+from domains.media import audio, stt
 from domains.media.models import MediaAsset, MediaChildLink, MediaUpload, TranscriptSegment
 from domains.organization.service import (
     ensure_children_in_class,
@@ -994,6 +999,8 @@ class CompletedUpload:
     asset: MediaAsset
     child_links: list[MediaChildLink]
     created: bool
+    # 새로 확정한 영상·음성이면 그 id. 부르는 쪽이 커밋한 뒤 STT 작업을 넣습니다
+    to_transcribe: UUID | None = None
 
 
 def complete_upload(
@@ -1065,6 +1072,7 @@ def complete_upload(
         size_bytes=verified.actual_size_bytes,
         storage_tier="original",
         model_version=model_version if is_photo else None,
+        transcript_status=None if is_photo else TRANSCRIPT_PENDING,
     )
     db.add(asset)
     db.flush()
@@ -1072,4 +1080,103 @@ def complete_upload(
     if attribution is not None:
         save_attributions(db, asset.id, attribution.child_links, attribution.llm_allowed)
     db.flush()
-    return CompletedUpload(asset=asset, child_links=_child_links_of(db, asset.id), created=True)
+    return CompletedUpload(
+        asset=asset,
+        child_links=_child_links_of(db, asset.id),
+        created=True,
+        to_transcribe=None if is_photo else asset.id,
+    )
+
+
+# STT 진행 상태 (MediaAsset.transcript_status, 파이프라인 1-B)
+TRANSCRIPT_PENDING = "pending"
+TRANSCRIPT_DONE = "done"
+TRANSCRIPT_FAILED = "failed"
+# 말소리 구간을 하나도 찾지 못했을 때 남기는 한 줄 (테크스펙 TranscriptSegment)
+NO_SPEECH_TEXT = "멘트 없음"
+_TRANSCRIPT_SOURCE = {"video": "video_audio", "voice_memo": "voice_memo"}
+
+
+def transcribe_media(media_id: str) -> None:
+    """영상·음성의 발화를 만듭니다 (NFR-08, FR-27, 파이프라인 1-B). Celery worker가 부릅니다.
+
+    S3 원본 → 음성 추출 → 말소리 구간을 28초 이하 조각으로 → 조각 동시 STT → 원본 기준
+    시각으로 `TranscriptSegment` 저장 → `transcript_status = done`.
+
+    - 말소리를 못 찾으면 STT를 부르지 않고 "멘트 없음" 한 줄로 done입니다.
+    - 음성 추출이나 STT가 끝내 실패하면 발화 없이 failed입니다. 화면은 "발화 없이 계속"을
+      보여 줍니다. 그 밖의 예외(코드 오류)는 올리고, 작업의 실패 훅이 failed로 바꿉니다.
+    - `pending`일 때만 처리합니다. 같은 작업이 두 번 와도 이미 끝난 것은 건드리지 않고,
+      교사가 손댄 발화(done 뒤에만 보임)를 지우지 않습니다.
+
+    원본은 서버 임시 폴더에 받았다가 작업이 끝나면 지웁니다. 로그에 발화 원문을 찍지 않습니다(H-4).
+    """
+    with SessionLocal() as session:
+        asset = session.get(MediaAsset, UUID(media_id))
+        if asset is None or asset.transcript_status != TRANSCRIPT_PENDING:
+            return
+        storage_key, source = asset.storage_url, _TRANSCRIPT_SOURCE[asset.type]
+
+    started = clock.monotonic()
+    try:
+        chunks = _speech_chunks(storage_key)
+        speech = stt.transcribe_chunks(chunks) if chunks else []
+    except (audio.AudioExtractionError, stt.SttError, ClientError, BotoCoreError) as error:
+        logger.warning("transcription failed for media %s: %s", media_id, type(error).__name__)
+        mark_transcription_failed(media_id)
+        return
+
+    with SessionLocal() as session:
+        # 이 작업만 pending을 done으로 바꿉니다. 행이 이미 지워진 경우 등은 아무것도 남기지 않습니다
+        session.execute(
+            delete(TranscriptSegment).where(TranscriptSegment.media_id == UUID(media_id))
+        )
+        rows = [
+            TranscriptSegment(
+                media_id=UUID(media_id),
+                start_time=segment.start,
+                end_time=segment.end,
+                raw_text=segment.text,
+                source=source,
+            )
+            for segment in speech
+        ] or [TranscriptSegment(media_id=UUID(media_id), raw_text=NO_SPEECH_TEXT, source=source)]
+        session.add_all(rows)
+        updated = session.execute(
+            update(MediaAsset)
+            .where(MediaAsset.id == UUID(media_id))
+            .where(MediaAsset.transcript_status == TRANSCRIPT_PENDING)
+            .values(transcript_status=TRANSCRIPT_DONE)
+        ).rowcount
+        if updated == 0:
+            session.rollback()
+            return
+        session.commit()
+    logger.info(
+        "transcribed media %s: %d chunks, %d segments, %.1fs",
+        media_id,
+        len(chunks),
+        len(speech),
+        clock.monotonic() - started,
+    )
+
+
+def _speech_chunks(storage_key: str) -> list[audio.AudioChunk]:
+    """원본을 임시 폴더에 받아 음성만 뽑고 조각으로 나눕니다. 300MB 영상도 메모리에 올리지 않습니다."""
+    with tempfile.TemporaryDirectory(prefix="aidam-stt-") as folder:
+        path = Path(folder) / "source"
+        _s3_client(get_settings().s3_region).download_file(_bucket(), storage_key, str(path))
+        pcm = audio.extract_pcm(path)
+    return audio.split_speech(pcm)
+
+
+def mark_transcription_failed(media_id: str) -> None:
+    """STT를 끝내지 못했을 때 부릅니다. 이미 done인 것은 덮어쓰지 않습니다."""
+    with SessionLocal() as session:
+        session.execute(
+            update(MediaAsset)
+            .where(MediaAsset.id == UUID(media_id))
+            .where(MediaAsset.transcript_status == TRANSCRIPT_PENDING)
+            .values(transcript_status=TRANSCRIPT_FAILED)
+        )
+        session.commit()

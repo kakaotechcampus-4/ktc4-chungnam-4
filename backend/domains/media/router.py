@@ -26,6 +26,7 @@ from domains.media.schemas import (
     UploadUrlsRequest,
     UploadUrlsResponse,
 )
+from domains.media.tasks import enqueue_transcription
 
 router = APIRouter(tags=["media"])
 
@@ -79,6 +80,7 @@ def complete_upload(
     )
     # 이 응답이 ack입니다. FE는 이걸 받고 원본을 지우므로 커밋이 끝난 뒤에 돌려줍니다
     db.commit()
+    enqueue_transcription(result.to_transcribe)
     response.status_code = _STATUS_BY_CREATED[result.created]
     asset = result.asset
     return MediaAssetResponse(

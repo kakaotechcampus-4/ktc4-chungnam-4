@@ -21,6 +21,7 @@ from core.database import get_db
 from domains.audit.models import AccessLog
 from domains.auth.middleware import get_current_teacher
 from domains.auth.service import TeacherProfile
+from domains.media import router as media_router
 from domains.media import service
 from domains.media.models import MediaAsset, MediaChildLink, MediaUpload
 from domains.organization.models import Center, Child, Klass
@@ -67,6 +68,14 @@ def 가짜_S3(monkeypatch: pytest.MonkeyPatch, tmp_path) -> Iterator[None]:
     )
     yield
     _clear_caches()
+
+
+@pytest.fixture(autouse=True)
+def 큐(monkeypatch: pytest.MonkeyPatch) -> list[uuid.UUID | None]:
+    """STT 작업은 Redis에 넣지 않고 넣으려던 값만 남깁니다."""
+    enqueued: list[uuid.UUID | None] = []
+    monkeypatch.setattr(media_router, "enqueue_transcription", enqueued.append)
+    return enqueued
 
 
 def _clear_caches() -> None:
@@ -319,7 +328,9 @@ def test_같은_사진을_다시_보내면_200으로_같은_media_id를_준다(c
     assert again.json()["llm_allowed"] is False  # 다시 보낸 귀속으로 전체 교체
 
 
-def test_음성은_귀속_없이_확정되고_LLM에서_빠진_채로_남는다(client: TestClient) -> None:
+def test_음성은_귀속_없이_확정되고_LLM에서_빠진_채로_남는다(
+    client: TestClient, 큐: list[uuid.UUID | None]
+) -> None:
     [issued] = _upload_urls(client, _item("voice_memo", "audio/mp4"))
 
     completed = client.post(
@@ -334,6 +345,7 @@ def test_음성은_귀속_없이_확정되고_LLM에서_빠진_채로_남는다(
 
     assert completed.status_code == 201
     assert (completed.json()["llm_allowed"], completed.json()["attributed_at"]) == (False, None)
+    assert 큐 == [uuid.UUID(completed.json()["media_id"])]  # 커밋 뒤 STT 작업을 넣습니다
 
 
 def test_다른_반_원아를_귀속하면_400_CHILD_NOT_IN_CLASS(
