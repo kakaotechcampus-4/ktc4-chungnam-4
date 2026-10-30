@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     # 사진 분석용 게이트웨이는 agents와 분리합니다 (09/23 결정, #98).
     vision_gateway_base_url: str = ""
     vision_model: str = "glm-5.3-flash"
+    # 영상·음성메모 STT(엘리스 Whisper). 사진 분석과 주소·키를 따로 받습니다 (#142).
+    # TODO(donggeon): 서버가 캠퍼스 공통 키(ANTHROPIC_API_KEY)로 Whisper를 부를 수 있는지 확인 전이라
+    # production 필수 목록에 넣지 않았습니다. 비어 있으면 STT만 failed로 끝나고 앱은 뜹니다.
+    stt_gateway_base_url: str = ""
+    stt_api_key: SecretStr = SecretStr("")
+    stt_model: str = "whisper-large-v3"
+    # 영상 하나 안에서 조각을 동시에 보내는 수 (10/30 김동건). 많이 두면 엘리스가 429·504로 막습니다
+    stt_max_concurrency: int = Field(default=4, ge=1, le=16)
 
     # 로그인 토큰 서명 키. 없으면 앱은 뜨지만 로그인만 실패합니다 — 다른 도메인
     # 개발이 키 때문에 막히지 않게 하기 위함입니다 (face_embedding_key와 같은 방식).
