@@ -541,6 +541,69 @@ describe("DraftReviewPage", () => {
     expect(router.state.location.pathname).not.toBe("/t/notes/publish/done");
   });
 
+  // 게시는 날짜 단위라 건별 실패도 그 날짜의 결과입니다. 다른 날짜에 남으면 그날 게시가 실패한 것처럼
+  // 보입니다. 같은 날짜로 돌아오면 다시 보여 줍니다 — 아직 못 올린 원아가 있다는 사실은 그대로입니다.
+  it("게시 건별 실패는 다른 날짜에서는 보이지 않고, 돌아오면 다시 보인다", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post(apiPath("/publications"), async ({ request }) => {
+        const body = (await request.json()) as PublicationRequest;
+        return HttpResponse.json({
+          results: body.items.map((item, index) => ({
+            draft_id: item.draft_id,
+            child_id: index === 0 ? DOYUN : fixtureId("child", 2),
+            status: index === 0 ? "failed" : "published",
+            parent_note_id: index === 0 ? null : item.draft_id,
+            version: null,
+            published_at: null,
+            error_code: index === 0 ? "DRAFT_VERSION_CONFLICT" : null,
+          })),
+        });
+      }),
+    );
+    const { router } = renderPage();
+    await screen.findByRole("heading", { name: /작은 블록/ });
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+    await user.click(await screen.findByRole("button", { name: "게시하기" }));
+    expect(await screen.findByText(/게시하지 못했어요/)).toBeInTheDocument();
+
+    await act(() =>
+      router.navigate(`/t/today/review/${DOYUN}?record_date=${shiftDate(YESTERDAY, -1)}`),
+    );
+    expect(screen.queryByText(/게시하지 못했어요/)).not.toBeInTheDocument();
+
+    await act(() => router.navigate(-1));
+    expect(await screen.findByText(/게시하지 못했어요/)).toBeInTheDocument();
+  });
+
+  // 모달에서 뺀 원아는 그 날짜의 게시에서만 뺀 것입니다. 날짜가 바뀌면 교사는 다시 모두 보내는
+  // 상태라고 여기므로, 날짜를 오가면 빼 둔 선택을 지웁니다.
+  it("게시 모달에서 뺀 원아는 날짜를 바꿨다 돌아오면 다시 포함된다", async () => {
+    const user = userEvent.setup();
+    const { router } = renderPage();
+    await screen.findByRole("heading", { name: /작은 블록/ });
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+    await user.click(await screen.findByRole("checkbox", { name: "최지우 게시" }));
+    expect(screen.getByRole("checkbox", { name: "최지우 게시" })).not.toBeChecked();
+    await user.click(screen.getByRole("button", { name: "취소" }));
+
+    await act(() =>
+      router.navigate(`/t/today/review/${DOYUN}?record_date=${shiftDate(YESTERDAY, -1)}`),
+    );
+    await act(() => router.navigate(-1));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+
+    expect(await screen.findByRole("checkbox", { name: "최지우 게시" })).toBeChecked();
+  });
+
   // 서버는 초안의 원아로 권한을 보므로 게시 실패 코드가 CLASS_가 아니라 CHILD_로 옵니다
   // (`_publish_one` → `_draft_for_teacher` → `ensure_child_access`). 표에 없으면 교사에게
   // 코드가 그대로 보여서 무엇이 막혔는지 알 수 없습니다.

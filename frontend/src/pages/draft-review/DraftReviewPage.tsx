@@ -136,10 +136,16 @@ export function DraftReviewPage() {
   const [excludedChildIds, setExcludedChildIds] = useState<Set<string>>(new Set());
   /** 선택 사진을 학부모에게 함께 보낼지. 기본은 보냄 */
   const [includePhotos, setIncludePhotos] = useState(true);
-  /** 게시가 건별로 실패한 결과. 하나라도 있으면 발행 완료로 넘어가지 않습니다. */
-  const [publishFailures, setPublishFailures] = useState<PublicationResultView[]>([]);
-  /** 같은 게시에서 성공한 인원. 실패만 알리면 나머지가 나갔는지 교사가 알 수 없습니다. */
-  const [publishedCount, setPublishedCount] = useState(0);
+  /**
+   * 게시가 건별로 실패한 결과와 같은 게시에서 성공한 인원. 실패가 하나라도 있으면 발행 완료로
+   * 넘어가지 않습니다. 성공 수도 함께 둡니다 — 실패만 알리면 나머지가 나갔는지 교사가 알 수 없습니다.
+   * 게시는 날짜 단위라 결과에 날짜를 같이 두고, 그 날짜를 볼 때만 보여 줍니다(#209 리뷰).
+   */
+  const [publishOutcome, setPublishOutcome] = useState<{
+    recordDate: string;
+    failures: PublicationResultView[];
+    publishedCount: number;
+  } | null>(null);
 
   const children = childrenQuery.data ?? [];
   const draftItems = draftsQuery.data ?? [];
@@ -174,6 +180,14 @@ export function DraftReviewPage() {
   if (lastShownKey !== shownKey) {
     setLastShownKey(shownKey);
     resetDraftState();
+  }
+
+  // 이번 게시에서 뺄 원아는 그 날짜의 게시에 딸린 선택이라, 날짜가 바뀌면 비웁니다. 원아만 바뀔 때는
+  // 같은 날짜의 게시 준비이므로 남깁니다(#209 리뷰).
+  const [lastPublishDate, setLastPublishDate] = useState(recordDate);
+  if (lastPublishDate !== recordDate) {
+    setLastPublishDate(recordDate);
+    setExcludedChildIds(new Set());
   }
 
   // 같은 초안이라도 버전이 오르면(버전 충돌 뒤 새로 불러온 본문 등) 확인 체크를 다시 받습니다.
@@ -278,7 +292,7 @@ export function DraftReviewPage() {
         include_photos: input.includePhotos,
         items: input.items,
       }),
-    onSuccess: async (results) => {
+    onSuccess: async (results, variables) => {
       // 게시하면 published_at과 include_photos가 정해집니다. 비워 두지 않으면 알림장 상세가
       // 게시 전 캐시(include_photos가 null)를 읽어 사진을 뺀 게시본에도 사진을 보여 줍니다.
       // 원아별 목록(알림장 목록·상세의 ‹ ›)도 함께 비웁니다. 안 비우면 게시판에는 있는데
@@ -302,9 +316,13 @@ export function DraftReviewPage() {
       ]);
       // 게시는 HTTP 200 안에서 건별로 성공·실패가 옵니다. 실패를 두고 발행 완료로 넘어가면
       // "전달했어요"만 보여서 교사가 못 올린 원아를 영영 모릅니다. 그래서 남아서 알립니다.
+      // 결과에는 요청 때의 날짜를 둡니다. 응답을 기다리는 사이 다른 날짜로 옮겨도 그 날짜에 뜨지 않습니다.
       const failures = results.filter((result) => !isPublished(result));
-      setPublishFailures(failures);
-      setPublishedCount(results.length - failures.length);
+      setPublishOutcome({
+        recordDate: variables.recordDate,
+        failures,
+        publishedCount: results.length - failures.length,
+      });
       if (failures.length > 0) return;
       navigate("/t/notes/publish/done", {
         state: { publishedCount: results.length },
@@ -327,6 +345,8 @@ export function DraftReviewPage() {
   const draftError = errorOnShownDraft(patchMutation) ?? errorOnShownDraft(reopenMutation);
   const publishError =
     publishMutation.variables?.recordDate === recordDate ? publishMutation.error : null;
+  // HTTP 200 안에 섞여 오는 건별 실패도 같은 기준으로 그 날짜에서만 보여 줍니다.
+  const shownPublishOutcome = publishOutcome?.recordDate === recordDate ? publishOutcome : null;
   const footerError = errorOnShownDraft(approveMutation) ?? publishError;
 
   if (classPending) {
@@ -668,11 +688,13 @@ export function DraftReviewPage() {
           ) : null}
           {/* 건별 실패는 HTTP 200 안에 섞여 오므로 isError로는 잡히지 않습니다.
               성공 수를 함께 알립니다 — 실패만 뜨면 나머지가 나갔는지 교사가 알 수 없습니다. */}
-          {publishFailures.length > 0 ? (
+          {shownPublishOutcome && shownPublishOutcome.failures.length > 0 ? (
             <p className="text-caption text-destructive">
-              {publishedCount > 0 ? `${String(publishedCount)}명은 게시했고, ` : ""}
-              {publishFailures.length}명은 게시하지 못했어요 —{" "}
-              {publishFailures
+              {shownPublishOutcome.publishedCount > 0
+                ? `${String(shownPublishOutcome.publishedCount)}명은 게시했고, `
+                : ""}
+              {shownPublishOutcome.failures.length}명은 게시하지 못했어요 —{" "}
+              {shownPublishOutcome.failures
                 .map(
                   (failure) =>
                     `${nameOf(failure.child_id) || "원아"}: ${
@@ -729,8 +751,7 @@ export function DraftReviewPage() {
         includePhotos={includePhotos}
         onIncludePhotosChange={setIncludePhotos}
         onConfirm={() => {
-          setPublishFailures([]);
-          setPublishedCount(0);
+          setPublishOutcome(null);
           publishMutation.mutate({ items: publishable, includePhotos, recordDate });
         }}
       />
