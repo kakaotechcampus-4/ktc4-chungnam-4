@@ -1,5 +1,6 @@
 import {
   isImportDone,
+  isImportStage,
   mediaKindOf,
   uploadTargets,
   useUploadQueue,
@@ -25,6 +26,18 @@ describe("업로드 큐", () => {
     expect(mediaKindOf("memo.pdf")).toBeNull();
   });
 
+  it("형식이 안 맞는 파일은 이름만 한 번 남기고, 제외하거나 비우면 사라진다", () => {
+    const queue = useUploadQueue.getState();
+    queue.addFiles([file("memo.pdf"), file("a.jpg")]);
+    queue.addFiles([file("memo.pdf"), file("notes.zip")]);
+
+    expect(useUploadQueue.getState().rejected).toEqual(["memo.pdf", "notes.zip"]);
+    queue.removeRejected("memo.pdf");
+    expect(useUploadQueue.getState().rejected).toEqual(["notes.zip"]);
+    queue.reset();
+    expect(useUploadQueue.getState().rejected).toEqual([]);
+  });
+
   it("불러오기는 세 개씩 진행되고, 전부 100이면 끝난다", () => {
     const queue = useUploadQueue.getState();
     queue.addFiles([file("a.jpg"), file("b.jpg"), file("c.jpg"), file("d.jpg")]);
@@ -37,6 +50,27 @@ describe("업로드 큐", () => {
 
     queue.advanceImport(100);
     expect(isImportDone(useUploadQueue.getState().items)).toBe(true);
+  });
+
+  it("분류가 시작됐거나 업로드가 진행된 큐는 불러오기 단계가 아니다", () => {
+    const queue = useUploadQueue.getState();
+    expect(isImportStage([])).toBe(true);
+    queue.addFiles([file("a.jpg"), file("clip.mp4")]);
+    expect(isImportStage(useUploadQueue.getState().items)).toBe(true);
+
+    const photo = useUploadQueue.getState().items[0]!;
+    queue.setClassification(photo.client_id, {
+      model_version: "m1",
+      classify_state: "classified",
+      candidates: [],
+      has_unidentified_face: false,
+    });
+    expect(isImportStage(useUploadQueue.getState().items)).toBe(false);
+
+    queue.reset();
+    queue.addFiles([file("clip.mp4")]);
+    queue.setUploadState(useUploadQueue.getState().items[0]!.client_id, "전송중");
+    expect(isImportStage(useUploadQueue.getState().items)).toBe(false);
   });
 
   // frontend/CLAUDE.md §테스트 꼭 있어야 하는 테스트 1번(H-3)

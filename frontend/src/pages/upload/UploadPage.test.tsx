@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { useUploadQueue } from "@/features/upload-queue/upload-queue-store";
@@ -36,6 +36,24 @@ describe("UploadPage", () => {
     ).toBeInTheDocument();
     await user.click(start);
     await waitFor(() => expect(router.state.location.pathname).toBe("/t/today/processing"));
+  });
+
+  it("형식이 안 맞는 파일은 담지 않고 이름을 알려 주며, 제외할 수 있다", async () => {
+    const user = userEvent.setup();
+    renderUpload();
+
+    fireEvent.drop(screen.getByText("여기에 끌어다 놓으세요"), {
+      dataTransfer: {
+        files: [new File(["x"], "활동기록.zip"), new File(["photo"], "IMG_0002.jpg")],
+      },
+    });
+
+    expect(
+      screen.getByRole("heading", { name: "지원하지 않는 형식이라 1개를 담지 않았어요" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("IMG_0002.jpg")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "활동기록.zip 목록에서 제외" }));
+    expect(screen.queryByText("활동기록.zip")).not.toBeInTheDocument();
   });
 
   it("고른 파일이 없으면 목록 없이 분류 시작이 막혀 있다", () => {

@@ -120,8 +120,12 @@ export const IMPORT_TICK_AMOUNT = 10;
 
 interface UploadQueueState {
   items: LocalMedia[];
-  /** 지원하는 형식만 담습니다. 형식이 안 맞는 파일 안내는 업로드 실패 화면(1:2520)이 맡습니다. */
+  /** 형식이 안 맞아 담지 않은 파일 이름. 같은 이름은 한 번만 둡니다. 서버로는 보내지 않습니다. */
+  rejected: string[];
+  /** 지원하는 형식만 담고, 나머지는 rejected에 남겨 업로드 실패 화면(1:2520)이 안내합니다. */
   addFiles: (files: readonly File[]) => void;
+  /** 안내를 본 교사가 형식 오류 파일을 목록에서 뺄 때 씁니다. */
+  removeRejected: (fileName: string) => void;
   /**
    * 불러오기를 amount만큼 진행합니다.
    * TODO(정은): IndexedDB에 실제로 쓰는 코드가 생기면 진행 값은 그쪽에서 받습니다. 지금은 흉내만 냅니다.
@@ -136,16 +140,20 @@ interface UploadQueueState {
 
 export const useUploadQueue = create<UploadQueueState>()((set) => ({
   items: [],
+  rejected: [],
   addFiles: (files) =>
-    set((state) => ({
-      items: [
-        ...state.items,
-        ...files.flatMap((file) => {
-          const kind = mediaKindOf(file.name);
-          return kind ? [toLocalMedia(file, kind)] : [];
-        }),
-      ],
-    })),
+    set((state) => {
+      const accepted: LocalMedia[] = [];
+      const rejected = new Set(state.rejected);
+      for (const file of files) {
+        const kind = mediaKindOf(file.name);
+        if (kind) accepted.push(toLocalMedia(file, kind));
+        else rejected.add(file.name);
+      }
+      return { items: [...state.items, ...accepted], rejected: [...rejected] };
+    }),
+  removeRejected: (fileName) =>
+    set((state) => ({ rejected: state.rejected.filter((name) => name !== fileName) })),
   advanceImport: (amount) =>
     set((state) => {
       let slots = IMPORT_CONCURRENCY;
@@ -181,7 +189,7 @@ export const useUploadQueue = create<UploadQueueState>()((set) => ({
           : item,
       ),
     })),
-  reset: () => set({ items: [] }),
+  reset: () => set({ items: [], rejected: [] }),
 }));
 
 export function isPhoto(item: LocalMedia): item is LocalPhoto {
@@ -190,6 +198,16 @@ export function isPhoto(item: LocalMedia): item is LocalPhoto {
 
 export function isImportDone(items: readonly LocalMedia[]) {
   return items.length > 0 && items.every((item) => item.import_progress >= 100);
+}
+
+/**
+ * 큐가 아직 불러오기 단계인지. 업로드가 전부 대기이고 사진이 분류 전일 때만 참입니다(빈 큐도 참).
+ * 분류 화면으로 넘어간 큐에 오늘의 기록이 업로드 중·실패 화면을 띄우지 않게 가립니다.
+ */
+export function isImportStage(items: readonly LocalMedia[]) {
+  return items.every(
+    (item) => item.upload_state === "대기" && (!isPhoto(item) || item.classify_state === "pending"),
+  );
 }
 
 /** 남은 불러오기 시간(초) 어림 */

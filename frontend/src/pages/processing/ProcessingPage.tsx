@@ -42,8 +42,8 @@ export function ProcessingPage() {
       setLeaving(true);
       // 원아 순서는 서버 응답 그대로입니다. 이름순 정렬은 초안 검토 화면(⑤)이 명단과 합쳐서 합니다.
       const firstDrafted = job.children.find((child) => child.drafts.length > 0);
-      // TODO(정은): 초안이 하나도 없으면(전원 미분류·실패) 대시보드(1:2886)로 보냅니다. 대시보드가 생기면 바꿉니다.
-      navigate(firstDrafted ? `/t/today/review/${firstDrafted.child_id}` : "/t/today");
+      // 초안이 하나도 없으면(전원 미분류·실패) 대시보드(1:2886)에서 원아별 상태를 봅니다.
+      navigate(firstDrafted ? `/t/today/review/${firstDrafted.child_id}` : "/t/dashboard");
       // ack를 받은 뒤라 로컬 원본을 지웁니다.
       reset();
     },
