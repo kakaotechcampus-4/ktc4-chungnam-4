@@ -66,7 +66,7 @@ async function uploadPhoto(n: number, attribution: ChildLinksInput) {
     ],
   });
   const [item] = items;
-  if (!item) throw new Error("업로드 URL이 오지 않았습니다.");
+  if (item?.status !== "issued") throw new Error("업로드 URL이 오지 않았습니다.");
   await uploadFile(item, FILE_BYTES);
   return completeUpload({
     client_photo_id: clientPhotoId,
@@ -361,7 +361,7 @@ describe("목의 판정 규칙", () => {
         ],
       })
     ).items;
-    if (!item) throw new Error("업로드 URL이 오지 않았습니다.");
+    if (item?.status !== "issued") throw new Error("업로드 URL이 오지 않았습니다.");
     await uploadFile(item, FILE_BYTES);
     const voice = await completeUpload({
       client_photo_id: clientPhotoId,
@@ -417,9 +417,11 @@ describe("목의 판정 규칙", () => {
     });
     // 서버처럼 파일마다 따로 판정합니다. 걸린 파일만 error이고 나머지는 발급됩니다(API 문서 §media).
     expect(items.map((item) => item.status)).toEqual(["error", "issued"]);
-    expect(items[0]?.error).toMatchObject({ code: "MEDIA_TYPE_NOT_ALLOWED" });
+    const [rejected] = items;
+    if (rejected?.status !== "error") throw new Error("거절된 항목이 오지 않았습니다.");
+    expect(rejected.error).toMatchObject({ code: "MEDIA_TYPE_NOT_ALLOWED" });
     // 거절된 파일을 올리려 하면 엉뚱한 문구가 아니라 서버 사유로 멈춥니다.
-    expect(() => uploadFile(items[0]!, FILE_BYTES)).toThrow("올릴 수 없는 형식의 파일이에요.");
+    expect(() => uploadFile(rejected, FILE_BYTES)).toThrow("올릴 수 없는 형식의 파일이에요.");
   });
 
   it("S3 PUT이 실패하면 연결 오류이고, URL을 다시 받아 올리면 이어서 등록된다", async () => {
@@ -437,7 +439,7 @@ describe("목의 판정 규칙", () => {
       ],
     };
     const [first] = (await requestUploadUrls(request)).items;
-    if (!first) throw new Error("업로드 URL이 오지 않았습니다.");
+    if (first?.status !== "issued") throw new Error("업로드 URL이 오지 않았습니다.");
     await expect(uploadFile(first, FILE_BYTES)).rejects.toMatchObject({
       status: 0,
       code: "NETWORK_ERROR",
@@ -445,7 +447,7 @@ describe("목의 판정 규칙", () => {
 
     useScenario("");
     const [retry] = (await requestUploadUrls(request)).items;
-    if (!retry) throw new Error("업로드 URL이 오지 않았습니다.");
+    if (retry?.status !== "issued") throw new Error("업로드 URL이 오지 않았습니다.");
     await uploadFile(retry, FILE_BYTES);
     const complete = {
       client_photo_id: clientPhotoId,
@@ -456,11 +458,12 @@ describe("목의 판정 규칙", () => {
       attribution: { llm_allowed: true, child_links: [manual(DOYUN)] },
     };
     const registered = await completeUpload(complete);
-    // 응답을 못 받고 다시 보내도 같은 파일이고, URL을 다시 청하면 media_id가 와서 올리지 않습니다.
+    // 응답을 못 받고 다시 보내도 같은 파일이고, URL을 다시 청하면 registered로 와서 올리지 않습니다.
     expect((await completeUpload(complete)).media_id).toBe(registered.media_id);
-    expect((await requestUploadUrls(request)).items[0]).toMatchObject({
+    expect((await requestUploadUrls(request)).items[0]).toEqual({
+      client_photo_id: clientPhotoId,
+      status: "registered",
       media_id: registered.media_id,
-      upload_url: null,
     });
   });
 
@@ -480,7 +483,7 @@ describe("목의 판정 규칙", () => {
           ],
         })
       ).items;
-      if (!item) throw new Error("업로드 URL이 오지 않았습니다.");
+      if (item?.status !== "issued") throw new Error("업로드 URL이 오지 않았습니다.");
       await uploadFile(item, FILE_BYTES);
       return {
         client_photo_id: clientPhotoId,
