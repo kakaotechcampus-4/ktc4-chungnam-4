@@ -200,6 +200,16 @@ export function isImportDone(items: readonly LocalMedia[]) {
   return items.length > 0 && items.every((item) => item.import_progress >= 100);
 }
 
+/**
+ * 큐가 아직 불러오기 단계인지. 업로드가 전부 대기이고 사진이 분류 전일 때만 참입니다(빈 큐도 참).
+ * 분류 화면으로 넘어간 큐에 오늘의 기록이 업로드 중·실패 화면을 띄우지 않게 가립니다.
+ */
+export function isImportStage(items: readonly LocalMedia[]) {
+  return items.every(
+    (item) => item.upload_state === "대기" && (!isPhoto(item) || item.classify_state === "pending"),
+  );
+}
+
 /** 남은 불러오기 시간(초) 어림 */
 export function remainingImportSeconds(items: readonly LocalMedia[]) {
   const remaining = items.reduce((sum, item) => sum + (100 - item.import_progress), 0);

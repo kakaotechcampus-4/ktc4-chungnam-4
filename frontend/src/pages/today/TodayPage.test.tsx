@@ -201,4 +201,25 @@ describe("TodayPage", () => {
 
     expect(await screen.findByRole("link", { name: "초안 검토하기" })).toBeInTheDocument();
   });
+
+  it("분류 단계로 넘어간 큐에는 업로드 중 화면을 띄우지 않고, 새 파일도 섞지 않으며, 큐를 비우지 않는다", async () => {
+    mockDrafts([noteItem(SEOA, "verified", 99)]);
+    const queue = useUploadQueue.getState();
+    queue.addFiles([new File(["x"], "IMG_0001.jpg")]);
+    queue.setClassification(useUploadQueue.getState().items[0]!.client_id, {
+      model_version: "m1",
+      classify_state: "classified",
+      candidates: [],
+      has_unidentified_face: false,
+    });
+    renderRoute(<TodayPage />);
+
+    expect(await screen.findByRole("link", { name: "초안 검토하기" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "이 기기로 불러오는 중이에요" }),
+    ).not.toBeInTheDocument();
+
+    dropFiles([new File(["x"], "VID_0001.mp4")]);
+    expect(useUploadQueue.getState().items).toHaveLength(1);
+  });
 });

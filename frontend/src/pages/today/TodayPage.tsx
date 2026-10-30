@@ -13,6 +13,7 @@ import { useCurrentClass } from "@/features/class-context/use-current-class";
 import {
   ACCEPTED_EXTENSIONS,
   isImportDone,
+  isImportStage,
   useUploadQueue,
   type LocalMedia,
   type MediaKind,
@@ -141,13 +142,16 @@ export function TodayPage() {
   function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
     setDragging(false);
+    // 분류 단계로 넘어간 큐에는 새 파일을 섞지 않습니다.
+    if (!importStage) return;
     addFiles(Array.from(event.dataTransfer.files));
   }
 
   const toUpload = () => navigate("/t/today/upload");
+  const importStage = isImportStage(items);
   const importing = items.length > 0 && !isImportDone(items);
 
-  if (rejected.length > 0 && !importing) {
+  if (importStage && rejected.length > 0 && !importing) {
     return (
       <>
         <TodayUploadFailed
@@ -176,7 +180,7 @@ export function TodayPage() {
     );
   }
 
-  if (items.length > 0) {
+  if (importStage && items.length > 0) {
     return (
       <TodayUploading
         teacherName={isTeacher(me) ? me.name : ""}
