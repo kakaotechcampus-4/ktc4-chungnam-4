@@ -128,6 +128,18 @@ describe("분류 결과", () => {
     );
   });
 
+  // 직접 작성 화면은 두지 않기로 했습니다(10/06 회의). 없는 화면으로 가는 링크를 두면 404가 뜹니다.
+  it("자료 없는 원아는 없는 화면으로 가는 링크 대신 초안 검토에서 쓸 수 있다고 알린다", async () => {
+    seedQueue();
+    renderAt("/t/today/classification");
+
+    await findResultList();
+    expect(screen.queryByRole("link", { name: /직접 기록/ })).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/자료 없는 원아 \d+명은 초안 검토에서 직접 쓸 수 있어요/),
+    ).toBeVisible();
+  });
+
   it("확인 체크를 해야 넘어가고, 넘어가면 확실한 사진만 확정해 전송 단계로 간다", async () => {
     seedQueue();
     const user = userEvent.setup();
