@@ -14,16 +14,20 @@ from typing import TypedDict
 import bcrypt
 import jwt
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.config import get_settings
 from core.exceptions import (
+    AccountAlreadyExists,
     InvalidCredentials,
     InvalidToken,
     JwtSecretNotConfigured,
+    RequestValidationFailed,
     Unauthenticated,
 )
 from domains.auth.models import Account, AccountType, Parent, Teacher
+from domains.organization import service as organization_service
 
 _ALGORITHM = "HS256"
 
@@ -208,6 +212,86 @@ def create_teacher_account(
     db.add(teacher)
     db.flush()
     return teacher
+
+
+@dataclass(frozen=True)
+class NewCenter:
+    """가입하며 직접 등록할 어린이집 (FR-24). 가입 코드가 없는 교사가 씁니다."""
+
+    name: str
+    address: str
+
+
+@dataclass(frozen=True)
+class SignedUpTeacher:
+    """가입을 마친 교사. 라우터는 `account`로 로그인 쿠키를, `profile`로 응답을 만듭니다."""
+
+    account: Account
+    profile: TeacherProfile
+
+
+def sign_up_teacher(
+    db: Session,
+    *,
+    email: str,
+    password: str,
+    name: str,
+    center_code: str | None,
+    new_center: NewCenter | None,
+) -> SignedUpTeacher:
+    """교사 회원가입 (FR-23·FR-24, docs/api/auth.md §POST /accounts).
+
+    소속은 둘 중 하나로 정합니다 — 둘 다 오거나 둘 다 없으면 스키마가 422로 막습니다.
+    - `center_code`: 가입 코드로 찾은 어린이집에 소속합니다. 계정을 만들기 전에 찾아서, 없는
+      코드면(`CENTER_NOT_FOUND`) 계정이 생기지 않습니다.
+    - `new_center`: organization의 `create_center`로 어린이집을 만들고 그 교사를 소속시킵니다.
+      `created_by_teacher_id`를 남기려고 교사를 먼저 만듭니다.
+    계정·교사·어린이집은 한 트랜잭션입니다. 중간에 실패하면 아무것도 남지 않습니다 —
+    로그인 없이 어린이집만 생기거나 주인 없는 어린이집이 남지 않게 합니다(#212 리뷰).
+    """
+    if len(password.encode("utf-8")) > _MAX_PASSWORD_BYTES:
+        raise RequestValidationFailed(f"비밀번호는 {_MAX_PASSWORD_BYTES}바이트 이하여야 합니다.")
+    if account_exists(db, email):
+        raise AccountAlreadyExists("이미 가입된 이메일입니다.")
+
+    center_id = None
+    if center_code is not None:
+        center_id = organization_service.find_center_by_code(db, center_code).center_id
+
+    try:
+        teacher = create_teacher_account(
+            db, email=email, password=password, name=name.strip(), center_id=center_id
+        )
+    except IntegrityError:
+        # 같은 이메일로 동시에 가입하면 위 확인을 둘 다 통과하고 유일 제약에서 걸립니다.
+        db.rollback()
+        raise AccountAlreadyExists("이미 가입된 이메일입니다.") from None
+    try:
+        if new_center is not None:
+            created = organization_service.create_center(
+                db,
+                name=new_center.name,
+                address=new_center.address,
+                created_by_teacher_id=teacher.id,
+            )
+            teacher.center_id = created.center_id
+        db.commit()
+    except Exception:
+        # 어린이집을 못 만들면 방금 만든 계정도 남기지 않습니다. 예외는 그대로 올립니다.
+        db.rollback()
+        raise
+
+    account = db.get(Account, teacher.account_id)
+    return SignedUpTeacher(
+        account=account,
+        profile=TeacherProfile(
+            account_id=account.id,
+            email=account.email,
+            name=teacher.name,
+            teacher_id=teacher.id,
+            center_id=teacher.center_id,
+        ),
+    )
 
 
 def create_parent_account(db: Session, *, email: str, password: str, name: str) -> Parent:

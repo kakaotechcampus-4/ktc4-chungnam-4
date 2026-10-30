@@ -6,12 +6,12 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-from domains.auth.service import ParentProfile, TeacherProfile
+from domains.auth.service import NewCenter, ParentProfile, TeacherProfile
 
 
 class SessionCreateRequest(BaseModel):
@@ -27,6 +27,40 @@ class SessionResponse(BaseModel):
 
     account_id: UUID
     account_type: Literal["teacher", "parent"]
+
+
+class NewCenterRequest(BaseModel):
+    """가입하며 직접 등록할 어린이집. 교사 정보 입력 화면의 "새로 등록하기"가 받는 두 칸입니다."""
+
+    name: str = Field(min_length=1, max_length=200)
+    address: str = Field(min_length=1, max_length=500)
+
+
+class AccountCreateRequest(BaseModel):
+    """교사 회원가입 (FR-23·FR-24). 1단계(이메일·비밀번호)와 2단계(교사 정보)를 한 번에 받습니다.
+
+    소속은 `center_code`와 `new_center` 중 정확히 하나로 정합니다.
+    TODO(엄태은): 비밀번호 규칙(길이·조합)은 스펙에 없어 FE처럼 비었는지만 봅니다. 정해지면 여기서 막습니다.
+    """
+
+    email: str = Field(min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+$")
+    password: str = Field(min_length=1, max_length=1024)
+    name: str = Field(min_length=1, max_length=100)
+    center_code: str | None = Field(default=None, min_length=1, max_length=64)
+    new_center: NewCenterRequest | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one_center(self) -> Self:
+        if (self.center_code is None) == (self.new_center is None):
+            raise ValueError("center_code와 new_center 중 하나만 보내 주세요.")
+        if not self.name.strip():
+            raise ValueError("이름을 입력해 주세요.")
+        return self
+
+    def to_new_center(self) -> NewCenter | None:
+        if self.new_center is None:
+            return None
+        return NewCenter(name=self.new_center.name, address=self.new_center.address)
 
 
 class TeacherMeResponse(BaseModel):

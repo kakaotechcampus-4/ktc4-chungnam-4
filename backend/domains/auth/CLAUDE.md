@@ -8,7 +8,7 @@
 | --- | --- |
 | `models.py` | `Account`, `Teacher`, `Parent` |
 | `schemas.py` | 로그인 요청·응답, `/me` 응답. 토큰은 본문이 아니라 `Set-Cookie`로만 내려 줍니다 |
-| `router.py` | `POST /api/v1/sessions`, `DELETE /api/v1/sessions/current`, `GET /api/v1/me` (docs/api/auth.md) |
+| `router.py` | `POST /api/v1/sessions`, `DELETE /api/v1/sessions/current`, `GET /api/v1/me`, `POST /api/v1/accounts` (docs/api/auth.md) |
 | `service.py` | 비밀번호 검증, 토큰 발급·검증 |
 | `middleware.py` | 쿠키에서 현재 사용자 해석. 다른 도메인 라우터는 `CurrentTeacher`·`CurrentParent`를 받습니다 |
 
