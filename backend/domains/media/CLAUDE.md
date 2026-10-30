@@ -10,11 +10,13 @@ S3 업로드용 URL을 내주고 그 결과 메타데이터만 DB에 기록합�
 | `schemas.py` | presigned URL 요청·응답, 업로드 완료 통지 |
 | `router.py` | presigned URL 발급, 업로드 완료 통지 API |
 | `service.py` | presigned URL 발급 + 완료 통지 시 메타데이터 저장 |
-| `tasks.py` | media 전용 백그라운드 작업 (썸네일 등) |
+| `audio.py` | STT 직전 음성 추출(ffmpeg)·말소리 구간 찾기·28초 이하 조각 |
+| `stt.py` | 엘리스 Whisper 조각 호출(동시 호출·조각 단위 재시도) |
+| `tasks.py` | media 전용 Celery 작업 — STT(`transcribe_media`) |
 
 ## 규칙
 
-- **파일 바이트는 서버를 통과하지 않습니다.**
+- **업로드 때 파일 바이트는 서버를 통과하지 않습니다** — 브라우저가 presigned URL로 S3에 직접 올립니다. 예외는 STT입니다: worker가 S3 원본을 임시 폴더에 받아 음성만 뽑고 바로 지웁니다(파이프라인 1-B). 영상은 화면과 소리가 섞여 저장돼 소리만 받을 수 없습니다.
 - 완료 통지는 신뢰할 수 없는 입력입니다. 실제 객체 존재와 크기·타입을 확인한 뒤 `MediaAsset`을 확정하세요.
 - URL 만료는 짧게. S3 자격증명은 `core/config.py`의 `Settings`에서만 읽습니다.
 - `MediaChildLink.method`는 `face_recognition`(로컬 자동) / `manual`(로컬 수동) 둘뿐입니다. `confidence_score`는 자동일 때만 채웁니다.
@@ -29,7 +31,7 @@ S3 업로드용 URL을 내주고 그 결과 메타데이터만 DB에 기록합�
 - **블러는 없습니다** (09/13 폐기). `MediaAsset.redacted` 컬럼은 **만들지 않습니다** — 마이그레이션에 넣지 말고, 블러가 부활하면 그때 추가합니다 (09/21).
 - **프록시본·썸네일은 "사본 금지"의 예외입니다** — 원본에서 만드는 파생본입니다(`proxy_url`·`thumbnail_url`·`derivative_state`). 변환 실행 위치는 미정입니다(ffmpeg 의존성 · Celery 범위).
 - 사진은 미동의 원아가 함께 찍혔더라도 S3에 올립니다 — 업로드는 필수 동의(②) 범위입니다. 미동의 원아 보호는 **`MediaChildLink` 귀속 결과를 보고 LLM 경로에서 빼는 것**으로 합니다 (H-2). agents에 미디어를 넘기는 지점에서 이 검사를 거치세요.
-- agents 트리거는 지금 단계에선 `service.py`에서 `.delay()` 한 줄로 처리합니다. `tasks.py`는 media 전용 작업이 생길 때 채웁니다.
+- agents 트리거는 지금 단계에선 `service.py`에서 `.delay()` 한 줄로 처리합니다. media 전용 작업은 `tasks.py`에 두고, API는 커밋한 뒤에 작업을 넣습니다(worker가 커밋된 행을 읽음).
 
 ## 다른 도메인과의 관계
 
