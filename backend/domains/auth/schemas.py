@@ -9,9 +9,21 @@ from __future__ import annotations
 from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from domains.auth.service import NewCenter, ParentProfile, TeacherProfile
+from domains.auth.service import (
+    MAX_PASSWORD_BYTES,
+    NewCenter,
+    ParentProfile,
+    SignedUpTeacher,
+    TeacherProfile,
+)
+
+
+def _not_blank(value: str) -> str:
+    if not value.strip():
+        raise ValueError("빈 값은 안 됩니다.")
+    return value
 
 
 class SessionCreateRequest(BaseModel):
@@ -35,6 +47,8 @@ class NewCenterRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     address: str = Field(min_length=1, max_length=500)
 
+    _name_not_blank = field_validator("name", "address")(_not_blank)
+
 
 class AccountCreateRequest(BaseModel):
     """교사 회원가입 (FR-23·FR-24). 1단계(이메일·비밀번호)와 2단계(교사 정보)를 한 번에 받습니다.
@@ -49,12 +63,22 @@ class AccountCreateRequest(BaseModel):
     center_code: str | None = Field(default=None, min_length=1, max_length=64)
     new_center: NewCenterRequest | None = None
 
+    # 칸 단위로 막아야 오류 위치(`detail.loc`)가 그 필드를 가리킵니다. FE는 이것으로 1단계
+    # (이메일·비밀번호) 오류인지 가려 그 단계로 돌려보냅니다(#221 리뷰).
+    _name_not_blank = field_validator("name")(_not_blank)
+
+    @field_validator("password")
+    @classmethod
+    def _fits_bcrypt(cls, value: str) -> str:
+        # bcrypt는 72바이트를 넘으면 조용히 잘라서, 자르지 않고 거부합니다.
+        if len(value.encode("utf-8")) > MAX_PASSWORD_BYTES:
+            raise ValueError(f"비밀번호는 {MAX_PASSWORD_BYTES}바이트 이하여야 합니다.")
+        return value
+
     @model_validator(mode="after")
     def _exactly_one_center(self) -> Self:
         if (self.center_code is None) == (self.new_center is None):
             raise ValueError("center_code와 new_center 중 하나만 보내 주세요.")
-        if not self.name.strip():
-            raise ValueError("이름을 입력해 주세요.")
         return self
 
     def to_new_center(self) -> NewCenter | None:
@@ -70,6 +94,28 @@ class TeacherMeResponse(BaseModel):
     name: str
     teacher_id: UUID
     center_id: UUID | None
+
+
+class AccountCreateResponse(TeacherMeResponse):
+    """가입 결과. `GET /me`의 교사 응답에 가입 코드 하나를 더합니다.
+
+    `center_code`는 어린이집을 직접 등록했을 때 서버가 발급한 코드입니다. 다른 교사에게 알려 줄
+    값이라 이때만 싣고(테크스펙 §교사 계정 만들기 화면 데이터 5), 코드로 가입했으면 null입니다.
+    """
+
+    center_code: str | None
+
+    @classmethod
+    def from_signed_up(cls, signed_up: SignedUpTeacher) -> AccountCreateResponse:
+        profile = signed_up.profile
+        return cls(
+            account_id=profile.account_id,
+            email=profile.email,
+            name=profile.name,
+            teacher_id=profile.teacher_id,
+            center_id=profile.center_id,
+            center_code=signed_up.issued_center_code,
+        )
 
 
 class ParentMeResponse(BaseModel):

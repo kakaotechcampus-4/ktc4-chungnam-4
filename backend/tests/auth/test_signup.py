@@ -60,6 +60,10 @@ def _sign_up(client: TestClient, **overrides: object):
     return client.post("/api/v1/accounts", json={k: v for k, v in body.items() if v is not None})
 
 
+def _error_locs(response) -> list[list[str]]:
+    return [item["loc"] for item in response.json()["error"]["detail"]]
+
+
 def _count(db: Session, model: type) -> int:
     return db.scalar(select(func.count()).select_from(model))
 
@@ -73,6 +77,7 @@ def test_가입_코드로_가입하면_그_어린이집_교사가_되고_바로_
     assert body["email"] == "new.teacher@example.com"
     assert body["name"] == "김하늘"
     assert body["center_id"] == str(center.id)
+    assert body["center_code"] is None  # 코드로 들어온 교사에게는 알려 줄 새 코드가 없습니다
     assert "token" not in response.text
     assert SESSION_COOKIE_NAME in response.cookies
 
@@ -90,6 +95,7 @@ def test_새_어린이집을_등록하며_가입하면_만든_교사가_소속�
     teacher = db.scalar(select(Teacher))
     center = db.scalar(select(Center))
     assert response.json()["center_id"] == str(center.id)
+    assert response.json()["center_code"] == center.center_code  # 다른 교사에게 알려 줄 코드
     assert teacher.center_id == center.id
     assert center.created_by_teacher_id == teacher.id
     assert (center.name, center.contract_status) == ("새싹어린이집", "trial")
@@ -101,6 +107,18 @@ def test_없는_가입_코드면_404이고_계정을_만들지_않는다(client,
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "CENTER_NOT_FOUND"
     assert _count(db, Account) == 0
+
+
+def test_없는_가입_코드면_이메일이_이미_있어도_404라_가입_여부가_드러나지_않는다(
+    client, db, center
+):
+    assert _sign_up(client).status_code == 201
+
+    response = _sign_up(client, center_code="ZZZZ9999")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "CENTER_NOT_FOUND"
+    assert _count(db, Account) == 1
 
 
 def test_대소문자만_다른_이메일로_다시_가입하면_409이고_계정이_늘지_않는다(client, db, center):
@@ -131,14 +149,24 @@ def test_소속이나_입력값이_맞지_않으면_422이고_계정을_만들�
     assert _count(db, Account) == 0
 
 
-def test_비밀번호가_72바이트를_넘으면_자르지_않고_422다(client, db, center):
+def test_비밀번호가_72바이트를_넘으면_자르지_않고_422이고_오류_위치가_password다(
+    client, db, center
+):
     response = _sign_up(client, password="가" * 25)  # 75바이트
 
     assert response.status_code == 422
+    assert ["body", "password"] in _error_locs(response)
     assert _count(db, Account) == 0
 
 
-def test_어린이집을_만들지_못하면_계정도_남지_않는다(client, db):
+def test_이름이_공백뿐이면_오류_위치가_name이다(client, db, center):
+    response = _sign_up(client, name="   ")
+
+    assert response.status_code == 422
+    assert ["body", "name"] in _error_locs(response)
+
+
+def test_어린이집_이름이_공백뿐이면_422이고_아무것도_남지_않는다(client, db):
     response = _sign_up(client, center_code=None, new_center={"name": "  ", "address": "천안시"})
 
     assert response.status_code == 422

@@ -21,10 +21,10 @@ from domains.auth.middleware import (
 )
 from domains.auth.schemas import (
     AccountCreateRequest,
+    AccountCreateResponse,
     MeResponse,
     SessionCreateRequest,
     SessionResponse,
-    TeacherMeResponse,
     to_me_response,
 )
 
@@ -32,12 +32,12 @@ from domains.auth.schemas import (
 router = APIRouter(tags=["auth"])
 
 
-@router.post("/accounts", status_code=HTTPStatus.CREATED, response_model=TeacherMeResponse)
+@router.post("/accounts", status_code=HTTPStatus.CREATED, response_model=AccountCreateResponse)
 def create_account(
     body: AccountCreateRequest,
     response: Response,
     db: Annotated[Session, Depends(get_db)],
-) -> TeacherMeResponse:
+) -> AccountCreateResponse:
     """교사 회원가입 (FR-23·FR-24). 가입하면 바로 로그인 쿠키를 내려 줘 온보딩으로 이어 갑니다."""
     signed_up = service.sign_up_teacher(
         db,
@@ -48,7 +48,7 @@ def create_account(
         new_center=body.to_new_center(),
     )
     set_session_cookie(response, service.create_access_token(signed_up.account))
-    return to_me_response(signed_up.profile)
+    return AccountCreateResponse.from_signed_up(signed_up)
 
 
 @router.post("/sessions", status_code=HTTPStatus.CREATED, response_model=SessionResponse)

@@ -23,7 +23,6 @@ from core.exceptions import (
     InvalidCredentials,
     InvalidToken,
     JwtSecretNotConfigured,
-    RequestValidationFailed,
     Unauthenticated,
 )
 from domains.auth.models import Account, AccountType, Parent, Teacher
@@ -33,7 +32,7 @@ _ALGORITHM = "HS256"
 
 # bcrypt는 72바이트를 넘는 입력을 조용히 잘라냅니다. 자르면 "앞 72바이트만 맞으면
 # 통과"가 되므로, 자르지 않고 거부합니다.
-_MAX_PASSWORD_BYTES = 72
+MAX_PASSWORD_BYTES = 72
 
 # 이메일이 없을 때도 같은 시간만큼 해시 검증을 돌리기 위한 더미 해시입니다.
 # 없는 이메일은 빨리 실패하고 있는 이메일은 느리게 실패하면, 응답 시간만으로
@@ -56,18 +55,18 @@ def normalize_email(email: str) -> str:
 def hash_password(plain_password: str) -> str:
     """비밀번호를 bcrypt로 해시합니다. 평문은 어디에도 저장하지 않습니다."""
     encoded = plain_password.encode("utf-8")
-    if len(encoded) > _MAX_PASSWORD_BYTES:
+    if len(encoded) > MAX_PASSWORD_BYTES:
         # 값 자체는 메시지에 넣지 않습니다 (H-4).
-        raise ValueError(f"Password must be {_MAX_PASSWORD_BYTES} bytes or fewer when encoded")
+        raise ValueError(f"Password must be {MAX_PASSWORD_BYTES} bytes or fewer when encoded")
     return bcrypt.hashpw(encoded, bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain_password: str, password_hash: str) -> bool:
     """비밀번호가 해시와 맞는지 확인합니다. 형식이 깨진 해시는 False로 봅니다."""
     encoded = plain_password.encode("utf-8")
-    if len(encoded) > _MAX_PASSWORD_BYTES:
+    if len(encoded) > MAX_PASSWORD_BYTES:
         # 없는 계정과 동일하게 bcrypt를 한 번 수행하되, 긴 비밀번호는 항상 거부합니다.
-        bcrypt.checkpw(encoded[:_MAX_PASSWORD_BYTES], _DUMMY_HASH)
+        bcrypt.checkpw(encoded[:MAX_PASSWORD_BYTES], _DUMMY_HASH)
         return False
     try:
         return bcrypt.checkpw(encoded, password_hash.encode("utf-8"))
@@ -130,7 +129,7 @@ def authenticate(db: Session, email: str, password: str) -> Account:
     """
     account = db.scalar(select(Account).where(Account.email == normalize_email(email)))
     if account is None:
-        bcrypt.checkpw(password.encode("utf-8")[:_MAX_PASSWORD_BYTES], _DUMMY_HASH)
+        bcrypt.checkpw(password.encode("utf-8")[:MAX_PASSWORD_BYTES], _DUMMY_HASH)
         raise InvalidCredentials("이메일 또는 비밀번호가 올바르지 않습니다.")
     if not verify_password(password, account.password_hash):
         raise InvalidCredentials("이메일 또는 비밀번호가 올바르지 않습니다.")
@@ -228,6 +227,9 @@ class SignedUpTeacher:
 
     account: Account
     profile: TeacherProfile
+    # 직접 등록한 어린이집에 서버가 발급한 가입 코드. 다른 교사에게 알려 줄 값이라 화면에 보여
+    # 줍니다(테크스펙 §교사 계정 만들기 화면 데이터 5). 가입 코드로 들어왔으면 None입니다.
+    issued_center_code: str | None
 
 
 def sign_up_teacher(
@@ -242,21 +244,20 @@ def sign_up_teacher(
     """교사 회원가입 (FR-23·FR-24, docs/api/auth.md §POST /accounts).
 
     소속은 둘 중 하나로 정합니다 — 둘 다 오거나 둘 다 없으면 스키마가 422로 막습니다.
-    - `center_code`: 가입 코드로 찾은 어린이집에 소속합니다. 계정을 만들기 전에 찾아서, 없는
-      코드면(`CENTER_NOT_FOUND`) 계정이 생기지 않습니다.
+    - `center_code`: 가입 코드로 찾은 어린이집에 소속합니다. 이메일 중복보다 먼저 찾아서, 없는
+      코드면(`CENTER_NOT_FOUND`) 계정이 생기지 않고 이메일 가입 여부도 드러나지 않습니다.
     - `new_center`: organization의 `create_center`로 어린이집을 만들고 그 교사를 소속시킵니다.
       `created_by_teacher_id`를 남기려고 교사를 먼저 만듭니다.
     계정·교사·어린이집은 한 트랜잭션입니다. 중간에 실패하면 아무것도 남지 않습니다 —
     로그인 없이 어린이집만 생기거나 주인 없는 어린이집이 남지 않게 합니다(#212 리뷰).
     """
-    if len(password.encode("utf-8")) > _MAX_PASSWORD_BYTES:
-        raise RequestValidationFailed(f"비밀번호는 {_MAX_PASSWORD_BYTES}바이트 이하여야 합니다.")
-    if account_exists(db, email):
-        raise AccountAlreadyExists("이미 가입된 이메일입니다.")
-
+    # 입력으로 판단할 수 있는 실패(없는 코드)를 이메일 중복보다 먼저 봅니다. 순서가 반대면 없는
+    # 코드를 보내 409/404만으로 그 이메일이 가입돼 있는지 알 수 있습니다(#221 리뷰).
     center_id = None
     if center_code is not None:
         center_id = organization_service.find_center_by_code(db, center_code).center_id
+    if account_exists(db, email):
+        raise AccountAlreadyExists("이미 가입된 이메일입니다.")
 
     try:
         teacher = create_teacher_account(
@@ -266,6 +267,7 @@ def sign_up_teacher(
         # 같은 이메일로 동시에 가입하면 위 확인을 둘 다 통과하고 유일 제약에서 걸립니다.
         db.rollback()
         raise AccountAlreadyExists("이미 가입된 이메일입니다.") from None
+    issued_center_code = None
     try:
         if new_center is not None:
             created = organization_service.create_center(
@@ -275,6 +277,7 @@ def sign_up_teacher(
                 created_by_teacher_id=teacher.id,
             )
             teacher.center_id = created.center_id
+            issued_center_code = created.center_code
         db.commit()
     except Exception:
         # 어린이집을 못 만들면 방금 만든 계정도 남기지 않습니다. 예외는 그대로 올립니다.
@@ -291,6 +294,7 @@ def sign_up_teacher(
             teacher_id=teacher.id,
             center_id=teacher.center_id,
         ),
+        issued_center_code=issued_center_code,
     )
 
 
