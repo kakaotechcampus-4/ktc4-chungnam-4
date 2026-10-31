@@ -7,12 +7,13 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
+from kombu.exceptions import OperationalError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from core.base import Base
-from domains.media import audio, service, stt
+from domains.media import audio, service, stt, tasks
 from domains.media.models import MediaAsset, TranscriptSegment
 
 
@@ -136,3 +137,29 @@ def test_실패_표시는_done을_덮어쓰지_않는다(sessions: sessionmaker)
     service.mark_transcription_failed(media_id)
 
     assert _state(sessions, media_id)[0] == "done"
+
+
+def test_큐에_넣지_못하면_failed로_두고_예외를_올리지_않는다(
+    sessions: sessionmaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 업로드는 이미 커밋됐으므로 완료 통지는 성공으로 답해야 합니다(#219 리뷰).
+    media_id = _asset(sessions)
+
+    def broker_down(**kwargs: object) -> None:
+        raise OperationalError("broker down")
+
+    monkeypatch.setattr(tasks.transcribe_media, "delay", broker_down)
+
+    tasks.enqueue_transcription(uuid.UUID(media_id))
+
+    assert _state(sessions, media_id)[0] == "failed"
+
+
+def test_작업이_실패하면_훅이_failed로_바꾼다(sessions: sessionmaker) -> None:
+    media_id = _asset(sessions)
+
+    tasks.transcribe_media.on_failure(
+        RuntimeError("boom"), "task-id", (), {"media_id": media_id}, None
+    )
+
+    assert _state(sessions, media_id)[0] == "failed"
