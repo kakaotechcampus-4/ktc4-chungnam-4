@@ -1168,7 +1168,12 @@ def transcribe_media(media_id: str) -> None:
 
 
 def _speech_chunks(storage_key: str) -> list[audio.AudioChunk]:
-    """원본을 임시 폴더에 받아 음성만 뽑고 조각으로 나눕니다. 300MB 영상도 메모리에 올리지 않습니다."""
+    """원본을 임시 폴더에 받아 음성만 뽑고 조각으로 나눕니다.
+
+    원본 파일은 메모리에 올리지 않지만, 뽑은 PCM 전체와 조각 WAV는 메모리에 올라갑니다.
+    60분 음성이면 최대 약 400MiB이고, 조각이 많으면 작업 상한(600초)도 넘을 수 있습니다(#218 리뷰).
+    TODO(donggeon): 음성메모 길이 상한을 둘지 팀 결정 대기 — 값은 스펙에 없어 미정
+    """
     with tempfile.TemporaryDirectory(prefix="aidam-stt-") as folder:
         path = Path(folder) / "source"
         _s3_client(get_settings().s3_region).download_file(_bucket(), storage_key, str(path))
