@@ -35,6 +35,8 @@ def add_media(
     captured_at: datetime = MORNING,
     attributed: bool = True,
     storage_tier: str = "original",
+    media_type: str = "photo",
+    transcript_status: str | None = None,
 ) -> uuid.UUID:
     media_id = uuid.uuid4()
     db.add(
@@ -43,12 +45,13 @@ def add_media(
             client_photo_id=uuid.uuid4(),
             class_id=class_id,
             teacher_id=uuid.uuid4(),
-            type="photo",
+            type=media_type,
             captured_at=captured_at,
             storage_url=f"s3://bucket/{media_id}.jpg",
             size_bytes=2048,
             storage_tier=storage_tier,
             attributed_at=captured_at if attributed else None,
+            transcript_status=transcript_status,
         )
     )
     db.flush()
@@ -78,6 +81,18 @@ def test_파기된_미디어는_준비되지_않은_것으로_본다(db: Session
     deleted = add_media(db, DOYUN, storage_tier="deleted")
 
     assert service.find_unready_media(db, CLASS_ID, DAY, [ready, deleted]) == [deleted]
+
+
+def test_STT가_끝나지_않은_영상은_준비되지_않은_것으로_본다(db: Session) -> None:
+    photo = add_media(db, DOYUN)
+    transcribing = add_media(db, DOYUN, media_type="video", transcript_status="pending")
+    done = add_media(db, DOYUN, media_type="video", transcript_status="done")
+    # 호출이 끝내 실패한 영상은 발화 없이 쓰므로 막지 않습니다
+    failed = add_media(db, DOYUN, media_type="voice_memo", transcript_status="failed")
+
+    unready = service.find_unready_media(db, CLASS_ID, DAY, [photo, transcribing, done, failed])
+
+    assert unready == [transcribing]
 
 
 def test_그_날짜에_귀속된_자료가_있는_원아를_한_번씩_돌려준다(db: Session) -> None:
