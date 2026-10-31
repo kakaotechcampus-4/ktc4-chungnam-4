@@ -64,18 +64,23 @@ def transcribe_chunks(chunks: Sequence[AudioChunk]) -> list[SpeechSegment]:
 
     url = settings.stt_gateway_base_url.rstrip("/") + "/audio/transcriptions"
     headers = {"Authorization": f"Bearer {api_key}"}
-    with (
-        httpx.Client(timeout=TIMEOUT, headers=headers) as client,
-        ThreadPoolExecutor(max_workers=settings.stt_max_concurrency) as pool,
-    ):
-        futures = [
-            pool.submit(_transcribe_with_retry, client, url, settings.stt_model, chunk)
-            for chunk in chunks
-        ]
-        done, pending = wait(futures, return_when=FIRST_EXCEPTION)
-        for future in pending:
-            future.cancel()
-        segments = [segment for future in futures if future in done for segment in future.result()]
+    with httpx.Client(timeout=TIMEOUT, headers=headers) as client:
+        # 풀을 with로 열면 빠져나갈 때 남은 조각을 모두 기다립니다. 작업 시간 제한
+        # (SoftTimeLimitExceeded)이 wait() 도중에 오면 그 기다림 때문에 강제 종료까지 가고,
+        # 강제 종료는 실패 훅을 부르지 않아 transcript_status가 pending으로 남습니다(#219 리뷰).
+        # 그래서 어떻게 끝나든 줄 선 조각은 취소하고, 보내는 중인 조각은 기다리지 않습니다.
+        pool = ThreadPoolExecutor(max_workers=settings.stt_max_concurrency)
+        try:
+            futures = [
+                pool.submit(_transcribe_with_retry, client, url, settings.stt_model, chunk)
+                for chunk in chunks
+            ]
+            done, _ = wait(futures, return_when=FIRST_EXCEPTION)
+            segments = [
+                segment for future in futures if future in done for segment in future.result()
+            ]
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
     return sorted(segments, key=lambda segment: segment.start)
 
 
