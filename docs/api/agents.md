@@ -100,12 +100,12 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
   - `CLASS_ACCESS_DENIED` (403) — 반이 속한 center의 소속 교사가 아닐 때
   - `CLASS_NOT_FOUND` (404) — 없는 반일 때
   - `INVALID_RECORD_DATE` (400) — 오늘(KST)보다 뒤 날짜일 때
-  - `MEDIA_NOT_READY` (409) — `media_ids` 가운데 완료 통지 전이거나, `attributed_at`이 null이거나, 이 반·날짜의 자료가 아닌 것이 있을 때. 해당 ID는 `detail.media_ids`에 담습니다.
+  - `MEDIA_NOT_READY` (409) — `media_ids` 가운데 완료 통지 전이거나, `attributed_at`이 null이거나, STT 중(`transcript_status == pending`)이거나, 이 반·날짜의 자료가 아닌 것이 있을 때. 해당 ID는 `detail.media_ids`에 담습니다. STT가 `failed`인 영상·음성은 발화 없이 쓰므로 막지 않습니다(임시 결정(김동건), #219 리뷰).
   - `NO_TARGET_CHILDREN` (409) — 그 날짜에 귀속된 자료가 있는 원아가 없을 때
   - `JOB_ALREADY_RUNNING` (409) — 같은 반·날짜에 `pending`·`running` 작업이 이미 있을 때. FE는 `detail.job_id`로 그 작업을 이어서 폴링합니다. `running`은 10분(task 최대 소요 180초 × 3회 + 여유) 넘게 갱신이 없으면 worker가 죽어 멈춘 것으로 보고 잠그지 않습니다(#161 리뷰, 임시 결정(정은)). `pending`은 큐에서 차례를 기다리는 동안 갱신이 없는 게 정상이라 10분을 쓰지 않고, 1시간 넘게 시작하지 못했을 때만 큐 메시지가 사라진 것으로 보고 잠그지 않습니다(#185 리뷰, 임시 결정(김동건)).
 - [확인 필요: 정은·김동건] Job은 이 FE 호출로 시작하기로 정했습니다(09/27, #61). 함께 정할 것 두 가지가 남았습니다(#60).
   - 근거 범위: 그 날짜 전체로 할지, `media_ids`로 한정할지
-  - STT가 안 끝났을 때: 409로 막을지, `transcribing` 단계에서 기다릴지
+  - STT가 안 끝났을 때: 409로 막을지, `transcribing` 단계에서 기다릴지 → 임시 결정(김동건): 409(`MEDIA_NOT_READY`)로 막습니다. FE는 STT가 끝나지 않은 파일이 있으면 분류 확인을 끝낼 수 없어 평소에는 여기까지 오지 않고, 서버는 그 확인을 거친 마지막 방어선입니다(#219 리뷰)
 
 > **구현 상태** (임시 결정(정은)): 두 엔드포인트 모두 구현됐습니다. 원아별 `outcome`·`drafts`는 `succeeded`인 원아만 그날 초안(원아·종류·날짜당 하나)이 있는지로 채웁니다 — 있으면 `drafted`와 그 초안, 없으면 `unclassified`와 빈 배열입니다. Job에 저장할 컬럼이 없어 원아별 `stage`·`unclassified_reason`·`failed_stage`·`error_code`는 항상 `null`이고, 반 전체 `stage`·`failed_stage`·`error_code`도 `null`입니다. 컬럼이 생기면 채웁니다(`mark_job_failed` TODO). 같은 `request_id`로 거의 동시에 두 번 와도 작업은 하나만 만들고 둘 다 그 작업을 돌려줍니다.
 
