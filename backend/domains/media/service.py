@@ -1144,6 +1144,7 @@ def transcribe_media(media_id: str) -> None:
                 end_time=segment.end,
                 raw_text=segment.text,
                 source=source,
+                avg_logprob=segment.avg_logprob,
             )
             for segment in speech
         ] or [TranscriptSegment(media_id=UUID(media_id), raw_text=NO_SPEECH_TEXT, source=source)]

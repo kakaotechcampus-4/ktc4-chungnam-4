@@ -158,6 +158,21 @@ def test_기다리는_도중_작업_시간_제한이_오면_남은_조각을_기
     assert len(started) == 2  # 동시 2개만 보냈고, 줄 서 있던 2개는 취소됨
 
 
+def test_구간_확신도를_받은_그대로_남기고_없으면_None이다(monkeypatch: pytest.MonkeyPatch) -> None:
+    body = {
+        "text": "하나 둘",
+        "segments": [
+            {"start": 0.0, "end": 1.0, "text": "하나", "avg_logprob": -0.92},
+            {"start": 1.0, "end": 2.0, "text": "둘"},
+        ],
+    }
+    _transport(monkeypatch, lambda request: httpx.Response(200, json=body))
+
+    segments = stt.transcribe_chunks([_chunk(0.0, 5.0)])
+
+    assert [s.avg_logprob for s in segments] == [-0.92, None]
+
+
 def test_빈_문장은_버린다(monkeypatch: pytest.MonkeyPatch) -> None:
     _transport(monkeypatch, lambda request: _ok((0.0, 1.0, "  "), (1.0, 2.0, "좋아")))
 

@@ -131,3 +131,5 @@ class TranscriptSegment(Base):
     end_time = Column(Float, nullable=True)
     raw_text = Column(String, nullable=False)  # 인식 실패 시 "멘트 없음"
     source = Column(String, nullable=False)  # video_audio / voice_memo
+    # Whisper 구간 확신도. 헛문장 표시 근거로 저장만 합니다 (테크스펙 TranscriptSegment, #218 리뷰)
+    avg_logprob = Column(Float, nullable=True)

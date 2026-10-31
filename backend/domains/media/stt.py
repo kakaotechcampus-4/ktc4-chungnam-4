@@ -44,11 +44,16 @@ class _RetryableSttError(SttError):
 
 @dataclass(frozen=True)
 class SpeechSegment:
-    """STT가 나눠 준 구간. `start`·`end`는 원본 파일 처음부터의 초입니다."""
+    """STT가 나눠 준 구간. `start`·`end`는 원본 파일 처음부터의 초입니다.
+
+    `avg_logprob`는 Whisper의 구간 확신도입니다(0에 가까울수록 확신, 없으면 None). 소음이 만든
+    헛문장을 가려낼 근거라 받은 그대로 남깁니다(#218 리뷰).
+    """
 
     start: float
     end: float
     text: str
+    avg_logprob: float | None = None
 
 
 def transcribe_chunks(chunks: Sequence[AudioChunk]) -> list[SpeechSegment]:
@@ -136,7 +141,13 @@ def _segments_of(body: dict, chunk: AudioChunk) -> list[SpeechSegment]:
         # 조각 시작 시각을 더해 원본 기준으로 되돌립니다. 조각 끝을 넘는 시각은 조각 끝으로 자릅니다
         start = chunk.start + float(raw.get("start", 0.0))
         end = min(chunk.start + float(raw.get("end", 0.0)), chunk.end)
+        avg_logprob = raw.get("avg_logprob")
         segments.append(
-            SpeechSegment(start=round(start, 2), end=round(max(start, end), 2), text=text)
+            SpeechSegment(
+                start=round(start, 2),
+                end=round(max(start, end), 2),
+                text=text,
+                avg_logprob=float(avg_logprob) if avg_logprob is not None else None,
+            )
         )
     return segments

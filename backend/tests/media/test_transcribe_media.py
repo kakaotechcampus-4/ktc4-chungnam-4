@@ -78,11 +78,17 @@ def test_발화를_원본_기준_시각으로_저장하고_done이_된다(
     sessions: sessionmaker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     media_id = _asset(sessions)
-    _fake_pipeline(monkeypatch, [CHUNK], [stt.SpeechSegment(start=4.0, end=6.5, text="성 쌓자")])
+    _fake_pipeline(
+        monkeypatch,
+        [CHUNK],
+        [stt.SpeechSegment(start=4.0, end=6.5, text="성 쌓자", avg_logprob=-0.3)],
+    )
 
     service.transcribe_media(media_id)
 
     assert _state(sessions, media_id) == ("done", [(4.0, 6.5, "성 쌓자", "video_audio")])
+    with sessions() as session:
+        assert session.query(TranscriptSegment.avg_logprob).scalar() == -0.3
 
 
 def test_말소리가_없으면_STT를_부르지_않고_멘트_없음_한_줄로_done이다(
