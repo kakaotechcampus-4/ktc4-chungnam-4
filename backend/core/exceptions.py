@@ -249,6 +249,20 @@ class MediaDeleted(AidamError):
     status_code = 409
 
 
+class MediaHasNoAudio(AidamError):
+    """사진처럼 소리가 없는 미디어의 발화를 찾았습니다. 발화는 영상·음성메모에만 있습니다."""
+
+    code = "MEDIA_HAS_NO_AUDIO"
+    status_code = 400
+
+
+class TranscriptSegmentNotFound(AidamError):
+    """알 수 없는 발화 구간입니다."""
+
+    code = "TRANSCRIPT_SEGMENT_NOT_FOUND"
+    status_code = 404
+
+
 class DuplicateChildLink(AidamError):
     """같은 원아가 귀속 목록에 두 번 있습니다. FE 버그를 숨기지 않으려고 거절합니다."""
 
