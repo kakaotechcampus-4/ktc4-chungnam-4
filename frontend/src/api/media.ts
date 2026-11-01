@@ -56,7 +56,7 @@ export type {
 // 업로드·재생 URL·얼굴 임베딩 요청과 query key는 이 파일에서만 만듭니다(frontend/CLAUDE.md §데이터).
 // 업로드 순서(API 문서 §media): requestUploadUrls → uploadFile → completeUpload.
 // 사진은 completeUpload에 귀속을 함께 싣고, 영상·음성만 그 뒤에 saveChildLinks로 귀속을 저장합니다.
-// 실패한 파일은 같은 순서를 다시 밟습니다. URL을 새로 받고, 이미 완료 통지된 파일은 media_id가 와서 S3 PUT을 건너뜁니다.
+// 실패한 파일은 같은 순서를 다시 밟습니다. URL을 새로 받고, 이미 완료 통지된 파일은 registered로 와서 S3 PUT을 건너뜁니다.
 export const mediaKeys = {
   detail: (mediaId: string) => ["media", mediaId] as const,
   faceEmbeddings: (classId: string) => ["classes", classId, "face-embeddings"] as const,
@@ -110,22 +110,17 @@ export async function requestUploadUrls(input: UploadUrlsInput) {
 }
 
 /**
- * 받은 URL로 파일을 올립니다. media_id가 이미 있는 항목(등록된 파일)은 부르지 않습니다. 화면은 File을 넘깁니다.
- * 서버가 그 파일만 거절한 항목(status error)이면 서버 사유로 ApiError를 던집니다(API 문서 §media).
+ * 받은 URL로 파일을 올립니다. 이미 등록된 파일(registered)은 올리지 않으므로 타입에서 받지 않습니다.
+ * 화면은 File을 넘깁니다. 서버가 그 파일만 거절한 항목(status error)이면 서버 사유로 ApiError를 던집니다
+ * (API 문서 §media). 쓸 수 없는 응답(unknown)이면 올리지 않고 멈춥니다.
  */
 export function uploadFile(
-  item: UploadTicketView,
+  item: Exclude<UploadTicketView, { status: "registered" }>,
   file: Blob | Uint8Array<ArrayBuffer>,
   signal?: AbortSignal,
 ) {
-  if (item.status === "error") {
-    throw new ApiError(
-      400,
-      item.error?.code ?? "UPLOAD_URL_ERROR",
-      item.error?.message ?? "이 파일은 올릴 수 없어요.",
-    );
-  }
-  if (!item.upload_url) throw new Error("업로드 URL이 없는 항목입니다(이미 등록된 파일).");
+  if (item.status === "error") throw new ApiError(400, item.error.code, item.error.message);
+  if (item.status === "unknown") throw new Error("이 파일의 업로드 URL을 받지 못했어요.");
   return putToUploadUrl(item.upload_url, item.upload_headers, file, signal);
 }
 

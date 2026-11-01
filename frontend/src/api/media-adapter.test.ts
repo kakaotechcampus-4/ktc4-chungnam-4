@@ -22,7 +22,8 @@ import {
 } from "./media-adapter";
 
 describe("media adapter (업로드·귀속)", () => {
-  it("업로드 URL 응답은 문서 이름 그대로 옮기고, 이미 등록된 파일의 null도 그대로 둔다", () => {
+  // 상태마다 반드시 있는 값만 옮겨, 화면이 status를 확인하면 쓸 값이 정해지게 합니다(#206 멘토님 리뷰).
+  it("업로드 URL 응답은 상태마다 그 상태에 있는 값만 옮긴다", () => {
     const raw: UploadUrlsResponse = {
       items: [
         {
@@ -43,10 +44,96 @@ describe("media adapter (업로드·귀속)", () => {
           upload_url_expires_at: null,
           error: null,
         },
+        {
+          client_photo_id: "p3",
+          status: "error",
+          media_id: null,
+          upload_url: null,
+          upload_headers: null,
+          upload_url_expires_at: null,
+          error: { code: "MEDIA_TYPE_NOT_ALLOWED", message: "올릴 수 없는 형식의 파일이에요." },
+        },
       ],
     };
 
-    expect(toUploadUrlsView(raw)).toEqual(raw);
+    expect(toUploadUrlsView(raw).items).toEqual([
+      {
+        client_photo_id: "p1",
+        status: "issued",
+        upload_url: "https://upload.example.com/p1",
+        upload_headers: { "Content-Type": "image/jpeg" },
+        upload_url_expires_at: "2026-09-15T05:10:00Z",
+      },
+      { client_photo_id: "p2", status: "registered", media_id: "m2" },
+      {
+        client_photo_id: "p3",
+        status: "error",
+        error: { code: "MEDIA_TYPE_NOT_ALLOWED", message: "올릴 수 없는 형식의 파일이에요." },
+      },
+    ]);
+  });
+
+  // 값을 지어 채우지 않고 unknown으로 두면, 그 파일은 올리지 않고 멈춥니다(uploadFile).
+  it("상태에 있어야 할 값이 빠졌거나 모르는 상태면 unknown이고, 상태 값만 경고로 남긴다", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const empty = {
+      media_id: null,
+      upload_url: null,
+      upload_headers: null,
+      upload_url_expires_at: null,
+      error: null,
+    };
+    const raw = {
+      items: [
+        { ...empty, client_photo_id: "p1", status: "issued" },
+        { ...empty, client_photo_id: "p2", status: "registered" },
+        { ...empty, client_photo_id: "p3", status: "error" },
+        { ...empty, client_photo_id: "p4", status: "queued" },
+      ],
+    } as unknown as UploadUrlsResponse;
+
+    expect(toUploadUrlsView(raw).items).toEqual([
+      { client_photo_id: "p1", status: "unknown" },
+      { client_photo_id: "p2", status: "unknown" },
+      { client_photo_id: "p3", status: "unknown" },
+      { client_photo_id: "p4", status: "unknown" },
+    ]);
+    expect(warn.mock.calls).toEqual([
+      ["쓸 수 없는 업로드 URL 응답", "issued"],
+      ["쓸 수 없는 업로드 URL 응답", "registered"],
+      ["쓸 수 없는 업로드 URL 응답", "error"],
+      ["쓸 수 없는 업로드 URL 응답", "queued"],
+    ]);
+    warn.mockRestore();
+  });
+
+  // null만 보면 빈 문자열이나 빠진 키가 issued로 통과해 빈 주소로 PUT합니다.
+  it("값이 빈 문자열이거나 키가 아예 빠져도 unknown이다", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const issuedWithoutUrl = {
+      client_photo_id: "p1",
+      status: "issued",
+      media_id: null,
+      upload_headers: { "Content-Type": "image/jpeg" },
+      upload_url_expires_at: "2026-09-15T05:10:00Z",
+      error: null,
+    };
+    const raw = {
+      items: [
+        { ...issuedWithoutUrl, upload_url: "" },
+        issuedWithoutUrl,
+        { client_photo_id: "p2", status: "registered", media_id: "" },
+        { client_photo_id: "p3", status: "error" },
+      ],
+    } as unknown as UploadUrlsResponse;
+
+    expect(toUploadUrlsView(raw).items.map((item) => item.status)).toEqual([
+      "unknown",
+      "unknown",
+      "unknown",
+      "unknown",
+    ]);
+    warn.mockRestore();
   });
 
   it("완료 통지 응답에서 문서에 없는 필드는 옮기지 않는다", () => {

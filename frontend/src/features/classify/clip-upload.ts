@@ -12,7 +12,7 @@ import {
 // 발화를 아이에게 연결할 수 있기 때문입니다(#83 리뷰, 송유진 님 흐름 — 팀 결정 전 제안).
 // - 영상·음성은 로컬 검수 대상이 아니고 원래도 업로드 대상입니다(uploadTargets). 올리는 때만 앞당깁니다(H-3).
 // - 사진은 여기서 올리지 않습니다. 교사가 확정한 뒤 서버 전송 단계(SendStep)가 올립니다.
-// - 귀속 저장(child-links)은 하지 않습니다. 서버 전송 단계가 이미 올라간 파일을 media_id로 알아보고 귀속만 저장합니다.
+// - 귀속 저장(child-links)은 하지 않습니다. 서버 전송 단계가 이미 올라간 파일을 registered 응답으로 알아보고 귀속만 저장합니다.
 // 처리 중 화면에서 분류 확인 화면으로 넘어가도 끊기지 않게 컴포넌트 밖에서 돌고, 진행은 업로드 큐에 남깁니다.
 
 // 가정: 촬영 시각은 EXIF에서 읽어야 하지만 지금은 파일 수정 시각을 씁니다(SendStep과 같음).
@@ -60,11 +60,13 @@ export async function startClipUploads(classId: string) {
     });
     for (const [index, clip] of clips.entries()) {
       current = index;
-      const issued = items[index];
-      if (!issued) throw new Error("업로드 URL 응답의 항목 수가 요청과 다릅니다.");
-      let mediaId = issued.media_id;
-      if (mediaId === null) {
-        await uploadFile(issued, clip.file);
+      const ticket = items[index];
+      if (!ticket) throw new Error("업로드 URL 응답의 항목 수가 요청과 다릅니다.");
+      // 이미 등록된 파일(registered)이면 올리지 않고 그 media_id를 씁니다.
+      let mediaId: string;
+      if (ticket.status === "registered") mediaId = ticket.media_id;
+      else {
+        await uploadFile(ticket, clip.file);
         mediaId = (
           await completeUpload({
             client_photo_id: clip.client_id,

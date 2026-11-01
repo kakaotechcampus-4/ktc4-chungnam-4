@@ -164,7 +164,8 @@
 - 인덴트·포매터 (TS 2 / Python 4, Prettier + Ruff) → 각 파트 `CLAUDE.md` §코드 스타일
 - JSON 필드 `snake_case` → `docs/테크스펙.md` §공통 API 규약
 - 브랜치 전략·이름(`<타입>/<파트>/<작업내용>`, `feat`) → `.claude/skills/create-branch`
-- Squash merge, 승인 1명 → `.claude/skills/pr`
+- **`develop` 앞에 `develop-next`를 둠** — 평소 개발은 develop-next, 리뷰 기간 develop은 리뷰 반영만, 장수 브랜치끼리는 Merge (10/29) → `.claude/skills/create-branch`, `.claude/skills/pr`, 루트 §Git
+- Merge commit(Squash 안 씀, PR 단위 기록은 `--first-parent`), 승인 1명 (10/29) → `.claude/skills/pr`
 - 타임존: 컨테이너·DB는 `Asia/Seoul`, **저장은 UTC** → `backend/CLAUDE.md` §DB
 - 도메인 용어 표 → 루트 §도메인 용어
 - 도메인별 담당자 → `backend/README.md` §폴더 구조와 담당 범위 (09/18 확인)
