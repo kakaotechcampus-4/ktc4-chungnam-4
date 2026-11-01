@@ -326,8 +326,9 @@ export function DraftReviewPage() {
         publishedCount: results.length - failures.length,
       });
       if (failures.length > 0) return;
+      // 발행 완료 화면이 오늘이 아니라 게시한 날짜를 보여 주도록 요청 때의 날짜를 함께 넘깁니다.
       navigate("/t/notes/publish/done", {
-        state: { publishedCount: results.length },
+        state: { publishedCount: results.length, recordDate: variables.recordDate },
       });
     },
     onError: (error) => refetchOnVersionConflict(error),

@@ -1,5 +1,6 @@
 import { act, screen } from "@testing-library/react";
 
+import { formatDate, kstToday, shiftDate } from "@/lib/datetime";
 import { renderRoutes } from "@/test/render";
 
 import { ParentNotePublishedPage } from "./ParentNotePublishedPage";
@@ -22,6 +23,33 @@ describe("ParentNotePublishedPage", () => {
     await act(() => router.navigate("/t/notes/publish/done", { state: { publishedCount: 3 } }));
 
     expect(screen.getByRole("heading", { name: "3명의 알림장을 게시했어요" })).toBeInTheDocument();
+  });
+
+  // 지난 날짜를 게시해도 오늘 날짜와 '오늘의 기록을 전달했어요'가 보였습니다(10/31 #209 검증에서 발견).
+  it("지난 날짜를 게시했으면 그 날짜를 보여 주고 '오늘의'를 붙이지 않는다", async () => {
+    const { router } = renderAt("/t/today/review");
+    const yesterday = shiftDate(kstToday(), -1);
+
+    await act(() =>
+      router.navigate("/t/notes/publish/done", {
+        state: { publishedCount: 2, recordDate: yesterday },
+      }),
+    );
+
+    expect(screen.getByRole("heading", { name: "기록을 전달했어요" })).toBeInTheDocument();
+    expect(screen.getByText(formatDate(yesterday, { weekday: false }))).toBeInTheDocument();
+  });
+
+  it("오늘 게시했으면 '오늘의 기록을 전달했어요'다", async () => {
+    const { router } = renderAt("/t/today/review");
+
+    await act(() =>
+      router.navigate("/t/notes/publish/done", {
+        state: { publishedCount: 1, recordDate: kstToday() },
+      }),
+    );
+
+    expect(screen.getByRole("heading", { name: "오늘의 기록을 전달했어요" })).toBeInTheDocument();
   });
 
   // 주소로 바로 열거나 새 탭에서 열면 게시 결과가 없어 '0명'으로 보였습니다(10/30 배포 점검).

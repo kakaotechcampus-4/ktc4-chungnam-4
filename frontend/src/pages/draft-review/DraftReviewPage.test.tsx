@@ -588,6 +588,26 @@ describe("DraftReviewPage", () => {
 
   // 게시는 HTTP 200 안에서 건별로 성공·실패가 옵니다. 실패를 두고 발행 완료로 넘어가면
   // "전달했어요"만 보여서 교사가 못 올린 원아를 영영 모릅니다.
+  it("모두 게시되면 게시한 날짜를 발행 완료 화면에 넘긴다", async () => {
+    const user = userEvent.setup();
+    const { router } = renderRoutes(
+      [
+        { path: "/t/today/review/:childId", element: <DraftReviewPage /> },
+        { path: "/t/notes/publish/done", element: <p>발행 완료</p> },
+      ],
+      { initialEntry: `/t/today/review/${DOYUN}?record_date=${YESTERDAY}` },
+    );
+    await screen.findByRole("heading", { name: /작은 블록/ });
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+    await user.click(await screen.findByRole("button", { name: "게시하기" }));
+
+    expect(await screen.findByText("발행 완료")).toBeInTheDocument();
+    expect(router.state.location.state).toMatchObject({ recordDate: YESTERDAY });
+  });
+
   // 응답을 기다리는 사이 날짜를 옮기면 화면의 날짜는 이미 바뀌어 있습니다. 그 날짜로 고르면 게시한
   // 날짜의 목록은 그대로 남아, 돌아왔을 때 게시 전 상태가 보입니다(10/31 #209 검증에서 발견).
   it("게시를 기다리는 사이 날짜를 옮겨도 게시한 날짜의 목록을 비운다", async () => {
