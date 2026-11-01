@@ -287,7 +287,6 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 
 | 요청 | 본문 | 응답 | 에러 |
 |---|---|---|---|
-| `GET /children/{child_id}/parent-invites` **(추가)** | — | `200 { "invite_url", "parent_linked" }`. 지금 쓸 수 있는 링크 | `CHILD_NOT_FOUND`(404) |
 | `POST /children/{child_id}/parent-invites` | 없음 | `201 { "invite_url", "parent_linked" }`. 이전 링크는 바로 무효 | `CHILD_NOT_FOUND`(404) |
 
 - `invite_url`은 `https://<서비스 도메인>/invite/<무작위 토큰>`입니다(목은 `aidam.test`). 토큰에 원아 이름·id를 넣지 않습니다(H-2, H-4). FE는 토큰을 가려서 보여 주고 복사할 때만 원문을 씁니다.
@@ -330,7 +329,8 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 | `GET /api/v1/education-plans/{plan_id}` | 교육 계획 하나(수정 화면) | 구현(추가, 임시 결정) | 이한나 |
 | `DELETE /api/v1/education-plans/{plan_id}` | 교육 계획 삭제 | 구현(추가, 임시 결정) | 이한나 |
 | `PATCH /api/v1/classes/{class_id}/favorite` | 반 즐겨찾기 | 추가(임시 결정) | 이한나 |
-| `GET /api/v1/children/{child_id}/parent-invites` | 지금 쓰는 초대 링크(복사용) | 추가(임시 결정) | 이한나·엄태은 |
 | `POST /api/v1/children/{child_id}/parent-invites` | 학부모 초대 링크 만들기 | 경로만 | 이한나·엄태은 |
 | `GET /api/v1/parent-invites/{token}` | 초대 링크 열기(아이·반·어린이집 정보) | 경로만 | 이한나·엄태은 |
 | `POST /api/v1/parent-invites/{token}/accept` | 초대를 받아 학부모 계정을 만들고 자녀와 잇기 | 경로만 | 이한나·엄태은 |
+
+#225 반영: 초대 토큰은 해시만 저장하므로 재조회 API를 제거합니다. 발급·수락 계약은 [auth](auth.md#학부모-초대-수락-fr-28-225)입니다. 원아 상세 GET·PATCH는 같은 어린이집 교사에게만 허용하고 동의는 학부모 초대 수락에서 기록합니다.
