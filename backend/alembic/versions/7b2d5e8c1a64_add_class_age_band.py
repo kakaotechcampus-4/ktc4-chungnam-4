@@ -6,7 +6,7 @@
 채웁니다.
 
 Revision ID: 7b2d5e8c1a64
-Revises: fa3e9648dc22
+Revises: 3c7e1a9d4f20
 Create Date: 2026-10-29 16:00:00.000000
 """
 
@@ -17,7 +17,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "7b2d5e8c1a64"
-down_revision: str | Sequence[str] | None = "fa3e9648dc22"
+down_revision: str | Sequence[str] | None = "3c7e1a9d4f20"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
