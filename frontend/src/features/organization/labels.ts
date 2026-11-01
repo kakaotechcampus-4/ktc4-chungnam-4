@@ -65,7 +65,7 @@ export const WEEKDAY_LABEL_MAP: Record<WeekdayView, string> = {
   fri: "금",
 };
 
-/** 얼굴 특징정보 처리 동의 전이면 잠김, 아니면 등록 여부 */
+/** 얼굴 특징정보 처리 동의 전이거나 동의 여부를 모르면(null) 잠김, 아니면 등록 여부 */
 export function faceStatus(
   child: Pick<ClassChildView, "is_face_registered" | "face_feature_agreed">,
 ): FaceStatusView {
