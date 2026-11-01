@@ -965,6 +965,57 @@ describe("DraftReviewPage", () => {
     await waitFor(() => expect(screen.getByRole("checkbox")).toBeEnabled());
   });
 
+  // 승인을 기다리는 사이 수정을 시작하면, 승인된 초안에 고치던 칸만 남습니다(11/01 검증에서 발견).
+  it("승인을 기다리는 동안에는 직접 수정을 누를 수 없다", async () => {
+    const user = userEvent.setup();
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.post(apiPath("/drafts/:draftId/approve"), async () => {
+        await gate;
+      }),
+    );
+    await renderAndWait();
+
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+
+    expect(screen.getByRole("button", { name: "직접 수정" })).toBeDisabled();
+    release();
+    expect(await screen.findByRole("button", { name: "다시 검토하기" })).toBeInTheDocument();
+  });
+
+  // 고치던 초안을 다른 곳에서 승인하면 "수정 완료"가 사라져 빠져나갈 길이 없었고, 게시가 열려
+  // 화면의 고친 글 대신 승인본이 나갈 수 있었습니다(11/01 검증에서 발견).
+  it("수정하는 사이 다른 곳에서 승인되면 수정 취소로 빠져나오고, 그동안 게시는 잠긴다", async () => {
+    const user = userEvent.setup();
+    const { queryClient } = renderPage();
+    await screen.findByRole("heading", { name: /작은 블록/ });
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+
+    updateDb((db) => {
+      const draft = db.drafts[fixtureId("draft", 12)];
+      if (!draft) throw new Error("김도윤 초안이 시드에 없습니다.");
+      draft.status = "approved";
+      draft.version += 1;
+      draft.approved_at = `${YESTERDAY}T07:00:00Z`;
+    });
+    // 연결이 다시 이어질 때처럼 화면이 초안과 명단을 새로 받습니다.
+    await act(() => queryClient.invalidateQueries());
+    await screen.findByRole("button", { name: /김도윤.*검토 완료/ });
+
+    expect(screen.queryByRole("button", { name: "수정 완료" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "게시하기" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "수정 취소" }));
+
+    expect(screen.queryAllByRole("textbox", { name: "초안 문장 수정" })).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "다시 검토하기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled();
+  });
+
   // 무엇이 막혔는지 알려 줘야 교사가 다음 행동을 고를 수 있다(고정 문구 대신 응답 message).
   it("목록을 불러오지 못하면 서버가 준 문구를 보여 준다", async () => {
     server.use(

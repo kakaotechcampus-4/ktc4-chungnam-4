@@ -415,7 +415,9 @@ export function DraftReviewPage() {
   // 초안이 없는 원아도 같은 이유로 막지 않고, 모달에 따로 셉니다.
   const hasUnreviewedDraft = rows.some(needsReview);
   const notReadyCount = rows.filter(isNotReady).length;
-  const canPublish = publishTargets.length > 0 && !hasUnreviewedDraft;
+  // 수정 중에도 게시를 잠급니다. 고치던 초안이 그 사이 다른 곳에서 승인되면 화면에는 저장하지 않은
+  // 글이 남는데 승인본이 나갑니다. 승인을 잠그는 것과 같은 이유입니다(H-1).
+  const canPublish = publishTargets.length > 0 && !hasUnreviewedDraft && !isEditing;
 
   function selectChild(id: string) {
     // 지금 원아를 다시 누르면 아무것도 하지 않습니다. 고치던 문장을 지우거나 같은 주소를 이력에 또 쌓지
@@ -655,17 +657,21 @@ export function DraftReviewPage() {
                   )
                 )}
 
-                {/* 수정 중에도 이 버튼은 남아야 "수정 완료"로 빠져나올 수 있습니다. */}
-                {isDraftApprovable ? (
+                {/* 수정 중에도 이 버튼은 남아야 "수정 완료"로 빠져나올 수 있습니다.
+                    그 사이 다른 곳에서 승인돼 "수정 완료"가 사라져도 "수정 취소"는 남깁니다. */}
+                {isDraftApprovable || isEditing ? (
                   <div className="flex items-center gap-5 self-start">
-                    <button
-                      type="button"
-                      onClick={toggleEditing}
-                      disabled={patchMutation.isPending}
-                      className="text-label font-bold text-ink-muted underline-offset-4 outline-none transition-colors hover:text-brand-ink hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
-                    >
-                      {editing !== null ? "수정 완료" : "직접 수정"}
-                    </button>
+                    {isDraftApprovable ? (
+                      <button
+                        type="button"
+                        onClick={toggleEditing}
+                        // 승인을 기다리는 사이 수정을 시작하면, 승인된 초안에 고치던 칸만 남습니다.
+                        disabled={patchMutation.isPending || approveMutation.isPending}
+                        className="text-label font-bold text-ink-muted underline-offset-4 outline-none transition-colors hover:text-brand-ink hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+                      >
+                        {editing !== null ? "수정 완료" : "직접 수정"}
+                      </button>
+                    ) : null}
                     {editing !== null ? (
                       <button
                         type="button"
@@ -738,7 +744,7 @@ export function DraftReviewPage() {
                 .join(", ")}
             </p>
           ) : null}
-          {isEditing ? (
+          {isEditing && isDraftApprovable ? (
             <p className="text-caption text-ink-muted">수정을 마치면 승인할 수 있어요.</p>
           ) : null}
           <label className="flex items-center gap-2 text-body text-ink">
