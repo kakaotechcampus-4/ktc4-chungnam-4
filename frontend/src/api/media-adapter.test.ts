@@ -222,7 +222,12 @@ const TRANSCRIPT: TranscriptSegmentsResponse = {
 
 describe("media adapter (재생 URL·얼굴 임베딩·발화)", () => {
   it("발화 목록은 문서 이름 그대로 옮긴다", () => {
-    expect(toTranscriptView(TRANSCRIPT)).toEqual(TRANSCRIPT);
+    expect(toTranscriptView(TRANSCRIPT)).toEqual({
+      ...TRANSCRIPT,
+      child_ids: [],
+      llm_allowed: false,
+      attributed_at: null,
+    });
   });
 
   it("발화 상태가 pending이면 기다리고, done·failed면 멈춘다", () => {
@@ -253,7 +258,6 @@ describe("media adapter (재생 URL·얼굴 임베딩·발화)", () => {
     expect(toTranscriptSegmentBody({ excluded: true })).toEqual({ excluded: true });
     expect(toTranscriptSegmentBody({ speaker: null, child_ids: ["k1"] })).toEqual({
       speaker: null,
-      child_ids: ["k1"],
     });
   });
 

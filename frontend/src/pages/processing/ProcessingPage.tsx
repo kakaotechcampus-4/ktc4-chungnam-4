@@ -75,7 +75,6 @@ export function ProcessingPage() {
       {step === "classify" ? <ClassifyStep onDone={toReview} onCancel={cancel} /> : null}
       {step === "send" ? <SendStep onDone={toDraft} onCancel={cancel} /> : null}
       {step === "draft" ? <DraftStep onDone={toDraftReview} onCancel={cancel} /> : null}
-
     </>
   );
 }

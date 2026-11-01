@@ -1,3 +1,5 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { saveChildLinks, mediaKeys, type TranscriptView } from "@/api/media";
 import { type ReactNode, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
@@ -33,6 +35,34 @@ export function SpeechSortView({ renderTabs }: SpeechSortViewProps) {
   const { children } = useClassChildren();
   const transcripts = useQueueTranscripts();
   const update = useUpdateSegment();
+  const queryClient = useQueryClient();
+  const linkFile = useMutation({
+    mutationFn: async ({
+      mediaId,
+      childIds,
+      isVideo,
+    }: {
+      mediaId: string;
+      childIds: string[];
+      isVideo: boolean;
+    }) => {
+      const allowed =
+        childIds.length > 0 &&
+        (!isVideo ||
+          childIds.every(
+            (id) => children.find((child) => child.child_id === id)?.face_feature_agreed,
+          ));
+      await saveChildLinks(mediaId, {
+        llm_allowed: allowed,
+        child_links: childIds.map((child_id) => ({
+          child_id,
+          method: "manual",
+          confidence_score: null,
+        })),
+      });
+      await queryClient.invalidateQueries({ queryKey: mediaKeys.transcript(mediaId) });
+    },
+  });
   // 저장 전 고친 문장·화자. 발화마다 따로 두어 이전·다음으로 오가도 남습니다.
   const [drafts, setDrafts] = useState<
     Record<string, { text?: string; speaker?: TranscriptSpeakerView }>
@@ -101,9 +131,22 @@ export function SpeechSortView({ renderTabs }: SpeechSortViewProps) {
       {
         // 처리한 뒤: 남은 발화로 가고, 다 끝났으면 분류 결과로 돌아가 알려 줍니다(사진 탭과 같음).
         onSuccess: (saved) => {
-          const latest = entries.map((item) =>
-            item.segment.segment_id === saved.segment_id ? { ...item, segment: saved } : item,
-          );
+          const latest = entries.map((item) => {
+            const cached = queryClient.getQueryData<TranscriptView>(
+              mediaKeys.transcript(item.segment.media_id),
+            );
+            return {
+              ...item,
+              segment: {
+                ...(item.segment.segment_id === saved.segment_id
+                  ? saved
+                  : (cached?.items.find(
+                      (candidate) => candidate.segment_id === item.segment.segment_id,
+                    ) ?? item.segment)),
+                child_ids: cached?.child_ids ?? item.segment.child_ids,
+              },
+            };
+          });
           const next = nextPending(latest, index, isPending);
           if (next === -1)
             navigate(CLASSIFICATION, { state: { notice: "미분류 발화를 모두 정리했어요." } });
@@ -135,27 +178,41 @@ export function SpeechSortView({ renderTabs }: SpeechSortViewProps) {
         </section>
         {/* 발화가 바뀌면 선택을 새로 시작합니다. */}
         <ChildPicker
-          key={segment.segment_id}
-          title="발화가 해당하는 아이"
+          key={`${segment.media_id}:${segment.child_ids.join(",")}`}
+          title="이 파일에 나오는 모든 아이"
           childList={children}
           initialSelected={segment.child_ids}
-          onConnect={(childIds) =>
-            save({ child_ids: childIds, speaker, excluded: false, ...edited })
-          }
+          onConnect={(childIds) => {
+            if (linkFile.isPending || update.isPending) return;
+            linkFile.mutate(
+              { mediaId: segment.media_id, childIds, isVideo: current.clip.kind === "video" },
+              { onSuccess: () => save({ speaker, excluded: false, ...edited }) },
+            );
+          }}
         />
       </div>
 
-      {update.error ? (
+      <p className="mt-4 text-caption text-ink-muted">
+        파일의 모든 발화에 같은 원아가 연결돼요. 다른 아이의 목소리가 들리면 함께 선택해 주세요.
+        문장·화자·제외는 발화별로 저장됩니다.
+      </p>
+      {update.error || linkFile.error ? (
         <p role="alert" className="mt-4 text-body text-destructive">
-          {update.error.message}
+          {(update.error ?? linkFile.error)?.message}
         </p>
       ) : null}
 
       <div className="mt-6 flex items-start gap-7">
         <Button
+          disabled={update.isPending || linkFile.isPending || segment.child_ids.length === 0}
+          onClick={() => save({ speaker, excluded: false, ...edited })}
+        >
+          발화 검수 완료
+        </Button>
+        <Button
           className="w-45 border-transparent"
-          disabled={update.isPending}
-          onClick={() => save({ excluded: true, child_ids: [] })}
+          disabled={update.isPending || linkFile.isPending}
+          onClick={() => save({ excluded: true })}
         >
           이 자료 제외
         </Button>

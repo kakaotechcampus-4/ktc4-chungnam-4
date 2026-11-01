@@ -389,7 +389,6 @@ describe("수동 분류 · 발화", () => {
     expect(screen.getByText("처리 1 / 4개")).toBeVisible();
     expect(patched).toEqual([
       {
-        child_ids: [DOYUN],
         speaker: "together",
         excluded: false,
         text: "내가 제일 높이 쌓아 볼게!",
@@ -408,10 +407,14 @@ describe("수동 분류 · 발화", () => {
     // 저장 → 다음 발화로 이동을 세 번 거쳐서, 전체 테스트가 함께 돌 때는 기본 대기(1초)를 넘길 수 있습니다.
     for (let i = 0; i < 3; i += 1) {
       await screen.findByText(`처리 ${i + 1} / 4개`, undefined, { timeout: 5000 });
-      await user.click(screen.getByRole("button", { name: "이 자료 제외" }));
+      const exclude = screen.getByRole("button", { name: "이 자료 제외" });
+      await waitFor(() => expect(exclude).toBeEnabled());
+      await user.click(exclude);
     }
 
-    await waitFor(() => expect(router.state.location.pathname).toBe("/t/today/classification"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/t/today/classification"), {
+      timeout: 5000,
+    });
     expect(await screen.findByText("미분류 발화를 모두 정리했어요.")).toBeVisible();
     const list = await findResultList();
     const hajunCard = await waitFor(() => {
@@ -420,7 +423,7 @@ describe("수동 분류 · 발화", () => {
       return card;
     });
     expect(hajunCard).toBeInTheDocument();
-  });
+  }, 15_000);
 
   it("발화 저장에 실패하면 화면에 남아 이유를 보여 준다", async () => {
     server.use(

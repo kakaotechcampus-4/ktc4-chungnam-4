@@ -15,10 +15,7 @@ import {
 // - 귀속 저장(child-links)은 하지 않습니다. 서버 전송 단계가 이미 올라간 파일을 registered 응답으로 알아보고 귀속만 저장합니다.
 // 처리 중 화면에서 분류 확인 화면으로 넘어가도 끊기지 않게 컴포넌트 밖에서 돌고, 진행은 업로드 큐에 남깁니다.
 
-// 가정: 촬영 시각은 EXIF에서 읽어야 하지만 지금은 파일 수정 시각을 씁니다(SendStep과 같음).
-function capturedAt(file: File) {
-  return new Date(file.lastModified).toISOString();
-}
+import { activityDateInstant } from "@/lib/datetime";
 
 function clipsToUpload(): LocalClip[] {
   return useUploadQueue
@@ -47,6 +44,7 @@ export async function startClipUploads(classId: string) {
   // 기다리기 전에 전송중으로 바꿔 두어 동시에 부른 쪽이 같은 파일을 또 올리지 않게 합니다.
   const { setUploadState } = useUploadQueue.getState();
   for (const clip of clips) setUploadState(clip.client_id, "전송중");
+  const capturedAt = activityDateInstant(useUploadQueue.getState().recordDate);
   let current = 0;
   try {
     const { items } = await requestUploadUrls({
@@ -72,7 +70,7 @@ export async function startClipUploads(classId: string) {
             client_photo_id: clip.client_id,
             class_id: classId,
             type: clip.kind,
-            captured_at: capturedAt(clip.file),
+            captured_at: capturedAt,
             model_version: null,
           })
         ).media_id;
