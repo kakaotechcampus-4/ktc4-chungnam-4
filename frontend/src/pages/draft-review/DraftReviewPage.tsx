@@ -76,6 +76,8 @@ const EDIT_FIELD_CLASS =
   "min-h-0 resize-none rounded-md border-0 bg-transparent p-0 text-lead whitespace-pre-line shadow-none focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent";
 
 // TODO(김진하): 사진 추가는 업로드 흐름(media, 정은·김동건)이 정해지지 않아 자리만 둡니다.
+// Figma 타일은 '사진 추가'뿐이지만 '준비 중'을 보이는 글자로도 둡니다. 스크린리더에만 읽히면 화면을 보는
+// 교사는 왜 눌리지 않는지 모릅니다(10/30 배포 점검 25번).
 function AddPhotoTile() {
   return (
     <button
@@ -86,6 +88,7 @@ function AddPhotoTile() {
     >
       <Plus className="size-6" />
       <span className="text-label">사진 추가</span>
+      <span className="text-caption">준비 중</span>
     </button>
   );
 }

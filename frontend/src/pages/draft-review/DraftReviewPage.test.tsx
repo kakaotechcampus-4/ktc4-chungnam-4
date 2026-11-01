@@ -119,6 +119,14 @@ describe("DraftReviewPage", () => {
     expect(screen.queryByText(/사진을 추가하거나/)).not.toBeInTheDocument();
   });
 
+  // '준비 중'이 스크린리더에만 읽혀, 화면을 보는 교사는 왜 눌리지 않는지 몰랐습니다(10/30 배포 점검 25번).
+  it("꺼진 사진 추가 타일은 준비 중이라고 화면에도 보여 준다", async () => {
+    await renderAndWait();
+    const tile = screen.getByRole("button", { name: "사진 추가 (준비 중)" });
+    expect(tile).toBeDisabled();
+    expect(tile).toHaveTextContent("준비 중");
+  });
+
   // 본문을 못 받으면 초안이 있는데도 빈 상태와 직접 작성 칸이 떴습니다. 새로 써서 저장하면 이미
   // 초안이 있어 실패합니다(11/01 검증에서 발견).
   it("초안 본문을 못 불러오면 빈 상태 대신 실패를 알리고 다시 불러올 수 있다", async () => {
