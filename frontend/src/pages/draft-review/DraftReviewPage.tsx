@@ -246,8 +246,12 @@ export function DraftReviewPage() {
         title: null,
         sentences: toSentences(input.text),
       }),
-    onSuccess: async (created) => {
-      setNewText("");
+    onSuccess: async (created, variables) => {
+      // 저장을 기다리는 사이 다른 원아·날짜로 옮겼으면 지금 칸은 그 아이의 글입니다. 콜백은 마지막 렌더의
+      // 값을 보므로, 요청한 원아·날짜를 보고 있을 때만 비웁니다.
+      if (variables.childId === selectedChildId && variables.recordDate === recordDate) {
+        setNewText("");
+      }
       queryClient.setQueryData(documentsKeys.draft(created.draft_id), created);
       await queryClient.invalidateQueries({
         queryKey: documentsKeys.classDraftLists(classId),

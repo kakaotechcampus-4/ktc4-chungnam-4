@@ -167,6 +167,33 @@ describe("DraftReviewPage", () => {
     await waitFor(() => expect(screen.getByRole("checkbox")).toBeEnabled());
   });
 
+  // 저장을 기다리는 사이 다른 원아로 옮겨 쓰기 시작하면, 응답이 올 때 그 글이 지워졌습니다(11/01 검증에서 발견).
+  it("직접 쓴 초안을 저장하는 사이 다른 원아로 옮겨 쓴 글은 지우지 않는다", async () => {
+    const user = userEvent.setup();
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.post(apiPath("/children/:childId/drafts"), async () => {
+        await gate;
+      }),
+    );
+    const { queryClient } = renderPage(fixtureId("child", 5)); // 정예린 — 시드에 초안이 없다
+    await user.type(
+      await screen.findByRole("textbox", { name: "직접 작성" }),
+      "오늘은 그림책을 보았어요.",
+    );
+    await user.click(screen.getByRole("button", { name: "저장하기" }));
+
+    await user.click(screen.getByRole("button", { name: /박서아/ })); // 박서아도 시드에 초안이 없다
+    await user.type(screen.getByRole("textbox", { name: "직접 작성" }), "박서아의 글이에요.");
+    release();
+    await waitFor(() => expect(queryClient.isMutating()).toBe(0));
+
+    expect(screen.getByRole("textbox", { name: "직접 작성" })).toHaveValue("박서아의 글이에요.");
+  });
+
   // 승인은 잠금이지만 게시 전까지는 되돌릴 수 있어야 한다.
   it("승인한 초안은 다시 검토하기로 되돌려 수정할 수 있다", async () => {
     const user = userEvent.setup();
