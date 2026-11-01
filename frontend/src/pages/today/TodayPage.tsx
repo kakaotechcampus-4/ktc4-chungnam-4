@@ -1,6 +1,6 @@
 // Figma: 1:1895 (오늘의 기록 · 빈 상태), 후보 A 1:1913
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState, type DragEvent } from "react";
+import { useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
 
 import { isTeacher, meQueryOptions } from "@/api/auth";
@@ -147,12 +147,34 @@ export function TodayPage() {
     addFiles(Array.from(event.dataTransfer.files));
   }
 
+  // 어느 화면에서든 놓은 파일을 브라우저가 열지 않게, 세 화면을 같은 드롭 영역으로 감쌉니다.
+  // 자식 사이를 지날 때 나는 dragleave는 건너뜁니다.
+  function withDropZone(children: ReactNode) {
+    return (
+      <div
+        onDragOver={(event) => {
+          event.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={(event) => {
+          if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+          setDragging(false);
+        }}
+        onDrop={handleDrop}
+        className={cn("rounded-2xl", dragging && "bg-tint-2")}
+      >
+        {children}
+      </div>
+    );
+  }
+
   const toUpload = () => navigate("/t/today/upload");
   const importStage = isImportStage(items);
-  const importing = items.length > 0 && !isImportDone(items);
+  const importDone = isImportDone(items);
+  const importing = items.length > 0 && !importDone;
 
   if (importStage && rejected.length > 0 && !importing) {
-    return (
+    return withDropZone(
       <>
         <TodayUploadFailed
           total={items.length + rejected.length}
@@ -176,33 +198,26 @@ export function TodayPage() {
             event.target.value = "";
           }}
         />
-      </>
+      </>,
     );
   }
 
   if (importStage && items.length > 0) {
-    return (
+    return withDropZone(
       <TodayUploading
         teacherName={isTeacher(me) ? me.name : ""}
         photos={importCount(items, "photo")}
         videos={importCount(items, "video")}
         audios={importCount(items, "voice_memo")}
         onView={toUpload}
+        done={importDone}
         onCancel={resetQueue}
-      />
+      />,
     );
   }
 
-  return (
-    <div
-      onDragOver={(event) => {
-        event.preventDefault();
-        setDragging(true);
-      }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={handleDrop}
-      className={cn("rounded-2xl", dragging && "bg-tint-2")}
-    >
+  return withDropZone(
+    <>
       <PageHeader eyebrow="오늘의 기록" title="오늘은 어떤 순간이 있었나요?" subtitle={subtitle} />
       {/* TODO(정은): Figma에는 빈 상태(1:1895)만 있어, 다른 상태도 같은 카드 틀에 문구와 버튼만 바꿉니다. */}
       <FocusCard centered className="min-h-140 justify-center">
@@ -272,6 +287,6 @@ export function TodayPage() {
           </>
         )}
       </FocusCard>
-    </div>
+    </>,
   );
 }

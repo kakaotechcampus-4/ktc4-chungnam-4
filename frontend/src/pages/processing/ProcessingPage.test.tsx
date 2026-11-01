@@ -234,6 +234,54 @@ describe("ProcessingPage", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/t/dashboard"), {
       timeout: 3000,
     });
+    expect(useUploadQueue.getState().items).toEqual([]);
+  });
+
+  it("작업이 실패해 초안이 없으면 이동하지 않고 알리며 큐도 비우지 않는다", async () => {
+    const queue = useUploadQueue.getState();
+    queue.addFiles([photo("confirmed.jpg")]);
+    const [confirmed] = useUploadQueue.getState().items;
+    queue.setReview(confirmed!.client_id, {
+      review_state: "확정",
+      assigned_child_ids: [fixtureId("child", 1)],
+      excluded_reason: null,
+      llm_allowed: true,
+    });
+    server.use(
+      http.get(apiPath("/jobs/:jobId"), ({ params }) =>
+        HttpResponse.json<Job>({
+          job_id: String(params.jobId),
+          class_id: fixtureId("class", 1),
+          record_date: "2026-09-15",
+          status: "failed",
+          stage: null,
+          progress: { percent: 100, total_children: 1, finished_children: 1 },
+          failed_stage: "generating",
+          error_code: "LLM_CALL_FAILED",
+          children: [
+            {
+              child_id: fixtureId("child", 1),
+              status: "failed",
+              stage: null,
+              outcome: null,
+              unclassified_reason: null,
+              failed_stage: "generating",
+              error_code: "LLM_CALL_FAILED",
+              drafts: [],
+            },
+          ],
+          created_at: "2026-09-15T06:30:00Z",
+          updated_at: "2026-09-15T06:31:40Z",
+        }),
+      ),
+    );
+    const { router } = renderProcessing("/t/today/processing?step=send");
+
+    expect(await screen.findByRole("alert", {}, { timeout: 3000 })).toHaveTextContent(
+      "초안을 만들지 못했어요",
+    );
+    expect(router.state.location.pathname).toBe("/t/today/processing");
+    expect(useUploadQueue.getState().items).toHaveLength(1);
   });
 
   it("불러온 자료 없이 들어오면 자료 올리기로 보낸다", async () => {

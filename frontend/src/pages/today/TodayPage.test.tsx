@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http } from "msw";
 
@@ -81,6 +81,43 @@ describe("TodayPage", () => {
     await user.click(screen.getByRole("button", { name: "활동기록.zip 목록에서 제외" }));
     expect(
       await screen.findByRole("heading", { name: "아직 담긴 순간이 없어요" }),
+    ).toBeInTheDocument();
+  });
+
+  it("업로드 중·업로드 실패 화면에서 파일을 더 놓아도 브라우저가 열지 않고 큐에 담는다", async () => {
+    renderRoute(<TodayPage />);
+    await screen.findByRole("heading", { name: "아직 담긴 순간이 없어요" });
+
+    dropFiles([new File(["x"], "IMG_0001.jpg")]);
+    const uploading = screen.getByRole("heading", { name: "이 기기로 불러오는 중이에요" });
+    // fireEvent는 기본 동작이 취소되지 않으면 false를 돌려줍니다. false면 브라우저가 파일을 엽니다.
+    const files = [new File(["x"], "VID_0001.mp4")];
+    expect(fireEvent.drop(uploading, { dataTransfer: { files } })).toBe(false);
+    expect(useUploadQueue.getState().items.map((item) => item.kind)).toEqual(["photo", "video"]);
+
+    act(() => useUploadQueue.getState().reset());
+    await screen.findByRole("heading", { name: "아직 담긴 순간이 없어요" });
+    dropFiles([new File(["x"], "활동기록.zip")]);
+    const failed = await screen.findByRole("heading", { name: "올리지 못한 파일이 있어요" });
+    expect(fireEvent.drop(failed, { dataTransfer: { files: [new File(["x"], "b.mp4")] } })).toBe(
+      false,
+    );
+    expect(useUploadQueue.getState().items).toHaveLength(1);
+  });
+
+  it("영상만 놓으면 0%가 아니라 영상 기준으로 보이고, 다 불러오면 제목이 바뀐다", async () => {
+    renderRoute(<TodayPage />);
+    await screen.findByRole("heading", { name: "아직 담긴 순간이 없어요" });
+
+    dropFiles([new File(["x"], "VID_0001.mp4")]);
+
+    expect(screen.getByText("영상·녹음 1개 중 0개")).toBeInTheDocument();
+    expect(screen.queryByText(/사진/)).not.toBeInTheDocument();
+    useUploadQueue.setState((state) => ({
+      items: state.items.map((item) => ({ ...item, import_progress: 100 })),
+    }));
+    expect(
+      await screen.findByRole("heading", { name: "이 기기로 모두 불러왔어요" }),
     ).toBeInTheDocument();
   });
 
