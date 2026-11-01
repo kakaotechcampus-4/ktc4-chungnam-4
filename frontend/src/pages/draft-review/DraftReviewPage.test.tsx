@@ -360,7 +360,6 @@ describe("DraftReviewPage", () => {
     expect((after as HTMLTextAreaElement).value).toMatch(/ 덧붙인 말$/);
   });
 
-  // 교사가 새로 쓴 문장은 원문 근거가 없으므로 밑줄·클릭 없이 문단으로만 보인다.
   // 같은 원아를 다시 눌러 편집을 버리던 길을 #209에서 막아서, 버리는 버튼을 따로 둡니다(#209 리뷰).
   it("수정 취소를 누르면 고친 문장과 새 문장을 저장하지 않고 버린다", async () => {
     const user = userEvent.setup();
@@ -407,6 +406,7 @@ describe("DraftReviewPage", () => {
     expect(screen.queryByText(/비어 있는 문장은 저장할 수 없어요/)).not.toBeInTheDocument();
   });
 
+  // 교사가 새로 쓴 문장은 원문 근거가 없으므로 밑줄·클릭 없이 문단으로만 보인다.
   it("직접 수정에서 문장을 추가할 수 있다", async () => {
     const user = userEvent.setup();
     await renderAndWait();
@@ -586,8 +586,7 @@ describe("DraftReviewPage", () => {
     });
   });
 
-  // 게시는 HTTP 200 안에서 건별로 성공·실패가 옵니다. 실패를 두고 발행 완료로 넘어가면
-  // "전달했어요"만 보여서 교사가 못 올린 원아를 영영 모릅니다.
+  // 지난 날짜를 게시해도 발행 완료 화면이 오늘로 보였습니다. 요청 때의 날짜를 넘겨야 합니다(10/31 #209 검증에서 발견).
   it("모두 게시되면 게시한 날짜를 발행 완료 화면에 넘긴다", async () => {
     const user = userEvent.setup();
     const { router } = renderRoutes(
@@ -652,6 +651,8 @@ describe("DraftReviewPage", () => {
     await waitFor(() => expect(queryClient.getQueryState(published)?.isInvalidated).toBe(true));
   });
 
+  // 게시는 HTTP 200 안에서 건별로 성공·실패가 옵니다. 실패를 두고 발행 완료로 넘어가면
+  // "전달했어요"만 보여서 교사가 못 올린 원아를 영영 모릅니다.
   it("일부가 실패하면 발행 완료로 넘어가지 않고 누가 실패했는지 알린다", async () => {
     const user = userEvent.setup();
     server.use(
