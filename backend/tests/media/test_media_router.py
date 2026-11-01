@@ -1,4 +1,4 @@
-"""media 라우터 — upload-urls, POST /media, GET /media/{media_id} (FR-15, FR-04, FR-07).
+"""media 라우터 — upload-urls, POST /media, child-links, GET /media/{media_id} (FR-15, FR-04, FR-07).
 
 로그인 교사만 바꿔 끼우고, 반 접근·원아 소속은 organization 판정 함수가 실제 행으로
 판단하게 둡니다. S3 업로드 서명·실측은 바꿔 끼우고, 재생 URL 서명은 가짜 키로 로컬에서
@@ -216,10 +216,9 @@ def test_media_라우터가_api_v1_아래에_등록된다() -> None:
     assert {
         ("/api/v1/media/upload-urls", "post"),
         ("/api/v1/media", "post"),
+        ("/api/v1/media/{media_id}/child-links", "put"),
         ("/api/v1/media/{media_id}", "get"),
     } <= registered
-    # 영상·음성 귀속 방식이 정해질 때까지(#142) 귀속 저장 엔드포인트는 열지 않습니다
-    assert not any(path.endswith("/child-links") for path, _ in registered)
 
 
 # ---- POST /media/upload-urls ----
@@ -378,6 +377,165 @@ def test_완료_통지_모양이_틀리면_422(client: TestClient, body: dict) -
         "/api/v1/media",
         json={"client_photo_id": str(uuid.uuid4()), "class_id": str(CLASS_ID), **body},
     )
+
+    assert response.status_code == 422
+
+
+# ---- PUT /media/{media_id}/child-links ----
+
+
+def _uploaded_voice(client: TestClient) -> str:
+    [issued] = _upload_urls(client, _item("voice_memo", "audio/mp4"))
+    response = client.post(
+        "/api/v1/media",
+        json={
+            "client_photo_id": issued["client_photo_id"],
+            "class_id": str(CLASS_ID),
+            "type": "voice_memo",
+            "captured_at": "2026-10-07T01:24:00Z",
+        },
+    )
+    assert response.status_code == 201
+    return response.json()["media_id"]
+
+
+def _manual(*child_ids: uuid.UUID, llm_allowed: bool = True) -> dict:
+    return {
+        "llm_allowed": llm_allowed,
+        "child_links": [
+            {"child_id": str(child_id), "method": "manual", "confidence_score": None}
+            for child_id in child_ids
+        ],
+    }
+
+
+def test_영상_음성_귀속은_파일_단위로_저장되고_커밋된다(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """교사가 그 파일에 나온다고 고른 아이를 저장합니다 (10/29 #163, FR-04)."""
+    media_id = _uploaded_voice(client)
+
+    response = client.put(f"/api/v1/media/{media_id}/child-links", json=_manual(DOYUN))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert (body["media_id"], body["llm_allowed"]) == (media_id, True)
+    assert body["child_links"] == [
+        {"child_id": str(DOYUN), "method": "manual", "confidence_score": None}
+    ]
+    assert body["attributed_at"] is not None  # agents가 Job 시작을 판정하는 값
+    with session_factory() as other:  # 다른 세션에서 보여야 커밋된 것입니다
+        [link] = other.query(MediaChildLink).all()
+        assert (str(link.media_id), link.child_id) == (media_id, DOYUN)
+
+
+def test_귀속은_전체_교체라_빈_목록을_보내면_미분류로_남는다(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    media_id = _uploaded_voice(client)
+    client.put(f"/api/v1/media/{media_id}/child-links", json=_manual(DOYUN))
+
+    response = client.put(f"/api/v1/media/{media_id}/child-links", json=_manual(llm_allowed=False))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert (body["child_links"], body["llm_allowed"]) == ([], False)
+    assert body["attributed_at"] is not None  # 빈 목록이어도 "귀속을 저장했다"는 표시
+    with session_factory() as other:
+        assert other.query(MediaChildLink).count() == 0
+
+
+def test_다른_반_원아를_파일에_귀속하면_400이고_기존_귀속은_그대로다(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    media_id = _uploaded_voice(client)
+    client.put(f"/api/v1/media/{media_id}/child-links", json=_manual(DOYUN))
+
+    response = client.put(
+        f"/api/v1/media/{media_id}/child-links", json=_manual(DOYUN, OTHER_CLASS_CHILD)
+    )
+
+    assert (response.status_code, _error_code(response)) == (400, "CHILD_NOT_IN_CLASS")
+    with session_factory() as other:
+        assert [link.child_id for link in other.query(MediaChildLink).all()] == [DOYUN]
+
+
+@pytest.mark.parametrize("center_id", [uuid.uuid4(), None], ids=["다른_어린이집", "소속_없음"])
+def test_다른_어린이집_교사는_귀속을_저장하지_못한다(
+    client: TestClient, session_factory: sessionmaker[Session], center_id: uuid.UUID | None
+) -> None:
+    media_id = _uploaded_voice(client)
+    _login_as(center_id)
+
+    response = client.put(f"/api/v1/media/{media_id}/child-links", json=_manual(DOYUN))
+
+    assert (response.status_code, _error_code(response)) == (403, "CLASS_ACCESS_DENIED")
+    with session_factory() as other:
+        assert other.query(MediaChildLink).count() == 0
+        assert other.get(MediaAsset, uuid.UUID(media_id)).attributed_at is None
+
+
+def test_없는_미디어에_귀속하면_404_MEDIA_ASSET_NOT_FOUND(client: TestClient) -> None:
+    response = client.put(f"/api/v1/media/{uuid.uuid4()}/child-links", json=_manual(DOYUN))
+
+    assert (response.status_code, _error_code(response)) == (404, "MEDIA_ASSET_NOT_FOUND")
+
+
+def test_파기된_미디어에는_귀속을_저장하지_않는다(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    media_id = _uploaded_voice(client)
+    with session_factory() as db:
+        db.get(MediaAsset, uuid.UUID(media_id)).storage_tier = "deleted"
+        db.commit()
+
+    response = client.put(f"/api/v1/media/{media_id}/child-links", json=_manual(DOYUN))
+
+    assert (response.status_code, _error_code(response)) == (409, "MEDIA_DELETED")
+    with session_factory() as other:
+        assert other.query(MediaChildLink).count() == 0
+        assert other.get(MediaAsset, uuid.UUID(media_id)).attributed_at is None
+
+
+@pytest.mark.parametrize(
+    ("links", "code"),
+    [
+        # manual인데 점수가 있음
+        (
+            [{"child_id": str(DOYUN), "method": "manual", "confidence_score": 0.9}],
+            "INVALID_ATTRIBUTION_METHOD",
+        ),
+        (
+            [
+                {"child_id": str(DOYUN), "method": "manual", "confidence_score": None},
+                {"child_id": str(DOYUN), "method": "manual", "confidence_score": None},
+            ],
+            "DUPLICATE_CHILD_LINK",
+        ),
+    ],
+)
+def test_귀속_규칙에_어긋나면_400(client: TestClient, links: list[dict], code: str) -> None:
+    media_id = _uploaded_voice(client)
+
+    response = client.put(
+        f"/api/v1/media/{media_id}/child-links", json={"llm_allowed": True, "child_links": links}
+    )
+
+    assert (response.status_code, _error_code(response)) == (400, code)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        # 한쪽만 오면 귀속은 그대로인데 llm_allowed만 바뀝니다(#13)
+        {"llm_allowed": True},
+        {"child_links": []},
+    ],
+)
+def test_귀속_요청에_둘_중_하나가_빠지면_422(client: TestClient, body: dict) -> None:
+    media_id = _uploaded_voice(client)
+
+    response = client.put(f"/api/v1/media/{media_id}/child-links", json=body)
 
     assert response.status_code == 422
 
