@@ -1,10 +1,11 @@
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from unittest.mock import patch
 
 import jwt
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
 
 from core.base import Base
@@ -270,6 +271,60 @@ def test_프로필을_통째로_로그에_남겨도_실명과_이메일이_찍�
 
     for profile, secrets in ((teacher, ("teacher@", "교사A")), (parent, ("parent@", "보호자A"))):
         assert all(secret not in repr(profile) for secret in secrets)
+
+
+# ---- 작성 교사 이름 (FR-26) ----
+
+
+def test_작성자_이름은_요청한_교사_ID만_한번에_조회한다() -> None:
+    with _profile_session() as db:
+        teachers = [
+            Teacher(id=uuid.uuid4(), account_id=uuid.uuid4(), name=name)
+            for name in ("교사A", "교사B", "교사C")
+        ]
+        db.add_all(teachers)
+        db.flush()
+        first_id, second_id, _ = [teacher.id for teacher in teachers]
+        account_id = teachers[0].account_id
+        statements: list[str] = []
+
+        def capture_sql(
+            conn: Any,
+            cursor: Any,
+            statement: str,
+            parameters: Any,
+            context: Any,
+            executemany: bool,
+        ) -> None:
+            statements.append(statement)
+
+        event.listen(db.get_bind(), "before_cursor_execute", capture_sql)
+        # 중복·없는 ID·Account.id가 섞인 일회성 iterable도 처리합니다.
+        ids = iter([first_id, second_id, first_id, uuid.uuid4(), account_id])
+        assert service.get_teacher_names(db, ids) == {first_id: "교사A", second_id: "교사B"}
+        assert len(statements) == 1
+        assert statements[0].lstrip().upper().startswith("SELECT")
+
+
+def test_빈_교사_목록은_DB를_조회하지_않는다() -> None:
+    with _profile_session() as db, patch.object(db, "execute") as execute:
+        assert service.get_teacher_names(db, iter(())) == {}
+        execute.assert_not_called()
+
+
+def test_없는_교사만_조회하면_빈_사전을_반환한다() -> None:
+    with _profile_session() as db:
+        assert service.get_teacher_names(db, [uuid.uuid4()]) == {}
+
+
+def test_교사_이름_조회는_호출자의_트랜잭션을_확정하지_않는다() -> None:
+    with _profile_session() as db:
+        teacher_id = uuid.uuid4()
+        db.add(Teacher(id=teacher_id, account_id=uuid.uuid4(), name="교사A"))
+        db.flush()
+        assert service.get_teacher_names(db, [teacher_id]) == {teacher_id: "교사A"}
+        db.rollback()
+        assert service.get_teacher_names(db, [teacher_id]) == {}
 
 
 # ---- 계정 만들기 (시드·가입용) ----

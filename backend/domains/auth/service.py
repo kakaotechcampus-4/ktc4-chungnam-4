@@ -7,6 +7,7 @@
 """
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import TypedDict
@@ -191,6 +192,22 @@ def get_profile(db: Session, token: TokenPayload) -> TeacherProfile | ParentProf
         name=parent.name,
         parent_id=parent.id,
     )
+
+
+def get_teacher_names(db: Session, teacher_ids: Iterable[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """문서 작성 교사의 표시용 이름을 한 번에 조회합니다 (FR-26).
+
+    Account.id가 아니라 DraftDocument.author_teacher_id(Teacher.id)를 받습니다.
+    호출자는 문서 접근 권한을 먼저 확인해야 합니다. 이름은 서버 렌더링에만 쓰고
+    LLM 입력이나 로그에 넣지 않습니다 (H-2, H-4).
+    없는 ID는 결과에서 생략하며, 빈 입력은 DB 조회 없이 빈 사전을 반환합니다.
+    커밋·롤백과 열람 기록은 문서를 조회하는 호출자가 처리합니다.
+    """
+    ids = set(teacher_ids)
+    if not ids:
+        return {}
+    rows = db.execute(select(Teacher.id, Teacher.name).where(Teacher.id.in_(ids)))
+    return {teacher_id: name for teacher_id, name in rows}
 
 
 def account_exists(db: Session, email: str) -> bool:
