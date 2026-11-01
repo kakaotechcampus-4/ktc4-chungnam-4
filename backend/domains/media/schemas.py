@@ -93,8 +93,8 @@ class ChildLinkBody(BaseModel):
 class MediaCompleteRequest(BaseModel):
     """업로드 완료 통지. 사진은 귀속이 필수, 영상·음성은 귀속을 받지 않습니다.
 
-    영상·음성은 교사 확인 전에 먼저 올라오므로 귀속을 나중에 따로 저장합니다. 그 방식
-    (파일 단위 선택 / 발화 연결로 계산)은 BE·AI 회의에서 정합니다(#142).
+    영상·음성은 교사 확인 전에 먼저 올라오므로 귀속을 나중에 `PUT /media/{id}/child-links`로
+    파일 단위로 저장합니다(10/29 #163).
     """
 
     client_photo_id: UUID
@@ -133,6 +133,28 @@ class MediaAssetResponse(BaseModel):
     type: MediaType
     captured_at: datetime
     size_bytes: int
+    llm_allowed: bool
+    child_links: list[ChildLinkBody]
+    attributed_at: datetime | None
+
+
+# ---- PUT /media/{media_id}/child-links ----
+
+
+class ChildLinksRequest(BaseModel):
+    """교사가 확정한 귀속. 둘 다 필수입니다 — 한쪽만 바뀌면 빼야 할 미디어가 LLM으로 갑니다(#13)."""
+
+    llm_allowed: bool
+    child_links: list[ChildLinkBody]
+
+    def to_attributions(self) -> list[Attribution]:
+        return [link.to_attribution() for link in self.child_links]
+
+
+class ChildLinksResponse(BaseModel):
+    """저장 후 이 미디어의 귀속 전체."""
+
+    media_id: UUID
     llm_allowed: bool
     child_links: list[ChildLinkBody]
     attributed_at: datetime | None
