@@ -1372,3 +1372,72 @@ def resolve_unclassified(db: Session, child_id: UUID, record_date: date) -> None
         )
         .values(status="resolved", resolved_at=datetime.now(UTC))
     )
+
+
+def child_record_summary(db: Session, child_id: UUID, today: date) -> dict:
+    """organization 상세용 내부 조회. 호출자는 먼저 원아 접근 권한을 검사합니다 (#231).
+
+    원아·동의 모델을 직접 읽지 않고 documents 소유 기록만 집계합니다. 커밋하지 않습니다.
+    """
+    base = select(DraftDocument).where(
+        DraftDocument.child_id == child_id,
+        DraftDocument.doc_type == DocType.PARENT_NOTE.value,
+    )
+    month_count = (
+        db.scalar(
+            select(func.count()).select_from(
+                base.where(
+                    DraftDocument.record_date >= today.replace(day=1),
+                    DraftDocument.record_date <= today,
+                ).subquery()
+            )
+        )
+        or 0
+    )
+    today_sent = (
+        db.scalar(
+            base.where(
+                DraftDocument.record_date == today,
+                DraftDocument.status == DraftStatus.APPROVED.value,
+                _active_publication_exists(),
+            ).limit(1)
+        )
+        is not None
+    )
+    rows = db.scalars(base.order_by(DraftDocument.record_date.desc()).limit(10)).all()
+    recent = []
+    for row in rows:
+        sentence = db.scalar(
+            select(DraftSentence.text)
+            .where(
+                DraftSentence.draft_id == row.id,
+            )
+            .order_by(DraftSentence.position)
+            .limit(1)
+        )
+        published = (
+            row.status == DraftStatus.APPROVED.value
+            and db.scalar(
+                select(DocumentPublication.id)
+                .where(
+                    DocumentPublication.draft_id == row.id,
+                    DocumentPublication.revoked_at.is_(None),
+                )
+                .limit(1)
+            )
+            is not None
+        )
+        recent.append(
+            {
+                "parent_note_id": row.id,
+                "record_date": row.record_date,
+                "published": published,
+                "summary": (sentence or "작성 중인 알림장입니다.")[:160],
+            }
+        )
+    return {
+        "month_record_count": month_count,
+        "today_note_sent": today_sent,
+        "recent_notes": recent,
+        "domain_counts": None,
+    }
