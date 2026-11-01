@@ -869,9 +869,11 @@ def _commit_with_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
 
     응답을 만들다(서명 URL 등) 실패하면 롤백해 상태·버전·이력도 그대로 둔다. 먼저 커밋하면
     반영은 됐는데 화면에는 실패로 보이고, 다시 누르면 버전이 이미 올라 있어 409가 난다
-    (#206 멘토 리뷰). 커밋 전이라도 같은 트랜잭션이라 방금 쓴 값을 읽는다.
+    (#206 멘토 리뷰). 커밋 전이라도 같은 트랜잭션이라 방금 쓴 값을 읽는다 — 단 세션이
+    autoflush를 끄고 있어(core/database.py) 조회 전에 직접 flush해야 새로 add한 문장이 보인다.
     """
     try:
+        db.flush()
         detail = _teacher_detail(db, draft_id)
     except Exception:
         db.rollback()

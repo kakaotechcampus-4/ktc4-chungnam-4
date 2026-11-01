@@ -40,7 +40,9 @@ def db() -> Iterator[Session]:
     tables = [Center, Klass, Child, DraftDocument, DraftSentence, DocumentPublication, RevisionLog]
     tables.append(SentenceEvidence)  # 상세 응답이 문장별 근거를 읽는다(agents)
     Base.metadata.create_all(engine, tables=[table.__table__ for table in tables])
-    session = sessionmaker(bind=engine)()
+    # 서버 세션(core/database.py SessionLocal)처럼 autoflush를 끕니다 — 켜 두면 커밋 전 조회가
+    # 새 문장을 알아서 보여 줘서, 응답에서 새 문장이 빠지는 버그를 못 잡습니다(#206 멘토 리뷰)
+    session = sessionmaker(bind=engine, autoflush=False)()
     yield session
     session.close()
 

@@ -46,7 +46,9 @@ def db() -> Iterator[Session]:
     tables = [Center, Klass, Child, DraftDocument, DraftSentence, DocumentPublication, RevisionLog]
     tables.append(SentenceEvidence)  # 상세 응답이 문장별 근거를 읽는다(agents)
     Base.metadata.create_all(engine, tables=[table.__table__ for table in tables])
-    session = sessionmaker(bind=engine)()
+    # 서버 세션(core/database.py SessionLocal)처럼 autoflush를 끕니다 — 켜 두면 커밋 전 조회가
+    # 새 문장을 알아서 보여 줘서, 응답에서 새 문장이 빠지는 버그를 못 잡습니다(#206 멘토 리뷰)
+    session = sessionmaker(bind=engine, autoflush=False)()
     yield session
     session.close()
 
@@ -161,6 +163,8 @@ def test_새_문장은_맨_뒤에_t_번호_최댓값_다음부터_붙는다(clie
 
     assert response.status_code == 200
     assert _stored(db, draft)[2:] == [("t2", "첫 새 문장", False), ("t3", "둘째 새 문장", False)]
+    # 커밋 전에 만드는 응답에도 새 문장이 담긴다(#206 멘토 리뷰 — autoflush가 꺼진 세션)
+    assert [s["sentence_id"] for s in response.json()["sentences"]][2:] == ["t2", "t3"]
     assert _logs(db, draft) == [
         ("t2", None, "첫 새 문장", "manual"),
         ("t3", None, "둘째 새 문장", "manual"),
