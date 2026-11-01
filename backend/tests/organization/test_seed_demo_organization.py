@@ -68,3 +68,23 @@ def test_두_번_돌려도_행이_늘지_않는다() -> None:
     assert db.scalar(select(func.count()).select_from(Child)) == 2
     assert db.scalar(select(func.count()).select_from(ParentChildRelation)) == 2
     assert db.scalar(select(func.count()).select_from(ConsentRecord)) == 2 * len(CONSENT_TYPES)
+
+
+def test_시드_반의_연령_구분은_마이그레이션_백필과_같은_규칙이다() -> None:
+    db = _session()
+    center_id = ensure_center(db, center_code="AIDAM-DEMO", name="아이담 시연 어린이집")
+
+    for class_name, age_group, expected in [
+        ("새싹반", "만 1세", "infant"),
+        ("잎새반", "만 0~2세", "infant"),
+        ("햇살반", "만 4세", "preschool"),
+    ]:
+        class_id, _ = ensure_class_roster(
+            db,
+            center_id=center_id,
+            teacher_id=uuid4(),
+            class_name=class_name,
+            age_group=age_group,
+            child_names=[],
+        )
+        assert db.get(Klass, class_id).age_band == expected
