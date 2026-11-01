@@ -1,6 +1,7 @@
 import uuid
 from collections.abc import Iterator
 from datetime import date
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID
 
@@ -106,6 +107,44 @@ def test_어린이집_가입_코드는_어린이집마다_다르다(db: Session)
     }
 
     assert len(codes) == 20
+
+
+def test_가입_코드_조회는_앞뒤_공백과_소문자를_정리한다(db: Session):
+    created = service.create_center(
+        db, name="새싹어린이집", address=None, created_by_teacher_id=None
+    )
+
+    found = service.find_center_by_code(db, f"  {created.center_code.lower()} ")
+
+    assert found.center_id == created.center_id
+
+
+def _fixed_choice(monkeypatch: pytest.MonkeyPatch, letters: str) -> None:
+    """`secrets.choice`가 한 코드(8자)마다 `letters`의 다음 글자를 내도록 고정합니다."""
+    picks = iter(letter for letter in letters for _ in range(8))
+    monkeypatch.setattr(service, "secrets", SimpleNamespace(choice=lambda _alphabet: next(picks)))
+
+
+def test_가입_코드가_겹치면_다시_뽑는다(db: Session, monkeypatch: pytest.MonkeyPatch):
+    db.add(Center(center_code="AAAAAAAA", name="먼저어린이집", contract_status="trial"))
+    db.flush()
+    _fixed_choice(monkeypatch, "AB")
+
+    created = service.create_center(
+        db, name="새싹어린이집", address=None, created_by_teacher_id=None
+    )
+
+    assert created.center_code == "BBBBBBBB"
+
+
+def test_가입_코드가_다섯_번_다_겹치면_RuntimeError(db: Session, monkeypatch: pytest.MonkeyPatch):
+    db.add(Center(center_code="AAAAAAAA", name="먼저어린이집", contract_status="trial"))
+    db.flush()
+    _fixed_choice(monkeypatch, "AAAAAB")
+
+    with pytest.raises(RuntimeError):
+        service.create_center(db, name="새싹어린이집", address=None, created_by_teacher_id=None)
+    assert db.query(Center).count() == 1
 
 
 def test_어린이집_이름이_비면_VALIDATION_ERROR(db: Session):
@@ -231,6 +270,21 @@ def test_다른_어린이집에는_반을_만들지_못한다(client: TestClient
     assert db.query(Klass).count() == 0
 
 
+def test_소속이_없는_교사는_반을_만들지_못한다(client: TestClient, db: Session):
+    center_id = _center(db)
+    db.commit()
+    _login_as_teacher(None)
+
+    response = client.post(
+        "/api/v1/classes",
+        json={"center_id": str(center_id), "name": "꽃잎반", "age_band": "infant"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "CENTER_ACCESS_DENIED"
+    assert db.query(Klass).count() == 0
+
+
 def test_원아를_등록하면_재원으로_동의_없이_시작한다(client: TestClient, db: Session):
     center_id = _center(db)
     class_id = _class(db, center_id)
@@ -323,4 +377,19 @@ def test_다른_어린이집_반에는_원아를_등록하지_못한다(client: 
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "CLASS_ACCESS_DENIED"
+    assert db.query(Child).count() == 0
+
+
+def test_없는_반에는_원아를_등록하지_못한다(client: TestClient, db: Session):
+    _login_as_teacher(_center(db))
+    db.commit()
+    missing_class_id = uuid.uuid4()
+
+    response = client.post(
+        f"/api/v1/classes/{missing_class_id}/children",
+        json={"name": "최지우", "birth_date": "2021-12-25", "class_id": str(missing_class_id)},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "CLASS_NOT_FOUND"
     assert db.query(Child).count() == 0
