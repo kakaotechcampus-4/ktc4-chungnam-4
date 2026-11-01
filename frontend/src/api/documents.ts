@@ -156,22 +156,30 @@ export async function publishParentNotes(body: PublicationRequest) {
   return results.map(toPublicationResultView);
 }
 
-/** 학부모용: 자녀의 게시된 알림장 목록(최신순, 첫 페이지) */
-export function parentNotesQueryOptions(childId: string) {
+/** 학부모용: 게시된 글만 서버 권한 게이트를 거쳐 조회합니다. */
+export function parentNotesQueryOptions(childId: string, cursor?: string) {
   return queryOptions({
-    queryKey: documentsKeys.parentNotes(childId),
-    queryFn: ({ signal }) =>
-      api.get<ParentNoteList>(`/children/${encodeURIComponent(childId)}/parent-notes`, {
-        signal,
-      }),
+    queryKey: [...documentsKeys.parentNotes(childId), cursor ?? null],
+    queryFn: async ({ signal }) =>
+      toParentNoteListView(
+        await api.get<ParentNoteList>(`/children/${encodeURIComponent(childId)}/parent-notes`, {
+          signal,
+          query: cursor ? { cursor } : undefined,
+        }),
+      ),
   });
 }
-
-/** 학부모용: 알림장 본문. 열 때마다 열람 기록이 남습니다(H-4 AccessLog). */
 export function parentNoteQueryOptions(parentNoteId: string) {
   return queryOptions({
     queryKey: documentsKeys.parentNote(parentNoteId),
-    queryFn: ({ signal }) =>
-      api.get<ParentNoteDetail>(`/parent-notes/${encodeURIComponent(parentNoteId)}`, { signal }),
+    staleTime: 0,
+    queryFn: async ({ signal }) =>
+      toParentNoteDetailView(
+        await api.get<ParentNoteDetail>(`/parent-notes/${encodeURIComponent(parentNoteId)}`, {
+          signal,
+        }),
+      ),
   });
 }
+
+import { toParentNoteListView, toParentNoteDetailView } from "./documents-adapter";
