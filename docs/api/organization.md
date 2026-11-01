@@ -334,3 +334,10 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 | `POST /api/v1/parent-invites/{token}/accept` | 초대를 받아 학부모 계정을 만들고 자녀와 잇기 | 경로만 | 이한나·엄태은 |
 
 #225 반영: 초대 토큰은 해시만 저장하므로 재조회 API를 제거합니다. 발급·수락 계약은 [auth](auth.md#학부모-초대-수락-fr-28-225)입니다. 원아 상세 GET·PATCH는 같은 어린이집 교사에게만 허용하고 동의는 학부모 초대 수락에서 기록합니다.
+
+### #231 통합 구현 보충 — 원아 상세·기록 요약
+
+- `GET /children/{child_id}`와 `PATCH /children/{child_id}`는 같은 어린이집 교사만 사용할 수 있습니다. 수정 본문은 원아 등록과 같은 `{class_id, name, birth_date}`입니다.
+- `GET /children/{child_id}/overview`: 최근 알림장 10건(`recent_notes`)과 `domain_counts`를 반환합니다. 목록은 documents의 실제 초안/게시 상태를 읽습니다. 아직 구현되지 않은 누리과정 통계는 `null`로 내려 화면에 준비 중이라고 표시합니다.
+- 상세의 `month_record_count`는 KST 이번 달 알림장 수, `today_note_sent`는 오늘 알림장의 활성 게시 여부입니다. 개인정보 열람은 교사 ID·원아 ID만 audit에 기록합니다.
+- 반 선택은 현재 작업할 반을 바꾸는 동작이며, 다른 교사를 담임에서 해제하지 않습니다. 서버에 없는 즐겨찾기 버튼은 온보딩에서 제공하지 않습니다.

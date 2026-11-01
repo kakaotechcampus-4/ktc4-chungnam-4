@@ -476,3 +476,9 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
   - `docs/open-questions.md` §C "STT·사진 분류 UI를 프론트 어느 화면에 둘지"
   - agents.md §상의 필요 1(하루 정리 확인을 전송 전으로)
 
+
+### #231 통합에서 연결한 검수 계약
+
+`GET /media/{id}/transcript-segments`는 `child_links`, `llm_allowed`, `attributed_at`을 함께 줍니다. 파일 귀속은 `PUT child-links`, 문장·화자·제외는 `PATCH transcript-segments`로 분리합니다. `reviewed_at`이 없는 발화는 생성 근거에서 제외합니다. 화면에서 한 파일에 나오는 모든 원아를 선택하며, 여러 원아의 발화를 특정 아이의 말로 단정하지 않습니다.
+
+임시 결정(엄태은): 업로드 확인(`MediaUpload.verified_at`) 후 1시간 이상 pending인 STT는 조회/worker 시작 시 failed로 종료합니다. 큐 대기 포함 상한이며 접수 시각 없는 과거 자료는 추측하지 않습니다. 늦게 끝난 worker는 failed를 done으로 되살리지 않습니다.
