@@ -2,7 +2,11 @@ import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 
-import { childDraftsQueryOptions, documentsKeys } from "@/api/documents";
+import {
+  childDraftsQueryOptions,
+  documentsKeys,
+  publishedParentNotesQueryOptions,
+} from "@/api/documents";
 import { kstToday, shiftDate } from "@/lib/datetime";
 import { readDb, updateDb } from "@/mocks/db";
 import { fixtureId } from "@/mocks/fixtures/ids";
@@ -745,6 +749,27 @@ describe("DraftReviewPage", () => {
       );
       expect(after.length).toBe(before.length + 1);
     });
+  });
+
+  // 알림장 게시판 명단은 반의 초안 목록 키 아래에 있어 같이 비워집니다. 따로 부르던 비우기를 지웠으므로
+  // 고정해 둡니다. 안 비워지면 직전에 본 명단이 남아, 방금 게시한 알림장이 게시판에 바로 보이지 않습니다.
+  it("게시하면 알림장 게시판 명단 캐시도 비운다", async () => {
+    const user = userEvent.setup();
+    const { queryClient } = renderPage();
+    await screen.findByRole("heading", { name: /작은 블록/ });
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+
+    // 승인도 반의 목록을 비우므로, 승인한 뒤에 명단을 받아 둬야 게시가 비우는지 볼 수 있습니다.
+    const notesKey = documentsKeys.publishedNotes(SUNSHINE_CLASS.class_id);
+    await queryClient.fetchQuery(publishedParentNotesQueryOptions(SUNSHINE_CLASS.class_id));
+    expect(queryClient.getQueryState(notesKey)?.isInvalidated).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+    await user.click(await screen.findByRole("button", { name: "게시하기" }));
+
+    await waitFor(() => expect(queryClient.getQueryState(notesKey)?.isInvalidated).toBe(true));
   });
 
   // 지난 날짜를 게시해도 발행 완료 화면이 오늘로 보였습니다. 요청 때의 날짜를 넘겨야 합니다(10/31 #209 검증에서 발견).
