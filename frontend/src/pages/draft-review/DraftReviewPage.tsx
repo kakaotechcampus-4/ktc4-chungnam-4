@@ -424,6 +424,15 @@ export function DraftReviewPage() {
     navigate(`/t/today/review/${id}${query ? `?${query}` : ""}`);
   }
 
+  // 고치던 문장과 새 문장을 저장하지 않고 버립니다. 같은 원아를 다시 눌러 버리던 길은 실수로
+  // 작업을 날리지 않게 막아서(#209), 버리는 버튼을 따로 둡니다(#209 리뷰). 확인 체크는 수정을
+  // 시작할 때 풀었으니, 본문을 다시 보고 체크하게 그대로 둡니다.
+  function cancelEditing() {
+    setEditing(null);
+    setAddedTexts([]);
+    setEmptyEdit(false);
+  }
+
   function toggleEditing() {
     if (!draft) return;
     if (editing === null) {
@@ -647,14 +656,26 @@ export function DraftReviewPage() {
 
                 {/* 수정 중에도 이 버튼은 남아야 "수정 완료"로 빠져나올 수 있습니다. */}
                 {isDraftApprovable ? (
-                  <button
-                    type="button"
-                    onClick={toggleEditing}
-                    disabled={patchMutation.isPending}
-                    className="self-start text-label font-bold text-ink-muted underline-offset-4 outline-none transition-colors hover:text-brand-ink hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
-                  >
-                    {editing !== null ? "수정 완료" : "직접 수정"}
-                  </button>
+                  <div className="flex items-center gap-5 self-start">
+                    <button
+                      type="button"
+                      onClick={toggleEditing}
+                      disabled={patchMutation.isPending}
+                      className="text-label font-bold text-ink-muted underline-offset-4 outline-none transition-colors hover:text-brand-ink hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+                    >
+                      {editing !== null ? "수정 완료" : "직접 수정"}
+                    </button>
+                    {editing !== null ? (
+                      <button
+                        type="button"
+                        onClick={cancelEditing}
+                        disabled={patchMutation.isPending}
+                        className="text-label font-bold text-ink-muted underline-offset-4 outline-none transition-colors hover:text-brand-ink hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+                      >
+                        수정 취소
+                      </button>
+                    ) : null}
+                  </div>
                 ) : canReopenNow ? (
                   <button
                     type="button"

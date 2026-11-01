@@ -360,6 +360,52 @@ describe("DraftReviewPage", () => {
   });
 
   // 교사가 새로 쓴 문장은 원문 근거가 없으므로 밑줄·클릭 없이 문단으로만 보인다.
+  // 같은 원아를 다시 눌러 편집을 버리던 길을 #209에서 막아서, 버리는 버튼을 따로 둡니다(#209 리뷰).
+  it("수정 취소를 누르면 고친 문장과 새 문장을 저장하지 않고 버린다", async () => {
+    const user = userEvent.setup();
+    let patched = false;
+    server.use(
+      http.patch(apiPath("/drafts/:draftId"), () => {
+        patched = true;
+      }),
+    );
+    await renderAndWait();
+
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    const [first] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
+    const original = (first as HTMLTextAreaElement).value;
+    await user.clear(first as HTMLElement);
+    await user.type(first as HTMLElement, "버릴 문장이에요.");
+    await user.click(screen.getByRole("button", { name: "+ 문장 추가" }));
+    await user.type(screen.getByRole("textbox", { name: "새 문장" }), "이것도 버려요.");
+    await user.click(screen.getByRole("button", { name: "수정 취소" }));
+
+    expect(screen.queryAllByRole("textbox", { name: "초안 문장 수정" })).toHaveLength(0);
+    expect(screen.getByText(original)).toBeInTheDocument();
+    expect(screen.queryByText("버릴 문장이에요.")).not.toBeInTheDocument();
+    expect(screen.queryByText("이것도 버려요.")).not.toBeInTheDocument();
+    expect(patched).toBe(false);
+
+    // 다시 수정을 시작하면 원래 문장부터 시작한다.
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    expect(screen.getAllByRole("textbox", { name: "초안 문장 수정" })[0]).toHaveValue(original);
+    expect(screen.queryByRole("textbox", { name: "새 문장" })).not.toBeInTheDocument();
+  });
+
+  it("빈 문장 안내가 떠 있어도 수정 취소로 빠져나오면 안내가 사라진다", async () => {
+    const user = userEvent.setup();
+    await renderAndWait();
+
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    const [first] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
+    await user.clear(first as HTMLElement);
+    await user.click(screen.getByRole("button", { name: "수정 완료" }));
+    expect(screen.getByText(/비어 있는 문장은 저장할 수 없어요/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "수정 취소" }));
+    expect(screen.queryByText(/비어 있는 문장은 저장할 수 없어요/)).not.toBeInTheDocument();
+  });
+
   it("직접 수정에서 문장을 추가할 수 있다", async () => {
     const user = userEvent.setup();
     await renderAndWait();
