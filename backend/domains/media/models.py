@@ -133,3 +133,13 @@ class TranscriptSegment(Base):
     source = Column(String, nullable=False)  # video_audio / voice_memo
     # Whisper 구간 확신도. 헛문장 표시 근거로 저장만 합니다 (테크스펙 TranscriptSegment, #218 리뷰)
     avg_logprob = Column(Float, nullable=True)
+    # 아래 넷은 교사 발화 확인(FR-14, FR-27)에서 채웁니다 (테크스펙 TranscriptSegment, 09/30 #83).
+    # 교사가 고친 문장. 고치기 전에는 null이고 읽는 쪽이 raw_text로 봅니다 — 기존 행을 채우지 않아도
+    # 되게 하려는 것입니다. raw_text처럼 실명 호명이 있을 수 있습니다 (H-2, H-4)
+    text = Column(String, nullable=True)
+    # child / teacher_observation / together / null. 영상 발화의 근거 종류를 정합니다
+    # TODO(donggeon): 화자 칸을 뺄지 BE·AI 회의 안건(#201, docs/open-questions.md). 빼면 이 컬럼만 지웁니다
+    speaker = Column(String, nullable=True)
+    # 교사가 근거에서 뺀 발화. collect_media_for_llm이 거릅니다
+    excluded = Column(Boolean, nullable=False, default=False, server_default="false")
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)  # 교사가 마지막으로 손댄 시각

@@ -10,12 +10,13 @@ from datetime import datetime
 from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, Field, field_validator, model_validator
 
 from domains.media.service import Attribution, AttributionInput, UploadRequestItem
 
 MediaType = Literal["photo", "video", "voice_memo"]
 AttributionMethod = Literal["face_recognition", "manual"]
+Speaker = Literal["child", "teacher_observation", "together"]
 
 
 class ErrorBody(BaseModel):
@@ -148,3 +149,51 @@ class MediaUrlResponse(BaseModel):
     captured_at: datetime
     url: str
     url_expires_at: datetime
+
+
+# ---- GET /media/{media_id}/transcript-segments · PATCH /transcript-segments/{segment_id} ----
+
+
+class TranscriptSegmentItem(BaseModel):
+    """발화 구간 하나. raw_text·text에는 실명 호명이 그대로 있어 교사에게만 보여 줍니다 (H-2, H-4)."""
+
+    segment_id: UUID
+    media_id: UUID
+    source: Literal["video_audio", "voice_memo"]
+    start_time: float | None  # 파일 처음부터의 초. "멘트 없음"은 null
+    end_time: float | None
+    raw_text: str
+    text: str  # 교사가 고친 문장. 고치지 않았으면 raw_text와 같음
+    speaker: Speaker | None
+    excluded: bool
+    reviewed_at: datetime | None
+
+
+class TranscriptSegmentsResponse(BaseModel):
+    """`items`는 `done`일 때만 채웁니다. `failed`면 발화 없이 넘어갈 수 있습니다."""
+
+    media_id: UUID
+    transcript_status: Literal["pending", "done", "failed"]
+    items: list[TranscriptSegmentItem]
+
+
+class TranscriptSegmentUpdateRequest(BaseModel):
+    """보낸 칸만 바꿉니다(`model_fields_set`). `speaker: null`은 "화자 지우기"입니다.
+
+    예전 화면이 보내는 `child_ids`는 받지 않고 버립니다 — 귀속은 파일 단위로 바뀌었고(#163),
+    FE 발화 탭을 파일 단위로 바꿀 때 함께 뺍니다 — 임시 결정(김동건).
+    """
+
+    speaker: Speaker | None = None
+    excluded: bool = False
+    text: str = ""
+
+    @field_validator("text")
+    @classmethod
+    def text_is_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("문장을 비울 수 없어요.")
+        return value
+
+    def changes(self) -> dict[str, object]:
+        return {name: getattr(self, name) for name in self.model_fields_set}
