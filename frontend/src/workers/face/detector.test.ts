@@ -8,23 +8,24 @@ import { FACE_DESCRIPTOR_LENGTH } from "./types";
 // 실제 검출은 사람이 사진으로 확인하고 결과를 PR에 적습니다. 원아 사진은 쓰지 않습니다
 // (루트 CLAUDE.md).
 
-const { humanMock, detectMock, loadMock, statsMock, modelsResetMock } = vi.hoisted(() => {
+const { humanMock, detectMock, loadMock, statsMock, resetMock } = vi.hoisted(() => {
   const detect = vi.fn();
   const load = vi.fn(() => Promise.resolve());
   const stats = vi.fn();
-  const modelsReset = vi.fn();
+  const reset = vi.fn();
   const human = vi.fn(function (this: Record<string, unknown>, config: unknown) {
     this.config = config;
     this.detect = detect;
     this.load = load;
-    this.models = { reset: modelsReset, stats };
+    this.reset = reset;
+    this.models = { stats };
   });
   return {
     humanMock: human,
     detectMock: detect,
     loadMock: load,
     statsMock: stats,
-    modelsResetMock: modelsReset,
+    resetMock: reset,
   };
 });
 
@@ -59,7 +60,7 @@ beforeEach(() => {
   humanMock.mockClear();
   detectMock.mockReset();
   loadMock.mockClear();
-  modelsResetMock.mockClear();
+  resetMock.mockClear();
   statsMock.mockReset();
   statsMock.mockReturnValue(modelStats());
   // jsdom에는 createImageBitmap이 없습니다. 비트맵은 detect에 넘기기만 합니다.
@@ -144,10 +145,12 @@ describe("모델 준비 실패", () => {
 
     await expect(loadFaceModels()).resolves.toBeDefined();
     expect(loadMock).toHaveBeenCalledTimes(2);
-    // 인스턴스는 그대로 두고 모델만 비웁니다 — human.reset()은 설정을 기본값으로
-    // 되돌려 maxDetected가 1로 돌아갑니다.
+    // 인스턴스는 그대로 둡니다 — cacheModels가 생성자에서만 먹힙니다.
     expect(humanMock).toHaveBeenCalledTimes(1);
-    expect(modelsResetMock).toHaveBeenCalledTimes(2);
+    // reset()이 모듈마다 들고 있는 모델 캐시를 비우고, load에 넘긴 설정이 reset이
+    // 날린 값을 되살립니다. 둘 중 하나만 빠져도 조용히 틀어집니다.
+    expect(resetMock).toHaveBeenCalledTimes(2);
+    expect(loadMock).toHaveBeenLastCalledWith(humanMock.mock.calls[0]?.[0]);
   });
 });
 

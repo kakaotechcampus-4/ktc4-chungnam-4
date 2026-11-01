@@ -110,12 +110,23 @@ export function loadFaceModels(): Promise<Human> {
 
 async function prepare(): Promise<Human> {
   // 인스턴스는 다시 만들지 않습니다 — `cacheModels`가 생성자에서만 먹힙니다(#121).
-  // 다시 받을 때는 `models.reset()`으로 올라간 모델만 비웁니다. `human.reset()`은
-  // **설정을 전부 기본값으로 되돌려**(`src/human.ts`의 reset) `maxDetected`가 1로
-  // 돌아가므로 쓰지 않습니다.
   human ??= new Human(FACE_CONFIG);
-  human.models.reset();
-  await human.load();
+
+  // `reset()` → `load(FACE_CONFIG)` 두 걸음이 필요합니다. 한 걸음씩 이유가 다릅니다.
+  //
+  // 모델마다 **자기 모듈 안에** 인스턴스를 따로 들고 있습니다(`src/face/faceres.ts`의
+  // module-level `model`). 받다 실패해도 `loadModel`이 예외를 삼키고 **껍데기 객체를
+  // 돌려주므로**(`src/tfjs/load.ts`) 그 껍데기가 캐시되고, 다시 불러도 `if (!model)`에
+  // 걸려 새로 받지 않습니다. `models.reset()`은 Human이 들고 있는 쪽만 비우고 이
+  // 모듈 캐시는 못 비웁니다. 비우는 조건은 `env.initial`뿐이고, 그걸 켜는 공개 함수가
+  // `human.reset()`입니다(#226 리뷰 송유진 님).
+  //
+  // 그런데 `human.reset()`은 **설정도 전부 기본값으로 되돌립니다**(`src/human.ts`의
+  // reset) — 그대로 두면 `maxDetected`가 1로, `filter`가 다시 켜진 채로 돌아갑니다.
+  // `load()`가 넘긴 설정을 다시 합쳐 주므로(`human.ts`의 load) 여기서 되살립니다.
+  human.reset();
+  await human.load(FACE_CONFIG);
+
   assertModelsLoaded(human);
   return human;
 }
