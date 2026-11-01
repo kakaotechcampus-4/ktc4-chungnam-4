@@ -104,6 +104,8 @@ export function DraftReviewPage() {
   // 주소는 누구나 고칠 수 있어서, 날짜가 아니면 오늘로 돌립니다(알림장 상세와 같은 이유).
   const recordDateParam = searchParams.get("record_date");
   const recordDate = isDateOnly(recordDateParam) ? recordDateParam : kstToday();
+  // 지난 날짜로 열었는데 '오늘의 기록'이라고 하면 교사가 오늘 것으로 읽습니다. 날짜는 부제가 보여 줍니다.
+  const reviewTitle = recordDate === kstToday() ? "오늘의 기록을 완성해요" : "기록을 완성해요";
 
   const {
     currentClass,
@@ -352,7 +354,7 @@ export function DraftReviewPage() {
   if (classPending) {
     return (
       <>
-        <PageHeader eyebrow="오늘의 기록  /  초안 검토" title="오늘의 기록을 완성해요" />
+        <PageHeader eyebrow="오늘의 기록  /  초안 검토" title={reviewTitle} />
         <p className="text-body text-ink-muted">반 정보를 불러오는 중이에요.</p>
       </>
     );
@@ -360,7 +362,7 @@ export function DraftReviewPage() {
   if (classError || childrenQuery.isError || draftsQuery.isError) {
     return (
       <>
-        <PageHeader eyebrow="오늘의 기록  /  초안 검토" title="오늘의 기록을 완성해요" />
+        <PageHeader eyebrow="오늘의 기록  /  초안 검토" title={reviewTitle} />
         <p className="text-body text-ink-muted">
           {failureText(classErrorValue ?? childrenQuery.error ?? draftsQuery.error)}
         </p>
@@ -498,7 +500,7 @@ export function DraftReviewPage() {
     <>
       <PageHeader
         eyebrow="오늘의 기록  /  초안 검토"
-        title="오늘의 기록을 완성해요"
+        title={reviewTitle}
         subtitle={`${formatDate(recordDate)}  ·  ${klassName}`}
       />
 

@@ -70,6 +70,32 @@ describe("DraftReviewPage", () => {
     expect(screen.getByRole("button", { name: "게시하기" })).toBeDisabled();
   });
 
+  // 지난 날짜로 열어도 제목이 '오늘의 기록을 완성해요'였습니다(10/30 배포 점검 29번).
+  it("지난 날짜로 열면 제목에 '오늘의'를 붙이지 않는다", async () => {
+    await renderAndWait();
+    expect(screen.getByRole("heading", { name: "기록을 완성해요" })).toBeInTheDocument();
+  });
+
+  it("지난 날짜의 목록을 못 불러와도 제목에 '오늘의'를 붙이지 않는다", async () => {
+    server.use(
+      http.get(apiPath("/classes/:classId/drafts"), () =>
+        errorResponse(500, "INTERNAL_ERROR", "잠시 후 다시 시도해 주세요."),
+      ),
+    );
+    renderPage();
+    expect(await screen.findByText("잠시 후 다시 시도해 주세요.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "기록을 완성해요" })).toBeInTheDocument();
+  });
+
+  it("오늘 날짜면 제목이 '오늘의 기록을 완성해요'다", async () => {
+    renderRoutes([{ path: "/t/today/review/:childId", element: <DraftReviewPage /> }], {
+      initialEntry: `/t/today/review/${DOYUN}`,
+    });
+    expect(
+      await screen.findByRole("heading", { name: "오늘의 기록을 완성해요" }),
+    ).toBeInTheDocument();
+  });
+
   // '사진 추가'가 꺼져 있는데 빈 상태 문구가 사진을 추가하라고 안내했습니다(10/30 배포 점검 25번).
   it("자료 없는 원아의 빈 상태는 꺼진 사진 추가를 안내하지 않는다", async () => {
     renderPage(fixtureId("child", 5)); // 정예린 — 시드에 초안이 없다
