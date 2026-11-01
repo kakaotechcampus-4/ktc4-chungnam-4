@@ -209,7 +209,7 @@ export function DraftReviewPage() {
       await queryClient.invalidateQueries({ queryKey: documentsKeys.draft(conflictedDraftId) });
     }
     await queryClient.invalidateQueries({
-      queryKey: documentsKeys.classDrafts(classId, recordDate),
+      queryKey: documentsKeys.classDraftLists(classId),
     });
   }
 
@@ -226,7 +226,7 @@ export function DraftReviewPage() {
       setNewText("");
       queryClient.setQueryData(documentsKeys.draft(created.draft_id), created);
       await queryClient.invalidateQueries({
-        queryKey: documentsKeys.classDrafts(classId, recordDate),
+        queryKey: documentsKeys.classDraftLists(classId),
       });
     },
   });
@@ -239,7 +239,7 @@ export function DraftReviewPage() {
       setConfirmed(false);
       queryClient.setQueryData(documentsKeys.draft(updated.draft_id), updated);
       await queryClient.invalidateQueries({
-        queryKey: documentsKeys.classDrafts(classId, recordDate),
+        queryKey: documentsKeys.classDraftLists(classId),
       });
     },
     onError: (error, variables) => refetchOnVersionConflict(error, variables.draftId),
@@ -263,7 +263,7 @@ export function DraftReviewPage() {
       setEditing(null);
       setAddedTexts([]);
       await queryClient.invalidateQueries({
-        queryKey: documentsKeys.classDrafts(classId, recordDate),
+        queryKey: documentsKeys.classDraftLists(classId),
       });
     },
     onError: (error, variables) => refetchOnVersionConflict(error, variables.draftId),
@@ -276,7 +276,7 @@ export function DraftReviewPage() {
     onSuccess: async (updated) => {
       queryClient.setQueryData(documentsKeys.draft(updated.draft_id), updated);
       await queryClient.invalidateQueries({
-        queryKey: documentsKeys.classDrafts(classId, recordDate),
+        queryKey: documentsKeys.classDraftLists(classId),
       });
     },
     onError: (error, variables) => refetchOnVersionConflict(error, variables.draftId),
@@ -311,10 +311,10 @@ export function DraftReviewPage() {
             queryKey: documentsKeys.childDrafts(id, "parent_note", true),
           }),
         ),
+        // 날짜별 목록과 알림장 명단(publishedNotes)을 함께 비웁니다.
         queryClient.invalidateQueries({
-          queryKey: documentsKeys.classDrafts(classId, recordDate),
+          queryKey: documentsKeys.classDraftLists(classId),
         }),
-        queryClient.invalidateQueries({ queryKey: documentsKeys.publishedNotes(classId) }),
       ]);
       // 게시는 HTTP 200 안에서 건별로 성공·실패가 옵니다. 실패를 두고 발행 완료로 넘어가면
       // "전달했어요"만 보여서 교사가 못 올린 원아를 영영 모릅니다. 그래서 남아서 알립니다.

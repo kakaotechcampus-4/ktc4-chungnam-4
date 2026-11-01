@@ -6,6 +6,7 @@ import { childDraftsQueryOptions, documentsKeys } from "@/api/documents";
 import { kstToday, shiftDate } from "@/lib/datetime";
 import { updateDb } from "@/mocks/db";
 import { fixtureId } from "@/mocks/fixtures/ids";
+import { SUNSHINE_CLASS } from "@/mocks/fixtures/organization";
 import { apiPath, errorResponse } from "@/mocks/http";
 import { server } from "@/mocks/server";
 import { renderRoutes } from "@/test/render";
@@ -587,6 +588,50 @@ describe("DraftReviewPage", () => {
 
   // 게시는 HTTP 200 안에서 건별로 성공·실패가 옵니다. 실패를 두고 발행 완료로 넘어가면
   // "전달했어요"만 보여서 교사가 못 올린 원아를 영영 모릅니다.
+  // 응답을 기다리는 사이 날짜를 옮기면 화면의 날짜는 이미 바뀌어 있습니다. 그 날짜로 고르면 게시한
+  // 날짜의 목록은 그대로 남아, 돌아왔을 때 게시 전 상태가 보입니다(10/31 #209 검증에서 발견).
+  it("게시를 기다리는 사이 날짜를 옮겨도 게시한 날짜의 목록을 비운다", async () => {
+    const user = userEvent.setup();
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.post(apiPath("/publications"), async ({ request }) => {
+        const body = (await request.json()) as PublicationRequest;
+        await gate;
+        // 하나를 실패로 두어 발행 완료 화면으로 넘어가지 않게 합니다.
+        return HttpResponse.json({
+          results: body.items.map((item, index) => ({
+            draft_id: item.draft_id,
+            child_id: index === 0 ? DOYUN : fixtureId("child", 2),
+            status: index === 0 ? "failed" : "published",
+            parent_note_id: index === 0 ? null : item.draft_id,
+            version: null,
+            published_at: null,
+            error_code: index === 0 ? "DRAFT_VERSION_CONFLICT" : null,
+          })),
+        });
+      }),
+    );
+    const { router, queryClient } = renderPage();
+    await screen.findByRole("heading", { name: /작은 블록/ });
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+    await user.click(await screen.findByRole("button", { name: "게시하기" }));
+
+    await act(() =>
+      router.navigate(`/t/today/review/${DOYUN}?record_date=${shiftDate(YESTERDAY, -1)}`),
+    );
+    const published = documentsKeys.classDrafts(SUNSHINE_CLASS.class_id, YESTERDAY);
+    expect(queryClient.getQueryState(published)?.isInvalidated).toBe(false);
+
+    release();
+    await waitFor(() => expect(queryClient.getQueryState(published)?.isInvalidated).toBe(true));
+  });
+
   it("일부가 실패하면 발행 완료로 넘어가지 않고 누가 실패했는지 알린다", async () => {
     const user = userEvent.setup();
     server.use(
