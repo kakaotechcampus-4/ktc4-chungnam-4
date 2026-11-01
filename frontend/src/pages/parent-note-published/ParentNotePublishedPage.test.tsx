@@ -25,6 +25,16 @@ describe("ParentNotePublishedPage", () => {
     expect(screen.getByRole("heading", { name: "3명의 알림장을 게시했어요" })).toBeInTheDocument();
   });
 
+  // 사진 없이 게시해도 '선택한 사진을 보호자가 확인할 수 있어요'라고 안내했습니다(11/01 검증에서 발견).
+  it("사진을 보냈다고 안내하지 않는다", async () => {
+    const { router } = renderAt("/t/today/review");
+
+    await act(() => router.navigate("/t/notes/publish/done", { state: { publishedCount: 3 } }));
+
+    expect(screen.getByText("승인한 알림장을 보호자가 확인할 수 있어요.")).toBeInTheDocument();
+    expect(screen.queryByText(/사진/)).not.toBeInTheDocument();
+  });
+
   // 지난 날짜를 게시해도 오늘 날짜와 '오늘의 기록을 전달했어요'가 보였습니다(10/31 #209 검증에서 발견).
   it("지난 날짜를 게시했으면 그 날짜를 보여 주고 '오늘의'를 붙이지 않는다", async () => {
     const { router } = renderAt("/t/today/review");
