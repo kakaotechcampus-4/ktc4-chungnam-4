@@ -515,9 +515,10 @@ export function DraftReviewPage() {
             <p className="text-body text-ink-muted">초안을 불러오는 중이에요.</p>
           ) : draft === undefined ? (
             <div className="flex flex-col gap-5 rounded-xl bg-paper p-7">
-              {/* TODO(김진하): 빈 상태 문구와 디자인이 Figma에 없어 임시로 둡니다. */}
+              {/* TODO(김진하): 빈 상태 문구와 디자인이 Figma에 없어 임시로 둡니다.
+                  '사진 추가'는 아직 꺼져 있어 문구에서 뺐습니다. 사진 고르기가 정해지면 다시 넣습니다. */}
               <p className="text-body text-ink-muted">
-                아직 이 아이의 기록이 없어요. 사진을 추가하거나 직접 작성할 수 있어요.
+                아직 이 아이의 기록이 없어요. 직접 작성할 수 있어요.
               </p>
               <div className="grid grid-cols-3 gap-4">
                 <AddPhotoTile />

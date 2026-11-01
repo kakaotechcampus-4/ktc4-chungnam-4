@@ -70,6 +70,15 @@ describe("DraftReviewPage", () => {
     expect(screen.getByRole("button", { name: "게시하기" })).toBeDisabled();
   });
 
+  // '사진 추가'가 꺼져 있는데 빈 상태 문구가 사진을 추가하라고 안내했습니다(10/30 배포 점검 25번).
+  it("자료 없는 원아의 빈 상태는 꺼진 사진 추가를 안내하지 않는다", async () => {
+    renderPage(fixtureId("child", 5)); // 정예린 — 시드에 초안이 없다
+    expect(
+      await screen.findByText("아직 이 아이의 기록이 없어요. 직접 작성할 수 있어요."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/사진을 추가하거나/)).not.toBeInTheDocument();
+  });
+
   // 자료 없는 원아도 교사가 직접 써서 검토·승인할 수 있어야 한다.
   it("자료 없는 원아에게 직접 쓰면 초안이 생겨 승인할 수 있다", async () => {
     const user = userEvent.setup();
