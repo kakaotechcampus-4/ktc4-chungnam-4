@@ -279,15 +279,32 @@ def list_class_children(
     제외는 `get_consented_children`이 따로 판정합니다 (H-3). 졸업·퇴소 원아는 뺍니다.
     """
     ensure_class_access(db, class_id, center_id)
-    rows = db.execute(
-        select(Child.id, Child.name)
+    # face가 organization의 권한 함수를 사용하므로 표시 조회는 함수 안에서 가져온다.
+    from domains.face.service import registered_child_ids
+
+    rows = db.scalars(
+        select(Child)
         .where(Child.class_id == class_id, Child.status == CHILD_STATUS_ENROLLED)
         .order_by(Child.name, Child.id)
-    )
+    ).all()
+    registered = registered_child_ids(db, [child.id for child in rows])
+    klass = db.get(Klass, class_id)
     return ClassChildListResponse(
         items=[
-            ClassChildItem(child_id=child_id, class_id=class_id, name=name)
-            for child_id, name in rows
+            ClassChildItem(
+                child_id=child.id,
+                class_id=class_id,
+                name=child.name,
+                age_group=klass.age_group,
+                consent_agreed_count=sum(
+                    has_consent(db, child.id, kind)
+                    for kind in ("personal_info", "activity_media", "face_feature")
+                ),
+                face_feature_agreed=has_consent(db, child.id, "face_feature"),
+                is_face_registered=child.id in registered,
+                parent_linked=has_linked_parent(db, child.id),
+            )
+            for child in rows
         ]
     )
 
@@ -787,3 +804,11 @@ def delete_education_plan(db: Session, plan_id: UUID, center_id: UUID | None) ->
     plan = _plan_for_teacher(db, plan_id, center_id)
     db.delete(plan)
     db.commit()
+
+
+def get_child_class_id(db: Session, child_id: UUID) -> UUID:
+    """worker가 대상 원아의 반을 찾는다. 외부 접근은 호출 API에서 검사한다(FR-05)."""
+    child = db.get(Child, child_id)
+    if child is None:
+        raise ChildNotFound("원아를 찾을 수 없습니다.")
+    return child.class_id

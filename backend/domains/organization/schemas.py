@@ -36,6 +36,13 @@ class ClassChildItem(BaseModel):
     child_id: UUID
     class_id: UUID
     name: str
+    age_group: str | None = None
+    consent_agreed_count: int = 0
+    consent_total: int = 3
+    is_face_registered: bool = False
+    face_feature_agreed: bool = False
+    face_photo_count: int | None = None
+    parent_linked: bool = False
 
 
 class ClassChildListResponse(BaseModel):
