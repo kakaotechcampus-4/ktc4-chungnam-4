@@ -406,6 +406,54 @@ describe("DraftReviewPage", () => {
     expect(screen.queryByText(/비어 있는 문장은 저장할 수 없어요/)).not.toBeInTheDocument();
   });
 
+  // 버린 뒤에도 '저장하지 못했어요'가 남으면 교사는 무엇을 다시 해야 하는지 헷갈립니다.
+  it("저장에 실패한 뒤 수정 취소를 누르면 실패 문구도 사라진다", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.patch(apiPath("/drafts/:draftId"), () =>
+        errorResponse(500, "INTERNAL_ERROR", "저장하지 못했어요."),
+      ),
+    );
+    await renderAndWait();
+
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    const [first] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
+    await user.type(first as HTMLElement, " 더 적었어요.");
+    await user.click(screen.getByRole("button", { name: "수정 완료" }));
+    expect(await screen.findByText("저장하지 못했어요.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "수정 취소" }));
+
+    expect(screen.queryAllByRole("textbox", { name: "초안 문장 수정" })).toHaveLength(0);
+    expect(screen.queryByText("저장하지 못했어요.")).not.toBeInTheDocument();
+  });
+
+  // 저장 중에 버리면 칸은 닫히는데 응답이 와서 고친 글이 그대로 저장됩니다.
+  it("저장하는 동안에는 수정 취소를 누를 수 없다", async () => {
+    const user = userEvent.setup();
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.patch(apiPath("/drafts/:draftId"), async () => {
+        await gate;
+      }),
+    );
+    await renderAndWait();
+
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    const [first] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
+    await user.type(first as HTMLElement, " 더 적었어요.");
+    await user.click(screen.getByRole("button", { name: "수정 완료" }));
+
+    expect(screen.getByRole("button", { name: "수정 취소" })).toBeDisabled();
+    release();
+    await waitFor(() =>
+      expect(screen.queryAllByRole("textbox", { name: "초안 문장 수정" })).toHaveLength(0),
+    );
+  });
+
   // 교사가 새로 쓴 문장은 원문 근거가 없으므로 밑줄·클릭 없이 문단으로만 보인다.
   it("직접 수정에서 문장을 추가할 수 있다", async () => {
     const user = userEvent.setup();

@@ -669,7 +669,14 @@ export function DraftReviewPage() {
                     {editing !== null ? (
                       <button
                         type="button"
-                        onClick={cancelEditing}
+                        onClick={() => {
+                          // 교사가 스스로 버렸으니 '다시 시도해 주세요' 같은 이 초안의 저장 실패 문구도
+                          // 지웁니다. 다른 원아의 실패는 그 원아로 돌아왔을 때 보이게 남깁니다.
+                          if (patchMutation.variables?.draftId === draft.draft_id) {
+                            patchMutation.reset();
+                          }
+                          cancelEditing();
+                        }}
                         disabled={patchMutation.isPending}
                         className="text-label font-bold text-ink-muted underline-offset-4 outline-none transition-colors hover:text-brand-ink hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
                       >
