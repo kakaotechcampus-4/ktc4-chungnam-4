@@ -61,6 +61,11 @@ function failureText(error: unknown) {
   return error instanceof ApiError ? error.message : "잠시 후 다시 시도해 주세요.";
 }
 
+/** 그 사이 다른 곳에서 초안을 바꿔 서버가 요청을 반영하지 않은 경우입니다. */
+function isVersionConflict(error: unknown) {
+  return error instanceof ApiError && error.code === "DRAFT_VERSION_CONFLICT";
+}
+
 // 근거가 문장 단위로 붙어서 수정도 문장별 칸으로 받습니다. 한 칸으로 합치면 교사가 문장을
 // 합치거나 쪼갤 때 어느 문장(sentence_id)의 글인지 알 수 없어, 안 고친 문장의 근거까지
 // 엉뚱한 곳에 붙습니다.
@@ -125,8 +130,15 @@ export function DraftReviewPage() {
 
   const [confirmed, setConfirmed] = useState(false);
   const [selectedSentenceId, setSelectedSentenceId] = useState<string | null>(null);
-  /** 편집 중인 문장 텍스트(sentence_id → text). null이면 읽기 모드 */
-  const [editing, setEditing] = useState<Record<string, string> | null>(null);
+  /**
+   * 편집 중인 문장 텍스트(sentence_id → text)와 편집을 시작할 때 본 초안 version. null이면 읽기 모드.
+   * 저장은 이 version으로 합니다. 편집하는 사이 다른 곳에서 고친 본문을 새로 받아도 칸에는 시작할 때의
+   * 문장이 남아 있어서, 새 version으로 보내면 그 문장이 다른 곳의 수정을 조용히 덮어씁니다.
+   */
+  const [editing, setEditing] = useState<{
+    version: number;
+    texts: Record<string, string>;
+  } | null>(null);
   /** 편집 중 새로 쓴 문장. 저장할 때 added_sentences로 보냅니다. */
   const [addedTexts, setAddedTexts] = useState<string[]>([]);
   /** 고친 문장을 비운 채 "수정 완료"를 누르면 저장하지 않고 이 안내를 보여 줍니다. */
@@ -172,6 +184,15 @@ export function DraftReviewPage() {
     setEmptyEdit(false);
   }
 
+  // 고치던 문장과 새 문장을 저장하지 않고 버립니다. 같은 원아를 다시 눌러 버리던 길은 실수로
+  // 작업을 날리지 않게 막아서(#209), 버리는 버튼을 따로 둡니다(#209 리뷰). 확인 체크는 수정을
+  // 시작할 때 풀었으니, 본문을 다시 보고 체크하게 그대로 둡니다.
+  function cancelEditing() {
+    setEditing(null);
+    setAddedTexts([]);
+    setEmptyEdit(false);
+  }
+
   // 화면의 원아·날짜가 바뀌면 그 원아에 딸린 상태를 비웁니다. 레일 클릭뿐 아니라 뒤로·앞으로 가기로
   // 바뀔 때도 비워야 합니다. 문장 ID는 초안마다 s1부터 다시 시작해서, 남겨 두면 앞 원아에서 고치던
   // 문장이 이 원아 초안에 저장되고 "사진과 본문을 확인했어요" 체크도 넘어옵니다(H-1). #206 멘토님 리뷰의
@@ -204,7 +225,7 @@ export function DraftReviewPage() {
   // 버전이 밀리면 화면이 든 version이 낡은 값입니다. 다시 받아 두지 않으면 교사가 다시 눌러도
   // 같은 낡은 version을 또 보내 계속 실패합니다(새로고침 말고는 빠져나갈 길이 없습니다).
   async function refetchOnVersionConflict(error: unknown, conflictedDraftId?: string) {
-    if (!(error instanceof ApiError) || error.code !== "DRAFT_VERSION_CONFLICT") return;
+    if (!isVersionConflict(error)) return;
     if (conflictedDraftId !== undefined) {
       await queryClient.invalidateQueries({ queryKey: documentsKeys.draft(conflictedDraftId) });
     }
@@ -266,7 +287,12 @@ export function DraftReviewPage() {
         queryKey: documentsKeys.classDraftLists(classId),
       });
     },
-    onError: (error, variables) => refetchOnVersionConflict(error, variables.draftId),
+    onError: async (error, variables) => {
+      // 그 사이 다른 곳에서 고쳤으면 고치던 칸을 닫고 새 본문을 보여 줍니다. 칸에 남은 옛 문장을 다시
+      // 저장하면 다른 곳의 수정을 덮어씁니다. 실패 문구는 남겨 왜 닫혔는지 알립니다.
+      if (isVersionConflict(error) && variables.draftId === draft?.draft_id) cancelEditing();
+      await refetchOnVersionConflict(error, variables.draftId);
+    },
   });
 
   // 승인은 잠금이지만, 게시 전까지는 교사가 되돌려 다시 고칠 수 있어야 합니다.
@@ -427,26 +453,18 @@ export function DraftReviewPage() {
     navigate(`/t/today/review/${id}${query ? `?${query}` : ""}`);
   }
 
-  // 고치던 문장과 새 문장을 저장하지 않고 버립니다. 같은 원아를 다시 눌러 버리던 길은 실수로
-  // 작업을 날리지 않게 막아서(#209), 버리는 버튼을 따로 둡니다(#209 리뷰). 확인 체크는 수정을
-  // 시작할 때 풀었으니, 본문을 다시 보고 체크하게 그대로 둡니다.
-  function cancelEditing() {
-    setEditing(null);
-    setAddedTexts([]);
-    setEmptyEdit(false);
-  }
-
   function toggleEditing() {
     if (!draft) return;
     if (editing === null) {
       // 고치기 전 문장을 보고 눌러 둔 체크입니다. 수정이 끝나면 다시 확인해야 합니다.
       setConfirmed(false);
       setSelectedSentenceId(null);
-      setEditing(
-        Object.fromEntries(
+      setEditing({
+        version: draft.version,
+        texts: Object.fromEntries(
           draft.sentences.map((sentence) => [sentence.sentence_id, sentence.text]),
         ),
-      );
+      });
       setAddedTexts([]);
       setEmptyEdit(false);
       return;
@@ -455,7 +473,7 @@ export function DraftReviewPage() {
     // 줄바꿈만 달라진 문장은 고친 것으로 보지 않아 근거가 끊기지 않습니다. 공백만 남은 문장은
     // 정하지 않은 "문장 삭제"와 같아서 저장하지 않습니다.
     const edited = draft.sentences.flatMap((sentence) => {
-      const text = editing[sentence.sentence_id];
+      const text = editing.texts[sentence.sentence_id];
       return text === undefined ? [] : [{ sentence, text: text.trim() }];
     });
     if (edited.some(({ text }) => text === "")) {
@@ -476,7 +494,7 @@ export function DraftReviewPage() {
     }
     patchMutation.mutate({
       draftId: draft.draft_id,
-      version: draft.version,
+      version: editing.version,
       sentences: changed,
       addedSentences: added,
     });
@@ -589,16 +607,23 @@ export function DraftReviewPage() {
                     {draft.sentences.map((sentence) => (
                       <Textarea
                         key={sentence.sentence_id}
-                        value={editing[sentence.sentence_id] ?? sentence.text}
+                        value={editing.texts[sentence.sentence_id] ?? sentence.text}
                         rows={1}
                         className={EDIT_FIELD_CLASS}
                         aria-label="초안 문장 수정"
                         onChange={(event) => {
                           setEmptyEdit(false);
-                          setEditing((prev) => ({
-                            ...prev,
-                            [sentence.sentence_id]: event.target.value,
-                          }));
+                          setEditing((prev) =>
+                            prev === null
+                              ? prev
+                              : {
+                                  ...prev,
+                                  texts: {
+                                    ...prev.texts,
+                                    [sentence.sentence_id]: event.target.value,
+                                  },
+                                },
+                          );
                         }}
                       />
                     ))}

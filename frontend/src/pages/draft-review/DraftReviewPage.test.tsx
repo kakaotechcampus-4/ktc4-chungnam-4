@@ -4,7 +4,7 @@ import { HttpResponse, http } from "msw";
 
 import { childDraftsQueryOptions, documentsKeys } from "@/api/documents";
 import { kstToday, shiftDate } from "@/lib/datetime";
-import { updateDb } from "@/mocks/db";
+import { readDb, updateDb } from "@/mocks/db";
 import { fixtureId } from "@/mocks/fixtures/ids";
 import { SUNSHINE_CLASS } from "@/mocks/fixtures/organization";
 import { apiPath, errorResponse } from "@/mocks/http";
@@ -31,6 +31,19 @@ async function renderAndWait() {
   renderPage();
   await screen.findByRole("button", { name: /김도윤/ });
   await screen.findByRole("heading", { name: /작은 블록/ });
+}
+
+const DOYUN_NOTE = fixtureId("draft", 12);
+
+/** 다른 교사나 다른 탭에서 김도윤 초안의 첫 문장을 고쳐 버전이 오른 상황을 만듭니다. */
+function editDoyunNoteElsewhere() {
+  updateDb((db) => {
+    const draft = db.drafts[DOYUN_NOTE];
+    const first = draft?.sentences[0];
+    if (!draft || !first) throw new Error("김도윤 초안이 시드에 없습니다.");
+    draft.version += 1;
+    first.text = "다른 곳에서 고친 첫 문장이에요.";
+  });
 }
 
 describe("DraftReviewPage", () => {
@@ -327,6 +340,49 @@ describe("DraftReviewPage", () => {
     expect(await screen.findByText("다른 곳에서 고친 첫 문장이에요.")).toBeInTheDocument();
     expect(screen.getByRole("checkbox")).not.toBeChecked();
     expect(screen.getByRole("button", { name: "검토 완료하고 승인하기" })).toBeDisabled();
+  });
+
+  // 다른 곳에서 먼저 고친 초안을 다시 저장하면, 칸에 남은 옛 문장이 그 수정을 덮어썼습니다(11/01 검증에서 발견).
+  it("저장하다 버전이 밀리면 고치던 칸을 닫고 다른 곳에서 고친 본문을 보여 준다", async () => {
+    const user = userEvent.setup();
+    await renderAndWait();
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    const [, second] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
+    await user.type(second as HTMLElement, " 덧붙였어요.");
+    editDoyunNoteElsewhere();
+
+    await user.click(screen.getByRole("button", { name: "수정 완료" }));
+
+    expect(await screen.findByText("다른 곳에서 고친 첫 문장이에요.")).toBeInTheDocument();
+    expect(screen.queryAllByRole("textbox", { name: "초안 문장 수정" })).toHaveLength(0);
+    // 왜 칸이 닫혔는지 알 수 있게 실패 문구는 남깁니다.
+    expect(screen.getByText("다른 곳에서 먼저 고쳤어요. 새로 불러와 주세요.")).toBeInTheDocument();
+  });
+
+  it("편집하는 사이 새 본문을 받아도 시작할 때의 버전으로 저장해 다른 곳의 수정을 덮어쓰지 않는다", async () => {
+    const user = userEvent.setup();
+    let sent: DraftPatchRequest | null = null;
+    server.use(
+      http.patch(apiPath("/drafts/:draftId"), async ({ request }) => {
+        sent = (await request.clone().json()) as DraftPatchRequest;
+      }),
+    );
+    const { queryClient } = renderPage();
+    await screen.findByRole("heading", { name: /작은 블록/ });
+    const startVersion = readDb().drafts[DOYUN_NOTE]?.version;
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    editDoyunNoteElsewhere();
+    // 연결이 다시 이어질 때처럼 화면이 초안을 새로 받습니다. 칸에는 시작할 때의 문장이 그대로 있습니다.
+    await act(() => queryClient.invalidateQueries({ queryKey: documentsKeys.draft(DOYUN_NOTE) }));
+
+    const [, second] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
+    await user.type(second as HTMLElement, " 덧붙였어요.");
+    await user.click(screen.getByRole("button", { name: "수정 완료" }));
+
+    await waitFor(() => expect(sent).not.toBeNull());
+    expect(sent!.expected_version).toBe(startVersion);
+    expect(await screen.findByText("다른 곳에서 고친 첫 문장이에요.")).toBeInTheDocument();
+    expect(readDb().drafts[DOYUN_NOTE]?.sentences[0]?.text).toBe("다른 곳에서 고친 첫 문장이에요.");
   });
 
   // 같은 원아라도 날짜가 바뀌면 다른 초안이라, 돌아와도 고치던 문장이 남으면 안 된다.
