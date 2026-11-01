@@ -241,7 +241,7 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 | `GET /centers?center_code=` | 쿼리 `center_code` | `200 { "center_id", "name" }` | `CENTER_NOT_FOUND`(404). 가입 중이라 권한 검사 없음 |
 | `POST /centers` | `{ "name", "address" }` | `201 { "center_id", "name" }` | 가입 중이라 권한 검사 없음 |
 | `GET /centers/{center_id}/classes` | — | `200 { items: ClassSummary[], next_cursor: null }` | 공통 |
-| `POST /classes` | `{ "center_id", "name", "age_band" }` | `201 ClassSummary`. 만든 교사를 담임으로 배정 | 공통 |
+| `POST /classes` | `{ "center_id", "name", "age_band" }` | `201 ClassSummary`. 만든 교사는 `Klass.teacher_id`에 기록만(담임 배정 없음) | 공통 |
 | `POST /classes/{class_id}/assign` | 없음 | `200 ClassSummary` | `CLASS_NOT_FOUND`(404) |
 | `PATCH /classes/{class_id}/favorite` **(추가)** | `{ "is_favorite": true }` | `200 ClassSummary` | `CLASS_NOT_FOUND`(404) |
 
@@ -249,7 +249,7 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 - 구현: `GET /centers/{center_id}/classes`, `POST /classes`. 소속이 아닌 어린이집(소속이 없는 교사 포함)은 403 `CENTER_ACCESS_DENIED`입니다 → 임시 결정(이한나). 다른 어린이집이 있는지 없는지는 알려 주지 않습니다.
 - `POST /classes`는 담당교사 폐지로 담임 배정을 하지 않고 만든 교사만 `Klass.teacher_id`에 남깁니다. 표시용 `age_group`은 `infant` → "만 0~2세", `preschool` → "만 3~5세"로 채웁니다 → 임시 결정(이한나). 같은 이름의 반은 막지 않습니다. `POST /classes/{class_id}/assign`은 담당교사 폐지로 만들지 않았습니다.
 - `ClassSummary`의 `is_favorite`·`needs_record_today`는 아직 항상 `false`입니다(즐겨찾기 저장소 없음, 오늘 기록 여부는 media·documents 데이터).
-- `POST /centers`는 HTTP 경로 없이 service 함수 `create_center`만 만들었습니다. 교사 소속 저장(auth)과 한 트랜잭션이어야 해서 `POST /accounts`(엄태은)가 부릅니다. 계약 상태는 `trial`로 시작합니다(FR-24). 가입 코드는 대문자·숫자 8자리(헷갈리는 0·O·1·I 제외)로 서버가 발급합니다 → 임시 결정(이한나), #158 3번에서 정해지면 바꿉니다
+- `POST /centers`는 HTTP 경로 없이 service 함수 `create_center`만 만들었습니다. 교사 소속 저장(auth)과 한 트랜잭션이어야 해서 `POST /accounts`(엄태은)가 부릅니다. 계약 상태는 `trial`로 시작합니다(FR-24). 가입 코드는 대문자·숫자 8자리(헷갈리는 0·O·1·I 제외)로 서버가 발급합니다 → 임시 결정(이한나), #158 3번에서 정해지면 바꿉니다 `GET /centers?center_code=` 조회(`find_center_by_code`)는 입력의 앞뒤 공백을 지우고 대문자로 바꿔 비교합니다.
 
 ### 원아
 
