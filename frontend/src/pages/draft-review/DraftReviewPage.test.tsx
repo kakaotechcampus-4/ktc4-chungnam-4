@@ -119,6 +119,28 @@ describe("DraftReviewPage", () => {
     expect(screen.queryByText(/사진을 추가하거나/)).not.toBeInTheDocument();
   });
 
+  // 본문을 못 받으면 초안이 있는데도 빈 상태와 직접 작성 칸이 떴습니다. 새로 써서 저장하면 이미
+  // 초안이 있어 실패합니다(11/01 검증에서 발견).
+  it("초안 본문을 못 불러오면 빈 상태 대신 실패를 알리고 다시 불러올 수 있다", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(apiPath("/drafts/:draftId"), () =>
+        errorResponse(500, "INTERNAL_ERROR", "잠시 문제가 생겼어요."),
+      ),
+    );
+    renderPage();
+
+    expect(await screen.findByText("초안을 불러오지 못했어요")).toBeInTheDocument();
+    expect(screen.getByText("잠시 문제가 생겼어요.")).toBeInTheDocument();
+    expect(screen.queryByText(/아직 이 아이의 기록이 없어요/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "직접 작성" })).not.toBeInTheDocument();
+
+    server.resetHandlers();
+    await user.click(screen.getByRole("button", { name: "다시 불러오기" }));
+
+    expect(await screen.findByRole("heading", { name: /작은 블록/ })).toBeInTheDocument();
+  });
+
   // 자료 없는 원아도 교사가 직접 써서 검토·승인할 수 있어야 한다.
   it("자료 없는 원아에게 직접 쓰면 초안이 생겨 승인할 수 있다", async () => {
     const user = userEvent.setup();

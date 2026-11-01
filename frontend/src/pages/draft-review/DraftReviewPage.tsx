@@ -545,6 +545,17 @@ export function DraftReviewPage() {
         <section className="flex min-w-0 flex-1 flex-col gap-3.5">
           {draftQuery.isPending && draftId !== "" ? (
             <p className="text-body text-ink-muted">초안을 불러오는 중이에요.</p>
+          ) : draftQuery.isError && draft === undefined ? (
+            // 초안이 있는 원아인데 본문을 못 받았습니다. 빈 상태로 보이면 교사가 새로 쓰고, 저장하면
+            // 이미 초안이 있어 실패합니다. 같은 원아를 다시 눌러도 그대로라 다시 받는 버튼을 둡니다.
+            // Figma에 없는 상태라 발화 목록(TranscriptStatus)의 '다시 불러오기'를 따릅니다.
+            <div role="alert" className="flex flex-col items-start gap-3 rounded-xl bg-paper p-7">
+              <p className="text-lead font-bold text-ink">초안을 불러오지 못했어요</p>
+              <p className="text-body text-ink-muted">{failureText(draftQuery.error)}</p>
+              <Button variant="outline" size="sm" onClick={() => void draftQuery.refetch()}>
+                다시 불러오기
+              </Button>
+            </div>
           ) : draft === undefined ? (
             <div className="flex flex-col gap-5 rounded-xl bg-paper p-7">
               {/* TODO(김진하): 빈 상태 문구와 디자인이 Figma에 없어 임시로 둡니다.
