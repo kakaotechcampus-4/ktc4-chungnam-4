@@ -1,3 +1,12 @@
+vi.mock("@/workers/face/client", () => ({
+  extractEmbedding: vi.fn(async () => ({
+    extract_state: "extracted",
+    embedding: { embedding: Array(1024).fill(0.1), model_version: "human-face-test" },
+  })),
+  prepareFaceModels: vi.fn(async () => true),
+  classifyPhoto: vi.fn(),
+}));
+
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { File as NodeFile } from "node:buffer";
@@ -567,6 +576,7 @@ describe("얼굴 정보", () => {
     expect(screen.queryByRole("img", { name: "고른 사진 1" })).not.toBeInTheDocument();
     // H-3: 사진이 아니라 벡터와 모델 버전만 보냅니다.
     expect(Object.keys(requests[0] as object).sort()).toEqual(["embedding", "model_version"]);
+    expect((requests[0] as { embedding: number[] }).embedding).toHaveLength(1024);
   });
 
   // 동의·등록 상태 조회 API가 아직 없습니다. 고정 예시 값을 두면 등록하지 않은 원아도 "등록됨"으로 보입니다.

@@ -8,15 +8,17 @@ import { FACE_DESCRIPTOR_LENGTH } from "./types";
 // 실제 검출은 사람이 사진으로 확인하고 결과를 PR에 적습니다. 원아 사진은 쓰지 않습니다
 // (루트 CLAUDE.md).
 
-const { humanMock, detectMock, loadMock } = vi.hoisted(() => {
+const { humanMock, detectMock, loadMock, loadedMock } = vi.hoisted(() => {
   const detect = vi.fn();
+  const loaded = vi.fn(() => ["blazeface", "facemesh", "faceres"]);
   const load = vi.fn(() => Promise.resolve());
   const human = vi.fn(function (this: Record<string, unknown>, config: unknown) {
     this.config = config;
     this.detect = detect;
     this.load = load;
+    this.models = { loaded };
   });
-  return { humanMock: human, detectMock: detect, loadMock: load };
+  return { humanMock: human, detectMock: detect, loadMock: load, loadedMock: loaded };
 });
 
 vi.mock("@vladmandic/human", () => ({ Human: humanMock }));
@@ -40,6 +42,7 @@ beforeEach(() => {
   humanMock.mockClear();
   detectMock.mockReset();
   loadMock.mockClear();
+  loadedMock.mockReturnValue(["blazeface", "facemesh", "faceres"]);
   // jsdom에는 createImageBitmap이 없습니다. 비트맵은 detect에 넘기기만 합니다.
   vi.stubGlobal(
     "createImageBitmap",
@@ -122,7 +125,7 @@ describe("얼굴 검출", () => {
   // 모델 로딩이 실패해도 HUMAN은 예외를 던지지 않고 로그만 남깁니다. faceres가 없으면
   // embedding이 빈 배열로 나오는데, match.similarity([], x)는 1(완전 일치)을 돌려줍니다.
   // 그대로 두면 모든 원아가 서로 같은 사람으로 판정됩니다(#121 리뷰 송유진 님 2번).
-  it("길이가 맞지 않는 벡터는 버린다", async () => {
+  it("벡터를 못 만든 얼굴이 섞이면 사진 전체를 실패로 처리한다", async () => {
     detectMock.mockResolvedValue({
       face: [
         faceResult(0), // faceres가 안 떴을 때
@@ -132,10 +135,7 @@ describe("얼굴 검출", () => {
       ],
     });
 
-    const faces = await detectFaces(photo());
-
-    expect(faces).toHaveLength(1);
-    expect(faces[0]?.descriptor).toHaveLength(FACE_DESCRIPTOR_LENGTH);
+    await expect(detectFaces(photo())).rejects.toThrow("Unusable face descriptor");
   });
 
   // 사진이 수십 장이면 비트맵이 쌓여 메모리가 찹니다. 검출이 실패해도 놓아야 합니다.
@@ -150,4 +150,11 @@ describe("얼굴 검출", () => {
     await expect(detectFaces(photo())).rejects.toThrow();
     expect(close).toHaveBeenCalledOnce();
   });
+});
+
+it("다운로드가 조용히 실패해도 준비 성공으로 넘기지 않고 재시도할 수 있다", async () => {
+  loadedMock.mockReturnValueOnce(["blazeface"]);
+  await expect(loadFaceModels()).rejects.toThrow("Face models are unavailable");
+  await expect(loadFaceModels()).resolves.toBeDefined();
+  expect(loadMock).toHaveBeenCalledTimes(2);
 });

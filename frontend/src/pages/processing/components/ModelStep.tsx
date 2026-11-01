@@ -1,38 +1,39 @@
 import { useEffect, useState } from "react";
-
-import { useInterval } from "@/lib/use-interval";
-
+import { prepareFaceModels } from "@/workers/face/client";
 import { ProcessingCard } from "./ProcessingCard";
-
 interface ModelStepProps {
   onDone: () => void;
   onCancel: () => void;
 }
-
-// 크기는 Figma 문구 그대로입니다("136 / 200 MB").
-const MODEL_MB = 200;
-// 약 3초에 걸쳐 끝냅니다.
-const TICK_MB = 10;
-const TICK_MS = 150;
-
-// TODO(정은): 모델 지연 로딩(workers/)이 생기면 실제 내려받은 크기를 보여 줍니다. 지금은 흉내만 냅니다.
 export function ModelStep({ onDone, onCancel }: ModelStepProps) {
-  const [loadedMb, setLoadedMb] = useState(0);
-  const done = loadedMb >= MODEL_MB;
-
-  useInterval(() => setLoadedMb((mb) => Math.min(MODEL_MB, mb + TICK_MB)), done ? null : TICK_MS);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    if (done) onDone();
-  }, [done, onDone]);
-
+    let active = true;
+    prepareFaceModels()
+      .then(() => {
+        if (active) onDone();
+      })
+      .catch(() => {
+        if (active)
+          setError(
+            "분석 모델을 준비하지 못했어요. 네트워크와 브라우저를 확인한 뒤 다시 시도해 주세요.",
+          );
+      });
+    return () => {
+      active = false;
+    };
+  }, [onDone]);
   return (
     <ProcessingCard
-      title="분석 모델을 준비하고 있어요"
-      detail={`처음 한 번만 다운로드해요 · ${loadedMb} / ${MODEL_MB} MB`}
-      percent={Math.round((loadedMb / MODEL_MB) * 100)}
+      stopped={Boolean(error)}
+      title={error ? "모델 준비를 멈췄어요" : "분석 모델을 준비하고 있어요"}
+      detail="얼굴 분석은 이 기기에서 실행해요"
+      percent={0}
       step="model"
-      note={"분석 모델은 이 기기에 저장돼요.\n준비가 끝나면 사진과 발화를 분류합니다."}
+      note="다운로드가 완료되면 실제 사진 분류를 시작해요."
       onCancel={onCancel}
-    />
+    >
+      {error && <p role="alert">{error}</p>}
+    </ProcessingCard>
   );
 }

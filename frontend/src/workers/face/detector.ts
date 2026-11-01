@@ -74,9 +74,16 @@ export function loadFaceModels(): Promise<Human> {
   humanPromise ??= (async () => {
     const human = new Human(FACE_CONFIG);
     await human.load();
+    const loaded = human.models.loaded();
+    if (!["blazeface", "facemesh", "faceres"].every((name) => loaded.includes(name))) {
+      throw new Error("Face models are unavailable");
+    }
     return human;
   })();
-  return humanPromise;
+  return humanPromise.catch((error: unknown) => {
+    humanPromise = null;
+    throw error;
+  });
 }
 
 /** 테스트에서 모델 준비 상태를 비웁니다. */
@@ -93,22 +100,24 @@ export function resetFaceModels(): void {
  * (#121 리뷰 송유진 님 2번) — 길이를 반드시 확인합니다.
  */
 function hasUsableDescriptor(face: FaceResult): boolean {
-  return face.embedding?.length === FACE_DESCRIPTOR_LENGTH;
+  return face.embedding?.length === FACE_DESCRIPTOR_LENGTH && face.embedding.every(Number.isFinite);
 }
 
 /**
  * 사진 한 장에서 얼굴을 모두 찾습니다. 못 찾으면 빈 배열입니다.
  *
- * 벡터를 못 만든 얼굴은 버립니다 — 비교할 수 없는 얼굴을 돌려주면 부르는 쪽이 매번
- * 길이를 확인해야 하고, 한 번만 빠뜨려도 위 사고가 납니다.
+ * 벡터를 못 만든 얼굴이 하나라도 있으면 사진 전체를 실패 처리합니다.
+ * 그 얼굴만 버리면 미식별 얼굴이 없는 사진처럼 외부 AI에 전달될 수 있습니다(H-2).
  */
 export async function detectFaces(photo: File): Promise<DetectedFace[]> {
   const human = await loadFaceModels();
   const bitmap = await createImageBitmap(photo);
   try {
     const result = await human.detect(bitmap);
-    return result.face.filter(hasUsableDescriptor).map((face) => ({
-      // 위 filter가 길이를 확인했습니다.
+    if (result.face.some((face) => !hasUsableDescriptor(face)))
+      throw new Error("Unusable face descriptor");
+    return result.face.map((face) => ({
+      // 위 검사에서 모든 얼굴의 벡터를 확인했습니다.
       descriptor: face.embedding as number[],
       // HUMAN의 score는 검출·정렬 점수를 합친 값입니다. 테크스펙 §온디바이스 모델의
       // confidence가 가리키는 "얼굴로 볼 만한 정도"가 이 값입니다.

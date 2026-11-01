@@ -49,6 +49,7 @@ interface ProcessingCardProps {
   onCancel: () => void;
   /** 안내 아래 한 줄. 요청 실패 문구 등 */
   children?: ReactNode;
+  stopped?: boolean;
 }
 
 // 처리 중 화면의 흰 카드입니다. 값은 Figma 실측입니다(760 × 560, 위아래 40 · 좌우 48).
@@ -60,6 +61,7 @@ export function ProcessingCard({
   note,
   onCancel,
   children,
+  stopped = false,
 }: ProcessingCardProps) {
   const { phase, index: stepIndex } = STEP_POSITION[step];
   const { steps, hint } = PHASES[phase];
@@ -116,7 +118,7 @@ export function ProcessingCard({
                 <span className="mt-1">{label}</span>
                 <span className="flex items-center gap-0.5 text-caption font-normal">
                   {state === "done" ? <Check aria-hidden="true" className="size-3" /> : null}
-                  {STEP_STATE_TEXT[state]}
+                  {stopped && state === "current" ? "종료" : STEP_STATE_TEXT[state]}
                 </span>
               </li>
             );

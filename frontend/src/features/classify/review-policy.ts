@@ -4,6 +4,7 @@ import type {
   ReviewResult,
 } from "@/features/upload-queue/upload-queue-store";
 import { isPhoto } from "@/features/upload-queue/upload-queue-store";
+import { MATCH_MIN_SCORE } from "@/workers/face/matcher";
 
 // ④ 얼굴 분류 화면들이 업로드 큐(정은, features/upload-queue)의 사진을 검수할 때 쓰는 규칙입니다.
 // 로컬 상태는 업로드 큐 하나만 쓰고, 여기서는 "어떤 사진을 교사가 봐야 하나"와 "확정 값"만 계산합니다.
@@ -13,7 +14,7 @@ import { isPhoto } from "@/features/upload-queue/upload-queue-store";
  * (미정) 자동 귀속 신뢰도 임계값. 테크스펙 파이프라인 2단계 "신뢰도 임계값 미달 시 자동 결정하지 않음"의 값이
  * 정해지지 않았습니다. 화면들이 같은 값을 보도록 여기 하나만 둡니다.
  */
-export const CONFIDENCE_THRESHOLD = 0.8;
+export const CONFIDENCE_THRESHOLD = MATCH_MIN_SCORE;
 
 /** 임계값을 넘은 후보. 교사가 확인하기 전 "확실한 아이"로 보여 줍니다. */
 export function confidentChildIds(photo: Pick<LocalPhoto, "candidates">) {
