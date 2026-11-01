@@ -17,6 +17,8 @@ from sqlalchemy.pool import StaticPool
 from core.base import Base
 from core.database import get_db
 from domains.auth.middleware import get_current_user
+from domains.auth.models import Account as LookupAccount
+from domains.auth.models import Teacher as LookupTeacher
 from domains.auth.service import ParentProfile, TeacherProfile
 from domains.documents.models import (
     DocType,
@@ -25,7 +27,11 @@ from domains.documents.models import (
     DraftSentence,
     DraftStatus,
 )
+from domains.documents.models import UnclassifiedItem as FailureItem
+from domains.face.models import FaceEmbedding
 from domains.organization.models import Center, Child, Klass
+from domains.organization.models import ConsentRecord as RosterConsent
+from domains.organization.models import ParentChildRelation as RosterParent
 from main import app
 
 RECORD_DATE = date(2026, 10, 27)
@@ -36,6 +42,12 @@ PATH = "/api/v1/classes/{class_id}/drafts"
 def db() -> Iterator[Session]:
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(
+        engine, tables=[FaceEmbedding.__table__, RosterConsent.__table__, RosterParent.__table__]
+    )
+    Base.metadata.create_all(
+        engine, tables=[LookupAccount.__table__, LookupTeacher.__table__, FailureItem.__table__]
     )
     Base.metadata.create_all(
         engine,

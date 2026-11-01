@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from core.base import Base
 from core.exceptions import DraftVersionConflict
+from domains.auth.models import Account as LookupAccount
+from domains.auth.models import Teacher as LookupTeacher
 from domains.documents.models import (
     DocType,
     DraftDocument,
@@ -17,6 +19,7 @@ from domains.documents.models import (
     RevisionAction,
     RevisionLog,
 )
+from domains.documents.models import UnclassifiedItem as FailureItem
 from domains.documents.schemas import DraftSaveInput, DraftSentenceInput
 from domains.documents.service import save_draft
 
@@ -34,6 +37,10 @@ def _session() -> Session:
     @event.listens_for(engine, "begin")
     def _emit_begin(conn):
         conn.exec_driver_sql("BEGIN")
+
+    Base.metadata.create_all(
+        engine, tables=[LookupAccount.__table__, LookupTeacher.__table__, FailureItem.__table__]
+    )
 
     Base.metadata.create_all(
         engine,

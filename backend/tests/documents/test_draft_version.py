@@ -6,6 +6,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from core.base import Base
+from domains.auth.models import Account as LookupAccount
+from domains.auth.models import Teacher as LookupTeacher
 from domains.documents.models import (
     DocType,
     DraftDocument,
@@ -14,6 +16,7 @@ from domains.documents.models import (
     RevisionAction,
     RevisionLog,
 )
+from domains.documents.models import UnclassifiedItem as FailureItem
 from domains.documents.service import get_draft_version
 
 RECORD_DATE = date(2026, 9, 29)
@@ -21,6 +24,9 @@ RECORD_DATE = date(2026, 9, 29)
 
 def _session() -> Session:
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(
+        engine, tables=[LookupAccount.__table__, LookupTeacher.__table__, FailureItem.__table__]
+    )
     Base.metadata.create_all(
         engine,
         tables=[DraftDocument.__table__, DraftSentence.__table__, RevisionLog.__table__],

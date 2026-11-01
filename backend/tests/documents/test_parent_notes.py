@@ -22,6 +22,8 @@ from core.database import get_db
 from core.exceptions import ChildAccessDenied, ChildAccessExpired
 from domains.audit.models import AccessLog
 from domains.auth.middleware import get_current_user
+from domains.auth.models import Account as LookupAccount
+from domains.auth.models import Teacher as LookupTeacher
 from domains.auth.service import ParentProfile
 from domains.documents import service as documents_service
 from domains.documents.models import (
@@ -31,6 +33,7 @@ from domains.documents.models import (
     DraftSentence,
     DraftStatus,
 )
+from domains.documents.models import UnclassifiedItem as FailureItem
 from domains.media.service import MediaEvidence, SignedMediaUrl
 from domains.organization.models import Center, Child, Klass, ParentChildRelation
 from main import app
@@ -48,6 +51,9 @@ def db() -> Iterator[Session]:
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
     tables = [DraftDocument, DraftSentence, DocumentPublication, AccessLog]
+    Base.metadata.create_all(
+        engine, tables=[LookupAccount.__table__, LookupTeacher.__table__, FailureItem.__table__]
+    )
     Base.metadata.create_all(engine, tables=[table.__table__ for table in tables])
     session = sessionmaker(bind=engine)()
     yield session
@@ -300,6 +306,9 @@ def test_진짜_보호자_확인으로_내_아이는_열리고_남의_아이와_
     )
     tables = [Center, Klass, Child, ParentChildRelation, DraftDocument, DraftSentence]
     tables += [DocumentPublication, AccessLog]
+    Base.metadata.create_all(
+        engine, tables=[LookupAccount.__table__, LookupTeacher.__table__, FailureItem.__table__]
+    )
     Base.metadata.create_all(engine, tables=[table.__table__ for table in tables])
     db = sessionmaker(bind=engine)()
     center = Center(center_code="demo0001", name="햇살어린이집", contract_status="trial")

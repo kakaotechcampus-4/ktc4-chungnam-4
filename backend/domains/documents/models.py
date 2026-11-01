@@ -25,11 +25,13 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     false,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -242,12 +244,24 @@ class UnclassifiedItem(Base):
     """
 
     __tablename__ = "unclassified_items"
+    __table_args__ = (
+        Index(
+            "uq_unclassified_open_child_date",
+            "child_id",
+            "record_date",
+            unique=True,
+            postgresql_where=text("status = 'open'"),
+            sqlite_where=text("status = 'open'"),
+        ),
+    )
+    child_id = Column(UUID(as_uuid=True), nullable=True)
+    record_date = Column(Date, nullable=True)
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     ref_type = Column(String, nullable=False)  # 예: "draft_document"
     ref_id = Column(UUID(as_uuid=True), nullable=False)
     reason = Column(String, nullable=False)
-    status = Column(String, nullable=False, default="pending")
+    status = Column(String, nullable=False, default="open")
     # auth.Teacher 참조 — 처리한 교사. 미해결이면 null.
     resolved_by = Column(UUID(as_uuid=True), nullable=True)
     resolved_at = Column(DateTime(timezone=True), nullable=True)

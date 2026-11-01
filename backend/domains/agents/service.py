@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from core.database import SessionLocal
 from core.exceptions import (
@@ -36,6 +36,7 @@ from domains.agents.models import VerificationResult as VerificationResultRow
 from domains.documents import service as documents
 from domains.documents.schemas import DraftSaveInput, DraftSentenceInput
 from domains.media import service as media_service
+from domains.organization import service as organization_service
 from domains.organization.service import ensure_class_access
 from prompts.generation.draft import DraftFeedback, build_draft_prompt
 from prompts.perception.photo_analysis import build_single_photo_prompt
@@ -44,6 +45,7 @@ from tools import contracts
 from tools.evidence.builder import build_evidence
 from tools.generation.draft import DraftResponseError, parse_draft_response
 from tools.generation.pseudonymize import pseudonymize_evidence, restore_names
+from tools.perception.merge import merge_perception_results
 from tools.perception.photo import parse_single_photo_analysis
 from tools.perception.types import ChildLink, PerceptionResult, PerceptionStatus, PhotoInput
 from tools.verification.critic_result import parse_critic_response
@@ -102,6 +104,8 @@ class ChildJobStatus:
     # succeeded일 때만 채운다. 초안이 있으면 drafted, 없으면 unclassified (docs/api/agents.md).
     outcome: str | None = None
     drafts: tuple[JobDraft, ...] = ()
+    unclassified_reason: str | None = None
+    error_code: str | None = None
 
 
 @dataclass(frozen=True)
@@ -236,6 +240,27 @@ def _job_status(db: Session, generation_job: GenerationJob) -> GenerationJobStat
     jobs = db.scalars(
         select(Job).where(Job.generation_job_id == generation_job.id).order_by(Job.child_id)
     ).all()
+    now = datetime.now(UTC)
+    expired = False
+    for job in jobs:
+        updated = (
+            job.updated_at.replace(tzinfo=UTC) if job.updated_at.tzinfo is None else job.updated_at
+        )
+        timeout = (
+            _STALE_PENDING_JOB_AFTER if job.status == JobStatus.PENDING.value else _STALE_JOB_AFTER
+        )
+        if (
+            job.status in {state.value for state in _UNFINISHED_STATUSES}
+            and now - updated > timeout
+        ):
+            db.execute(
+                update(Job)
+                .where(Job.id == job.id, Job.status == job.status, Job.updated_at == job.updated_at)
+                .values(status=JobStatus.FAILED.value, error_code="LLM_TIMEOUT")
+            )
+            expired = True
+    if expired:
+        db.commit()
     children = [_child_status(db, job, generation_job.record_date) for job in jobs]
     finished = sum(child.status not in _UNFINISHED_STATUSES for child in children)
     # TODO(eun): 문서의 진행률은 원아별로 끝낸 단계 수로 세지만 Job에 단계 컬럼이 없다.
@@ -248,7 +273,10 @@ def _job_status(db: Session, generation_job: GenerationJob) -> GenerationJobStat
         finished_children=finished,
         children=children,
         # 원아별 Job이 바뀌어도 부모 행은 갱신되지 않으므로 가장 늦은 시각을 쓴다.
-        updated_at=max([generation_job.updated_at, *(job.updated_at for job in jobs)]),
+        updated_at=max(
+            t if t.tzinfo else t.replace(tzinfo=UTC)
+            for t in [generation_job.updated_at, *(job.updated_at for job in jobs)]
+        ),
     )
 
 
@@ -258,16 +286,21 @@ def _child_status(db: Session, job: Job, record_date: date) -> ChildJobStatus:
     Job에 결과 컬럼이 없어도 초안은 원아·종류·날짜당 하나라서 찾을 수 있다. FE는 drafts로 초안
     검토 화면에 넘어간다 (docs/api/agents.md). 같은 날 앞선 작업이 만든 초안이 있으면 이번 작업이
     미분류로 끝났어도 drafted로 보인다 — 재생성 규칙(get_draft_version)을 붙일 때 함께 다룬다.
-    TODO(eun): 미분류 사유(unclassified_reason)·단계는 Job 결과 컬럼이 생기면 채운다.
+    단계별 진행은 후속 과제이며 실패 코드·미분류 사유는 Job에서 읽는다.
     """
     status = JobStatus(job.status)
     if status != JobStatus.SUCCEEDED:
-        return ChildJobStatus(child_id=job.child_id, status=status)
+        return ChildJobStatus(child_id=job.child_id, status=status, error_code=job.error_code)
     draft = documents.get_draft_version(
         db, child_id=job.child_id, doc_type=DAILY_DOC_TYPE, record_date=record_date
     )
     if draft is None:
-        return ChildJobStatus(child_id=job.child_id, status=status, outcome="unclassified")
+        return ChildJobStatus(
+            child_id=job.child_id,
+            status=status,
+            outcome="unclassified",
+            unclassified_reason=job.unclassified_reason,
+        )
     return ChildJobStatus(
         child_id=job.child_id,
         status=status,
@@ -388,7 +421,10 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
     """
     with SessionLocal() as session:
         job = _get_job(session, job_id)
+        if job.status in {JobStatus.SUCCEEDED.value, JobStatus.FAILED.value}:
+            return
         _set_job_status(session, job, JobStatus.RUNNING)
+        # 중복 전달 또는 시간 초과로 이미 종료된 작업은 다시 생성하지 않는다.
         bundle = _collect_evidence(session, child_id, job.target_date)
 
         # 재생성 상한은 tools/verification/decision.py의 decide()가 판정한다
@@ -404,13 +440,24 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
         issues: list[contracts.VerificationIssue] = []
         # 인식 결과(사진 분석 LLM 포함)는 재생성마다 다시 만들지 않는다. 루프 안에서 부르면
         # 재생성 2회에 사진 호출이 최대 3배가 된다 (#137 리뷰, 송유진).
-        inputs = _load_generation_inputs(bundle)
+        reason = "verification_failed"
+        try:
+            inputs = _load_generation_inputs(bundle)
+        except PhotoAnalysisFailed:
+            _send_to_unclassified(session, job_id, child_id, reason="photo_analysis_failed")
+            _commit_job_succeeded(session, job)
+            return
         while True:
             try:
                 generated = _generate_draft(
                     inputs, draft_id=draft_id, version=version, previous=previous, issues=issues
                 )
             except InsufficientEvidence:
+                reason = (
+                    "insufficient_evidence"
+                    if organization_service.has_consent(session, UUID(child_id), "face_feature")
+                    else "no_consent"
+                )
                 # 빈 초안을 정상 결과로 내지 않는다 (ai-data-contract.md "근거 부족").
                 break
             except DraftResponseError as error:
@@ -456,7 +503,7 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
             regeneration_count += 1
             version += 1
 
-        _send_to_unclassified(session, job_id, child_id)
+        _send_to_unclassified(session, job_id, child_id, reason=reason)
         _commit_job_succeeded(session, job)
 
 
@@ -466,6 +513,15 @@ def _commit_job_succeeded(session: Session, job: Job) -> None:
     미분류도 예외가 아니라 정상 종료다 (docs/api/agents.md 상태값). 따로 커밋하면 초안은
     저장됐는데 상태 커밋만 실패해 Job이 FAILED로 끝날 수 있다 (#102 리뷰, 엄태은).
     """
+    # 조회 중 제한 시간을 넘겨 실패로 종료된 작업을 늦은 worker가 되살리지 않는다.
+    changed = session.execute(
+        update(Job)
+        .where(Job.id == job.id, Job.status != JobStatus.FAILED.value)
+        .values(status=JobStatus.SUCCEEDED.value)
+    )
+    if changed.rowcount == 0:
+        session.rollback()
+        return
     job.status = JobStatus.SUCCEEDED.value
     session.commit()
 
@@ -484,22 +540,21 @@ def record_job_retry(job_id: str) -> None:
         session.commit()
 
 
-def mark_job_failed(job_id: str) -> None:
+def mark_job_failed(job_id: str, *, error_code: str = "INTERNAL_ERROR") -> None:
     """재시도를 다 쓰거나 재시도 대상이 아닌 오류로 끝났을 때 부른다.
 
     이미 SUCCEEDED로 커밋된 Job은 덮어쓰지 않는다. 시간 제한이 커밋 직후에 터지는 것처럼
     성공 뒤에 실패 훅이 오는 경우가 있다 (#102 리뷰, 엄태은). 읽고 쓰는 사이에 상태가
     바뀌지 않게 조건을 UPDATE 한 문장에 건다.
 
-    TODO(eun): docs/api/agents.md의 error_code·failed_stage를 채울 컬럼이 Job에 없다.
-    agents 모델 후속 마이그레이션에서 추가한 뒤 여기서 함께 남긴다.
+    오류 원문 대신 화면에서 안내할 error_code만 남긴다. 단계별 기록은 후속 과제다.
     """
     with SessionLocal() as session:
         job = _get_job(session, job_id)
         session.execute(
             update(Job)
             .where(Job.id == job.id, Job.status != JobStatus.SUCCEEDED.value)
-            .values(status=JobStatus.FAILED.value)
+            .values(status=JobStatus.FAILED.value, error_code=error_code)
         )
         session.commit()
 
@@ -545,7 +600,7 @@ def _verify_with_critic_retry(
 
 
 def _get_job(session: Session, job_id: str) -> Job:
-    job = session.get(Job, job_id)
+    job = session.get(Job, UUID(job_id))
     if job is None:
         raise ValueError(f"Job {job_id} not found")
     return job
@@ -559,8 +614,7 @@ def _collect_evidence(session: Session, child_id: str, target_date: datetime) ->
     여기서 하지 않는다 — 매핑을 적용한 입력 가공은 AI 쪽 담당이다 (ai-data-contract.md
     "내부 ID와 LLM 입력").
 
-    TODO(eun): 근거가 하나도 없을 때 미분류함으로 보내는 기준은 "근거 부족 상태 계약"
-      (ai-data-contract.md, 태은님과 합의)이 정해지면 연결한다. 지금은 빈 Bundle을 저장한다.
+    빈 Bundle도 저장하며, 생성에 쓸 관찰 근거가 없으면 orchestrate_drafts가 미분류로 끝낸다.
     """
     media = _cap_photos(media_service.collect_media_for_llm(session, UUID(child_id), target_date))
     bundle = EvidenceBundle(
@@ -612,7 +666,9 @@ def _photo_inputs(media: Sequence[media_service.MediaEvidence]) -> list[PhotoInp
     return [
         PhotoInput(
             media_id=str(item.media_id),
-            captured_at=item.captured_at,
+            captured_at=item.captured_at
+            if item.captured_at.tzinfo
+            else item.captured_at.replace(tzinfo=UTC),
             links=tuple(
                 ChildLink(child_id=str(link.child_id), method=link.method)
                 for link in item.child_links
@@ -653,6 +709,10 @@ def _analyze_photos(
     return results
 
 
+class PhotoAnalysisFailed(Exception):
+    """사진 분석 형식 오류로 사용할 관찰이 남지 않았다."""
+
+
 class InsufficientEvidence(Exception):
     """생성에 쓸 관찰 근거가 없다. 미분류함으로 보낸다."""
 
@@ -686,20 +746,57 @@ class GeneratedDraft:
 
 
 def _load_generation_inputs(bundle: EvidenceBundle) -> GenerationInputs:
-    """Bundle의 미디어를 근거(EvidenceItem)로 바꾸고 반 원아 이름을 모은다.
-
-    orchestrate_drafts가 재생성 루프 전에 한 번만 부른다 — 사진 분석 LLM이 재생성마다
-    다시 돌지 않게 하기 위함이다 (#137 리뷰).
-
-    TODO(eun): 인식 결과 병합(#128, 송유진)이 develop에 들어오면 bundle.media_refs의
-      사진 분석·발화 정규화 결과를 합쳐 evidence로 넘긴다. GenerationRequest.class_id도
-      그때 Child에서 채운다. merged.status가 응답 오류면 근거 부족(InsufficientEvidence)과
-      구분해 다룬다 — 둘 다 items가 비어 같은 길로 떨어지면 #128에서 나눈 상태가 사라진다.
-    TODO(이한나): 반 원아 전체의 이름 목록(호칭·성명·이름)을 주는 organization 함수가
-      필요하다. 이름 없이 보내면 발화 속 호명이 LLM에 그대로 가므로(H-2) 비워 두고
-      진행하지 않는다 — tools/generation/pseudonymize.py가 이름이 빠진 원아를 거부한다.
-    """
-    raise NotImplementedError("인식 결과 병합(#128)과 원아 이름 조회 연결 후 동작합니다.")
+    """동의 게이트를 다시 통과한 사진만 분석해 실제 생성 입력으로 연결한다(H-2, FR-05)."""
+    session = object_session(bundle)
+    if session is None:
+        raise ValueError("EvidenceBundle must belong to a session")
+    target_date = bundle.date
+    if target_date.tzinfo is None:
+        target_date = target_date.replace(tzinfo=UTC)
+    record_date = target_date.astimezone(_KST).date()
+    class_id = organization_service.get_child_class_id(session, bundle.child_id)
+    names = organization_service.get_class_child_names(session, class_id)
+    # 수집 이후 동의가 철회되었거나 자료가 바뀐 경우에도 외부 호출 전에 제외한다.
+    allowed = media_service.collect_media_for_llm(session, bundle.child_id, record_date)
+    media = [
+        item for item in allowed if str(item.media_id) in bundle.media_refs and item.type == "photo"
+    ]
+    merged = merge_perception_results(
+        PerceptionResult(status=PerceptionStatus.EMPTY, items=[], dropped=[]),
+        _analyze_photos(
+            session,
+            _photo_inputs(media),
+            target_child_id=str(bundle.child_id),
+            record_date=record_date,
+        ),
+        target_child_id=str(bundle.child_id),
+        record_date=record_date,
+    )
+    if merged.status == PerceptionStatus.RESPONSE_ERROR:
+        raise PhotoAnalysisFailed
+    evidence = list(merged.items)
+    for plan in organization_service.get_activity_plans_for_date(session, class_id, record_date):
+        evidence.append(
+            contracts.EvidenceItem(
+                evidence_id=f"plan:{plan.plan_id}",
+                source_type=contracts.SourceType.ACTIVITY_PLAN,
+                child_ids=[str(bundle.child_id)],
+                observed_date=record_date,
+                text=" / ".join([plan.title, plan.goal, *plan.daily_activities.values()]),
+                assignment_status=contracts.AssignmentStatus.TEACHER_CONFIRMED,
+            )
+        )
+    return GenerationInputs(
+        request=contracts.GenerationRequest(
+            request_id=str(bundle.id),
+            class_id=str(class_id),
+            child_id=str(bundle.child_id),
+            record_date=record_date,
+            evidence_ids=[item.evidence_id for item in evidence],
+        ),
+        evidence=evidence,
+        names_by_child_id={str(key): value for key, value in names.items()},
+    )
 
 
 def _generate_draft(
@@ -783,7 +880,7 @@ def _record_draft_response_error(
     checked_at = datetime.now(UTC)
     session.add(
         VerificationResultRow(
-            draft_id=draft_id,
+            draft_id=UUID(draft_id),
             doc_version=version,
             check_type=issue.check_type.value,
             sentence_id=None,
@@ -794,7 +891,7 @@ def _record_draft_response_error(
     )
     session.add(
         DraftDecisionLog(
-            draft_id=draft_id,
+            draft_id=UUID(draft_id),
             doc_version=version,
             decision=decision.value,
             reason=issue.reason,
@@ -882,7 +979,7 @@ def _verify_and_record(
     _record_verification_issues(session, document, stage_results)
     session.add(
         DraftDecisionLog(
-            draft_id=document.draft_id,
+            draft_id=UUID(document.draft_id),
             doc_version=document.version,
             decision=decision_result.decision.value,
             reason=decision_result.reason,
@@ -915,7 +1012,7 @@ def _save_passed_draft(
     """
     data = DraftSaveInput(
         # agents가 만든 draft_id로 저장해야 검증 기록과 문서가 서로를 찾는다 (#75 2번).
-        draft_id=document.draft_id,
+        draft_id=UUID(document.draft_id),
         child_id=document.child_id,
         author_teacher_id=_author_teacher_id(session, job),
         doc_type=document.doc_type.value,
@@ -1026,7 +1123,7 @@ def _record_verification_issues(
         for issue in stage_result.issues:
             session.add(
                 VerificationResultRow(
-                    draft_id=document.draft_id,
+                    draft_id=UUID(document.draft_id),
                     doc_version=document.version,
                     check_type=issue.check_type.value,
                     sentence_id=issue.sentence_id,
@@ -1062,10 +1159,10 @@ def _record_sentence_evidence(
             evidence = evidence_by_id[evidence_id]
             session.add(
                 SentenceEvidenceRow(
-                    draft_id=document.draft_id,
+                    draft_id=UUID(document.draft_id),
                     sentence_id=sentence.sentence_id,
                     evidence_id=evidence_id,
-                    source_media_id=evidence.media_id,
+                    source_media_id=UUID(evidence.media_id) if evidence.media_id else None,
                     source_timestamp=(
                         evidence.start_ms / 1000 if evidence.start_ms is not None else None
                     ),
@@ -1074,7 +1171,18 @@ def _record_sentence_evidence(
             )
 
 
-def _send_to_unclassified(session: Session, job_id: str, child_id: str) -> None:
-    # TODO(eun): documents 도메인의 UnclassifiedItem이 준비되면 여기로 기록합니다.
-    # 재시도 상한을 넘겨도 예외로 터뜨리지 않고 이 함수로 떨어뜨립니다 (CLAUDE.md 규칙).
-    pass
+def _send_to_unclassified(
+    session: Session, job_id: str, child_id: str, *, reason: str = "verification_failed"
+) -> None:
+    job = _get_job(session, job_id)
+    target = job.target_date
+    if target.tzinfo is None:
+        target = target.replace(tzinfo=UTC)
+    job.unclassified_reason = reason
+    documents.record_unclassified(
+        session,
+        child_id=UUID(child_id),
+        record_date=target.astimezone(_KST).date(),
+        reason=reason,
+        job_id=UUID(job_id),
+    )

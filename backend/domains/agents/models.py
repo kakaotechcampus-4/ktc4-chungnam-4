@@ -79,6 +79,8 @@ class Job(Base):
     target_date = Column(DateTime(timezone=True), nullable=False)
     status = Column(String, nullable=False, default=JobStatus.PENDING.value)
     retry_count = Column(Integer, nullable=False, default=0)
+    error_code = Column(String, nullable=True)
+    unclassified_reason = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
     updated_at = Column(
         DateTime(timezone=True),
