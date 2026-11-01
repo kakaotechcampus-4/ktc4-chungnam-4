@@ -4,6 +4,7 @@
 서버는 URL 발급과 업로드 확인(HeadObject)만 합니다.
 """
 
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
@@ -14,7 +15,7 @@ from zoneinfo import ZoneInfo
 import boto3
 from botocore.client import BaseClient
 from botocore.config import Config
-from botocore.exceptions import ClientError, NoCredentialsError
+from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -39,6 +40,8 @@ from domains.organization.service import (
     ensure_class_access,
     get_consented_children,
 )
+
+logger = logging.getLogger(__name__)
 
 _ALLOWED_METHODS = frozenset({"face_recognition", "manual"})
 
@@ -143,6 +146,14 @@ class TranscriptPart:
 
 
 @dataclass(frozen=True)
+class AttributedChild:
+    """미디어에 귀속된 원아 한 명. 교사가 확정한 귀속(`MediaChildLink`) 그대로입니다."""
+
+    child_id: UUID
+    method: str  # face_recognition / manual
+
+
+@dataclass(frozen=True)
 class MediaEvidence:
     """LLM 근거로 써도 되는 미디어 한 건. agents가 EvidenceItem으로 바꿉니다."""
 
@@ -152,6 +163,9 @@ class MediaEvidence:
     # 원본 객체 위치. 서명 URL이 아니라 서버 내부 참조입니다 — 학부모·브라우저에 그대로 주지 않습니다.
     storage_url: str
     transcript: tuple[TranscriptPart, ...] = ()
+    # 이 미디어에 귀속된 원아 전원(child_id 순). 사진 분석이 사진별 아이 수와 관찰 대상을 정하는 데
+    # 씁니다. 얼굴 인식·교사 확정은 브라우저에서 끝났고, 여기서는 저장된 결과를 싣기만 합니다.
+    child_links: tuple[AttributedChild, ...] = ()
 
 
 def _child_links_of(db: Session, media_id: UUID) -> list[MediaChildLink]:
@@ -174,7 +188,8 @@ def collect_media_for_llm(db: Session, child_id: UUID, target_date: date) -> lis
       `llm_allowed`를 고치지 않고 여기서 뺍니다 — 철회 처리가 중간에 실패해도 새지 않고,
       재동의하면 다시 쓰입니다. 음성메모는 얼굴이 없어 ③을 보지 않습니다.
 
-    영상·음성은 STT 구간을 함께 싣습니다. 해당하는 게 없으면 빈 리스트입니다.
+    영상·음성은 STT 구간을 함께 싣습니다. 귀속된 원아 전원(`child_links`)도 함께 싣습니다.
+    해당하는 게 없으면 빈 리스트입니다.
     """
     if isinstance(target_date, datetime):
         # datetime을 받으면 한국 시간 날짜로 읽습니다. naive면 UTC로 봅니다(DB는 UTC 저장).
@@ -199,12 +214,14 @@ def collect_media_for_llm(db: Session, child_id: UUID, target_date: date) -> lis
 
     media_ids = [asset.id for asset in assets]
     links: dict[UUID, set[UUID]] = {}
-    for media_id, linked_child in db.execute(
-        select(MediaChildLink.media_id, MediaChildLink.child_id).where(
-            MediaChildLink.media_id.in_(media_ids)
-        )
+    attributed: dict[UUID, list[AttributedChild]] = {}
+    for media_id, linked_child, method in db.execute(
+        select(MediaChildLink.media_id, MediaChildLink.child_id, MediaChildLink.method)
+        .where(MediaChildLink.media_id.in_(media_ids))
+        .order_by(MediaChildLink.child_id)
     ):
         links.setdefault(media_id, set()).add(linked_child)
+        attributed.setdefault(media_id, []).append(AttributedChild(linked_child, method))
 
     consented: dict[UUID, set[UUID]] = {}
     for class_id in {asset.class_id for asset in assets if asset.type in _FACE_MEDIA_TYPES}:
@@ -234,9 +251,57 @@ def collect_media_for_llm(db: Session, child_id: UUID, target_date: date) -> lis
                 captured_at=asset.captured_at,
                 storage_url=asset.storage_url,
                 transcript=tuple(segments.get(asset.id, ())),
+                child_links=tuple(attributed.get(asset.id, ())),
             )
         )
     return evidence
+
+
+def find_unready_media(
+    db: Session, class_id: UUID, target_date: date, media_ids: Sequence[UUID]
+) -> list[UUID]:
+    """초안 생성 작업을 시작하기 전에, 보낸 미디어 중 아직 쓸 수 없는 것을 돌려줍니다.
+
+    완료 통지 전(행 없음)이거나, 귀속 저장 전(`attributed_at` null)이거나, 파기됐거나, 이 반·날짜
+    (KST)의 자료가 아니면 걸립니다 (docs/api/agents.md `MEDIA_NOT_READY`). 보낸 순서를 지킵니다.
+    """
+    start, end = _kst_day_range(target_date)
+    ready = set(
+        db.scalars(
+            select(MediaAsset.id).where(
+                MediaAsset.id.in_(media_ids),
+                MediaAsset.class_id == class_id,
+                MediaAsset.storage_tier != "deleted",
+                MediaAsset.captured_at >= start,
+                MediaAsset.captured_at < end,
+                MediaAsset.attributed_at.is_not(None),
+            )
+        )
+    )
+    return [media_id for media_id in media_ids if media_id not in ready]
+
+
+def get_attributed_children(db: Session, class_id: UUID, target_date: date) -> list[UUID]:
+    """그 반·날짜(KST)에 귀속된 자료가 하나라도 있는 원아 (초안 생성 대상, docs/api/agents.md).
+
+    ③ 미동의 원아도 빼지 않습니다. 그 원아가 귀속된 사진은 `collect_media_for_llm`이 LLM
+    근거에서 뺍니다(H-2·H-3). 파기된 미디어의 귀속은 세지 않습니다.
+    """
+    start, end = _kst_day_range(target_date)
+    return list(
+        db.scalars(
+            select(MediaChildLink.child_id)
+            .join(MediaAsset, MediaAsset.id == MediaChildLink.media_id)
+            .where(
+                MediaAsset.class_id == class_id,
+                MediaAsset.storage_tier != "deleted",
+                MediaAsset.captured_at >= start,
+                MediaAsset.captured_at < end,
+            )
+            .distinct()
+            .order_by(MediaChildLink.child_id)
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -385,6 +450,39 @@ def presign_upload(key: str, content_type: str, size_bytes: int) -> PresignedUpl
 
 
 @dataclass(frozen=True)
+class MediaMeta:
+    """근거 표시에 필요한 미디어 속성. 파일 위치(`storage_url`)는 싣지 않습니다."""
+
+    media_id: UUID
+    type: str
+    captured_at: datetime
+
+
+def get_media_meta(db: Session, media_ids: Sequence[UUID]) -> dict[UUID, MediaMeta]:
+    """미디어 종류와 촬영 시각을 id로 찾아 줍니다 (FR-07).
+
+    agents가 초안 문장의 근거를 교사 화면 모양으로 바꿀 때 `MediaAsset`을 직접 조회하지 않도록
+    제공합니다. 서명 URL은 만들지 않습니다 — 재생 URL이 필요하면 `get_signed_urls`를 씁니다.
+    파기된 미디어도 돌려줍니다(근거 기록은 남고, 파일만 열리지 않습니다). 모르는 id가 섞이면
+    `MediaAssetNotFound`입니다. 부르는 쪽의 버그를 숨기지 않습니다.
+    """
+    unique_ids = list(dict.fromkeys(media_ids))
+    if not unique_ids:
+        return {}
+    rows = db.execute(
+        select(MediaAsset.id, MediaAsset.type, MediaAsset.captured_at).where(
+            MediaAsset.id.in_(unique_ids)
+        )
+    ).all()
+    if len(rows) != len(unique_ids):
+        raise MediaAssetNotFound("파일을 찾을 수 없어요.")
+    return {
+        row.id: MediaMeta(media_id=row.id, type=row.type, captured_at=row.captured_at)
+        for row in rows
+    }
+
+
+@dataclass(frozen=True)
 class SignedMediaUrl:
     """근거 미디어를 재생·표시할 서명 URL. 모든 도메인이 이 모양 하나로 씁니다(docs/api/media-face.md).
 
@@ -510,6 +608,54 @@ def _read_object_head(key: str) -> bytes:
         Bucket=_bucket(), Key=key, Range=f"bytes=0-{_SIGNATURE_READ_BYTES - 1}"
     )
     return response["Body"].read()
+
+
+# 점검용 임시 객체는 원본 경로(`media/`)와 섞이지 않게 따로 둡니다.
+_STORAGE_CHECK_KEY_PREFIX = "healthcheck"
+
+
+def check_storage_access() -> str | None:
+    """서버 자격증명으로 S3에 실제로 쓰고·읽고·지울 수 있는지 확인합니다 (#129, FR-15).
+
+    presigned URL 발급은 AWS를 부르지 않는 로컬 계산이라 권한이 없어도 성공합니다
+    (스파이크 §11). 그래서 작은 임시 객체로 PUT → HEAD → DELETE를 직접 해 봅니다.
+    다 되면 None, 막히면 막힌 단계 이름(`config`·`put`·`head`·`delete`)을 돌려줍니다.
+
+    - 중간 단계가 실패해도 임시 객체 삭제는 시도합니다
+    - 로그에는 단계와 AWS 오류 코드만 남깁니다. AccessDenied 메시지에는 롤 ARN·버킷이,
+      연결 오류 메시지에는 버킷 호스트가 들어 있어 원문을 찍지 않습니다 (H-4)
+    - S3에 쓰고 지우므로 Docker healthcheck처럼 주기적으로 부르지 않습니다. 배포 직후 한 번만
+    """
+    try:
+        bucket = _bucket()
+    except StorageNotConfigured:
+        logger.warning("storage check failed: step=config")
+        return "config"
+    client = _s3_client(get_settings().s3_region)
+    key = f"{_STORAGE_CHECK_KEY_PREFIX}/{uuid4()}"
+
+    failed_step: str | None = None
+    step = "put"
+    try:
+        client.put_object(Bucket=bucket, Key=key, Body=b"ok", ContentType="text/plain")
+        step = "head"
+        client.head_object(Bucket=bucket, Key=key)
+    except (ClientError, BotoCoreError) as error:
+        failed_step = step
+        logger.warning("storage check failed: step=%s code=%s", step, _error_code(error))
+    try:
+        client.delete_object(Bucket=bucket, Key=key)
+    except (ClientError, BotoCoreError) as error:
+        logger.warning("storage check failed: step=delete code=%s", _error_code(error))
+        failed_step = failed_step or "delete"
+    return failed_step
+
+
+def _error_code(error: ClientError | BotoCoreError) -> str:
+    """로그에 남겨도 되는 오류 이름만 꺼냅니다. 메시지 원문은 버킷·ARN을 담고 있습니다."""
+    if isinstance(error, ClientError):
+        return str(error.response.get("Error", {}).get("Code", "unknown"))
+    return type(error).__name__
 
 
 # ---------------------------------------------------------------------------

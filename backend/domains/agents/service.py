@@ -6,34 +6,54 @@ tasks.py는 이 모듈의 orchestrate_drafts만 호출합니다 (CLAUDE.md: task
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
+from sqlalchemy import and_, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.database import SessionLocal
-from core.exceptions import DraftVersionConflict
-from domains.agents.llm import call_claude
-from domains.agents.models import DraftDecisionLog, EvidenceBundle, GenerationJob, Job
+from core.exceptions import (
+    DraftVersionConflict,
+    InvalidRecordDate,
+    JobAlreadyRunning,
+    JobNotFound,
+    MediaNotReady,
+    NoTargetChildren,
+)
+from domains.agents.llm import call_claude, call_vision
+from domains.agents.models import (
+    DraftDecisionLog,
+    EvidenceBundle,
+    GenerationJob,
+    Job,
+    JobStatus,
+)
 from domains.agents.models import SentenceEvidence as SentenceEvidenceRow
 from domains.agents.models import VerificationResult as VerificationResultRow
 from domains.documents import service as documents
-from domains.documents.schemas import DraftSaveInput
+from domains.documents.schemas import DraftSaveInput, DraftSentenceInput
 from domains.media import service as media_service
+from domains.organization.service import ensure_class_access
 from prompts.generation.draft import DraftFeedback, build_draft_prompt
+from prompts.perception.photo_analysis import build_single_photo_prompt
 from prompts.verification.critic import build_critic_prompt
 from tools import contracts
 from tools.evidence.builder import build_evidence
 from tools.generation.draft import DraftResponseError, parse_draft_response
 from tools.generation.pseudonymize import pseudonymize_evidence, restore_names
+from tools.perception.photo import parse_single_photo_analysis
+from tools.perception.types import ChildLink, PerceptionResult, PerceptionStatus, PhotoInput
 from tools.verification.critic_result import parse_critic_response
 from tools.verification.decision import MAX_REGENERATIONS, decide
 from tools.verification.references import validate_references
 from tools.verification.target import validate_target
 
 # Critic 응답 오류(RETRY_CRITIC)만 재시도하는 횟수. CLAUDE.md 규칙상 이 재시도는 초안
-# 재생성 횟수에 포함되지 않는다. 상한 값 자체는 스펙에 없어 무한 루프 방지용으로 1을
-# 임의로 골랐다 — 팀 확인 필요.
+# 재생성 횟수에 포함되지 않는다. 스펙에 값이 없어 1로 정했다(10/28 AI팀 PR 리뷰로 확정) —
+# 늘리면 원아마다 Critic 호출이 늘어 작업 타임아웃(180초)에 가까워진다.
 MAX_CRITIC_RETRIES = 1
 
 # 백엔드 로그 형식: 모듈마다 getLogger(__name__), 정상 흐름 안의 예외 상황은 WARNING (#90).
@@ -50,10 +70,325 @@ MAX_PHOTOS_PER_CHILD = 5
 # 따로 붙인다 (#115, open-questions 32번).
 DAILY_DOC_TYPE = contracts.DocType.PARENT_NOTE
 
+# record_date는 KST 기준 하루다 (docs/api/agents.md).
+_KST = ZoneInfo("Asia/Seoul")
+_UNFINISHED_STATUSES = frozenset({JobStatus.PENDING, JobStatus.RUNNING})
+# worker가 죽어 running으로 남은 Job이 그 반·날짜를 영구히 막지 않게, 이 시간 넘게 갱신이 없는
+# running Job은 진행 중으로 보지 않는다. task 최대 소요(180초 × 3회)에 여유 60초를 더했다 (#161 리뷰, 엄태은).
+# 시작할 때 RUNNING으로 바꾸며 갱신되므로 "실행을 시작한 뒤 10분"이다.
+_STALE_JOB_AFTER = timedelta(seconds=180 * 3 + 60)
+# pending은 큐에서 차례를 기다리는 중이라 갱신이 없는 게 정상이다. 위 10분을 그대로 쓰면 오래
+# 기다린 Job을 멈춘 것으로 보고 같은 반·날짜 작업을 하나 더 만든다(#185 리뷰). 큐 메시지가
+# 사라져 영영 시작하지 못하는 경우만 풀도록 훨씬 길게 둔다.
+# TODO(donggeon): 1시간은 임시 결정(김동건). 정은 님 확인 대기
+_STALE_PENDING_JOB_AFTER = timedelta(hours=1)
+
+
+# ---------------------------------------------------------------------------
+# 초안 생성 작업 시작·조회 (POST /classes/{class_id}/jobs, GET /jobs/{job_id})
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class JobDraft:
+    draft_id: UUID
+    doc_type: str
+
+
+@dataclass(frozen=True)
+class ChildJobStatus:
+    child_id: UUID
+    status: JobStatus
+    # succeeded일 때만 채운다. 초안이 있으면 drafted, 없으면 unclassified (docs/api/agents.md).
+    outcome: str | None = None
+    drafts: tuple[JobDraft, ...] = ()
+
+
+@dataclass(frozen=True)
+class GenerationJobStatus:
+    """반·날짜 작업 1건의 상태. 반 전체 값은 저장하지 않고 원아별 Job에서 계산한다 (#61)."""
+
+    generation_job: GenerationJob
+    status: JobStatus
+    percent: int
+    finished_children: int
+    children: list[ChildJobStatus]
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class StartedGenerationJob:
+    status: GenerationJobStatus
+    # 커밋한 뒤 Celery에 넣을 (Job id, child_id). 같은 request_id로 다시 부르면 비어 있다.
+    to_enqueue: list[tuple[UUID, UUID]]
+
+
+def start_generation_job(
+    db: Session,
+    *,
+    class_id: UUID,
+    record_date: date,
+    request_id: UUID,
+    media_ids: Sequence[UUID],
+    teacher_id: UUID,
+    center_id: UUID | None,
+) -> StartedGenerationJob:
+    """서버 전송을 마친 반·날짜의 초안 생성 작업을 만든다 (FR-05, FR-06, FR-26).
+
+    대상 원아는 그 날짜에 귀속된 자료가 있는 원아 전원이다. ③ 미동의 원아도 빼지 않고,
+    그 원아가 귀속된 사진만 근거 수집에서 빠진다(H-2·H-3). 커밋과 큐 넣기는 호출자가 한다.
+    """
+    ensure_class_access(db, class_id, center_id)
+    existing = _find_job_by_request_id(db, request_id)
+    if existing is not None:
+        return _started_again(db, existing, center_id)
+
+    if record_date > datetime.now(_KST).date():
+        raise InvalidRecordDate("오늘보다 뒤 날짜의 초안은 만들 수 없습니다.")
+    now = datetime.now(UTC)
+    running_id = db.scalar(
+        select(GenerationJob.id)
+        .join(Job, Job.generation_job_id == GenerationJob.id)
+        .where(
+            GenerationJob.class_id == class_id,
+            GenerationJob.record_date == record_date,
+            or_(
+                and_(
+                    Job.status == JobStatus.RUNNING.value,
+                    Job.updated_at >= now - _STALE_JOB_AFTER,
+                ),
+                and_(
+                    Job.status == JobStatus.PENDING.value,
+                    Job.updated_at >= now - _STALE_PENDING_JOB_AFTER,
+                ),
+            ),
+        )
+        .limit(1)
+    )
+    if running_id is not None:
+        raise JobAlreadyRunning(
+            "같은 날짜의 초안을 이미 만들고 있습니다.", detail={"job_id": str(running_id)}
+        )
+    unready = media_service.find_unready_media(db, class_id, record_date, media_ids)
+    if unready:
+        raise MediaNotReady(
+            "아직 서버 전송이 끝나지 않은 자료가 있습니다.",
+            detail={"media_ids": [str(media_id) for media_id in unready]},
+        )
+    child_ids = media_service.get_attributed_children(db, class_id, record_date)
+    if not child_ids:
+        raise NoTargetChildren("이 날짜에 원아에게 연결된 자료가 없습니다.")
+
+    generation_job = GenerationJob(
+        class_id=class_id,
+        record_date=record_date,
+        request_id=str(request_id),
+        requested_by_teacher_id=teacher_id,
+    )
+    # 같은 request_id가 거의 동시에 두 번 오면 둘 다 위 조회를 통과한다. 늦은 쪽은 유일 제약에
+    # 걸리므로, 그 작업을 돌려줘 문서의 멱등성을 지킨다 (#161 리뷰 4번, 엄태은).
+    try:
+        with db.begin_nested():
+            db.add(generation_job)
+            db.flush()
+    except IntegrityError:
+        existing = _find_job_by_request_id(db, request_id)
+        if existing is None:
+            raise
+        return _started_again(db, existing, center_id)
+    # 근거 수집이 이 값을 KST 날짜로 읽는다(collect_media_for_llm). 그 날 0시(KST)로 둔다.
+    target_date = datetime.combine(record_date, time.min, tzinfo=_KST)
+    jobs = [
+        Job(generation_job_id=generation_job.id, child_id=child_id, target_date=target_date)
+        for child_id in child_ids
+    ]
+    db.add_all(jobs)
+    db.flush()
+    return StartedGenerationJob(
+        status=_job_status(db, generation_job),
+        to_enqueue=[(job.id, job.child_id) for job in jobs],
+    )
+
+
+def _find_job_by_request_id(db: Session, request_id: UUID) -> GenerationJob | None:
+    return db.scalar(select(GenerationJob).where(GenerationJob.request_id == str(request_id)))
+
+
+def _started_again(
+    db: Session, existing: GenerationJob, center_id: UUID | None
+) -> StartedGenerationJob:
+    """같은 request_id로 다시 온 요청. 새로 만들지 않고 그 작업을 돌려준다."""
+    # request_id가 작업을 가리키므로, 경로의 반과 다르면 그 작업의 반으로 다시 확인한다.
+    ensure_class_access(db, existing.class_id, center_id)
+    return StartedGenerationJob(status=_job_status(db, existing), to_enqueue=[])
+
+
+def get_generation_job(db: Session, *, job_id: UUID, center_id: UUID | None) -> GenerationJobStatus:
+    """폴링용 작업 상태. 작업이 속한 반의 center 소속 교사만 본다 (FR-06)."""
+    generation_job = db.get(GenerationJob, job_id)
+    if generation_job is None:
+        raise JobNotFound("초안 생성 작업을 찾을 수 없습니다.")
+    ensure_class_access(db, generation_job.class_id, center_id)
+    return _job_status(db, generation_job)
+
+
+def _job_status(db: Session, generation_job: GenerationJob) -> GenerationJobStatus:
+    jobs = db.scalars(
+        select(Job).where(Job.generation_job_id == generation_job.id).order_by(Job.child_id)
+    ).all()
+    children = [_child_status(db, job, generation_job.record_date) for job in jobs]
+    finished = sum(child.status not in _UNFINISHED_STATUSES for child in children)
+    # TODO(eun): 문서의 진행률은 원아별로 끝낸 단계 수로 세지만 Job에 단계 컬럼이 없다.
+    #   지금은 끝난 원아 비율로 센다 (docs/api/agents.md 임시 결정(정은)).
+    percent = finished * 100 // len(children) if children else 0
+    return GenerationJobStatus(
+        generation_job=generation_job,
+        status=_overall_status(children),
+        percent=percent,
+        finished_children=finished,
+        children=children,
+        # 원아별 Job이 바뀌어도 부모 행은 갱신되지 않으므로 가장 늦은 시각을 쓴다.
+        updated_at=max([generation_job.updated_at, *(job.updated_at for job in jobs)]),
+    )
+
+
+def _child_status(db: Session, job: Job, record_date: date) -> ChildJobStatus:
+    """원아별 상태. 성공한 원아는 그날 초안이 있는지로 결과를 정한다.
+
+    Job에 결과 컬럼이 없어도 초안은 원아·종류·날짜당 하나라서 찾을 수 있다. FE는 drafts로 초안
+    검토 화면에 넘어간다 (docs/api/agents.md). 같은 날 앞선 작업이 만든 초안이 있으면 이번 작업이
+    미분류로 끝났어도 drafted로 보인다 — 재생성 규칙(get_draft_version)을 붙일 때 함께 다룬다.
+    TODO(eun): 미분류 사유(unclassified_reason)·단계는 Job 결과 컬럼이 생기면 채운다.
+    """
+    status = JobStatus(job.status)
+    if status != JobStatus.SUCCEEDED:
+        return ChildJobStatus(child_id=job.child_id, status=status)
+    draft = documents.get_draft_version(
+        db, child_id=job.child_id, doc_type=DAILY_DOC_TYPE, record_date=record_date
+    )
+    if draft is None:
+        return ChildJobStatus(child_id=job.child_id, status=status, outcome="unclassified")
+    return ChildJobStatus(
+        child_id=job.child_id,
+        status=status,
+        outcome="drafted",
+        drafts=(JobDraft(draft_id=draft.draft_id, doc_type=DAILY_DOC_TYPE.value),),
+    )
+
+
+def _overall_status(children: Sequence[ChildJobStatus]) -> JobStatus:
+    """반 전체 상태 (docs/api/agents.md 상태값).
+
+    모두 대기면 pending, 안 끝난 원아가 있으면 running, 모두 끝났는데 실패가 1명 이상이면
+    failed(나머지 원아 초안은 검토할 수 있음), 그 밖에는 succeeded.
+    """
+    statuses = {child.status for child in children}
+    if statuses <= {JobStatus.PENDING}:
+        return JobStatus.PENDING
+    if statuses & _UNFINISHED_STATUSES:
+        return JobStatus.RUNNING
+    if JobStatus.FAILED in statuses:
+        return JobStatus.FAILED
+    return JobStatus.SUCCEEDED
+
+
+# ---------------------------------------------------------------------------
+# 문장별 근거 조회 (documents의 교사용 초안 상세가 부른다)
+# ---------------------------------------------------------------------------
+
+# 근거 행에 출처 종류를 저장하지 않아 미디어 종류로 정한다. 영상은 발화만 근거로 쓰므로
+# (테크스펙 §요청사항 2) video_speech다. 미디어가 없으면 활동계획이다.
+_SOURCE_TYPE_BY_MEDIA_TYPE = {
+    "photo": contracts.SourceType.PHOTO_OBSERVATION,
+    "voice_memo": contracts.SourceType.TEACHER_VOICE_MEMO,
+    "video": contracts.SourceType.VIDEO_SPEECH,
+}
+
+# 시각이 없는 근거끼리만 비교되는 자리 채움 값이다 (정렬 키의 앞 항목이 이미 구분한다).
+_NO_TIME = datetime(1970, 1, 1, tzinfo=UTC)
+
+
+@dataclass(frozen=True)
+class SentenceEvidenceView:
+    """문장 하나를 뒷받침하는 근거 (docs/api/documents.md §GET /drafts/{draft_id} evidences[]).
+
+    text는 비식별화 전 원문이라 실명이 있을 수 있다. 검수 권한이 있는 교사 화면에만 싣고
+    LLM·로그로 보내지 않는다 (H-1, H-2, H-4).
+    """
+
+    evidence_id: str
+    source_type: str
+    text: str
+    media_id: UUID | None
+    start_ms: int | None
+    end_ms: int | None
+    captured_at: datetime | None
+
+
+def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[SentenceEvidenceView]]:
+    """초안의 문장별 근거를 sentence_id로 묶어 돌려준다 (FR-07).
+
+    권한 판정과 열람 기록은 부르는 쪽(documents)이 한다. 근거가 없는 문장은 키가 없다 — 교사가
+    고친 문장의 근거를 비우는 것도 documents가 정한다 (documents.md §PATCH).
+
+    임시 결정(정은): 근거 행에 출처 종류·끝 시각을 저장하지 않아서 source_type은 미디어 종류로
+    정하고 end_ms는 null이다. 영상 속 교사 관찰 발화는 생성 때 teacher_voice_memo였어도
+    여기서는 video_speech로 보인다. TODO(eun): 영상 근거를 쓰기 시작하면 SentenceEvidence에
+    source_type·end_ms를 저장한다(테크스펙 먼저).
+    """
+    rows = db.scalars(
+        select(SentenceEvidenceRow)
+        .where(SentenceEvidenceRow.draft_id == draft_id)
+        .order_by(SentenceEvidenceRow.sentence_id, SentenceEvidenceRow.evidence_id)
+    ).all()
+    media = media_service.get_media_meta(
+        db, [row.source_media_id for row in rows if row.source_media_id is not None]
+    )
+    result: dict[str, list[SentenceEvidenceView]] = {}
+    for row in rows:
+        meta = media.get(row.source_media_id) if row.source_media_id is not None else None
+        source_type = (
+            _SOURCE_TYPE_BY_MEDIA_TYPE[meta.type]
+            if meta is not None
+            else contracts.SourceType.ACTIVITY_PLAN
+        )
+        result.setdefault(row.sentence_id, []).append(
+            SentenceEvidenceView(
+                evidence_id=row.evidence_id,
+                source_type=source_type.value,
+                text=row.source_text,
+                media_id=row.source_media_id,
+                start_ms=(
+                    round(row.source_timestamp * 1000) if row.source_timestamp is not None else None
+                ),
+                end_ms=None,
+                captured_at=meta.captured_at if meta is not None else None,
+            )
+        )
+    for views in result.values():
+        # 출처마다 evidence_id 접두가 달라 문자열 순이 시간 순이 아니다. 촬영 시각, 영상·음성 안의
+        # 시각 순으로 보여 주고 값이 없는 근거(활동계획)는 뒤에 둔다.
+        views.sort(
+            key=lambda view: (
+                view.captured_at is None,
+                view.captured_at or _NO_TIME,
+                view.start_ms is None,
+                view.start_ms or 0,
+                view.evidence_id,
+            )
+        )
+    return result
+
 
 def orchestrate_drafts(job_id: str, child_id: str) -> None:
+    """원아 한 명의 초안을 만든다. 초안 저장이나 미분류로 끝나면 Job을 SUCCEEDED로 둔다.
+
+    예외는 잡지 않고 올린다 — 재시도와 최종 실패 표시는 tasks.py의 Celery 설정이
+    record_job_retry / mark_job_failed로 처리한다.
+    """
     with SessionLocal() as session:
         job = _get_job(session, job_id)
+        _set_job_status(session, job, JobStatus.RUNNING)
         bundle = _collect_evidence(session, child_id, job.target_date)
 
         # 재생성 상한은 tools/verification/decision.py의 decide()가 판정한다
@@ -112,6 +447,7 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
                     _restore_names(generated),
                     generated.source_evidence_by_id,
                 )
+                _commit_job_succeeded(session, job)
                 return
             if decision_result.decision == contracts.Decision.NEEDS_TEACHER_REVIEW:
                 break
@@ -121,6 +457,56 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
             version += 1
 
         _send_to_unclassified(session, job_id, child_id)
+        _commit_job_succeeded(session, job)
+
+
+def _commit_job_succeeded(session: Session, job: Job) -> None:
+    """초안·근거(또는 미분류 기록)와 성공 상태를 한 번에 커밋한다.
+
+    미분류도 예외가 아니라 정상 종료다 (docs/api/agents.md 상태값). 따로 커밋하면 초안은
+    저장됐는데 상태 커밋만 실패해 Job이 FAILED로 끝날 수 있다 (#102 리뷰, 엄태은).
+    """
+    job.status = JobStatus.SUCCEEDED.value
+    session.commit()
+
+
+def record_job_retry(job_id: str) -> None:
+    """Celery가 재시도를 걸 때 부른다. 횟수만 올리고 상태는 건드리지 않는다.
+
+    Celery는 다음 시도를 먼저 보낸 뒤 이 훅을 부르므로, 훅이 도착할 때 다음 시도가 이미
+    끝났을 수 있다. 여기서 상태를 쓰면 succeeded·failed가 running으로 되돌아간다
+    (#102 리뷰, 엄태은). RUNNING은 다음 시도가 시작할 때 orchestrate_drafts가 둔다.
+    횟수는 읽고 쓰는 사이에 다른 갱신이 끼지 않게 UPDATE 한 문장으로 올린다.
+    """
+    with SessionLocal() as session:
+        job = _get_job(session, job_id)
+        session.execute(update(Job).where(Job.id == job.id).values(retry_count=Job.retry_count + 1))
+        session.commit()
+
+
+def mark_job_failed(job_id: str) -> None:
+    """재시도를 다 쓰거나 재시도 대상이 아닌 오류로 끝났을 때 부른다.
+
+    이미 SUCCEEDED로 커밋된 Job은 덮어쓰지 않는다. 시간 제한이 커밋 직후에 터지는 것처럼
+    성공 뒤에 실패 훅이 오는 경우가 있다 (#102 리뷰, 엄태은). 읽고 쓰는 사이에 상태가
+    바뀌지 않게 조건을 UPDATE 한 문장에 건다.
+
+    TODO(eun): docs/api/agents.md의 error_code·failed_stage를 채울 컬럼이 Job에 없다.
+    agents 모델 후속 마이그레이션에서 추가한 뒤 여기서 함께 남긴다.
+    """
+    with SessionLocal() as session:
+        job = _get_job(session, job_id)
+        session.execute(
+            update(Job)
+            .where(Job.id == job.id, Job.status != JobStatus.SUCCEEDED.value)
+            .values(status=JobStatus.FAILED.value)
+        )
+        session.commit()
+
+
+def _set_job_status(session: Session, job: Job, status: JobStatus) -> None:
+    job.status = status.value
+    session.commit()
 
 
 def _verify_with_critic_retry(
@@ -209,6 +595,62 @@ def _cap_photos(media: list[media_service.MediaEvidence]) -> list[media_service.
     step = (len(photo_positions) - 1) / (MAX_PHOTOS_PER_CHILD - 1)
     kept = {photo_positions[round(i * step)] for i in range(MAX_PHOTOS_PER_CHILD)}
     return [item for i, item in enumerate(media) if item.type != "photo" or i in kept]
+
+
+# 사진 분석 응답이 형식을 어기면 그 사진만 이만큼 다시 부른다. 호출 예외는 여기서 잡지 않고
+# Celery task 재시도가 맡는다 (테크스펙 §오류 복구 '사진 분석 응답 오류', #155).
+PHOTO_RESPONSE_RETRIES = 1
+
+
+def _photo_inputs(media: Sequence[media_service.MediaEvidence]) -> list[PhotoInput]:
+    """근거 미디어 중 사진을 사진 분석 입력으로 바꾼다.
+
+    귀속(child_links)은 브라우저 얼굴 인식과 교사 확정을 거쳐 저장된 값을 그대로 옮긴다.
+    귀속이 없는 사진은 근거로 쓸 수 없어 뺀다 — collect_media_for_llm은 대상 원아에게 귀속된
+    미디어만 주므로 정상이라면 생기지 않는다.
+    """
+    return [
+        PhotoInput(
+            media_id=str(item.media_id),
+            captured_at=item.captured_at,
+            links=tuple(
+                ChildLink(child_id=str(link.child_id), method=link.method)
+                for link in item.child_links
+            ),
+        )
+        for item in media
+        if item.type == "photo" and item.child_links
+    ]
+
+
+def _analyze_photos(
+    session: Session, photos: Sequence[PhotoInput], *, target_child_id: str, record_date: date
+) -> list[tuple[PhotoInput, PerceptionResult]]:
+    """사진을 1장씩 분석해 (사진, 결과) 짝으로 돌려준다 (파이프라인 5단계, NFR-09).
+
+    결과는 tools.perception.merge.merge_perception_results에 그대로 넘긴다. 다시 불러도 응답
+    오류인 사진도 빼지 않고 RESPONSE_ERROR 결과로 둔다 — 빼면 사진이 모두 실패했을 때 근거가
+    없는 경우와 구분되지 않는다 (merge.py). 사진은 S3 서명 URL로 넘긴다(llm.call_vision).
+    LLM에는 이미지와 아이 수만 가고 media_id·child_id·이름은 가지 않는다 (H-2).
+    """
+    urls = {
+        signed.media_id: signed.url
+        for signed in media_service.get_signed_urls(
+            session, [UUID(photo.media_id) for photo in photos]
+        )
+    }
+    results = []
+    for photo in photos:
+        prompt = build_single_photo_prompt(photo)
+        for _ in range(PHOTO_RESPONSE_RETRIES + 1):
+            raw = call_vision(prompt.instructions, [urls[UUID(photo.media_id)]])
+            result = parse_single_photo_analysis(
+                raw, photo=photo, target_child_id=target_child_id, record_date=record_date
+            )
+            if result.status != PerceptionStatus.RESPONSE_ERROR:
+                break
+        results.append((photo, result))
+    return results
 
 
 class InsufficientEvidence(Exception):
@@ -342,8 +784,9 @@ def _record_draft_response_error(
     session.add(
         VerificationResultRow(
             draft_id=draft_id,
+            doc_version=version,
             check_type=issue.check_type.value,
-            sentence_index=None,
+            sentence_id=None,
             result=False,
             detail=issue.reason,
             checked_at=checked_at,
@@ -462,7 +905,8 @@ def _save_passed_draft(
 ) -> None:
     """PASS한 초안을 documents에 저장하고, 문장별 근거를 같은 트랜잭션에 남긴다 (FR-05, FR-07).
 
-    본문 저장과 근거 저장을 한 번에 커밋한다. 저장이 충돌하면 근거까지 되돌려서,
+    커밋은 하지 않는다 — orchestrate_drafts가 Job 성공 상태와 함께 한 번에 커밋한다
+    (#102 리뷰). 저장이 충돌하면 근거까지 되돌려서,
     저장되지 않은 draft_id나 반영되지 않은 AI 초안을 가리키는 근거가 남지 않게 한다
     (#75 3번). 검증 기록은 _verify_and_record가 이미 커밋해서 되돌려지지 않는다.
 
@@ -476,7 +920,11 @@ def _save_passed_draft(
         author_teacher_id=_author_teacher_id(session, job),
         doc_type=document.doc_type.value,
         record_date=document.record_date,
-        content=_join_sentences(document),
+        # 문장 단위·순서 그대로 넘긴다. 합쳤다가 다시 자르면 근거와 어긋난다 (#75 ①).
+        sentences=[
+            DraftSentenceInput(sentence_id=sentence.sentence_id, text=sentence.text)
+            for sentence in document.sentences
+        ],
         ai_version=document.version,
         evidence_bundle_id=bundle.id,
     )
@@ -487,7 +935,6 @@ def _save_passed_draft(
         #   문서는 충돌로 거부되고 그대로 남는다.
         documents.save_draft(session, data, expected_version=None)
         _record_sentence_evidence(session, document, evidence_by_id)
-        session.commit()
     except DraftVersionConflict:
         session.rollback()
         # 검증 PASS 기록은 남았는데 문서가 없는 이유를 나중에 추적하려고 남긴다 (#90).
@@ -510,15 +957,6 @@ def _author_teacher_id(session: Session, job: Job) -> UUID:
     if generation_job is None:
         raise ValueError(f"GenerationJob {job.generation_job_id} not found")
     return generation_job.requested_by_teacher_id
-
-
-def _join_sentences(document: contracts.DraftDocument) -> str:
-    """문장을 줄바꿈으로 합친 본문.
-
-    TODO(eun): 문장 단위 저장(#75 ①)이 documents 스키마에 들어오면 합치지 않고
-    sentence_id·순서째로 넘긴다. 그전까지 DraftSaveInput.content가 문자열 하나라 임시로 합친다.
-    """
-    return "\n".join(sentence.text for sentence in document.sentences)
 
 
 def _run_critic(
@@ -581,21 +1019,17 @@ def _record_verification_issues(
     """검증에서 나온 실패(issue)를 VerificationResult에 남긴다.
 
     통과 자체(문서 전체의 최종 판정)는 DraftDecisionLog가 담당한다. 이 함수는
-    개별 검사 실패 사유만 남긴다 — PR #7의 VerificationCheckType 7종이 전부
-    실패 사유라, 통과한 개별 검사 하나하나를 나타낼 값이 없기 때문이다.
+    개별 검사 실패 사유만 남긴다 — VerificationCheckType 8종(PR #7의 7종 + draft_response_error)이
+    전부 실패 사유라, 통과한 개별 검사 하나하나를 나타낼 값이 없기 때문이다.
     """
-    sentence_index_by_id = {
-        sentence.sentence_id: index for index, sentence in enumerate(document.sentences)
-    }
     for stage_result in stage_results:
         for issue in stage_result.issues:
             session.add(
                 VerificationResultRow(
                     draft_id=document.draft_id,
+                    doc_version=document.version,
                     check_type=issue.check_type.value,
-                    sentence_index=(
-                        sentence_index_by_id.get(issue.sentence_id) if issue.sentence_id else None
-                    ),
+                    sentence_id=issue.sentence_id,
                     result=False,
                     detail=issue.reason,
                     checked_at=datetime.now(UTC),
@@ -610,9 +1044,9 @@ def _record_sentence_evidence(
 ) -> None:
     """통과한 초안의 문장별 근거를 남긴다 (FR-07).
 
-    문장 하나가 근거를 여러 개 참조하면 (draft_id, sentence_index)가 같은 행을 여러 개
+    문장 하나가 근거를 여러 개 참조하면 (draft_id, sentence_id)가 같은 행을 여러 개
     만든다 (정은-한상균 합의 9/16). evidence_id를 함께 저장해 같은 문장에 같은 근거가
-    중복으로 안 들어가게 (draft_id, sentence_index, evidence_id) unique 제약을 건다
+    중복으로 안 들어가게 (draft_id, sentence_id, evidence_id) unique 제약을 건다
     (models.py SentenceEvidence — ai-data-contract.md "근거 ID·버전 연결과 유일성
     규칙", 정은-한상균 합의 09/22).
 
@@ -623,13 +1057,13 @@ def _record_sentence_evidence(
     클릭 시 원본 영상 3초 재생"(테크스펙 SentenceEvidence)에서 재생 시작 지점으로 쓸
     것이라 판단했다. 정확한 변환·표시 방식이 스펙에 없어 팀 확인이 필요하다.
     """
-    for index, sentence in enumerate(document.sentences):
+    for sentence in document.sentences:
         for evidence_id in sentence.evidence_ids:
             evidence = evidence_by_id[evidence_id]
             session.add(
                 SentenceEvidenceRow(
                     draft_id=document.draft_id,
-                    sentence_index=index,
+                    sentence_id=sentence.sentence_id,
                     evidence_id=evidence_id,
                     source_media_id=evidence.media_id,
                     source_timestamp=(

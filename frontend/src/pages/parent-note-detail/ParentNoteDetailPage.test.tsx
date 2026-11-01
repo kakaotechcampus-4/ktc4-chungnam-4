@@ -83,7 +83,14 @@ describe("ParentNoteDetailPage", () => {
           status: "approved",
           version: 4,
           title: "모래 놀이터",
-          sentences: [{ sentence_index: 0, text: "조개껍데기를 하나씩 모았어요.", evidences: [] }],
+          sentences: [
+            {
+              sentence_id: "s1",
+              text: "조개껍데기를 하나씩 모았어요.",
+              is_edited_by_teacher: false,
+              evidences: [],
+            },
+          ],
           selected_media_ids: [photo],
           media: [
             {

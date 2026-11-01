@@ -1,0 +1,341 @@
+# FE 배포 자원 (이슈 #118 결정, NFR-13·14·15)
+#
+#   https://<무작위>.cloudfront.net
+#     ├─ /api/*  → BE(EC2의 Caddy) 그대로. 캐시하지 않습니다
+#     └─ 나머지  → 이 스택의 S3 버킷(공개하지 않음, CloudFront만 OAC로 읽음)
+#
+# 이 파일이 CloudFront·버킷·FE 배포 역할 설정의 원본입니다. 콘솔에서 고치면 이 파일과
+# 어긋나고(drift), 일반 change set은 이 차이를 보지 않아 다음 적용 뒤에도 그대로 남습니다.
+# 바꿀 때는 PR로 이 파일을 고치고, PR에 change set 요약을 붙여 리뷰를 받은 뒤 적용합니다
+# (멘토 리뷰 #124 §2-2). 절차는 infra/frontend/README.md에 있습니다.
+#
+# 계정 ID는 파일에 쓰지 않습니다. ${AWS::AccountId}가 적용 시점에 채웁니다.
+# 도메인·버킷 이름은 파라미터로 받습니다.
+#
+# 적용 (SSO로 들어간 사람이 AWS CloudShell(ap-northeast-2)에서. 로컬에 AWS CLI가 있으면 로컬도 됩니다.
+# 역할 이름을 지정하므로 CAPABILITY_NAMED_IAM이 필요합니다):
+#   git clone https://github.com/kakaotechcampus-4/ktc4-chungnam-4.git && cd ktc4-chungnam-4
+#   git checkout <리뷰받은 커밋>
+#   aws cloudformation deploy --region ap-northeast-2 --stack-name aidam-fe \
+#     --template-file infra/frontend/aidam-fe.yaml --capabilities CAPABILITY_NAMED_IAM \
+#     --parameter-overrides BucketName=<버킷 이름> ApiOriginDomain=<backend .env의 PUBLIC_HOST> \
+#     --no-execute-changeset
+#   → 출력된 describe-change-set으로 바뀌는 자원을 확인하고 execute-change-set
+#
+# change set이 확인하는 것은 템플릿 문법·이름 충돌 같은 사전 검증까지입니다. 우리 권한(StudentDeveloper)과
+# 캠퍼스 SCP가 이 자원들을 허용하는지는 execute 때 처음 드러납니다. IAM 역할(이름 충돌 포함)과 버킷 정책은
+# 사전 검증 대상도 아닙니다. 실패하면 스택이 자동으로 되돌아가고, 버킷은 RetainExceptOnCreate라
+# 첫 생성 실패 때는 함께 지워집니다.
+# (https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/validate-stack-deployments.html)
+AWSTemplateFormatVersion: "2010-09-09"
+Description: aidam frontend - CloudFront (S3 site + /api/* to EC2) and FE deploy role. Issue 118.
+
+Parameters:
+  BucketName:
+    Type: String
+    Description: FE site bucket name. Must be globally unique. Do not include the account ID.
+    AllowedPattern: "^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$"
+  ApiOriginDomain:
+    Type: String
+    Description: BE host name that serves /api/* (PUBLIC_HOST in backend/.env). Its HTTPS certificate must match this name.
+    AllowedPattern: "^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"
+    ConstraintDescription: Lowercase host name only (same as PUBLIC_HOST). No scheme, path, port or trailing slash.
+  # 이 저장소는 2026-08-20에 만들어져 GitHub의 "불변 subject" 형식을 씁니다(2026-07-15 이후 새 저장소 기본값).
+  # OIDC 토큰의 sub가 repo:<조직>/<저장소>:... 가 아니라 repo:<조직>@<조직ID>/<저장소>@<저장소ID>:... 입니다.
+  # 옛 형식으로 적으면 역할을 받지 못합니다. 값 확인(읽기만):
+  #   gh api repos/kakaotechcampus-4/ktc4-chungnam-4/actions/oidc/customization/sub   → sub_claim_prefix
+  # 조직·저장소 ID는 GitHub 공개 API로 누구나 볼 수 있는 값이라 기본값으로 둡니다(AWS 계정 ID와 다름).
+  # https://docs.github.com/en/actions/reference/security/oidc
+  GitHubSubjectPrefix:
+    Type: String
+    Default: "repo:kakaotechcampus-4@287968646/ktc4-chungnam-4@1340154929"
+    Description: OIDC sub prefix (sub_claim_prefix from the repo OIDC customization API).
+  # 역할을 받는 GitHub environment입니다. job에 environment가 걸리면 OIDC sub가 ref가 아니라
+  # <접두사>:environment:<이름>이 됩니다. 어느 브랜치가 이 environment를 쓸 수 있는지는 GitHub 설정
+  # (Settings → Environments → frontend → 배포 브랜치: develop만)이 정하고, 이 템플릿으로는 바꿀 수 없습니다.
+  DeployEnvironment:
+    Type: String
+    Default: frontend
+    Description: GitHub environment whose jobs may assume the FE deploy role. Its deployment branch policy (develop only) is set in GitHub.
+  DeployBranch:
+    Type: String
+    Default: develop
+    Description: Branch the FE environment deploys from (enforced by the environment's deployment branch policy in GitHub). Shown in the distribution comment.
+  DeployRoleName:
+    Type: String
+    Default: aidam-fe-deploy
+  PriceClass:
+    Type: String
+    # PriceClass_100은 북미·유럽만이라 한국 엣지(ICN)를 쓰지 않습니다. 200부터 한국이 들어갑니다.
+    Default: PriceClass_200
+    AllowedValues: [PriceClass_100, PriceClass_200, PriceClass_All]
+
+Resources:
+  # ── 화면 파일 버킷 ────────────────────────────────────────────────────────
+  SiteBucket:
+    Type: AWS::S3::Bucket
+    # 첫 생성이 실패해 되돌릴 때만 지우고, 그 뒤에는 스택을 지워도 남깁니다.
+    # 비어 있지 않은 버킷은 어차피 스택 삭제로 지워지지 않습니다.
+    DeletionPolicy: RetainExceptOnCreate
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref BucketName
+      # 새 버킷의 기본값과 같지만, 콘솔에서 누가 풀었을 때 drift로 보이도록 적어 둡니다.
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      # 버전 관리는 켜지 않습니다. 되돌리기는 배포 태그(NFR-15, fe-deploy-YYYYMMDD-HHMM)의 코드로 다시 빌드합니다.
+      # 화면 파일은 git에서 언제든 다시 만들 수 있는 산출물입니다.
+      LifecycleConfiguration:
+        Rules:
+          - Id: abort-incomplete-multipart-upload
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      Tags:
+        - Key: Project
+          Value: aidam
+        - Key: Part
+          Value: frontend
+
+  SiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SiteBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # 이 배포(Distribution)만 읽을 수 있습니다. s3:ListBucket은 주지 않아서
+          # 없는 파일은 404가 아니라 403으로 옵니다.
+          - Sid: AllowCloudFrontReadOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${SiteBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}"
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt SiteBucket.Arn
+              - !Sub "${SiteBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  SiteOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AWS::StackName}-s3-oac"
+        Description: CloudFront signs every request to the FE bucket.
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # ── SPA 라우팅 ────────────────────────────────────────────────────────────
+  # /t/today 같은 화면 주소는 버킷에 파일이 없습니다. 확장자가 없는 경로를 index.html로
+  # 바꿔 보내면 React Router가 화면을 그립니다.
+  # /t/·/p/·/invite/ 아래는 '.'이 있어도 화면 주소로 봅니다. 학부모 초대 링크의
+  # 토큰 형식이 미정이라(FR-28) JWT처럼 '.'이 든 토큰이 오면 S3 403이 되기 때문입니다.
+  # 초대 링크 경로는 문서끼리 다릅니다: 서버가 만드는 링크는 /invite/<토큰>(docs/api/organization.md),
+  # FE 라우트 계획은 /p/invite/:inviteToken(frontend/src/app/routes/parent.ts). 맞출 때까지 둘 다 받습니다.
+  # 이 경로들 아래에는 정적 파일을 두지 않습니다.
+  # 슬래시 없는 /api는 /api/* 동작에 걸리지 않아 이 함수가 index.html(200)로 바꿉니다. FE는 늘
+  # /api/v1/...로 부르므로 문제없습니다(#150 리뷰).
+  #
+  # 함수 코드 안의 주석은 영어로 둡니다(엣지 런타임에 그대로 올라가는 코드).
+  #
+  # 커스텀 오류 응답(403/404 → index.html)으로 하지 않는 이유: 그 설정은 배포 전체에
+  # 걸려서 /api/*의 403·404 JSON(CLASS_ACCESS_DENIED 등)까지 index.html(200)로 바뀝니다. 함수는 기본 동작에만
+  # 붙으므로 /api/*에 닿지 않습니다 (멘토 리뷰 #124 §1이 짚은 "error 처리". 이 방식은 제안).
+  SpaFallbackFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub "${AWS::StackName}-spa-fallback"
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Rewrite extensionless paths to /index.html (SPA routes)
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          var uri = request.uri;
+          // /api/* has its own cache behavior and never reaches here; keep it untouched anyway.
+          if (uri.indexOf('/api/') === 0) {
+            return request;
+          }
+          // App route prefixes: always the SPA shell, even when a path parameter contains '.'.
+          if (uri === '/t' || uri === '/p' || uri.indexOf('/t/') === 0 || uri.indexOf('/p/') === 0 || uri.indexOf('/invite/') === 0) {
+            request.uri = '/index.html';
+            return request;
+          }
+          var lastSegment = uri.substring(uri.lastIndexOf('/') + 1);
+          if (lastSegment === '' || lastSegment.indexOf('.') === -1) {
+            request.uri = '/index.html';
+          }
+          return request;
+        }
+
+  # ── /api/* 응답 헤더 ──────────────────────────────────────────────────────
+  # 1차는 BE가 Cache-Control: no-store를 붙이는 것입니다(멘토 리뷰 #124 §2-1, BE 작업).
+  # 여기서는 BE가 빠뜨린 응답에만 채웁니다(Override: false → BE 값이 있으면 그대로 둠).
+  # 이 헤더는 브라우저 캐시만 막습니다. CloudFront 캐시는 아래 CachingDisabled가 막습니다.
+  ApiResponseHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub "${AWS::StackName}-api-no-store"
+        Comment: Add Cache-Control no-store when the API omits it
+        CustomHeadersConfig:
+          Items:
+            - Header: Cache-Control
+              Value: no-store
+              Override: false
+        SecurityHeadersConfig:
+          ContentTypeOptions:
+            Override: true
+
+  # ── 배포 ──────────────────────────────────────────────────────────────────
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "aidam FE (${DeployBranch}) - stack ${AWS::StackName}"
+        PriceClass: !Ref PriceClass
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        DefaultRootObject: index.html
+        ViewerCertificate:
+          # 도메인을 사지 않으므로 *.cloudfront.net 기본 인증서를 씁니다.
+          CloudFrontDefaultCertificate: true
+        Origins:
+          - Id: s3-site
+            DomainName: !GetAtt SiteBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt SiteOriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+          - Id: api-ec2
+            DomainName: !Ref ApiOriginDomain
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              HTTPSPort: 443
+              OriginSSLProtocols: [TLSv1.2]
+              # OriginReadTimeout은 기본 30초 그대로 둡니다. 30초를 넘는 동기 API가 있는지
+              # 근거가 없습니다(미정 — BE 확인). 초안 생성은 job 폴링이라 해당 없음.
+        DefaultCacheBehavior:
+          TargetOriginId: s3-site
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          # Managed-CachingOptimized. 최소 TTL 1초·기본 24시간·최대 1년.
+          # 실제 기간은 업로드 때 붙이는 Cache-Control이 정합니다(infra/frontend/upload.sh).
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          # Managed-SecurityHeadersPolicy (선택: nosniff, HSTS, X-Frame-Options SAMEORIGIN 등)
+          ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt SpaFallbackFunction.FunctionMetadata.FunctionARN
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: api-ec2
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachedMethods: [GET, HEAD]
+            Compress: false
+            # Managed-CachingDisabled. TTL 0 — 원아 정보가 담긴 응답을 엣지에 남기지 않습니다.
+            # 이 정책에서는 4xx·5xx 오류 응답도 캐시하지 않습니다.
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            # Managed-AllViewerExceptHostHeader. 쿠키·쿼리·헤더(Origin 포함)는 모두 넘기고
+            # Host만 BE 도메인으로 바꿉니다. Caddy가 그 이름으로 인증서와 사이트를 찾습니다.
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+            ResponseHeadersPolicyId: !Ref ApiResponseHeadersPolicy
+        # CustomErrorResponses는 일부러 두지 않습니다(위 SpaFallbackFunction 주석).
+        # FE 배포 역할은 배포 설정을 읽지 못해서, 워크플로의 스모크는 /api의 없는 경로가 JSON 404로
+        # 오는지로 간접 확인합니다(smoke.sh 4번). 설정을 직접 확인하는 smoke.sh 5번은 스택을 바꾼 뒤
+        # 본인 권한으로 돌립니다(README).
+      Tags:
+        - Key: Project
+          Value: aidam
+        - Key: Part
+          Value: frontend
+
+  # ── GitHub Actions FE 배포 역할 (NFR-14) ──────────────────────────────────
+  # GitHub environment `frontend`를 쓰는 job만 받고(sub 고정), FE 버킷만 다룹니다. 그 environment는
+  # GitHub 설정에서 develop 브랜치만 쓸 수 있게 막아 둡니다(위 DeployEnvironment).
+  # environment가 없는 워크플로는 sub가 <접두사>:ref:...라 이 역할을 받지 못합니다. 그래서 BE deploy.yml처럼
+  # develop에서 id-token: write를 가진 다른 워크플로도 FE 버킷을 건드릴 수 없습니다(#150 리뷰).
+  # 새 워크플로에 environment: frontend를 붙일 때는 리뷰에서 확인합니다. 기존 ktc-github-deploy는 쓰지 않습니다.
+  FrontendDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref DeployRoleName
+      Description: GitHub Actions jobs in the frontend environment (develop only) deploy the FE build to the FE bucket.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              # 운영진이 만든 기존 GitHub OIDC 공급자를 참조만 합니다(수정하지 않음).
+              Federated: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                # environment가 없는 job(sub가 ref 형식)은 여기서 막힙니다.
+                token.actions.githubusercontent.com:sub: !Sub "${GitHubSubjectPrefix}:environment:${DeployEnvironment}"
+      Policies:
+        - PolicyName: fe-deploy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ListSiteBucket
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt SiteBucket.Arn
+              - Sid: WriteSiteObjects
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:AbortMultipartUpload
+                Resource: !Sub "${SiteBucket.Arn}/*"
+              # CloudFront 무효화·설정 읽기 권한은 주지 않습니다(NFR-14 "프론트엔드 버킷만").
+              # 그래서 워크플로는 FE_DISTRIBUTION_ID를 비워 두고, upload.sh 무효화와 smoke.sh 5번을 건너뜁니다.
+      Tags:
+        - Key: Project
+          Value: aidam
+        - Key: Part
+          Value: frontend
+
+Outputs:
+  BucketName:
+    Description: GitHub variable FE_BUCKET
+    Value: !Ref SiteBucket
+  DistributionId:
+    Description: Distribution ID for manual runs with your own credentials (upload.sh step 5 invalidation, smoke.sh step 5)
+    Value: !Ref Distribution
+  DistributionDomainName:
+    Description: GitHub variable FE_DOMAIN (the FE address to share)
+    Value: !GetAtt Distribution.DomainName
+  DeployRoleArn:
+    # 계정 ID가 들어 있습니다. AWS는 계정 ID를 비밀로 보지 않지만, 공개 저장소라 노출을 줄이려고
+    # variable이 아니라 secret에 넣습니다.
+    Description: GitHub secret FE_DEPLOY_ROLE_ARN
+    Value: !GetAtt FrontendDeployRole.Arn

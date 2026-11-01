@@ -124,7 +124,7 @@ describe("TodayPage", () => {
 
   // 초안이 있는데 빈 카드로 떨어지면 같은 자료를 다시 올리게 된다.
   it.each([
-    ["미분류", "unclassified"],
+    ["회수", "revoked"],
     ["모르는 상태", "rejected"],
   ])("초안이 %s이면 빈 상태 대신 확인하러 보낸다", async (_label, status) => {
     vi.spyOn(console, "warn").mockImplementation(() => {});

@@ -10,9 +10,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from enum import StrEnum
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from domains.audit.models import AccessLog, DeletionLog, DeletionReason, DeletionTargetType
@@ -38,6 +40,34 @@ def record_access(
     db.add(log)
     db.flush()
     return log
+
+
+def viewed_target_ids(
+    db: Session,
+    *,
+    actor_type: str,
+    actor_id: UUID,
+    target_type: str,
+    action: str,
+    target_ids: Sequence[UUID],
+) -> set[UUID]:
+    """이 사람이 이미 이 방식(action)으로 열람한 대상만 돌려준다. 기록은 바꾸지 않는다.
+
+    학부모 알림장의 "읽음" 표시에 쓴다 (docs/api/documents.md is_read·unread_count).
+    """
+    if not target_ids:
+        return set()
+    return set(
+        db.scalars(
+            select(AccessLog.target_id).where(
+                AccessLog.actor_type == actor_type,
+                AccessLog.actor_id == actor_id,
+                AccessLog.target_type == target_type,
+                AccessLog.action == action,
+                AccessLog.target_id.in_(target_ids),
+            )
+        )
+    )
 
 
 def record_deletion(

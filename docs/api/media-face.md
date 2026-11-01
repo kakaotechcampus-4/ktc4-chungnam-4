@@ -8,18 +8,18 @@
 
 (막힘)은 정해져야 FE 목(MSW)과 BE schemas를 만들 수 있는 항목입니다. 막히면 작업하는 사람이 정하고 진행합니다. 정한 값은 같은 PR에서 이 파일에 반영하고, 항목을 `[x]`로 바꾼 뒤 `임시 결정(이름)`과 반영한 곳을 적습니다([README](README.md) §이 문서를 읽는 법). 담당의 답은 이슈 #58 댓글이나 이 파일을 고치는 PR로 받습니다.
 
-- [x] (막힘) child-links를 전체 교체(PUT)로 할지(PR #13 리뷰 [must]) → 임시 결정(김동건): 전체 교체. 보낸 목록이 최종 상태이고 빠진 원아의 링크는 지웁니다. 반영: 이 파일 `PUT /media/{media_id}/child-links` 절, backend `save_attributions`(브랜치 `feat/be/child-links-full-replace`, PR 전)
+- [x] (막힘) child-links를 전체 교체(PUT)로 할지(PR #13 리뷰 [must]) → 임시 결정(김동건): 전체 교체. 보낸 목록이 최종 상태이고 빠진 원아의 링크는 지웁니다. 반영: 이 파일 `PUT /media/{media_id}/child-links` 절, backend `media/service.py`의 `save_attributions`(develop 반영)
 - [ ] (막힘) `llm_allowed` 최종값 계산 주체와 규칙(정은과 함께). 제안: 사진은 "교사 확인 AND ③ 동의", 영상·음성은 교사 확인값 → 하단 §상의 필요 3
 - [x] (막힘) 영상·음성메모도 child-links로 수동 귀속(정은과 함께). 음성메모 근거가 초안에 들어가기 위한 전제 → 임시 결정(김동건): 영상·음성은 `PUT child-links`로, 발화에 연결한 아이들을 모두 넣음. 사진은 완료 통지에서 귀속까지 저장. 반영: 이 파일 `POST /media`·`PUT child-links` 절
 - [ ] `attributed_at` 추가와, 이를 쓰는 Job의 `MEDIA_NOT_READY` 판정(정은과 함께)
 - [ ] 업로드 한도, 허용 MIME, URL 만료(예시 PUT 15분·GET 5분), 멀티파트 필요 여부
 - [ ] 파생본이 없어 HEIC·MOV가 안 보이는 문제. 데모 자료를 JPG·MP4로 제한할지
 - [ ] `error.detail`을 object로 허용할지(develop `AidamError.detail`은 지금 str)
-- [x] 모델 버전 문자열 형식 → 임시 결정(김진하), 이슈 #120 김동건 님 확인: `human-faceres-<faceres.bin SHA-256 hex 앞 12자리>`. 라이브러리 버전을 쓰지 않는 것은 모델 파일이 그대로인데 라이브러리만 올라가도 값이 바뀌어 원아 전원이 재등록 대상이 되기 때문입니다. 해시는 손으로 적지 않고 빌드 때 계산하거나 테스트로 대조하며, 전처리가 라이브러리 코드 쪽이라 `package.json`은 `^` 없이 고정합니다. 반영: 이 문서 §`GET /classes/{class_id}/face-embeddings`·§등록, `frontend/src/workers/face/types.ts`
-- [ ] `load_embedding_cache`가 `model_version`도 돌려주게 할지 — 김동건 님이 로컬에서 고쳐 두셨고 `feat/be/face-media-storage-foundation` PR을 기다립니다(이슈 #120). 머지되면 닫습니다
+- [x] 모델 버전 문자열 형식 → 임시 결정(김진하), 이슈 #120 김동건 님 확인: `human-face-<얼굴 모델 파일 6개의 SHA-256 hex 앞 12자리>`. 라이브러리 버전을 쓰지 않는 것은 모델 파일이 그대로인데 라이브러리만 올라가도 값이 바뀌어 원아 전원이 재등록 대상이 되기 때문입니다. 해시는 손으로 적지 않고 빌드 때 계산하거나 테스트로 대조하며, 전처리가 라이브러리 코드 쪽이라 `package.json`은 `^` 없이 고정합니다. 반영: 이 문서 §`GET /classes/{class_id}/face-embeddings`·§등록, `frontend/src/workers/face/types.ts`·`model-manifest.ts`
+- [x] `load_embedding_cache`가 `model_version`도 돌려주게 할지 → 돌려줍니다. 김동건 님이 반영하셨고 PR #130으로 머지됐습니다(이슈 #120). 반영: develop `backend/domains/face/service.py`의 `CachedEmbedding.model_version`, `GET /classes/{class_id}/face-embeddings` 응답
 - [x] 서명 함수(`get_signed_urls`) 제공 → 임시 결정(김동건): `get_signed_urls(db, media_ids) -> list[SignedMediaUrl]`(`{media_id, type, url, url_expires_at}`), 재생 URL 만료 15분(`S3_PLAYBACK_URL_EXPIRES_SECONDS`). 승인·접근 판정과 AccessLog는 부르는 쪽(documents)이 합니다. 반영: 하단 §상의 필요 5. documents 응답에 담는 일은 한상균 님 몫으로 남습니다
 - [x] develop(PR #13)과 다른 점(귀속 에러 코드 이름 `MEDIA_INVALID_ATTRIBUTION_METHOD`, 서명·만료 없는 `get_playback_url`) → 에러 코드는 #132에서 `INVALID_ATTRIBUTION_METHOD`로, `get_playback_url`은 #143에서 `get_signed_urls`로 이 문서에 맞춤
-- [ ] 영상·음성 서버 STT를 어디서 시작할지(동기 vs Celery)
+- [x] 영상·음성 서버 STT를 어디서 시작할지(동기 vs Celery) → Celery worker(#185, `[rule]`). 몇 분짜리 영상의 음성 추출·조각 호출은 CloudFront 응답 대기 30초 안에 끝나지 않습니다. worker에 ffmpeg를 넣었습니다. 반영: `backend/CLAUDE.md` §비동기 · Celery, 테크스펙 1-B, `docs/open-questions.md` §C(승인 기록은 #202에서 사후 확인)
 - [x] 발화 구간 조회·수정의 요청·응답 → 임시 결정(김동건): 상세 작성으로 채움. 반영: 이 파일 `GET /media/{media_id}/transcript-segments`·`PATCH /transcript-segments/{segment_id}` 절, FE `types/api-draft/media.ts`·`mocks/handlers/media.ts`. 테크스펙에 없는 필드와 업로드 시점은 하단 §상의 필요 6
 - [x] 얼굴 등록 사진 수 → 임시 결정(김동건): 1~3장. 3장을 강제하지 않고, 다시 등록하면 전체가 바뀐다고 화면에 알림. 반영: 이 파일 `PUT /children/{child_id}/face-embedding` 절, FE 얼굴 정보 등록 화면
 - [ ] `face/CLAUDE.md`의 `/face` 표기 수정
@@ -139,7 +139,7 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
   "class_id": "c1a50000-0000-4000-8000-000000000001",
   "type": "photo",
   "captured_at": "2026-09-15T01:10:00Z",
-  "model_version": "human-faceres-2c7d2d62b76c",
+  "model_version": "human-face-ddfb3705bb3c",
   "llm_allowed": true,
   "child_links": [
     { "child_id": "c41d0000-0000-4000-8000-000000000001", "method": "face_recognition", "confidence_score": 0.92 }
@@ -273,8 +273,8 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 ```json
 {
   "items": [
-    { "child_id": "c41d0000-0000-4000-8000-000000000001", "embedding": [0.0213, -0.0871, 0.0456], "model_version": "human-faceres-2c7d2d62b76c" },
-    { "child_id": "c41d0000-0000-4000-8000-000000000002", "embedding": [-0.0342, 0.0617, 0.0129], "model_version": "human-faceres-2c7d2d62b76c" }
+    { "child_id": "c41d0000-0000-4000-8000-000000000001", "embedding": [0.0213, -0.0871, 0.0456], "model_version": "human-face-ddfb3705bb3c" },
+    { "child_id": "c41d0000-0000-4000-8000-000000000002", "embedding": [-0.0342, 0.0617, 0.0129], "model_version": "human-face-ddfb3705bb3c" }
   ],
   "next_cursor": null
 }
@@ -282,7 +282,7 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 
 - ③ 동의가 유효한 재원 원아 가운데 임베딩이 등록된 원아만 담습니다. 동의 기록과 임베딩이 어긋나면 그 원아는 빼습니다.
 - 벡터만 내보냅니다(H-3). `embedding`은 float 1024개이고, 예시는 줄였습니다. 임시 결정(김진하): 온디바이스 모델을 HUMAN(`@vladmandic/human`)으로 정하면서 바뀌었습니다 — 브라우저에서 돌려야 해서(H-3) 파이썬 모델인 ArcFace(`buffalo_l`)를 쓸 수 없었습니다. 길이는 `faceres` 모델 파일의 출력 정의에서 확인했고, 백엔드에 길이 가정이 없는 것은 김동건 님이 확인했습니다(이슈 #120).
-- `model_version`이 브라우저 모델과 다르면 그 원아는 수동 분류로 보냅니다(제안). `load_embedding_cache`가 `model_version`도 돌려주도록 김동건 님이 고치는 중입니다(이슈 #120, `feat/be/face-media-storage-foundation`).
+- `model_version`이 브라우저 모델과 다르면 그 원아는 수동 분류로 보냅니다(제안). `load_embedding_cache`가 `model_version`도 돌려줍니다(이슈 #120, PR #130 머지).
 - 응답에 `Cache-Control: no-store`를 붙입니다(제안). 브라우저는 이번 배치 동안만 들고 있다가 버립니다.
 - 호출할 때마다 원아별로 AccessLog를 남깁니다. 벡터 값은 로그에 남기지 않습니다(H-4).
 - `items`가 비면 모든 사진이 수동 분류로 갑니다.
@@ -308,7 +308,7 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 ```json
 {
   "embedding": [0.0213, -0.0871, 0.0456],
-  "model_version": "human-faceres-2c7d2d62b76c"
+  "model_version": "human-face-ddfb3705bb3c"
 }
 ```
 
@@ -317,12 +317,12 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 ```json
 {
   "child_id": "c41d0000-0000-4000-8000-000000000001",
-  "model_version": "human-faceres-2c7d2d62b76c",
+  "model_version": "human-face-ddfb3705bb3c",
   "registered_at": "2026-09-29T06:10:00Z"
 }
 ```
 
-- `embedding` 길이는 1024이고 예시는 줄였습니다. `model_version` 값은 예시입니다 — 임시 결정(김진하): `human-faceres-<faceres.bin SHA-256 hex 앞 12자리>` 형식입니다(이슈 #120에서 김동건 님 확인). 라이브러리 버전이 아니라 모델 파일 해시를 쓰는 것은, 라이브러리를 올려도 모델 파일이 그대로면 재등록이 일어나지 않게 하기 위함입니다. 해시는 손으로 적지 않고 빌드 때 계산하거나 테스트로 대조합니다. 라이브러리 버전은 `package.json`에 `^` 없이 고정합니다 — 전처리(검출·정렬·크롭)가 라이브러리 코드 쪽이라 버전이 바뀌면 같은 모델이어도 벡터가 달라질 수 있습니다(김동건 님 지적).
+- `embedding` 길이는 1024이고 예시는 줄였습니다. `model_version` 값은 예시입니다 — 임시 결정(김진하): `human-face-<얼굴 모델 파일 6개의 SHA-256 hex 앞 12자리>` 형식입니다(이슈 #120에서 김동건 님 확인, 범위는 PR #149 리뷰에서 넓힘). 라이브러리 버전이 아니라 모델 파일 해시를 쓰는 것은, 라이브러리를 올려도 모델 파일이 그대로면 재등록이 일어나지 않게 하기 위함입니다. **`faceres` 하나가 아니라 `blazeface`·`facemesh`·`faceres`의 `.json`·`.bin` 6개 전부로 계산합니다** — `facemesh`가 얼굴을 정렬해 `faceres`에 넣을 그림을 만들어서, 정렬이 바뀌면 같은 얼굴에서도 벡터가 달라집니다. `faceres`만 보면 그때 값이 그대로여서 옛 벡터와 새 벡터를 같은 것으로 보고 비교합니다(PR #149 리뷰 송유진 님). 해시는 손으로 적지 않고 빌드 때 계산하거나 테스트로 대조합니다. 라이브러리 버전은 `package.json`에 `^` 없이 고정합니다 — 전처리(검출·정렬·크롭)가 라이브러리 코드 쪽이라 버전이 바뀌면 같은 모델이어도 벡터가 달라질 수 있습니다(김동건 님 지적).
 - FE 목은 아직 짧은 합성 벡터와 `"mock"`을 씁니다. 실제 추출기가 들어오는 PR에서 바꿉니다.
 - 벡터 값은 로그에 남기지 않습니다(H-4).
 - 에러:

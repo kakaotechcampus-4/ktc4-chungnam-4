@@ -144,7 +144,7 @@ export function ParentNoteDetailPage() {
               <p className="text-caption text-ink-muted">사진 없이 글만 게시한 알림장이에요.</p>
             )}
             {draft.sentences.map((sentence) => (
-              <p key={sentence.sentence_index} className="text-lead whitespace-pre-line text-ink">
+              <p key={sentence.sentence_id} className="text-lead whitespace-pre-line text-ink">
                 {sentence.text}
               </p>
             ))}

@@ -23,15 +23,21 @@ export interface UploadUrlsRequest {
   items: UploadUrlRequestItem[];
 }
 
+/** 업로드 URL 발급 결과. issued는 URL 발급, registered는 이미 등록된 파일, error는 그 파일만 실패입니다. */
+export type UploadUrlStatus = "issued" | "registered" | "error";
+
 /** POST /media/upload-urls 응답 항목. 순서는 요청과 같습니다. */
 export interface UploadUrlItem {
   client_photo_id: string;
+  status: UploadUrlStatus;
   /** null이 아니면 이미 등록된 파일입니다. 다시 올리지 않고 귀속 단계로 넘어갑니다. */
   media_id: string | null;
   upload_url: string | null;
   /** PUT에 그대로 붙여야 서명이 맞습니다. */
   upload_headers: Record<string, string> | null;
   upload_url_expires_at: string | null;
+  /** status가 error일 때만. 공통 에러 모양의 code·message입니다. */
+  error: { code: string; message: string } | null;
 }
 
 export interface UploadUrlsResponse {
@@ -47,6 +53,10 @@ export interface MediaCompleteRequest {
   captured_at: string;
   /** 사진만 채우고 영상·음성은 null */
   model_version: string | null;
+  /** 사진은 필수, 영상·음성은 보내지 않습니다(보내면 422). 규칙은 PUT child-links와 같습니다. */
+  llm_allowed?: boolean;
+  /** 사진은 필수(전체 교체, 빈 배열이면 미분류), 영상·음성은 보내지 않습니다. */
+  child_links?: ChildLink[];
 }
 
 /** POST /media 응답(ack). 201은 새로 확정, 같은 client_photo_id를 다시 보내면 기존 것을 200 */
@@ -58,6 +68,8 @@ export interface MediaAsset {
   captured_at: string;
   size_bytes: number;
   llm_allowed: boolean;
+  /** 저장된 귀속. 사진은 ack에 실은 값이고, 영상·음성은 child-links 전까지 빈 배열입니다. */
+  child_links: ChildLink[];
   /** (제안) 귀속을 저장하기 전이면 null */
   attributed_at: string | null;
 }

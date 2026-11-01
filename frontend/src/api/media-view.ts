@@ -23,31 +23,66 @@ export interface UploadUrlsInput {
   items: UploadUrlItemInput[];
 }
 
-/** 받은 업로드 URL 한 건. 순서는 요청과 같습니다. */
-export interface UploadTicketView {
+interface UploadTicketBase {
   client_photo_id: string;
-  /** null이 아니면 이미 등록된 파일입니다. 다시 올리지 않고 귀속 단계로 넘어갑니다. */
-  media_id: string | null;
-  upload_url: string | null;
-  /** PUT에 그대로 붙여야 서명이 맞습니다. */
-  upload_headers: Record<string, string> | null;
-  upload_url_expires_at: string | null;
 }
+
+/**
+ * 받은 업로드 URL 한 건. 순서는 요청과 같습니다.
+ * status마다 반드시 있는 값이 달라, status를 확인하면 쓸 수 있는 값이 정해집니다(#206 멘토님 리뷰).
+ */
+export type UploadTicketView =
+  | (UploadTicketBase & {
+      /** URL 발급. 이 URL로 올린 뒤 완료 통지를 보냅니다. */
+      status: "issued";
+      upload_url: string;
+      /** PUT에 그대로 붙여야 서명이 맞습니다. */
+      upload_headers: Record<string, string>;
+      upload_url_expires_at: string;
+    })
+  | (UploadTicketBase & {
+      /** 이미 등록된 파일. 다시 올리지 않고 귀속 단계로 넘어갑니다. */
+      status: "registered";
+      media_id: string;
+    })
+  | (UploadTicketBase & {
+      /** 이 파일만 실패(나머지는 발급됨). 화면은 message를 그대로 보여 줍니다. */
+      status: "error";
+      error: { code: string; message: string };
+    })
+  | (UploadTicketBase & {
+      /** 서버 타입에 없는 상태이거나, 그 상태에 있어야 할 값이 빠진 응답. 이 파일은 올리지 않습니다. */
+      status: "unknown";
+    });
 
 export interface UploadUrlsView {
   items: UploadTicketView[];
 }
 
 /** 업로드 완료 통지 값. 파일 하나당 한 번 보냅니다. */
-export interface MediaCompleteInput {
+interface MediaCompleteBase {
   client_photo_id: string;
   class_id: string;
-  type: MediaTypeView;
   /** 촬영 시각(UTC) */
   captured_at: string;
-  /** 사진만 채우고 영상·음성은 null */
-  model_version: string | null;
 }
+
+/**
+ * 업로드 완료 통지 값. 사진이면 귀속(attribution)이 필수라, 빠뜨리면 실행 전에 타입에서 걸립니다.
+ * 사진은 교사가 확정한 귀속을 완료 통지와 함께 저장합니다(API 문서 §media).
+ * 영상·음성은 교사 확인 전에 올라오므로 귀속 없이 보내고, 귀속은 saveChildLinks로 따로 저장합니다.
+ */
+export type MediaCompleteInput =
+  | (MediaCompleteBase & {
+      type: "photo";
+      model_version: string | null;
+      attribution: ChildLinksInput;
+    })
+  | (MediaCompleteBase & {
+      type: "video" | "voice_memo";
+      model_version: null;
+      attribution?: never;
+    });
 
 /** 업로드 완료 통지(ack) 응답 */
 export interface MediaAssetView {
@@ -58,6 +93,8 @@ export interface MediaAssetView {
   captured_at: string;
   size_bytes: number;
   llm_allowed: boolean;
+  /** 저장된 귀속. 영상·음성은 child-links 전까지 빈 배열입니다. */
+  child_links: ChildLinkView[];
   /** 귀속을 저장하기 전이면 null */
   attributed_at: string | null;
 }

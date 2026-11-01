@@ -11,6 +11,7 @@ from domains.documents.models import (
     DocType,
     DocumentPublication,
     DraftDocument,
+    DraftSentence,
     DraftStatus,
     EditMethod,
     Notice,
@@ -21,6 +22,7 @@ from domains.documents.models import (
 
 _TABLES = [
     DraftDocument.__table__,
+    DraftSentence.__table__,
     DocumentPublication.__table__,
     RevisionLog.__table__,
     UnclassifiedItem.__table__,
@@ -60,7 +62,6 @@ def test_초안_기본값이_DRAFT이고_저장된다():
     assert row.status == DraftStatus.DRAFT.value
     assert row.ai_version == 1
     assert row.version == 1
-    assert row.content == ""
     assert row.author_teacher_id is not None
 
 
@@ -69,7 +70,7 @@ def test_DraftStatus에는_PUBLISHED가_없다():
     # status를 바꾸지 않고 DocumentPublication 행으로만 표현한다.
     assert {status.value for status in DraftStatus} == {
         "draft",
-        "in_review",
+        "verified",
         "approved",
         "revoked",
     }
@@ -95,6 +96,59 @@ def test_다른_문서종류는_같은_원아_같은_날짜여도_허용된다()
     db.flush()  # 예외 없이 통과해야 한다
 
     assert db.query(DraftDocument).count() == 2
+
+
+def _sentence(draft_id, *, sentence_id="s1", position=0) -> DraftSentence:
+    return DraftSentence(
+        draft_id=draft_id, sentence_id=sentence_id, position=position, text="블록을 쌓았어요."
+    )
+
+
+def test_문장은_교사_수정_표시_없이_저장된다():
+    db = _session()
+    draft = _draft()
+    db.add(draft)
+    db.flush()
+
+    db.add(_sentence(draft.id))
+    db.flush()
+
+    row = db.query(DraftSentence).one()
+    assert row.draft_id == draft.id
+    assert row.is_edited_by_teacher is False
+
+
+@pytest.mark.parametrize(
+    "second",
+    [
+        {"sentence_id": "s1", "position": 1},  # 같은 문장 ID
+        {"sentence_id": "s2", "position": 0},  # 같은 표시 순서
+    ],
+)
+def test_한_문서_안에서_문장_ID와_순서는_겹치지_않는다(second):
+    db = _session()
+    draft = _draft()
+    db.add(draft)
+    db.flush()
+    db.add(_sentence(draft.id))
+    db.flush()
+
+    db.add(_sentence(draft.id, **second))
+    with pytest.raises(IntegrityError):
+        db.flush()
+
+
+def test_다른_문서는_같은_문장_ID와_순서를_쓸_수_있다():
+    # sentence_id는 문서 안에서만 유일하다 (#75).
+    db = _session()
+    draft_a, draft_b = _draft(), _draft()
+    db.add_all([draft_a, draft_b])
+    db.flush()
+
+    db.add_all([_sentence(draft_a.id), _sentence(draft_b.id)])
+    db.flush()  # 예외 없이 통과해야 한다
+
+    assert db.query(DraftSentence).count() == 2
 
 
 def _publication(draft_id, *, round_number, request_id, now=None) -> DocumentPublication:
@@ -124,7 +178,7 @@ def test_같은_draft에_같은_요청ID_재전송은_중복_생성되지_않는
 
 
 def test_한_요청ID로_여러_draft를_한번에_게시할_수_있다():
-    # POST /letters/publish는 하나의 request_id로 여러 문서를 함께 게시한다 —
+    # POST /publications는 하나의 request_id로 여러 문서를 함께 게시한다 —
     # publish_request_id 단독 유니크였다면 두 번째 draft부터 막혔을 시나리오.
     db = _session()
     draft_a, draft_b = (
@@ -168,6 +222,7 @@ def test_revision_log은_수정_전후_내용을_남긴다():
             editor_id=uuid4(),
             action=RevisionAction.EDIT.value,
             edit_method=EditMethod.MANUAL.value,
+            target_sentence_id="s2",
             before_content="수정 전 본문",
             after_content="수정 후 본문",
         )
@@ -178,6 +233,8 @@ def test_revision_log은_수정_전후_내용을_남긴다():
     assert row.before_content == "수정 전 본문"
     assert row.after_content == "수정 후 본문"
     assert row.draft_id == draft.id
+    # 고친 문장은 순번이 아니라 sentence_id로 가리킨다 (#75).
+    assert row.target_sentence_id == "s2"
 
 
 def test_revision_log은_승인_회수_재게시도_기록한다():

@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 
@@ -9,7 +9,7 @@ import { fixtureId } from "@/mocks/fixtures/ids";
 import { apiPath, errorResponse } from "@/mocks/http";
 import { server } from "@/mocks/server";
 import { renderRoutes } from "@/test/render";
-import type { PublicationRequest } from "@/types/api-draft/documents";
+import type { DraftPatchRequest, PublicationRequest } from "@/types/api-draft/documents";
 
 import { DraftReviewPage } from "./DraftReviewPage";
 
@@ -118,6 +118,210 @@ describe("DraftReviewPage", () => {
       expect(screen.queryByRole("button", { name: /색색의 블록을 골라/ })).not.toBeInTheDocument(),
     );
     expect(screen.getByRole("button", { name: /모래 놀이터에서/ })).toBeInTheDocument();
+  });
+
+  // 고친 문장도 새 문장처럼 앞뒤 공백을 지워 보낸다(#170 리뷰). 공백만 달라진 문장은 고친 것이 아니다.
+  it("고친 문장은 앞뒤 공백을 지워 보내고, 공백만 바뀐 문장은 보내지 않는다", async () => {
+    const user = userEvent.setup();
+    let sent: DraftPatchRequest | null = null;
+    server.use(
+      http.patch(apiPath("/drafts/:draftId"), async ({ request }) => {
+        sent = (await request.clone().json()) as DraftPatchRequest;
+      }),
+    );
+    await renderAndWait();
+
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    const [first, second] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
+    await user.type(first as HTMLElement, " 오늘도 즐거웠어요.  ");
+    await user.type(second as HTMLElement, "  ");
+    await user.click(screen.getByRole("button", { name: "수정 완료" }));
+
+    await waitFor(() => expect(sent).not.toBeNull());
+    expect(sent!.sentences).toEqual([
+      { sentence_id: expect.any(String), text: expect.stringMatching(/ 오늘도 즐거웠어요\.$/) },
+    ]);
+  });
+
+  // 공백만 남은 문장은 정하지 않은 "문장 삭제"와 같아 저장하지 않는다(#170 리뷰).
+  it("고친 문장을 비우면 저장하지 않고 안내한다", async () => {
+    const user = userEvent.setup();
+    let patched = false;
+    server.use(
+      http.patch(apiPath("/drafts/:draftId"), () => {
+        patched = true;
+      }),
+    );
+    await renderAndWait();
+
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    const [first] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
+    await user.clear(first as HTMLElement);
+    await user.type(first as HTMLElement, "   ");
+    await user.click(screen.getByRole("button", { name: "수정 완료" }));
+
+    expect(screen.getByText(/비어 있는 문장은 저장할 수 없어요/)).toBeInTheDocument();
+    // 수정 중인 그대로 남아 교사가 바로 채울 수 있다.
+    expect(screen.getAllByRole("textbox", { name: "초안 문장 수정" })).not.toHaveLength(0);
+    expect(patched).toBe(false);
+
+    await user.type(first as HTMLElement, "다시 쓴 문장이에요.");
+    expect(screen.queryByText(/비어 있는 문장은 저장할 수 없어요/)).not.toBeInTheDocument();
+  });
+
+  // 안내는 그 원아의 편집에 딸린 것이라 다른 원아 화면에 남으면 안 된다(#206 멘토님 리뷰).
+  it("빈 문장 안내를 띄운 뒤 다른 원아로 바꾸면 안내가 사라진다", async () => {
+    const user = userEvent.setup();
+    await renderAndWait();
+
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    const [first] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
+    await user.clear(first as HTMLElement);
+    await user.click(screen.getByRole("button", { name: "수정 완료" }));
+    expect(screen.getByText(/비어 있는 문장은 저장할 수 없어요/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /이하준/ }));
+
+    // 이하준은 시드에서 승인 완료라, 그 초안이 열리면 "다시 검토하기"가 보인다.
+    expect(await screen.findByRole("button", { name: "다시 검토하기" })).toBeInTheDocument();
+    expect(screen.queryByText(/비어 있는 문장은 저장할 수 없어요/)).not.toBeInTheDocument();
+  });
+
+  // 문장 ID는 초안마다 s1부터 같아서, 뒤로 가기에 고치던 문장이 남으면 다른 원아 초안에 저장된다.
+  it("뒤로 가기로 원아가 바뀌어도 고치던 문장과 안내가 따라오지 않는다", async () => {
+    const user = userEvent.setup();
+    const { router } = renderPage(fixtureId("child", 2)); // 이하준에서 김도윤으로 갔다가 뒤로 돌아온다
+    await screen.findByRole("button", { name: /이하준/ });
+    await user.click(screen.getByRole("button", { name: /김도윤/ }));
+    await screen.findByRole("heading", { name: /작은 블록/ });
+
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    const [first] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
+    await user.clear(first as HTMLElement);
+    await user.click(screen.getByRole("button", { name: "수정 완료" }));
+    expect(screen.getByText(/비어 있는 문장은 저장할 수 없어요/)).toBeInTheDocument();
+
+    await act(() => router.navigate(-1));
+
+    expect(await screen.findByRole("button", { name: "다시 검토하기" })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "초안 문장 수정" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/비어 있는 문장은 저장할 수 없어요/)).not.toBeInTheDocument();
+  });
+
+  // 요청 상태는 원아를 바꿔도 남아서, 거르지 않으면 앞 원아의 저장 실패가 다음 원아 화면에 뜬다.
+  it("저장에 실패한 뒤 다른 원아로 바꾸면 그 실패 문구가 따라오지 않는다", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.patch(apiPath("/drafts/:draftId"), () =>
+        errorResponse(500, "INTERNAL_ERROR", "저장하지 못했어요."),
+      ),
+    );
+    await renderAndWait();
+
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    const [first] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
+    await user.type(first as HTMLElement, " 더 적었어요.");
+    await user.click(screen.getByRole("button", { name: "수정 완료" }));
+    expect(await screen.findByText("저장하지 못했어요.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /이하준/ }));
+
+    expect(await screen.findByRole("button", { name: "다시 검토하기" })).toBeInTheDocument();
+    expect(screen.queryByText("저장하지 못했어요.")).not.toBeInTheDocument();
+  });
+
+  it("승인에 실패한 뒤 다른 원아로 바꾸면 그 실패 문구가 따라오지 않는다", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post(apiPath("/drafts/:draftId/approve"), () =>
+        errorResponse(500, "INTERNAL_ERROR", "승인하지 못했어요."),
+      ),
+    );
+    await renderAndWait();
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    expect(await screen.findByText("승인하지 못했어요.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /이하준/ }));
+
+    expect(await screen.findByRole("button", { name: "다시 검토하기" })).toBeInTheDocument();
+    expect(screen.queryByText("승인하지 못했어요.")).not.toBeInTheDocument();
+  });
+
+  // 앞 원아에서 누른 확인 체크가 뒤로 가기로 돌아간 원아에 남으면, 보지 않은 초안이 승인된다(H-1).
+  it("뒤로 가기로 원아가 바뀌면 확인 체크도 풀린다", async () => {
+    const user = userEvent.setup();
+    const { router } = renderPage(fixtureId("child", 2)); // 이하준(승인 완료)을 되돌려 검토 대기로 둔다
+    await user.click(await screen.findByRole("button", { name: "다시 검토하기" }));
+    await waitFor(() => expect(screen.getByRole("checkbox")).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: /김도윤/ }));
+    await screen.findByRole("heading", { name: /작은 블록/ });
+    await user.click(screen.getByRole("checkbox"));
+    expect(screen.getByRole("checkbox")).toBeChecked();
+
+    await act(() => router.navigate(-1));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: /작은 블록/ })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("checkbox")).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "검토 완료하고 승인하기" })).toBeDisabled();
+  });
+
+  // 버전 충돌 뒤 새로 불러온 본문은 교사가 아직 보지 않았으므로 확인 체크를 다시 받아야 한다(H-1).
+  it("승인하다 버전이 밀려 본문을 새로 불러오면 확인 체크가 풀린다", async () => {
+    const user = userEvent.setup();
+    await renderAndWait();
+    await user.click(screen.getByRole("checkbox"));
+    // 다른 곳에서 먼저 고쳐 버전이 오른 상황입니다.
+    updateDb((db) => {
+      const draft = Object.values(db.drafts).find(
+        (item) =>
+          item.child_id === DOYUN &&
+          item.record_date === YESTERDAY &&
+          item.doc_type === "parent_note",
+      );
+      const first = draft?.sentences[0];
+      if (!draft || !first) throw new Error("김도윤 초안이 시드에 없습니다.");
+      draft.version += 1;
+      first.text = "다른 곳에서 고친 첫 문장이에요.";
+    });
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+
+    expect(await screen.findByText("다른 곳에서 고친 첫 문장이에요.")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox")).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "검토 완료하고 승인하기" })).toBeDisabled();
+  });
+
+  // 같은 원아라도 날짜가 바뀌면 다른 초안이라, 돌아와도 고치던 문장이 남으면 안 된다.
+  it("기록 날짜를 바꿨다가 돌아오면 고치던 문장이 남지 않는다", async () => {
+    const user = userEvent.setup();
+    const { router } = renderPage();
+    await screen.findByRole("heading", { name: /작은 블록/ });
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    expect(screen.getAllByRole("textbox", { name: "초안 문장 수정" })).not.toHaveLength(0);
+
+    await act(() =>
+      router.navigate(`/t/today/review/${DOYUN}?record_date=${shiftDate(YESTERDAY, -1)}`),
+    );
+    await act(() => router.navigate(-1));
+
+    await screen.findByRole("heading", { name: /작은 블록/ });
+    expect(screen.queryByRole("textbox", { name: "초안 문장 수정" })).not.toBeInTheDocument();
+  });
+
+  // 지금 원아를 다시 누르는 것은 원아를 바꾸는 것이 아니므로 고치던 문장을 지우지 않는다.
+  it("레일에서 지금 원아를 다시 눌러도 고치던 문장이 그대로다", async () => {
+    const user = userEvent.setup();
+    await renderAndWait();
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    const [first] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
+    await user.type(first as HTMLElement, " 덧붙인 말");
+
+    await user.click(screen.getByRole("button", { name: /김도윤/ }));
+
+    const [after] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
+    expect((after as HTMLTextAreaElement).value).toMatch(/ 덧붙인 말$/);
   });
 
   // 교사가 새로 쓴 문장은 원문 근거가 없으므로 밑줄·클릭 없이 문단으로만 보인다.
@@ -335,6 +539,105 @@ describe("DraftReviewPage", () => {
       await screen.findByText(/김도윤.*게시하지 못했어요|게시하지 못했어요.*김도윤/),
     ).toBeInTheDocument();
     expect(router.state.location.pathname).not.toBe("/t/notes/publish/done");
+  });
+
+  // 게시는 날짜 단위라 건별 실패도 그 날짜의 결과입니다. 다른 날짜에 남으면 그날 게시가 실패한 것처럼
+  // 보입니다. 같은 날짜로 돌아오면 다시 보여 줍니다 — 아직 못 올린 원아가 있다는 사실은 그대로입니다.
+  it("게시 건별 실패는 다른 날짜에서는 보이지 않고, 돌아오면 다시 보인다", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post(apiPath("/publications"), async ({ request }) => {
+        const body = (await request.json()) as PublicationRequest;
+        return HttpResponse.json({
+          results: body.items.map((item, index) => ({
+            draft_id: item.draft_id,
+            child_id: index === 0 ? DOYUN : fixtureId("child", 2),
+            status: index === 0 ? "failed" : "published",
+            parent_note_id: index === 0 ? null : item.draft_id,
+            version: null,
+            published_at: null,
+            error_code: index === 0 ? "DRAFT_VERSION_CONFLICT" : null,
+          })),
+        });
+      }),
+    );
+    const { router } = renderPage();
+    await screen.findByRole("heading", { name: /작은 블록/ });
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+    await user.click(await screen.findByRole("button", { name: "게시하기" }));
+    expect(await screen.findByText(/게시하지 못했어요/)).toBeInTheDocument();
+
+    await act(() =>
+      router.navigate(`/t/today/review/${DOYUN}?record_date=${shiftDate(YESTERDAY, -1)}`),
+    );
+    expect(screen.queryByText(/게시하지 못했어요/)).not.toBeInTheDocument();
+
+    await act(() => router.navigate(-1));
+    expect(await screen.findByText(/게시하지 못했어요/)).toBeInTheDocument();
+  });
+
+  // 모달에서 뺀 원아는 그 날짜의 게시에서만 뺀 것입니다. 날짜가 바뀌면 교사는 다시 모두 보내는
+  // 상태라고 여기므로, 날짜를 오가면 빼 둔 선택을 지웁니다.
+  it("게시 모달에서 뺀 원아는 날짜를 바꿨다 돌아오면 다시 포함된다", async () => {
+    const user = userEvent.setup();
+    const { router } = renderPage();
+    await screen.findByRole("heading", { name: /작은 블록/ });
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+    await user.click(await screen.findByRole("checkbox", { name: "최지우 게시" }));
+    expect(screen.getByRole("checkbox", { name: "최지우 게시" })).not.toBeChecked();
+    await user.click(screen.getByRole("button", { name: "취소" }));
+
+    await act(() =>
+      router.navigate(`/t/today/review/${DOYUN}?record_date=${shiftDate(YESTERDAY, -1)}`),
+    );
+    await act(() => router.navigate(-1));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+
+    expect(await screen.findByRole("checkbox", { name: "최지우 게시" })).toBeChecked();
+  });
+
+  // 서버는 초안의 원아로 권한을 보므로 게시 실패 코드가 CLASS_가 아니라 CHILD_로 옵니다
+  // (`_publish_one` → `_draft_for_teacher` → `ensure_child_access`). 표에 없으면 교사에게
+  // 코드가 그대로 보여서 무엇이 막혔는지 알 수 없습니다.
+  it("권한 때문에 실패하면 서버가 주는 CHILD_ 코드를 교사 말로 바꿔 보여 준다", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post(apiPath("/publications"), async ({ request }) => {
+        const body = (await request.json()) as PublicationRequest;
+        return HttpResponse.json({
+          results: body.items.map((item) => ({
+            draft_id: item.draft_id,
+            child_id: DOYUN,
+            status: "failed",
+            parent_note_id: null,
+            version: null,
+            published_at: null,
+            error_code: "CHILD_ACCESS_DENIED",
+          })),
+        });
+      }),
+    );
+    renderPage();
+    await screen.findByRole("button", { name: /김도윤/ });
+    await screen.findByRole("heading", { name: /작은 블록/ });
+
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+    await user.click(await screen.findByRole("button", { name: "게시하기" }));
+
+    expect(await screen.findByText(/김도윤: 이 아이의 기록은 다룰 수 없어요/)).toBeInTheDocument();
+    expect(screen.queryByText(/CHILD_ACCESS_DENIED/)).not.toBeInTheDocument();
   });
 
   // 한 명만 게시돼도 날짜가 닫히면, 실패한 원아를 다시 올릴 방법이 없어집니다.

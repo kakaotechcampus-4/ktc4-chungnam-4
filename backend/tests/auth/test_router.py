@@ -203,8 +203,11 @@ def test_로그아웃은_같은_이름과_Path로_쿠키를_만료시킨다(clie
     assert response.status_code == 204
     set_cookie = response.headers["set-cookie"]
     assert set_cookie.startswith(f"{SESSION_COOKIE_NAME}=")
-    assert "Path=/" in set_cookie
-    assert "Max-Age=0" in set_cookie
+    # 브라우저는 Secure가 빠진 __Host- 쿠키의 Set-Cookie를 버립니다. 속성이 하나라도 빠지면
+    # 로그아웃이 오류 없이 실패하므로 로그인 때와 같은 속성을 모두 확인합니다 (#136 리뷰).
+    for attribute in ("Path=/", "Max-Age=0", "Secure", "HttpOnly", "SameSite=lax"):
+        assert attribute in set_cookie
+    assert "Domain" not in set_cookie
     assert client.get("/api/v1/me").status_code == 401
 
 
@@ -219,7 +222,7 @@ def test_학부모가_교사_경로에_들어오면_ROLE_NOT_ALLOWED(client, db)
     _parent(db)
     _login(client, "parent@example.com")
 
-    response = client.get(f"/drafts/{uuid.uuid4()}")
+    response = client.get(f"/api/v1/drafts/{uuid.uuid4()}")
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "ROLE_NOT_ALLOWED"
@@ -229,14 +232,14 @@ def test_교사가_학부모_경로에_들어오면_ROLE_NOT_ALLOWED(client, db)
     _teacher(db)
     _login(client, "teacher@example.com")
 
-    response = client.get("/parent/letters")
+    response = client.get(f"/api/v1/children/{uuid.uuid4()}/parent-notes")
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "ROLE_NOT_ALLOWED"
 
 
 def test_로그인하지_않으면_교사_경로도_UNAUTHENTICATED(client):
-    response = client.get(f"/drafts/{uuid.uuid4()}")
+    response = client.get(f"/api/v1/drafts/{uuid.uuid4()}")
 
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "UNAUTHENTICATED"

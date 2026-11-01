@@ -6,9 +6,9 @@
 
 | 파일 | 내용 |
 | --- | --- |
-| `models.py` | `DraftDocument`, `RevisionLog`, `UnclassifiedItem`, `Notice` |
+| `models.py` | `DraftDocument`(선택 사진 `selected_media_ids` 포함), `DraftSentence`(본문 문장), `DocumentPublication`(게시 회차, `include_photos`), `RevisionLog`, `UnclassifiedItem`, `Notice` |
 | `schemas.py` | 검토·수정·승인 요청, 교사용/학부모용 응답 |
-| `router.py` | `/documents` 엔드포인트 |
+| `router.py` | `/api/v1` 아래 `/drafts`·`/publications`·`/parent-notes` 엔드포인트 (경로는 `docs/api/documents.md`) |
 | `service.py` | 교사 검토·수정·승인·회수, 학부모 열람 |
 
 ## 규칙
@@ -30,6 +30,6 @@
 
 ## 다른 도메인과의 관계
 
-- `agents`: 초안 생성 결과 수신
+- `agents`: 초안 생성 결과 수신(`save_draft`). 재생성 전에는 `get_draft_version`으로 기존 초안의 버전·상태·교사 수정 여부를 읽습니다(#75)
 - `organization`: `Child`, 학부모–원아 관계로 열람 권한 판단
 - `audit`: 열람 로그

@@ -1,13 +1,13 @@
 // API 문서 §documents(확정 한상균, 교사용 김진하·학부모용 송유진)를 옮긴 임시 타입입니다.
-// develop의 documents 라우터(PR #14)는 경로·필드·status가 이 문서와 다릅니다(API 문서의 차이 표).
-// 어느 쪽에 맞출지 정해질 때까지 FE는 API 문서를 따릅니다(#51 3번).
+// develop의 documents 라우터는 경로(#164)와 status·문장 ID(#139)가 이 문서와 같아졌고, 상세·수정·게시·
+// 학부모 응답 필드는 아직 다릅니다(API 문서의 차이 표). 다른 곳은 FE가 API 문서를 따릅니다(#51 3번).
 
 import type { MediaUrl } from "./media";
 
 export type DocType = "observation_log" | "parent_note";
 
-/** (막힘) 테크스펙 제안 4값. develop 코드는 draft·in_review·approved·revoked입니다. */
-export type DraftStatus = "draft" | "verified" | "approved" | "unclassified";
+/** 서버 4값(#139, #106). `revoked`는 게시 회수입니다. */
+export type DraftStatus = "draft" | "verified" | "approved" | "revoked";
 
 export type EvidenceSourceType =
   "photo_observation" | "video_speech" | "video_scene" | "teacher_voice_memo" | "activity_plan";
@@ -50,9 +50,11 @@ export interface Evidence {
 }
 
 export interface Sentence {
-  /** 0부터 셉니다 */
-  sentence_index: number;
+  /** 초안 안에서만 유일한 문자열(AI 문장 `s1`…, 교사가 쓴 문장 `t1`…). FE는 모양을 해석하지 않습니다 */
+  sentence_id: string;
   text: string;
+  /** 교사가 고친 문장. true면 evidences는 빈 배열입니다 */
+  is_edited_by_teacher: boolean;
   evidences: Evidence[];
 }
 
@@ -98,7 +100,7 @@ export interface DraftCreateRequest {
 export interface DraftPatchRequest {
   expected_version: number;
   /** 바뀐 문장만. 고친 문장은 응답에서 evidences가 빈 배열이 됩니다 */
-  sentences?: { sentence_index: number; text: string }[];
+  sentences?: { sentence_id: string; text: string }[];
   /** 새로 쓴 문장. 맨 뒤에 이어 붙고 evidences는 비어 있습니다 — 임시 결정(김진하) */
   added_sentences?: { text: string }[];
   selected_media_ids?: string[];
@@ -154,7 +156,7 @@ export interface ParentNoteList {
   items: ParentNoteSummary[];
   next_cursor: string | null;
   unread_count: number;
-  /** (제안) KST 기준 이번 달 게시 수 */
+  /** (제안) 기록 날짜가 KST 기준 이번 달인 게시본 수. 게시 시각으로 세지 않습니다. */
   this_month_count: number;
 }
 

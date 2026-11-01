@@ -1,6 +1,6 @@
 import { http, HttpResponse } from "msw";
 
-import { kstToday, toKstDate } from "@/lib/datetime";
+import { kstToday } from "@/lib/datetime";
 import type {
   ChildDraftItem,
   ClassDraftItem,
@@ -29,11 +29,18 @@ import { MOCK_PARENT_ID, requireParent, requireTeacher, requireTeacherOfClass } 
 import { apiPath, errorResponse, validationError } from "../http";
 import { isMockScenario } from "../scenario";
 
-// API 문서 §documents 목입니다(교사용 /drafts, 학부모용 /parent-notes). develop의 documents 라우터(PR #14)와
-// 경로·필드·status가 다른 곳은 API 문서를 따릅니다. 게시 여부는 status가 아니라 published_at으로 나타냅니다.
+// API 문서 §documents 목입니다(교사용 /drafts, 학부모용 /parent-notes). 경로(#164)와 status·문장 ID(#139)는
+// develop의 documents 라우터와 같고, 필드가 다른 곳은 API 문서를 따릅니다. 게시 여부는 status가 아니라
+// published_at으로 나타냅니다.
 // 시나리오: documents.drafts-empty(반·날짜 초안 목록이 비어 있음)
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** 교사가 쓴 문장(t1, t2…)의 다음 번호. 지운 문장 번호를 다시 쓰지 않게 최댓값 다음으로 둡니다 */
+function nextTeacherSentenceNo(sentences: readonly { sentence_id: string }[]) {
+  const used = sentences.map((sentence) => /^t(\d+)$/.exec(sentence.sentence_id)?.[1]);
+  return Math.max(0, ...used.map((no) => Number(no ?? 0))) + 1;
+}
 
 function summary(draft: DraftRecord): DraftSummary {
   return {
@@ -227,7 +234,7 @@ export const handlers = [
       const draft = db.drafts[String(params.draftId)];
       if (!draft) return errorResponse(404, "DRAFT_NOT_FOUND", "초안을 찾을 수 없어요.");
       if (draft.class_id !== SUNSHINE_CLASS.class_id) {
-        return errorResponse(403, "CLASS_ACCESS_DENIED", "이 반을 볼 수 없어요.");
+        return errorResponse(403, "CHILD_ACCESS_DENIED", "이 아이의 기록은 볼 수 없어요.");
       }
       if (draft.status === "draft") {
         return errorResponse(409, "DRAFT_NOT_READY", "아직 초안을 만들고 있어요.");
@@ -243,8 +250,9 @@ export const handlers = [
         );
       }
       const edits = body.sentences ?? [];
-      if (edits.some((edit) => !draft.sentences[edit.sentence_index])) {
-        return errorResponse(400, "INVALID_SENTENCE_INDEX", "없는 문장이에요.");
+      const byId = new Map(draft.sentences.map((sentence) => [sentence.sentence_id, sentence]));
+      if (edits.some((edit) => !byId.has(edit.sentence_id))) {
+        return errorResponse(400, "INVALID_SENTENCE_ID", "없는 문장이에요.");
       }
       const selected = body.selected_media_ids;
       if (
@@ -255,17 +263,21 @@ export const handlers = [
         return errorResponse(400, "MEDIA_NOT_LINKED_TO_CHILD", "이 원아의 사진이 아니에요.");
       }
       for (const edit of edits) {
-        const sentence = draft.sentences[edit.sentence_index];
+        const sentence = byId.get(edit.sentence_id);
         if (!sentence || sentence.text === edit.text) continue;
         sentence.text = edit.text;
+        sentence.is_edited_by_teacher = true;
         // 교사가 고친 문장은 원문 발화가 뒷받침한다고 볼 수 없어 근거를 끊습니다(임시 결정(김진하)).
         sentence.evidences = [];
       }
       // 새로 쓴 문장은 맨 뒤에 이어 붙입니다. 교사가 쓴 글이라 근거가 없습니다.
+      // ID는 서버처럼 그 문서의 t 번호 최댓값 다음부터 붙입니다(API 문서 §PATCH).
+      let nextTeacherNo = nextTeacherSentenceNo(draft.sentences);
       for (const added of body.added_sentences ?? []) {
         draft.sentences.push({
-          sentence_index: draft.sentences.length,
+          sentence_id: `t${nextTeacherNo++}`,
           text: added.text,
+          is_edited_by_teacher: false,
           evidences: [],
         });
       }
@@ -288,7 +300,7 @@ export const handlers = [
     }
     const childId = String(params.childId);
     if (!SUNSHINE_CHILDREN.some((child) => child.child_id === childId)) {
-      return errorResponse(403, "CLASS_ACCESS_DENIED", "이 반을 볼 수 없어요.");
+      return errorResponse(403, "CHILD_ACCESS_DENIED", "이 아이의 기록은 볼 수 없어요.");
     }
     return updateDb((db) => {
       const exists = Object.values(db.drafts).some(
@@ -311,8 +323,9 @@ export const handlers = [
         version: 1,
         title: body.title ?? null,
         sentences: sentences.map((sentence, index) => ({
-          sentence_index: index,
+          sentence_id: `t${index + 1}`,
           text: sentence.text,
+          is_edited_by_teacher: false,
           evidences: [],
         })),
         selected_media_ids: [],
@@ -347,7 +360,7 @@ export const handlers = [
       const draft = db.drafts[String(params.draftId)];
       if (!draft) return errorResponse(404, "DRAFT_NOT_FOUND", "초안을 찾을 수 없어요.");
       if (draft.class_id !== SUNSHINE_CLASS.class_id) {
-        return errorResponse(403, "CLASS_ACCESS_DENIED", "이 반을 볼 수 없어요.");
+        return errorResponse(403, "CHILD_ACCESS_DENIED", "이 아이의 기록은 볼 수 없어요.");
       }
       if (draft.version !== body.expected_version) {
         return errorResponse(
@@ -384,7 +397,7 @@ export const handlers = [
       const draft = db.drafts[String(params.draftId)];
       if (!draft) return errorResponse(404, "DRAFT_NOT_FOUND", "초안을 찾을 수 없어요.");
       if (draft.class_id !== SUNSHINE_CLASS.class_id) {
-        return errorResponse(403, "CLASS_ACCESS_DENIED", "이 반을 볼 수 없어요.");
+        return errorResponse(403, "CHILD_ACCESS_DENIED", "이 아이의 기록은 볼 수 없어요.");
       }
       if (draft.version !== body.expected_version) {
         return errorResponse(
@@ -439,7 +452,7 @@ export const handlers = [
         });
         let result: PublicationResult;
         if (!draft) result = failed("DRAFT_NOT_FOUND");
-        else if (draft.class_id !== SUNSHINE_CLASS.class_id) result = failed("CLASS_ACCESS_DENIED");
+        else if (draft.class_id !== SUNSHINE_CLASS.class_id) result = failed("CHILD_ACCESS_DENIED");
         else if (draft.doc_type !== "parent_note") result = failed("NOT_PARENT_NOTE");
         else if (draft.status !== "approved") result = failed("DRAFT_NOT_APPROVED");
         else if (draft.version !== item.expected_version) result = failed("DRAFT_VERSION_CONFLICT");
@@ -499,9 +512,8 @@ export const handlers = [
       items,
       next_cursor: offset + limit < notes.length ? String(offset + limit) : null,
       unread_count: notes.filter((draft) => !db.readParentNotes.includes(draft.draft_id)).length,
-      this_month_count: notes.filter(
-        (draft) => toKstDate(draft.published_at as string).slice(0, 7) === thisMonth,
-      ).length,
+      // 게시 시각이 아니라 기록 날짜(KST)로 셉니다(API 문서 §학부모 목록, #174).
+      this_month_count: notes.filter((draft) => draft.record_date.slice(0, 7) === thisMonth).length,
     });
   }),
 

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from core.base import Base
 from core.exceptions import (
+    CenterNotFound,
     ChildAccessDenied,
     ChildNotFound,
     ChildNotInClass,
@@ -15,9 +16,12 @@ from core.exceptions import (
 )
 from domains.organization.models import Center, Child, ConsentRecord, Klass
 from domains.organization.service import (
+    CenterSummary,
     ensure_child_access,
     ensure_children_in_class,
     ensure_class_access,
+    find_center_by_code,
+    get_class_child_names,
     get_consented_children,
     has_consent,
 )
@@ -54,10 +58,10 @@ def _class(db: Session, center_id: UUID | None = None) -> UUID:
     return klass.id
 
 
-def _child(db: Session, class_id: UUID, *, status: str = "enrolled") -> UUID:
+def _child(db: Session, class_id: UUID, *, status: str = "enrolled", name: str = "김하늘") -> UUID:
     child = Child(
         class_id=class_id,
-        name="김하늘",
+        name=name,
         birth_date=date(2021, 5, 1),
         status=status,
         enrolled_at=date(2025, 3, 1),
@@ -283,3 +287,66 @@ def test_원아_한_명이_철회_후_다시_동의하면_True():
     _consent(db, child_id)
 
     assert has_consent(db, child_id, FACE) is True
+
+
+def test_가입_코드로_어린이집을_찾는다():
+    db = _session()
+    center = Center(center_code="SUN1234", name="햇살어린이집", contract_status="active")
+    db.add(center)
+    db.add(Center(center_code="MOON5678", name="달님어린이집", contract_status="trial"))
+    db.flush()
+
+    assert find_center_by_code(db, "SUN1234") == CenterSummary(
+        center_id=center.id, name="햇살어린이집"
+    )
+
+
+def test_없는_가입_코드는_CENTER_NOT_FOUND():
+    db = _session()
+    _center(db)
+
+    with pytest.raises(CenterNotFound):
+        find_center_by_code(db, "NOPE0000")
+
+
+def test_가입_코드는_정확히_일치해야_찾는다():
+    db = _session()
+    db.add(Center(center_code="SUN1234", name="햇살어린이집", contract_status="active"))
+    db.flush()
+
+    with pytest.raises(CenterNotFound):
+        find_center_by_code(db, "SUN123")
+
+
+def test_반_원아_이름은_호칭이_먼저고_성명이_뒤에_온다():
+    db = _session()
+    class_id = _class(db)
+    child_id = _child(db, class_id, name="김민준")
+
+    assert get_class_child_names(db, class_id) == {child_id: ["민준", "김민준"]}
+
+
+@pytest.mark.parametrize("name", ["김솔", "남궁민준", "Kim Minjun"])
+def test_세_글자가_아닌_이름은_성명만_돌려준다(name):
+    db = _session()
+    class_id = _class(db)
+    child_id = _child(db, class_id, name=name)
+
+    assert get_class_child_names(db, class_id) == {child_id: [name]}
+
+
+def test_졸업_퇴소_원아의_이름도_넣고_다른_반은_뺀다():
+    db = _session()
+    class_id = _class(db)
+    enrolled = _child(db, class_id, name="김민준")
+    graduated = _child(db, class_id, status="graduated", name="이서아")
+    withdrawn = _child(db, class_id, status="withdrawn", name="박도윤")
+    _child(db, _class(db), name="최하준")
+
+    assert set(get_class_child_names(db, class_id)) == {enrolled, graduated, withdrawn}
+
+
+def test_원아가_없는_반은_빈_딕셔너리():
+    db = _session()
+
+    assert get_class_child_names(db, _class(db)) == {}

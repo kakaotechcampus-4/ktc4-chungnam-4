@@ -188,3 +188,46 @@ def get_profile(db: Session, token: TokenPayload) -> TeacherProfile | ParentProf
         name=parent.name,
         parent_id=parent.id,
     )
+
+
+def account_exists(db: Session, email: str) -> bool:
+    """이 이메일로 가입한 계정이 있는지. 시드처럼 같은 계정을 두 번 만들지 않을 때 씁니다."""
+    return db.scalar(select(Account.id).where(Account.email == normalize_email(email))) is not None
+
+
+def create_teacher_account(
+    db: Session, *, email: str, password: str, name: str, center_id: uuid.UUID | None
+) -> Teacher:
+    """교사 계정과 프로필을 함께 만듭니다. 커밋은 호출하는 쪽이 합니다.
+
+    center_id는 가입 코드로 확인한 값만 넘깁니다 — 이 함수는 소속을 검증하지 않습니다
+    (FR-23, #148 리뷰: POST /accounts가 find_center_by_code로 다시 정함).
+    """
+    account = _new_account(db, email=email, password=password, account_type=AccountType.TEACHER)
+    teacher = Teacher(account_id=account.id, name=name, center_id=center_id)
+    db.add(teacher)
+    db.flush()
+    return teacher
+
+
+def create_parent_account(db: Session, *, email: str, password: str, name: str) -> Parent:
+    """학부모 계정과 프로필을 함께 만듭니다. 커밋은 호출하는 쪽이 합니다.
+
+    TODO(엄태은): 초대 링크로 가입하며 동의하는 흐름(FR-28)이 정해지면 그 경로에서만 부릅니다.
+    """
+    account = _new_account(db, email=email, password=password, account_type=AccountType.PARENT)
+    parent = Parent(account_id=account.id, name=name)
+    db.add(parent)
+    db.flush()
+    return parent
+
+
+def _new_account(db: Session, *, email: str, password: str, account_type: AccountType) -> Account:
+    account = Account(
+        email=normalize_email(email),
+        password_hash=hash_password(password),
+        account_type=account_type.value,
+    )
+    db.add(account)
+    db.flush()
+    return account

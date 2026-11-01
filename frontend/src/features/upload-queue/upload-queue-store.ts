@@ -39,7 +39,7 @@ export interface LocalPhoto extends LocalMediaBase {
   assigned_child_ids: string[];
   excluded_reason: ExcludedReason | null;
   /**
-   * 이 사진을 외부 LLM 근거로 써도 되는지. 귀속 저장(child-links)에 필수로 싣습니다.
+   * 이 사진을 외부 LLM 근거로 써도 되는지. 사진 업로드 완료 통지(POST /media)에 귀속과 함께 필수로 싣습니다.
    * 옆 반 아이·외부 성인·미동의 원아가 남아 있으면 false입니다(H-2). 교사가 정하기 전에는 false로 둡니다.
    */
   llm_allowed: boolean;

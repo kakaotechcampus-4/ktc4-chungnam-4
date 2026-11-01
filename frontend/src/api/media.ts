@@ -1,6 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 
-import { api, putToUploadUrl } from "@/lib/api-client";
+import { ApiError, api, putToUploadUrl } from "@/lib/api-client";
 import type { ListResponse } from "@/types/api-draft/common";
 import type {
   ChildLinksResponse,
@@ -54,8 +54,9 @@ export type {
 } from "./media-view";
 
 // 업로드·재생 URL·얼굴 임베딩 요청과 query key는 이 파일에서만 만듭니다(frontend/CLAUDE.md §데이터).
-// 업로드 순서(API 문서 §media): requestUploadUrls → uploadFile → completeUpload → saveChildLinks.
-// 실패한 파일은 같은 순서를 다시 밟습니다. URL을 새로 받고, 이미 완료 통지된 파일은 media_id가 와서 건너뜁니다.
+// 업로드 순서(API 문서 §media): requestUploadUrls → uploadFile → completeUpload.
+// 사진은 completeUpload에 귀속을 함께 싣고, 영상·음성만 그 뒤에 saveChildLinks로 귀속을 저장합니다.
+// 실패한 파일은 같은 순서를 다시 밟습니다. URL을 새로 받고, 이미 완료 통지된 파일은 registered로 와서 S3 PUT을 건너뜁니다.
 export const mediaKeys = {
   detail: (mediaId: string) => ["media", mediaId] as const,
   faceEmbeddings: (classId: string) => ["classes", classId, "face-embeddings"] as const,
@@ -65,20 +66,61 @@ export const mediaKeys = {
 /** (임시 결정) 서버 STT가 끝날 때까지 발화 구간을 다시 받는 간격 */
 export const TRANSCRIPT_POLL_INTERVAL_MS = 2000;
 
-/** 여러 파일의 업로드 URL을 한 번에 받습니다. 형식이 틀린 파일이 하나라도 있으면 전체가 MEDIA_TYPE_NOT_ALLOWED입니다. */
-export async function requestUploadUrls(input: UploadUrlsInput) {
-  return toUploadUrlsView(
-    await api.post<UploadUrlsResponse>("/media/upload-urls", toUploadUrlsBody(input)),
-  );
+const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  heic: "image/heic",
+  heif: "image/heic",
+  mp4: "video/mp4",
+  mov: "video/quicktime",
+  m4a: "audio/mp4",
+  wav: "audio/wav",
+};
+
+/**
+ * 업로드 URL 요청에 실을 형식. 브라우저가 형식을 모르면(HEIC 등) file.type이 빈 값이라 서버가
+ * MEDIA_TYPE_NOT_ALLOWED로 거절하므로, 빈 값이면 확장자로 채웁니다(API 문서 §media).
+ */
+export function uploadContentType(file: { name: string; type: string }) {
+  if (file.type) return file.type;
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  return CONTENT_TYPE_BY_EXTENSION[extension] ?? "";
 }
 
-/** 받은 URL로 파일을 올립니다. media_id가 이미 있는 항목(등록된 파일)은 부르지 않습니다. 화면은 File을 넘깁니다. */
+/** 서버가 upload-urls 한 번에 받는 파일 수. 넘으면 400 UPLOAD_BATCH_TOO_LARGE입니다(API 문서 §media, 임시 결정(김동건)). */
+export const UPLOAD_URLS_BATCH_SIZE = 10;
+
+/**
+ * 여러 파일의 업로드 URL을 받습니다. 서버 상한에 맞춰 10개씩 나눠 요청하고 결과를 요청 순서대로 합칩니다.
+ * 형식이 틀린 파일은 그 파일만 status가 error로 오고, 나머지는 그대로 발급됩니다.
+ */
+export async function requestUploadUrls(input: UploadUrlsInput) {
+  const items: UploadUrlsResponse["items"] = [];
+  // 빈 목록도 한 번은 보냅니다. 권한·검증 오류를 서버가 판정하게 하려는 것입니다.
+  for (let start = 0; start === 0 || start < input.items.length; start += UPLOAD_URLS_BATCH_SIZE) {
+    const batch = { ...input, items: input.items.slice(start, start + UPLOAD_URLS_BATCH_SIZE) };
+    const response = await api.post<UploadUrlsResponse>(
+      "/media/upload-urls",
+      toUploadUrlsBody(batch),
+    );
+    items.push(...response.items);
+  }
+  return toUploadUrlsView({ items });
+}
+
+/**
+ * 받은 URL로 파일을 올립니다. 이미 등록된 파일(registered)은 올리지 않으므로 타입에서 받지 않습니다.
+ * 화면은 File을 넘깁니다. 서버가 그 파일만 거절한 항목(status error)이면 서버 사유로 ApiError를 던집니다
+ * (API 문서 §media). 쓸 수 없는 응답(unknown)이면 올리지 않고 멈춥니다.
+ */
 export function uploadFile(
-  item: UploadTicketView,
+  item: Exclude<UploadTicketView, { status: "registered" }>,
   file: Blob | Uint8Array<ArrayBuffer>,
   signal?: AbortSignal,
 ) {
-  if (!item.upload_url) throw new Error("업로드 URL이 없는 항목입니다(이미 등록된 파일).");
+  if (item.status === "error") throw new ApiError(400, item.error.code, item.error.message);
+  if (item.status === "unknown") throw new Error("이 파일의 업로드 URL을 받지 못했어요.");
   return putToUploadUrl(item.upload_url, item.upload_headers, file, signal);
 }
 

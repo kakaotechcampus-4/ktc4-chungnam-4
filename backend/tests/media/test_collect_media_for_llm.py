@@ -222,3 +222,25 @@ def test_datetime을_받아도_한국_날짜로_읽는다(db: Session) -> None:
     target = datetime(2026, 9, 14, 15, 0, tzinfo=UTC)
 
     assert ids(service.collect_media_for_llm(db, DOYUN, target)) == [kept.id]
+
+
+def test_귀속된_원아_전원과_귀속_방법을_함께_싣는다(db: Session) -> None:
+    # 사진 분석이 사진별 아이 수를 알아야 해서 대상 원아 말고 함께 찍힌 원아도 싣습니다.
+    # 예린을 ③ 동의로 바꿔 함께 찍힌 사진이 근거에 남게 합니다.
+    friend = YERIN
+    add_consent(db, friend)
+    asset = add_media(db, [DOYUN])
+    db.add(MediaChildLink(media_id=asset.id, child_id=friend, method="face_recognition"))
+    db.flush()
+
+    [item] = service.collect_media_for_llm(db, DOYUN, DAY)
+
+    assert item.child_links == tuple(
+        sorted(
+            [
+                service.AttributedChild(DOYUN, "manual"),
+                service.AttributedChild(friend, "face_recognition"),
+            ],
+            key=lambda link: link.child_id,
+        )
+    )

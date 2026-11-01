@@ -25,9 +25,9 @@ const STATE_LABEL_MAP: Record<RosterStatusView, string> = {
   none: "검토 필요",
   // 아직 만드는 중이라 교사가 할 일이 없습니다. "검토 필요"로 보여 주면 눌러도 할 게 없습니다.
   generating: "생성 중",
-  // 미분류로 끝났거나 모르는 값이라 교사가 봐야 합니다. 기다린다고 달라지지 않아
-  // "생성 중"과 나눕니다(#107 리뷰 송유진 님, docs/api/documents.md §레일·목록 표기).
-  unclassified: "확인 필요",
+  // 게시를 회수했거나 모르는 값이라 교사가 봐야 합니다. 기다린다고 달라지지 않아
+  // "생성 중"과 나눕니다(#107 리뷰, docs/api/documents.md §레일·목록 표기).
+  revoked: "확인 필요",
   unknown: "확인 필요",
 };
 

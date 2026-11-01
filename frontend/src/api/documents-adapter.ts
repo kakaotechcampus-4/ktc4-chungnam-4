@@ -37,11 +37,10 @@ function warnUnknownStatus(label: string, value: unknown): "unknown" {
 /**
  * 서버 타입에 상태가 늘면 `default`에서 컴파일 에러가 나므로 모르고 지나칠 수 없습니다.
  *
- * `verified`는 검증을 통과해 교사 검토를 기다리는 상태입니다(이슈 #106 — 백엔드도
- * `verified`로 저장하기로 돼 있고 한상균 님 스키마 PR을 기다리는 중입니다).
+ * `verified`는 검증을 통과해 교사 검토를 기다리는 상태입니다(이슈 #106, #139).
  *
- * `unclassified`도 잠급니다(#107 리뷰 정은 님). 초안이 이미 있으면 직접 작성이 409에
- * 걸려서, 교사가 할 수 있는 것은 사진을 더 넣고 다시 만드는 것뿐입니다.
+ * `revoked`(게시 회수)는 잠급니다(#106). 회수한 문서를 다시 다루는 흐름이 정해지지 않아,
+ * 승인·다시 검토 버튼을 열면 무엇이 나갈지 알 수 없습니다.
  */
 export function toDraftStatusView(value: DraftStatus): DraftStatusView {
   switch (value) {
@@ -51,8 +50,8 @@ export function toDraftStatusView(value: DraftStatus): DraftStatusView {
       return "review";
     case "draft":
       return "generating";
-    case "unclassified":
-      return "unclassified";
+    case "revoked":
+      return "revoked";
     default: {
       const unexpected: never = value;
       return warnUnknownStatus("모르는 초안 상태", unexpected);
@@ -99,8 +98,9 @@ function toEvidenceView(raw: Evidence): EvidenceView {
 
 function toSentenceView(raw: Sentence): SentenceView {
   return {
-    sentence_index: raw.sentence_index,
+    sentence_id: raw.sentence_id,
     text: raw.text,
+    is_edited_by_teacher: raw.is_edited_by_teacher,
     evidences: raw.evidences.map(toEvidenceView),
   };
 }
@@ -250,7 +250,7 @@ export function needsReview(row: PublishRow): boolean {
  * 게시를 막지는 않고, 모달이 이 수를 세어 교사에게 알려 줍니다.
  */
 export function isNotReady(row: PublishRow): boolean {
-  return row.status === "generating" || row.status === "unclassified" || row.status === "unknown";
+  return row.status === "generating" || row.status === "revoked" || row.status === "unknown";
 }
 
 /**

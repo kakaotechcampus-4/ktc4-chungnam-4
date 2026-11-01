@@ -4,8 +4,8 @@
 
 이 문서는 **처음 실행하는 팀원과 도메인 구현을 시작하는 팀원**을 위한 공통 개발 안내입니다.
 
-> **현재 구현 범위:** FastAPI 실행, PostgreSQL 연결, 환경변수 관리, 공통 DB 세션, 헬스체크, Redis·Celery 연습 작업과 테스트.
-> 현재 Compose는 **API·PostgreSQL·Redis·worker**를 실행합니다. Alembic 실행 기반은 구성되어 있으며, 도메인 API·초기 스키마 migration·실제 AI 파이프라인은 아직 연결하지 않았습니다. AWS 서버 설치·배포는 접속 후 검증이 필요합니다.
+> **현재 구현 범위:** 도메인별 API(`/api/v1`), Alembic 마이그레이션, Redis·Celery worker(초안 생성 task 등록), EC2 자동 배포.
+> Compose는 **Caddy·API·PostgreSQL·Redis·worker**를 실행합니다. 엔드포인트별 구현 상태는 로컬 `/docs`(OpenAPI)와 `docs/api/`가 원본입니다. 서버 배포는 [9. AWS 서버에서 실행하기](#9-aws-서버에서-실행하기).
 
 ## 바로가기
 
@@ -448,32 +448,44 @@ Claude Code를 쓰면 `/create-branch` `/commit` `/pr`로 호출됩니다. 손�
 
 ## 9. AWS 서버에서 실행하기
 
-> **로컬 확인과 서버 배포는 별도입니다.** 설치 스크립트와 실행 설정은 준비되어 있지만, 실제 AWS 서버 상태는 접속 후 확인해야 합니다.
+제공 환경은 Ubuntu 24.04, 서울 리전의 팀 공용 EC2입니다. 접속은 카테캠 포털 → 본인 팀 계정 → 서울 리전 → EC2 → 연결 → **Session Manager**로 합니다. SSH(22번 포트)는 쓰지 않습니다.
 
-제공 환경은 Ubuntu 24.04, 서울 리전의 팀 공용 EC2입니다. 카테캠 포털 → 본인 팀 계정 → 서울 리전 → EC2 → 연결 → Session Manager로 접속합니다.
+### 배포는 자동입니다
 
-먼저 서버의 기존 작업 디렉터리·서비스·사용 중인 포트를 확인합니다. 배포할 브랜치의 코드를 합의한 디렉터리에 준비한 다음, **서버의 저장소 루트**에서 실행합니다.
+`develop`에 머지되면 GitHub Actions(`.github/workflows/deploy.yml`)가 SSM으로 서버의 `backend/scripts/deploy.sh`를 실행합니다. 서버에서 손으로 `docker compose up`을 하지 않습니다.
+
+`deploy.sh`는 단계마다 확인하고 실패하면 그 자리에서 멈춥니다.
+
+1. 서버 설정 파일 `/opt/aidam/backend.env`를 앱 폴더의 `backend/.env`로 복사
+2. `.env.example`과 키 목록 대조 — 서버에 없는 키가 있으면 빌드 전에 멈춤
+3. 이미지 빌드
+4. postgres·redis 기동, healthy 확인
+5. `alembic upgrade head`
+6. api·worker·caddy 기동
+7. 헬스 체크: 앱(`/health/db`) → 공개 경로(`https://<PUBLIC_HOST>/health`, Caddy 인증서 포함)
+
+성공하면 그 커밋에 `deploy-YYYYMMDD-HHMM` 태그가 붙습니다(NFR-15). 되돌릴 때는 이 태그의 커밋을 기준으로 다시 배포합니다.
+
+### 서버 설정(`.env`)은 `/opt/aidam/backend.env` 하나입니다
+
+- 앱 폴더의 `/opt/aidam/app/backend/.env`는 **배포 때마다 덮어써지므로 고치지 않습니다.**
+- `.env.example`에 키를 추가하는 PR은 **머지 전에** 이 파일에도 키를 넣습니다. 빠지면 2단계에서 배포가 멈춥니다. 절차는 `/deploy` 스킬 §서버 `.env`에 키 넣기.
+- 운영 값은 `APP_ENV=production`, 공개 도메인은 `PUBLIC_HOST`입니다. Caddy가 이 도메인으로 Let's Encrypt 인증서를 받습니다(`Caddyfile`).
+
+### 손으로 다시 배포하기
+
+배포가 실패했거나 설정만 바꿨을 때는 Actions → **Deploy to EC2** → Run workflow로 다시 돌립니다. 서버에서 직접 돌려도 절차는 같습니다.
 
 ```bash
-bash backend/scripts/setup-server.sh
-python3 backend/scripts/init_env.py
+sudo -iu ubuntu
+cd /opt/aidam/app && bash backend/scripts/deploy.sh
 ```
 
-서버의 `backend/.env`에서 `APP_ENV=production`으로 설정한 뒤 실행합니다.
+### 서버 구조
 
-```bash
-sudo docker compose up --build -d --wait
-sudo docker compose ps
-curl --fail http://127.0.0.1:8000/health
-curl --fail http://127.0.0.1:8000/health/db
-```
-
-`setup-server.sh`는 Docker 공식 Ubuntu 저장소를 사용합니다. 기존 Docker가 있으면 재설치하지 않으며, 충돌 패키지가 발견되면 자동 삭제하지 않고 중단합니다. 기존 Docker에 Compose 플러그인이 없다면 현재 설치 방식에 맞춰 별도로 보완해야 합니다.
-
-원격에 push하지 않은 브랜치는 서버에서 `git clone`으로 가져올 수 없습니다. feature 브랜치를 공유한 뒤 받거나, 비밀 파일을 제외한 배포 아카이브를 전달합니다.
-
-**현재 API는 서버 내부의 `127.0.0.1`에만 열립니다.** 공인 IP 접속, Nginx·HTTPS, 프론트·워커 연결, GitHub Actions 자동 배포는 후속 작업입니다.
-
+- API는 서버 내부 `127.0.0.1:${API_PORT:-8000}`에만 열리고, 외부 요청은 Caddy(80·443)가 받아 넘깁니다.
+- 브라우저는 CloudFront 주소로 접속하고, CloudFront가 `/api/*`를 이 서버로 보냅니다(`infra/frontend/README.md`).
+- 처음 서버를 준비할 때 쓴 `backend/scripts/setup-server.sh`(Docker 설치)는 다시 돌릴 일이 없습니다. 기존 Docker가 있으면 재설치하지 않고, 충돌 패키지가 있으면 지우지 않고 멈춥니다.
 
 ## Redis·Celery worker 따라가기 (BE A)
 
@@ -525,9 +537,9 @@ celery -A celery_app:celery_app worker --loglevel=INFO --concurrency=1
 - API와 worker는 같은 Dockerfile의 코드를 사용하지만, 실행 명령과 프로세스가 다릅니다.
 - worker는 Redis의 healthcheck 통과 후 시작합니다. 연습에 DB가 필요하지 않아 postgres는 의존하지 않습니다.
 
-Celery 앱은 `scripts.celery_smoke`만 등록합니다. 비어 있는 실제 AI 작업이 성공으로 처리되는 것을
-피하기 위해 `domains.agents.tasks`는 아직 등록하지 않습니다. D의 작업 구현 후 include 목록에
-추가하는 연결 작업을 함께 진행하면 됩니다.
+Celery 앱은 `scripts.celery_smoke`와 `domains.agents.tasks`를 등록합니다. 초안 생성 API가 task를
+이름으로 보내므로 worker가 등록하지 않으면 Job이 pending으로 남아 그 반·날짜가 막힙니다. 입력 조립이
+아직 연결되지 않은 동안에는 `_load_generation_inputs`의 `NotImplementedError`로 Job이 failed로 끝납니다.
 
 `task_track_started=True`는 STARTED 상태를 저장합니다. 메시지·결과는 JSON만 사용합니다.
 Celery 시간대는 Asia/Seoul, UTC 처리는 활성화합니다. worker는 작업을 과도하게 미리 가져오지 않도록

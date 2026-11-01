@@ -134,7 +134,7 @@ sequenceDiagram
 | [auth.md](auth.md) | `POST /api/v1/sessions` | 로그인(교사·학부모 공용). 역할(`account_type`)을 돌려줍니다 |
 | [auth.md](auth.md) | `DELETE /api/v1/sessions/current` | 로그아웃. 이미 끊긴 세션이어도 204(제안) |
 | [auth.md](auth.md) | `GET /api/v1/me` | 내 계정 정보와 역할. 라우팅 가드와 헤더의 선생님 이름에 씁니다 |
-| [organization.md](organization.md) | `GET /api/v1/classes` | 교사의 담당 반 목록(어린이집명·반 이름). 비어 있으면 온보딩으로 보냅니다. 온보딩 API는 경로만 정했습니다 |
+| [organization.md](organization.md) | `GET /api/v1/classes` | 교사가 속한 어린이집의 반 목록(어린이집명·반 이름). 비어 있으면 온보딩으로 보냅니다. 온보딩 API는 경로만 정했습니다 |
 | [organization.md](organization.md) | `GET /api/v1/classes/{class_id}/children` | 반 원아 명단. 교사 화면의 원아 이름은 여기서만 받습니다 |
 | [organization.md](organization.md) | `GET /api/v1/me/children` | 학부모의 자녀 목록(W3·W4 자녀 칩) |
 | [media-face.md](media-face.md) | `POST /api/v1/media/upload-urls` | 여러 파일의 S3 업로드 URL을 한 번에 받습니다. 이미 올린 파일은 `media_id`를 줍니다 |

@@ -20,7 +20,7 @@ def _session() -> Session:
 def _row(**overrides: object) -> SentenceEvidence:
     base = {
         "draft_id": uuid.uuid4(),
-        "sentence_index": 0,
+        "sentence_id": "s1",
         "evidence_id": "ev_001",
         "source_media_id": uuid.uuid4(),
         "source_timestamp": 12.0,
@@ -33,8 +33,8 @@ def _row(**overrides: object) -> SentenceEvidence:
 def test_같은_문장이_여러_근거를_참조하면_행이_여러개_생긴다() -> None:
     db = _session()
     draft_id = uuid.uuid4()
-    db.add(_row(draft_id=draft_id, sentence_index=0, evidence_id="ev_001"))
-    db.add(_row(draft_id=draft_id, sentence_index=0, evidence_id="ev_002"))
+    db.add(_row(draft_id=draft_id, sentence_id="s1", evidence_id="ev_001"))
+    db.add(_row(draft_id=draft_id, sentence_id="s1", evidence_id="ev_002"))
 
     db.flush()  # 예외 없이 통과해야 한다
 
@@ -44,10 +44,10 @@ def test_같은_문장이_여러_근거를_참조하면_행이_여러개_생긴�
 def test_같은_문장_같은_근거_중복은_거부된다() -> None:
     db = _session()
     draft_id = uuid.uuid4()
-    db.add(_row(draft_id=draft_id, sentence_index=0, evidence_id="ev_001"))
+    db.add(_row(draft_id=draft_id, sentence_id="s1", evidence_id="ev_001"))
     db.flush()
 
-    db.add(_row(draft_id=draft_id, sentence_index=0, evidence_id="ev_001"))
+    db.add(_row(draft_id=draft_id, sentence_id="s1", evidence_id="ev_001"))
     with pytest.raises(IntegrityError):
         db.flush()
 

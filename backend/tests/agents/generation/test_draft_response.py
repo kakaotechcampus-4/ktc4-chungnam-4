@@ -35,8 +35,8 @@ def test_참조를_서버_ID로_되돌리고_문장_ID를_순서대로_붙인다
     assert document.draft_id == "draft-1"
     assert document.doc_type == DocType.PARENT_NOTE
     assert [(s.sentence_id, s.evidence_ids) for s in document.sentences] == [
-        ("s_01", ["ev-1"]),
-        ("s_02", ["ev-1", "ev-2"]),
+        ("s1", ["ev-1"]),
+        ("s2", ["ev-1", "ev-2"]),
     ]
 
 

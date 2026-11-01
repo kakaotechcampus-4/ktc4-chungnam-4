@@ -8,7 +8,7 @@
 | --- | --- |
 | `models.py` | `Center`, `Klass`, `Child`, `ParentChildRelation`, `ConsentRecord`, `TeacherPersona`, `PersonaFeedback`, `EducationPlan` |
 | `schemas.py` | 원아·반·동의 요청·응답 |
-| `router.py` | `/organization` 엔드포인트 |
+| `router.py` | `/api/v1/classes` 등 organization 엔드포인트 ([docs/api/organization.md](../../../docs/api/organization.md)) |
 | `service.py` | 소속 관계 관리, 동의 상태 조회·갱신 |
 
 모델은 노션 테크스펙 표를 그대로 옮깁니다.
