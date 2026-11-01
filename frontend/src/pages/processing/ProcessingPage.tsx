@@ -39,9 +39,9 @@ export function ProcessingPage() {
   const toDraft = useCallback(() => setStep("draft"), []);
   const toDraftReview = useCallback(
     (job: JobView) => {
-      setLeaving(true);
       // 원아 순서는 서버 응답 그대로입니다. 이름순 정렬은 초안 검토 화면(⑤)이 명단과 합쳐서 합니다.
       const firstDrafted = job.children.find((child) => child.drafts.length > 0);
+      setLeaving(true);
       // 초안이 하나도 없으면(전원 미분류·실패) 대시보드(1:2886)에서 원아별 상태를 봅니다.
       navigate(
         firstDrafted
@@ -75,6 +75,7 @@ export function ProcessingPage() {
       {step === "classify" ? <ClassifyStep onDone={toReview} onCancel={cancel} /> : null}
       {step === "send" ? <SendStep onDone={toDraft} onCancel={cancel} /> : null}
       {step === "draft" ? <DraftStep onDone={toDraftReview} onCancel={cancel} /> : null}
+
     </>
   );
 }

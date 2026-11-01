@@ -18,6 +18,8 @@ interface TodayUploadingProps {
   photos: UploadCount;
   videos: UploadCount;
   audios: UploadCount;
+  /** 모든 항목을 다 불러왔는지. 끝나면 제목을 바꾸고 보러 가기를 주 버튼으로 둡니다. */
+  done: boolean;
   onView: () => void;
   onCancel: () => void;
 }
@@ -29,6 +31,7 @@ export function TodayUploading({
   photos,
   videos,
   audios,
+  done,
   onView,
   onCancel,
 }: TodayUploadingProps) {
@@ -37,7 +40,11 @@ export function TodayUploading({
     ...classChildrenQueryOptions(currentClass?.class_id ?? ""),
     enabled: currentClass !== null,
   });
-  const percent = photos.total === 0 ? 0 : Math.round((photos.done / photos.total) * 100);
+  // 큰 숫자와 막대는 사진 기준이지만, 사진이 없으면(영상·녹음만) 전체 항목 기준으로 셉니다.
+  const photoOnly = photos.total > 0;
+  const total = photoOnly ? photos.total : videos.total + audios.total;
+  const finished = photoOnly ? photos.done : videos.done + audios.done;
+  const percent = total === 0 ? 0 : Math.round((finished / total) * 100);
 
   return (
     <div className="flex flex-col gap-5.5 pt-10 pb-8">
@@ -57,9 +64,13 @@ export function TodayUploading({
       <section className="flex flex-col gap-5.5 rounded-2xl bg-paper px-9 py-8">
         <div className="flex items-center justify-between gap-6">
           <div className="flex flex-col gap-2.5 font-bold">
-            <h2 className="text-h3 text-ink">이 기기로 불러오는 중이에요</h2>
+            <h2 className="text-h3 text-ink">
+              {done ? "이 기기로 모두 불러왔어요" : "이 기기로 불러오는 중이에요"}
+            </h2>
             <p className="text-lead text-ink-muted">
-              사진 {photos.total}장 중 {photos.done}장
+              {photoOnly
+                ? `사진 ${photos.total}장 중 ${photos.done}장`
+                : `영상·녹음 ${total}개 중 ${finished}개`}
             </p>
           </div>
           <p className="flex items-baseline gap-1 font-bold">
@@ -70,7 +81,7 @@ export function TodayUploading({
 
         <div
           role="progressbar"
-          aria-label="사진 불러오기"
+          aria-label={photoOnly ? "사진 불러오기" : "영상·녹음 불러오기"}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={percent}
@@ -80,13 +91,13 @@ export function TodayUploading({
         </div>
 
         <div className="flex items-center gap-2.5">
-          <CountChip label="사진" unit="장" count={photos} />
+          {photoOnly ? <CountChip label="사진" unit="장" count={photos} /> : null}
           <CountChip label="영상" unit="개" count={videos} />
           <CountChip label="녹음" unit="개" count={audios} />
           <Button
-            variant="ghost"
+            variant={done ? "default" : "ghost"}
             size="lg"
-            className="ml-auto text-nav text-brand-ink"
+            className={cn("ml-auto", !done && "text-nav text-brand-ink")}
             onClick={onView}
           >
             보러 가기
@@ -97,7 +108,12 @@ export function TodayUploading({
         <p className="text-body text-ink-muted">
           분류 결과를 확인한 뒤 선택한 자료를 전송해요. 불러오기가 끝날 때까지 창을 열어 두세요.
         </p>
-        <Button size="lg" className="w-55" onClick={onCancel}>
+        <Button
+          size="lg"
+          variant={done ? "outline" : "default"}
+          className="w-55"
+          onClick={onCancel}
+        >
           취소하고 돌아가기
         </Button>
       </section>
