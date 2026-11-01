@@ -23,7 +23,7 @@ interface TodayUploadingProps {
 }
 
 // FR-15. 서버 전송 전, 이 기기(IndexedDB)로 불러오는 단계입니다. 사진만 온디바이스로 처리하므로 큰 숫자와 막대는 사진 기준입니다.
-// TODO(정은): 업로드 큐(Zustand) PR에서 TodayPage에 연결합니다. 진행 값은 지금 props로만 받습니다.
+// TodayPage가 업로드 큐의 불러오기 진행을 종류별로 세어 넘깁니다.
 export function TodayUploading({
   teacherName,
   photos,
