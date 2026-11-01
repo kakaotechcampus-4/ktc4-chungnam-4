@@ -14,7 +14,7 @@ from sqlalchemy.pool import StaticPool
 
 from core.base import Base
 from domains.media import audio, service, stt, tasks
-from domains.media.models import MediaAsset, TranscriptSegment
+from domains.media.models import MediaAsset, MediaUpload, TranscriptSegment
 
 
 @pytest.fixture
@@ -22,7 +22,9 @@ def sessions(monkeypatch: pytest.MonkeyPatch) -> sessionmaker:
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
-    Base.metadata.create_all(engine, tables=[MediaAsset.__table__, TranscriptSegment.__table__])
+    Base.metadata.create_all(
+        engine, tables=[MediaAsset.__table__, MediaUpload.__table__, TranscriptSegment.__table__]
+    )
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     monkeypatch.setattr(service, "SessionLocal", factory)
     return factory

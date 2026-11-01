@@ -47,7 +47,14 @@ from tools.generation.draft import DraftResponseError, parse_draft_response
 from tools.generation.pseudonymize import pseudonymize_evidence, restore_names
 from tools.perception.merge import merge_perception_results
 from tools.perception.photo import parse_single_photo_analysis
-from tools.perception.types import ChildLink, PerceptionResult, PerceptionStatus, PhotoInput
+from tools.perception.transcript import normalize_transcript
+from tools.perception.types import (
+    ChildLink,
+    PerceptionResult,
+    PerceptionStatus,
+    PhotoInput,
+    TranscriptSegmentInput,
+)
 from tools.verification.critic_result import parse_critic_response
 from tools.verification.decision import MAX_REGENERATIONS, decide
 from tools.verification.references import validate_references
@@ -758,14 +765,35 @@ def _load_generation_inputs(bundle: EvidenceBundle) -> GenerationInputs:
     names = organization_service.get_class_child_names(session, class_id)
     # 수집 이후 동의가 철회되었거나 자료가 바뀐 경우에도 외부 호출 전에 제외한다.
     allowed = media_service.collect_media_for_llm(session, bundle.child_id, record_date)
-    media = [
-        item for item in allowed if str(item.media_id) in bundle.media_refs and item.type == "photo"
+    media = [item for item in allowed if str(item.media_id) in bundle.media_refs]
+    segments = [
+        TranscriptSegmentInput(
+            segment_id=str(segment.segment_id),
+            media_id=str(item.media_id),
+            source=segment.source or ("video_audio" if item.type == "video" else "voice_memo"),
+            captured_at=item.captured_at
+            if item.captured_at.tzinfo
+            else item.captured_at.replace(tzinfo=UTC),
+            start_time=segment.start_time,
+            end_time=segment.end_time,
+            raw_text=segment.raw_text,
+            text=segment.text if segment.text is not None else segment.raw_text,
+            speaker=segment.speaker,
+            child_ids=tuple(str(link.child_id) for link in item.child_links),
+            excluded=False,
+        )
+        for item in media
+        if item.type in {"video", "voice_memo"}
+        for segment in item.transcript
+        if segment.segment_id is not None
     ]
     merged = merge_perception_results(
-        PerceptionResult(status=PerceptionStatus.EMPTY, items=[], dropped=[]),
+        normalize_transcript(
+            segments, target_child_id=str(bundle.child_id), record_date=record_date
+        ),
         _analyze_photos(
             session,
-            _photo_inputs(media),
+            _photo_inputs([item for item in media if item.type == "photo"]),
             target_child_id=str(bundle.child_id),
             record_date=record_date,
         ),

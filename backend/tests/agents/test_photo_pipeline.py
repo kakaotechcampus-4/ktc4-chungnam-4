@@ -311,3 +311,166 @@ def test_멈춘_worker는_폴링에서_실패로_끝나고_늦은_성공이_복�
     assert calls == []
     with factory() as db:
         assert db.get(Job, pending[0][0]).status == "failed"
+
+
+def upload_clip(flow: Flow, monkeypatch: pytest.MonkeyPatch, kind: str) -> UUID:
+    from domains.media import router as media_router
+
+    client, _factory, klass, _children, _pending, _calls = flow
+    login(client, TEACHER_EMAIL)
+    content_type = "video/mp4" if kind == "video" else "audio/mp4"
+    monkeypatch.setattr(
+        service.media_service,
+        "head_uploaded_object",
+        lambda key: StoredObject(size_bytes=500, content_type=content_type),
+    )
+    monkeypatch.setattr(
+        service.media_service,
+        "_read_object_head",
+        lambda key: b"\x00\x00\x00\x18ftypisom" + bytes(52),
+    )
+    queued = []
+    monkeypatch.setattr(media_router, "enqueue_transcription", queued.append)
+    photo_id = str(uuid4())
+    issued = client.post(
+        "/api/v1/media/upload-urls",
+        json={
+            "class_id": str(klass),
+            "items": [
+                {
+                    "client_photo_id": photo_id,
+                    "type": kind,
+                    "content_type": content_type,
+                    "size_bytes": 500,
+                }
+            ],
+        },
+    )
+    assert issued.status_code == 200, issued.text
+    response = client.post(
+        "/api/v1/media",
+        json={
+            "client_photo_id": photo_id,
+            "class_id": str(klass),
+            "type": kind,
+            "captured_at": "2026-10-30T03:00:00Z",
+        },
+    )
+    assert response.status_code == 201, response.text
+    media_id = UUID(response.json()["media_id"])
+    assert queued == [media_id]
+    return media_id
+
+
+@pytest.mark.parametrize("kind", ["video", "voice_memo"])
+def test_영상음성_업로드_STT_검수_파일귀속_생성_게시_열람(
+    flow: Flow, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    from domains.media import audio, stt
+
+    client, factory, klass, children, pending, calls = flow
+    media_id = upload_clip(flow, monkeypatch, kind)
+    monkeypatch.setattr(service.media_service, "SessionLocal", factory)
+    monkeypatch.setattr(
+        service.media_service, "_speech_chunks", lambda key: [audio.AudioChunk(0, 10, b"RIFF")]
+    )
+    monkeypatch.setattr(
+        service.media_service.stt,
+        "transcribe_chunks",
+        lambda chunks: [
+            stt.SpeechSegment(0, 2, "김도윤은 블록으로 탑을 만들었어요."),
+            stt.SpeechSegment(3, 5, "제외할 문장"),
+            stt.SpeechSegment(6, 9, "검수하지 않은 문장"),
+        ],
+    )
+    service.media_service.transcribe_media(str(media_id))
+    result = client.get(f"/api/v1/media/{media_id}/transcript-segments")
+    assert result.status_code == 200, result.text
+    assert result.json()["transcript_status"] == "done"
+    first, excluded, _unreviewed = result.json()["items"]
+    for segment, body in [
+        (first, {"text": "김도윤은 블록으로 탑을 만들었어요.", "speaker": "teacher_observation"}),
+        (excluded, {"excluded": True}),
+    ]:
+        response = client.patch(f"/api/v1/transcript-segments/{segment['segment_id']}", json=body)
+        assert response.status_code == 200, response.text
+    # 음성메모는 얼굴 동의가 없어도 사용 가능하다. 영상은 동의한 원아로 확인한다.
+    child = children[0] if kind == "video" else children[2]
+    linked = client.put(
+        f"/api/v1/media/{media_id}/child-links",
+        json={
+            "llm_allowed": True,
+            "child_links": [{"child_id": str(child), "method": "manual", "confidence_score": None}],
+        },
+    )
+    assert linked.status_code == 200, linked.text
+    assert linked.json()["llm_allowed"] is True
+    checked = client.get(f"/api/v1/media/{media_id}/transcript-segments").json()
+    assert checked["child_links"][0]["child_id"] == str(child)
+    status = run(client, klass, media_id, pending)
+    assert status["status"] == "succeeded", status
+    assert [kind for kind, _ in calls] == ["llm", "llm"]  # 영상 프레임은 vision에 보내지 않는다.
+    assert all(
+        "김도윤" not in prompt
+        and "제외할 문장" not in prompt
+        and "검수하지 않은 문장" not in prompt
+        for _, prompt in calls
+    )
+    draft = status["children"][0]["drafts"][0]["draft_id"]
+    detail = client.get(f"/api/v1/drafts/{draft}").json()
+    assert detail["sentences"][0]["evidences"]
+    approved = client.post(
+        f"/api/v1/drafts/{draft}/approve",
+        json={"expected_version": detail["version"], "reviewed": True},
+    )
+    assert approved.status_code == 200, approved.text
+    published = client.post(
+        "/api/v1/publications",
+        json={
+            "request_id": str(uuid4()),
+            "include_photos": False,
+            "items": [{"draft_id": draft, "expected_version": approved.json()["version"]}],
+        },
+    )
+    assert published.status_code == 200, published.text
+    overview = client.get(f"/api/v1/children/{child}/overview")
+    assert overview.status_code == 200, overview.text
+    assert overview.json()["recent_notes"][0]["published"] is True
+    login(client, PARENT_EMAILS[0 if kind == "video" else 2])
+    assert client.get(f"/api/v1/parent-notes/{draft}").status_code == 200
+    login(client, PARENT_EMAILS[1])
+    assert client.get(f"/api/v1/parent-notes/{draft}").status_code == 404
+
+
+def test_STT_worker가_멈추면_폴링이_failed로_끝내고_늦은_완료는_거절한다(
+    flow: Flow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from domains.media import audio, stt
+    from domains.media.models import MediaUpload, TranscriptSegment
+
+    client, factory, _klass, _children, _pending, _calls = flow
+    media_id = upload_clip(flow, monkeypatch, "voice_memo")
+    monkeypatch.setattr(service.media_service, "SessionLocal", factory)
+    monkeypatch.setattr(
+        service.media_service, "_speech_chunks", lambda key: [audio.AudioChunk(0, 5, b"RIFF")]
+    )
+
+    def late_stt(chunks):
+        with factory() as db:
+            row = db.scalar(select(MediaUpload).where(MediaUpload.media_id == media_id))
+            row.verified_at = datetime.now(UTC) - timedelta(hours=2)
+            db.commit()
+        assert (
+            client.get(f"/api/v1/media/{media_id}/transcript-segments").json()["transcript_status"]
+            == "failed"
+        )
+        return [stt.SpeechSegment(0, 2, "늦게 도착한 결과")]
+
+    monkeypatch.setattr(service.media_service.stt, "transcribe_chunks", late_stt)
+    service.media_service.transcribe_media(str(media_id))
+    with factory() as db:
+        assert db.get(MediaAsset, media_id).transcript_status == "failed"
+        assert (
+            db.scalar(select(TranscriptSegment).where(TranscriptSegment.media_id == media_id))
+            is None
+        )

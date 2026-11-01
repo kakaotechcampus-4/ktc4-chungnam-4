@@ -30,7 +30,7 @@ class Speaker(StrEnum):
 
 
 class TranscriptSegmentInput(ContractModel):
-    """교사 확인을 거친 발화 구간 한 개 (테크스펙 TranscriptSegment·TranscriptChildLink).
+    """교사 확인을 거친 발화 구간 한 개 (테크스펙 TranscriptSegment·MediaChildLink).
 
     raw_text·text에는 실명 호명이 그대로 있을 수 있어 로그에 찍지 않는다 (H-4).
     """
@@ -48,7 +48,7 @@ class TranscriptSegmentInput(ContractModel):
     raw_text: str  # STT 원문. 인식 실패 시 "멘트 없음"
     text: str  # 교사 수정본. 안 고쳤으면 raw_text와 같음
     speaker: Speaker | None
-    child_ids: tuple[NonEmpty, ...]  # TranscriptChildLink
+    child_ids: tuple[NonEmpty, ...]  # 파일의 MediaChildLink 전체를 agents가 붙입니다
     excluded: bool
 
 

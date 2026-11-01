@@ -625,7 +625,7 @@ def test_파기된_미디어는_409_MEDIA_DELETED(
 # ---- GET /media/{media_id}/transcript-segments ----
 
 
-def _uploaded_voice(client: TestClient) -> uuid.UUID:
+def _uploaded_voice_uuid(client: TestClient) -> uuid.UUID:
     [issued] = _upload_urls(client, _item("voice_memo", "audio/mp4"))
     response = client.post(
         "/api/v1/media",
@@ -671,7 +671,7 @@ def test_STT_중이면_pending이고_발화와_열람_기록이_없다(
     client: TestClient, session_factory: sessionmaker[Session]
 ) -> None:
     """화면이 2초마다 부르는 동안 로그가 쌓이지 않게 합니다 — 임시 결정(김동건)."""
-    media_id = _uploaded_voice(client)
+    media_id = _uploaded_voice_uuid(client)
 
     response = _transcript(client, media_id)
 
@@ -685,7 +685,7 @@ def test_STT가_끝나면_시작_시각_순으로_주고_열람_기록을_커밋
     client: TestClient, session_factory: sessionmaker[Session]
 ) -> None:
     """모든 열람 API 호출이 AccessLog를 남긴다 (NFR-05, backend 필수 테스트 4)."""
-    media_id = _uploaded_voice(client)
+    media_id = _uploaded_voice_uuid(client)
     _transcribed(
         session_factory,
         media_id,
@@ -731,7 +731,7 @@ def test_STT_상태가_없는_예전_파일은_failed로_넘어간다(
     client: TestClient, session_factory: sessionmaker[Session]
 ) -> None:
     """pending으로 두면 화면이 끝없이 폴링합니다."""
-    media_id = _uploaded_voice(client)
+    media_id = _uploaded_voice_uuid(client)
     with session_factory() as db:
         db.get(MediaAsset, media_id).transcript_status = None
         db.commit()
@@ -751,7 +751,7 @@ def test_사진의_발화를_찾으면_400_MEDIA_HAS_NO_AUDIO(client: TestClient
 def test_다른_어린이집_교사는_발화를_보지_못하고_기록도_없다(
     client: TestClient, session_factory: sessionmaker[Session], center_id: uuid.UUID | None
 ) -> None:
-    media_id = _uploaded_voice(client)
+    media_id = _uploaded_voice_uuid(client)
     _transcribed(session_factory, media_id, _segment("하나", 0.0))
     _login_as(center_id)
 
@@ -773,7 +773,7 @@ def test_없는_미디어의_발화는_404_MEDIA_ASSET_NOT_FOUND(client: TestCli
 
 def _voice_segment(client: TestClient, session_factory: sessionmaker[Session]) -> uuid.UUID:
     [segment_id] = _transcribed(
-        session_factory, _uploaded_voice(client), _segment("원문", 0.0, speaker="child")
+        session_factory, _uploaded_voice_uuid(client), _segment("원문", 0.0, speaker="child")
     )
     return segment_id
 
