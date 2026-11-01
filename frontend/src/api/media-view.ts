@@ -23,20 +23,37 @@ export interface UploadUrlsInput {
   items: UploadUrlItemInput[];
 }
 
-/** 받은 업로드 URL 한 건. 순서는 요청과 같습니다. */
-export interface UploadTicketView {
+interface UploadTicketBase {
   client_photo_id: string;
-  /** issued: URL 발급, registered: 이미 등록된 파일, error: 이 파일만 실패(나머지는 발급됨) */
-  status: "issued" | "registered" | "error";
-  /** null이 아니면 이미 등록된 파일입니다. 다시 올리지 않고 귀속 단계로 넘어갑니다. */
-  media_id: string | null;
-  upload_url: string | null;
-  /** PUT에 그대로 붙여야 서명이 맞습니다. */
-  upload_headers: Record<string, string> | null;
-  upload_url_expires_at: string | null;
-  /** status가 error일 때 서버가 준 사유. 화면은 message를 그대로 보여 줍니다. */
-  error: { code: string; message: string } | null;
 }
+
+/**
+ * 받은 업로드 URL 한 건. 순서는 요청과 같습니다.
+ * status마다 반드시 있는 값이 달라, status를 확인하면 쓸 수 있는 값이 정해집니다(#206 멘토님 리뷰).
+ */
+export type UploadTicketView =
+  | (UploadTicketBase & {
+      /** URL 발급. 이 URL로 올린 뒤 완료 통지를 보냅니다. */
+      status: "issued";
+      upload_url: string;
+      /** PUT에 그대로 붙여야 서명이 맞습니다. */
+      upload_headers: Record<string, string>;
+      upload_url_expires_at: string;
+    })
+  | (UploadTicketBase & {
+      /** 이미 등록된 파일. 다시 올리지 않고 귀속 단계로 넘어갑니다. */
+      status: "registered";
+      media_id: string;
+    })
+  | (UploadTicketBase & {
+      /** 이 파일만 실패(나머지는 발급됨). 화면은 message를 그대로 보여 줍니다. */
+      status: "error";
+      error: { code: string; message: string };
+    })
+  | (UploadTicketBase & {
+      /** 서버 타입에 없는 상태이거나, 그 상태에 있어야 할 값이 빠진 응답. 이 파일은 올리지 않습니다. */
+      status: "unknown";
+    });
 
 export interface UploadUrlsView {
   items: UploadTicketView[];

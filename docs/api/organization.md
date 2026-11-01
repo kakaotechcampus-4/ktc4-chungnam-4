@@ -26,7 +26,7 @@
 
 ## 이 도메인의 규칙
 
-organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. 교사의 반 목록, 반 원아 명단, 학부모의 자녀 목록입니다. 온보딩의 반 고르기·반 만들기·원아 등록은 아래 §② 화면용으로 채운 엔드포인트의 모양대로 구현했습니다. 그 밖에 반·원아·동의를 만들거나 바꾸는 엔드포인트는 경로만 정했습니다.
+organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. 교사의 반 목록, 반 원아 명단, 학부모의 자녀 목록입니다. 온보딩의 반 고르기·반 만들기·원아 등록과 교육 계획 5개는 아래 §② 화면용으로 채운 엔드포인트의 모양대로 구현했습니다. 그 밖에 반·원아·동의를 만들거나 바꾸는 엔드포인트는 경로만 정했습니다.
 
 ## 상세 작성 엔드포인트
 
@@ -231,7 +231,8 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 
 - `plan_type`: `weekly` / `monthly`(FR-20, FR-21). 월간은 `daily_activities`가 `{}`입니다.
 - `domains`: 누리과정 5영역 `physical`(신체운동·건강) · `communication`(의사소통) · `social`(사회관계) · `art`(예술경험) · `nature`(자연탐구).
-- BE 모델(`EducationPlan`)에는 `title`·`content`만 있어 `goal`·`daily_activities`·`domains`를 더해야 합니다.
+- `goal`은 BE 모델의 `content` 컬럼에 저장합니다. `daily_activities`·`domains`·`updated_at`은 컬럼을 더했습니다(마이그레이션 `3c7e1a9d4f20`).
+- 서버가 막는 조합(422 `VALIDATION_ERROR`) → 임시 결정(이한나): `end_date`가 `start_date`보다 앞, 월간인데 `daily_activities`가 있음, `domains` 중복. 기간이 겹치는 계획은 막지 않습니다.
 
 ### 어린이집·반
 
@@ -248,7 +249,7 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 - 구현: `GET /centers/{center_id}/classes`, `POST /classes`. 소속이 아닌 어린이집(소속이 없는 교사 포함)은 403 `CENTER_ACCESS_DENIED`입니다 → 임시 결정(이한나). 다른 어린이집이 있는지 없는지는 알려 주지 않습니다.
 - `POST /classes`는 담당교사 폐지로 담임 배정을 하지 않고 만든 교사만 `Klass.teacher_id`에 남깁니다. 표시용 `age_group`은 `infant` → "만 0~2세", `preschool` → "만 3~5세"로 채웁니다 → 임시 결정(이한나). 같은 이름의 반은 막지 않습니다. `POST /classes/{class_id}/assign`은 담당교사 폐지로 만들지 않았습니다.
 - `ClassSummary`의 `is_favorite`·`needs_record_today`는 아직 항상 `false`입니다(즐겨찾기 저장소 없음, 오늘 기록 여부는 media·documents 데이터).
-- `POST /centers`는 HTTP 경로 없이 service 함수 `create_center`만 만들었습니다. 교사 소속 저장(auth)과 한 트랜잭션이어야 해서 `POST /accounts`(엄태은)가 부릅니다. 계약 상태는 `trial`로 시작합니다(FR-24). 가입 코드는 대문자·숫자 8자리(헷갈리는 0·O·1·I 제외)로 서버가 발급합니다 → 임시 결정(이한나), #158 3번에서 정해지면 바꿉니다.
+- `POST /centers`는 HTTP 경로 없이 service 함수 `create_center`만 만들었습니다. 교사 소속 저장(auth)과 한 트랜잭션이어야 해서 `POST /accounts`(엄태은)가 부릅니다. 계약 상태는 `trial`로 시작합니다(FR-24). 가입 코드는 대문자·숫자 8자리(헷갈리는 0·O·1·I 제외)로 서버가 발급합니다 → 임시 결정(이한나), #158 3번에서 정해지면 바꿉니다
 
 ### 원아
 
@@ -293,12 +294,14 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 
 ### 교육 계획
 
+서버에 구현했습니다. 다른 어린이집 반의 계획은 403 `CLASS_ACCESS_DENIED`, 없는 반은 404 `CLASS_NOT_FOUND`입니다.
+
 | 요청 | 본문·파라미터 | 응답 | 에러 |
 |---|---|---|---|
 | `GET /classes/{class_id}/education-plans` | 쿼리 `plan_type`(없으면 전체) | `200 { items: EducationPlan[], next_cursor: null }`. 시작일 최신순 | 공통 |
-| `POST /classes/{class_id}/education-plans` | `plan_type`·`start_date`·`end_date`·`title`·`goal`·`daily_activities`·`domains` | `201 EducationPlan` | `VALIDATION_ERROR`(422) |
+| `POST /classes/{class_id}/education-plans` | `plan_type`·`start_date`·`end_date`·`title`·`goal`·`daily_activities`(생략 시 `{}`)·`domains`(생략 시 `[]`) | `201 EducationPlan` | `VALIDATION_ERROR`(422) |
 | `GET /education-plans/{plan_id}` **(추가)** | — | `200 EducationPlan` | `PLAN_NOT_FOUND`(404) |
-| `PATCH /education-plans/{plan_id}` | POST와 같음 | `200 EducationPlan` | `PLAN_NOT_FOUND`(404) |
+| `PATCH /education-plans/{plan_id}` | POST와 같은 필드. **보낸 필드만 바꿉니다**(`null`은 422) → 임시 결정(이한나) | `200 EducationPlan` | `PLAN_NOT_FOUND`(404), `VALIDATION_ERROR`(422) |
 | `DELETE /education-plans/{plan_id}` **(추가)** | — | `204` | `PLAN_NOT_FOUND`(404) |
 
 ## 경로만 정한 엔드포인트
@@ -320,11 +323,11 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 | `POST /api/v1/children/{child_id}/consents` | 동의 결과 기록 | 경로만 | 이한나 |
 | `POST /api/v1/children/{child_id}/consents/revoke` | 동의 철회 | 경로만 | 이한나(임베딩 삭제는 김동건) |
 | `GET /api/v1/me/children` | 그대로 W5 자녀 전환에도 씁니다 | 확장(경로만) | 이한나 |
-| `GET /api/v1/classes/{class_id}/education-plans` | 반의 교육 계획 목록 | 경로만 | 이한나 |
-| `POST /api/v1/classes/{class_id}/education-plans` | 교육 계획 만들기 | 경로만 | 이한나 |
-| `PATCH /api/v1/education-plans/{plan_id}` | 교육 계획 수정 | 경로만 | 이한나 |
-| `GET /api/v1/education-plans/{plan_id}` | 교육 계획 하나(수정 화면) | 추가(임시 결정) | 이한나 |
-| `DELETE /api/v1/education-plans/{plan_id}` | 교육 계획 삭제 | 추가(임시 결정) | 이한나 |
+| `GET /api/v1/classes/{class_id}/education-plans` | 반의 교육 계획 목록 | 구현 | 이한나 |
+| `POST /api/v1/classes/{class_id}/education-plans` | 교육 계획 만들기 | 구현 | 이한나 |
+| `PATCH /api/v1/education-plans/{plan_id}` | 교육 계획 수정 | 구현 | 이한나 |
+| `GET /api/v1/education-plans/{plan_id}` | 교육 계획 하나(수정 화면) | 구현(추가, 임시 결정) | 이한나 |
+| `DELETE /api/v1/education-plans/{plan_id}` | 교육 계획 삭제 | 구현(추가, 임시 결정) | 이한나 |
 | `PATCH /api/v1/classes/{class_id}/favorite` | 반 즐겨찾기 | 추가(임시 결정) | 이한나 |
 | `GET /api/v1/children/{child_id}/parent-invites` | 지금 쓰는 초대 링크(복사용) | 추가(임시 결정) | 이한나·엄태은 |
 | `POST /api/v1/children/{child_id}/parent-invites` | 학부모 초대 링크 만들기 | 경로만 | 이한나·엄태은 |

@@ -8,20 +8,22 @@ description: 작업 브랜치를 만들 때 사용. "브랜치 파줘", "새 브
 ## 브랜치 구조
 
 ```
-main        # 보호 브랜치. develop → main PR만 허용 → 멘토 리뷰 → approve 시 merge
-develop     # 기본 작업 브랜치
-feat/<파트>/…      # 기능 단위. develop에서 분기 → develop으로 PR
+main          # 보호 브랜치. 주간 리뷰를 통과한 결과. develop → main PR만 허용 → 멘토 리뷰 → approve 시 merge
+develop       # 멘토 리뷰 기준. 리뷰 기간(수 18:00 ~ 일)에는 동결 — 리뷰 반영만 들어감
+develop-next  # 평소 개발 (기본 브랜치)
+feat/<파트>/…      # 기능 단위. develop-next에서 분기 → develop-next로 PR
 refactor/<파트>/…  # 멘토 피드백 반영. develop에서 분기 → develop으로 PR
 ```
 
-**항상 `develop`에서 분기합니다.** 이미 PR로 머지된 브랜치를 재사용하지 않습니다 — PR 목록에서 주차 구분이 안 됩니다.
+**분기 기준은 타입이 정합니다.** `feat`는 `develop-next`, `refactor`(리뷰 반영)는 `develop`입니다. 리뷰 중인 주간 PR이 `develop`을 그대로 보기 때문에, 새 기능이 `develop`에 들어가면 멘토가 보던 PR이 바뀝니다. 이미 PR로 머지된 브랜치를 재사용하지 않습니다 — PR 목록에서 주차 구분이 안 됩니다.
 
 ```bash
 git fetch origin
-git switch -c <타입>/<파트>/<작업내용> origin/develop
+git switch -c feat/<파트>/<작업내용> origin/develop-next
+git switch -c refactor/<파트>/<작업내용> origin/develop
 ```
 
-첫 push에서 upstream을 바로잡습니다. 위 명령은 upstream을 `origin/develop`으로 잡아두기 때문입니다.
+첫 push에서 upstream을 바로잡습니다. 위 명령은 upstream을 분기한 장수 브랜치(`origin/develop-next`·`origin/develop`)로 잡아두기 때문입니다.
 
 ```bash
 git push -u origin <브랜치명>
@@ -37,7 +39,7 @@ git push -u origin <브랜치명>
 
 예: `feat/be/agent-pipeline`, `refactor/fe/week1-mentor-feedback`
 
-`main`·`develop`은 고정 이름이라 이 규칙의 대상이 아닙니다.
+`main`·`develop`·`develop-next`는 고정 이름이라 이 규칙의 대상이 아닙니다.
 
 **미정**: 문서 전용 작업의 파트 표기가 규칙에 없습니다. 선례는 파트 없이 쓴 `feat/docs-claude-hierarchy`와 `refactor/docs/mentor-review`입니다. 이름을 임의로 정하지 말고 사용자에게 물어보세요 (`docs/open-questions.md`).
 
