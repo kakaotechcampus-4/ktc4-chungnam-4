@@ -330,13 +330,13 @@ def find_center_by_code(db: Session, center_code: str) -> CenterSummary:
 
     교사 회원가입에서 auth가 부릅니다 — auth는 Center 테이블을 직접 조회하지 않습니다
     (organization/CLAUDE.md: 코드 조회는 이 함수 하나로 모읍니다).
-    코드 형식(자릿수·대소문자)이 아직 정해지지 않아 입력값을 바꾸지 않고 그대로 비교합니다.
-    TODO(이한나): 코드 형식이 정해지면 정규화(공백 제거·대소문자 통일) 여부를 정합니다.
+    발급 코드는 대문자·숫자뿐이라(`_new_center_code`) 앞뒤 공백을 지우고 대문자로 바꿔 비교합니다.
+    교사가 소문자로 입력해도 찾습니다 (#212 리뷰).
 
     - 일치하는 어린이집이 없음: `CenterNotFound` (404 `CENTER_NOT_FOUND`)
     """
     row = db.execute(
-        select(Center.id, Center.name).where(Center.center_code == center_code)
+        select(Center.id, Center.name).where(Center.center_code == center_code.strip().upper())
     ).one_or_none()
     if row is None:
         raise CenterNotFound("가입 코드와 일치하는 어린이집이 없습니다.")
