@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     anthropic_model: str = "anthropic/claude-sonnet-5"
     # 사진 분석용 게이트웨이는 agents와 분리합니다 (09/23 결정, #98).
     vision_gateway_base_url: str = ""
-    vision_model: str = "glm-5.3-flash"
+    vision_model: str = "zai-org/GLM-5.3-Flash"
 
     # 로그인 토큰 서명 키. 없으면 앱은 뜨지만 로그인만 실패합니다 — 다른 도메인
     # 개발이 키 때문에 막히지 않게 하기 위함입니다 (face_embedding_key와 같은 방식).
