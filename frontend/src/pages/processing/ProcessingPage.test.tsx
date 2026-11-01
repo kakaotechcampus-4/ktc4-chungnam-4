@@ -1,3 +1,14 @@
+import userEvent from "@testing-library/user-event";
+vi.mock("@/workers/face/client", () => ({
+  prepareFaceModels: vi.fn(async () => true),
+  classifyPhoto: vi.fn(async () => ({
+    model_version: "test",
+    classify_state: "classified",
+    candidates: [{ child_id: fixtureId("child", 1), confidence: 0.95 }],
+    has_unidentified_face: false,
+  })),
+}));
+
 import { screen, waitFor } from "@testing-library/react";
 import { File as NodeFile } from "node:buffer";
 
@@ -50,6 +61,7 @@ describe("ProcessingPage", () => {
 
   it("확정한 사진만 보내고, 초안이 생긴 첫 원아의 초안 검토로 간다", async () => {
     const queue = useUploadQueue.getState();
+    queue.setRecordDate("2026-09-15");
     queue.addFiles([photo("confirmed.jpg"), photo("unreviewed.jpg")]);
     const [confirmed] = useUploadQueue.getState().items;
     queue.setClassification(confirmed!.client_id, {
@@ -135,6 +147,7 @@ describe("ProcessingPage", () => {
     });
     expect(writes[2]?.body).toMatchObject({
       client_photo_id: confirmed!.client_id,
+      captured_at: "2026-09-15T03:00:00.000Z",
       type: "photo",
       llm_allowed: true,
       child_links: [
@@ -147,7 +160,11 @@ describe("ProcessingPage", () => {
       (media) => media.client_photo_id === confirmed!.client_id,
     );
     expect(registered).toBeDefined();
-    expect(writes[3]?.body).toMatchObject({ media_ids: [registered!.media_id] });
+    expect(writes[3]?.body).toMatchObject({
+      media_ids: [registered!.media_id],
+      record_date: "2026-09-15",
+    });
+    expect(router.state.location.search).toBe("?record_date=2026-09-15");
     expect(useUploadQueue.getState().items).toEqual([]);
   });
 
@@ -191,7 +208,7 @@ describe("ProcessingPage", () => {
     expect(router.state.location.pathname).toBe("/t/today/processing");
   });
 
-  it("초안이 생긴 원아가 없으면 대시보드로 간다", async () => {
+  it("초안이 없으면 이유를 확인한 뒤 결과 화면으로 간다", async () => {
     const queue = useUploadQueue.getState();
     queue.addFiles([photo("confirmed.jpg")]);
     const [confirmed] = useUploadQueue.getState().items;
@@ -231,14 +248,62 @@ describe("ProcessingPage", () => {
     );
     const { router } = renderProcessing("/t/today/processing?step=send");
 
-    await waitFor(() => expect(router.state.location.pathname).toBe("/t/dashboard"), {
-      timeout: 3000,
-    });
+    expect(await screen.findByRole("alert")).toHaveTextContent("근거가 부족해요");
+    expect(router.state.location.pathname).toBe("/t/today/processing");
+    await userEvent.setup().click(screen.getByRole("button", { name: "결과 확인하기" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/t/dashboard"));
   });
 
   it("불러온 자료 없이 들어오면 자료 올리기로 보낸다", async () => {
     const { router } = renderProcessing("/t/today/processing");
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/t/today/upload"));
+  });
+
+  it("AI 인증 실패는 계속 로딩하지 않고 원인과 결과 확인 버튼을 보여준다", async () => {
+    const queue = useUploadQueue.getState();
+    queue.addFiles([photo("confirmed.jpg")]);
+    queue.setReview(useUploadQueue.getState().items[0]!.client_id, {
+      review_state: "확정",
+      assigned_child_ids: [fixtureId("child", 1)],
+      excluded_reason: null,
+      llm_allowed: true,
+    });
+    const polled = vi.fn();
+    server.use(
+      http.get(apiPath("/jobs/:jobId"), ({ params }) => {
+        polled();
+        return HttpResponse.json<Job>({
+          job_id: String(params.jobId),
+          class_id: fixtureId("class", 1),
+          record_date: "2026-09-15",
+          status: "failed",
+          stage: null,
+          progress: { percent: 100, total_children: 1, finished_children: 1 },
+          failed_stage: null,
+          error_code: "LLM_CALL_FAILED",
+          children: [
+            {
+              child_id: fixtureId("child", 1),
+              status: "failed",
+              stage: null,
+              outcome: null,
+              unclassified_reason: null,
+              failed_stage: null,
+              error_code: "LLM_CALL_FAILED",
+              drafts: [],
+            },
+          ],
+          created_at: "2026-09-15T06:30:00Z",
+          updated_at: "2026-09-15T06:31:40Z",
+        });
+      }),
+    );
+    const { router } = renderProcessing("/t/today/processing?step=send");
+    expect(await screen.findByRole("alert")).toHaveTextContent("AI 서비스에 연결하지 못했어요");
+    expect(screen.getByText("종료")).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "결과 확인하기" }));
+    expect(router.state.location.pathname).toBe("/t/dashboard");
+    expect(polled).toHaveBeenCalledTimes(1);
   });
 });

@@ -12,6 +12,7 @@ import {
 } from "@/features/upload-queue/upload-queue-store";
 import { useImportTicker } from "@/features/upload-queue/use-import-ticker";
 import { cn } from "@/lib/utils";
+import { isDateOnly, kstToday } from "@/lib/datetime";
 
 import { ImportList } from "./components/ImportList";
 import { RejectedList } from "./components/RejectedList";
@@ -38,6 +39,8 @@ export function UploadPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const items = useUploadQueue((state) => state.items);
+  const recordDate = useUploadQueue((state) => state.recordDate);
+  const setRecordDate = useUploadQueue((state) => state.setRecordDate);
   const rejected = useUploadQueue((state) => state.rejected);
   const addFiles = useUploadQueue((state) => state.addFiles);
   const removeRejected = useUploadQueue((state) => state.removeRejected);
@@ -59,6 +62,21 @@ export function UploadPage() {
       />
       <div className="flex items-start gap-5.5 pb-11">
         <div className="flex min-w-0 flex-1 flex-col gap-5.5">
+          <label className="flex items-center gap-3 text-label font-bold text-ink">
+            활동 날짜
+            <input
+              type="date"
+              value={recordDate}
+              max={kstToday()}
+              onChange={(event) => {
+                if (isDateOnly(event.target.value)) setRecordDate(event.target.value);
+              }}
+              className="rounded-md border border-line bg-paper px-3 py-2"
+            />
+            <span className="text-caption font-normal text-ink-muted">
+              선택한 날짜의 알림장에 사용할 자료를 골라 주세요.
+            </span>
+          </label>
           <div
             onDragOver={(event) => {
               event.preventDefault();
@@ -121,7 +139,7 @@ export function UploadPage() {
           <Button
             variant="solid"
             className="w-full"
-            disabled={!done}
+            disabled={!done || recordDate > kstToday()}
             onClick={() => navigate("/t/today/processing")}
           >
             불러오기 완료 후 분류 시작

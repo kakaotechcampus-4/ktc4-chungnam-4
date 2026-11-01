@@ -18,6 +18,7 @@ import {
 } from "@/features/upload-queue/upload-queue-store";
 
 import { ProcessingCard } from "./ProcessingCard";
+import { activityDateInstant } from "@/lib/datetime";
 
 interface SendStepProps {
   onDone: () => void;
@@ -40,11 +41,6 @@ function childLinksBody(item: LocalMedia): ChildLinksInput {
   };
 }
 
-// 가정: 촬영 시각은 EXIF에서 읽어야 하지만 지금은 파일 수정 시각을 씁니다.
-function capturedAt(file: File) {
-  return new Date(file.lastModified).toISOString();
-}
-
 /**
  * upload-urls로 한 번에 주소를 받고, 파일마다 PUT → 완료 통지(ack)를 반복합니다(API 문서 §media).
  * 사진은 완료 통지에 귀속을 함께 실어 한 번에 저장하고, 영상·음성은 ack 뒤에 귀속을 따로 저장합니다.
@@ -52,6 +48,7 @@ function capturedAt(file: File) {
  */
 export function SendStep({ onDone, onCancel }: SendStepProps) {
   const { currentClass } = useCurrentClass();
+  const [capturedAt] = useState(() => activityDateInstant(useUploadQueue.getState().recordDate));
   const setUploadState = useUploadQueue((state) => state.setUploadState);
   // 이 단계에 들어온 순간의 확정 목록으로 고정합니다. 전송 중에 목록이 바뀌지 않게 하려는 것입니다.
   // 사진을 먼저 보냅니다. 영상·음성 귀속(child-links)이 실패해도 앞선 사진은 이미 서버에 귀속까지 저장돼 있습니다.
@@ -91,7 +88,7 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
                     client_photo_id: item.client_id,
                     class_id: classId,
                     type: item.kind,
-                    captured_at: capturedAt(item.file),
+                    captured_at: capturedAt,
                     model_version: item.model_version,
                     attribution: childLinksBody(item),
                   }
@@ -99,7 +96,7 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
                     client_photo_id: item.client_id,
                     class_id: classId,
                     type: item.kind,
-                    captured_at: capturedAt(item.file),
+                    captured_at: capturedAt,
                     model_version: null,
                   },
             )
@@ -125,6 +122,7 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
 
   return (
     <ProcessingCard
+      stopped={Boolean(send.error)}
       title="선택한 자료를 전송하고 있어요"
       detail={`선생님이 확인한 자료만 전송 중 · ${acked} / ${targets.length}개`}
       percent={percent}

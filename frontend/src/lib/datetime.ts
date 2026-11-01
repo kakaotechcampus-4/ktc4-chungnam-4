@@ -102,6 +102,12 @@ export function toKstDate(isoDateTime: string): DateOnly {
   return toKstDateOnly(parseDateTime(isoDateTime));
 }
 
+/** 촬영 시각을 모르는 업로드는 교사가 고른 활동 날짜의 정오(KST)를 대표 시각으로 씁니다. */
+export function activityDateInstant(date: DateOnly): string {
+  parseDateOnly(date);
+  return new Date(`${date}T12:00:00+09:00`).toISOString();
+}
+
 // UTC 자정 Date를 DateOnly로 되돌립니다. parseDateOnly의 반대입니다.
 function fromUtcMidnight(value: Date): DateOnly {
   const month = String(value.getUTCMonth() + 1).padStart(2, "0");

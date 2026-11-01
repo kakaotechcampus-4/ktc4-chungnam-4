@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { kstToday, type DateOnly } from "@/lib/datetime";
 
 // 오늘 올릴 자료의 로컬 상태입니다(테크스펙 데이터 모델 ⑧ LocalBatch·LocalPhoto).
 // 자료 올리기 → 처리 중 → 얼굴 분류(④)가 함께 씁니다. 서버에서 받은 데이터는 여기에 두지 않습니다.
@@ -119,6 +120,9 @@ export const IMPORT_TICK_MS = 150;
 export const IMPORT_TICK_AMOUNT = 10;
 
 interface UploadQueueState {
+  /** 교사가 확인한 활동 날짜. 업로드·초안 생성·검토에서 같은 날짜를 사용합니다. */
+  recordDate: DateOnly;
+  setRecordDate: (date: DateOnly) => void;
   items: LocalMedia[];
   /** 형식이 안 맞아 담지 않은 파일 이름. 같은 이름은 한 번만 둡니다. 서버로는 보내지 않습니다. */
   rejected: string[];
@@ -139,6 +143,8 @@ interface UploadQueueState {
 }
 
 export const useUploadQueue = create<UploadQueueState>()((set) => ({
+  recordDate: kstToday(),
+  setRecordDate: (recordDate) => set({ recordDate }),
   items: [],
   rejected: [],
   addFiles: (files) =>
@@ -189,7 +195,7 @@ export const useUploadQueue = create<UploadQueueState>()((set) => ({
           : item,
       ),
     })),
-  reset: () => set({ items: [], rejected: [] }),
+  reset: () => set({ items: [], rejected: [], recordDate: kstToday() }),
 }));
 
 export function isPhoto(item: LocalMedia): item is LocalPhoto {
