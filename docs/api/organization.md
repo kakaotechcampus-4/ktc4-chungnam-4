@@ -187,6 +187,7 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 }
 ```
 
+- 사진 통합 PR에서 명단의 `age_group`·동의 수·`face_feature_agreed`·`is_face_registered`·`parent_linked`를 실제 DB로 채웁니다. 등록 원본을 저장하지 않으므로 `face_photo_count`는 알 수 없어 `null`입니다. 명단에는 생년월일·얼굴 벡터를 넣지 않습니다.
 - 화면의 얼굴 상태는 FE가 만듭니다: `face_feature_agreed`가 false면 "등록 잠김", 아니면 `is_face_registered`로 "등록됨/미등록".
 - `?status=`는 아직 쓰는 화면이 없어 채우지 않았습니다(재원만 돌려줌).
 
