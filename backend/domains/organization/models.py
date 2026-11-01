@@ -125,5 +125,14 @@ class EducationPlan(Base):
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
     title = Column(String, nullable=False)
-    content = Column(Text, nullable=False)
+    content = Column(Text, nullable=False)  # 놀이 목표. API에서는 `goal`로 주고받습니다
+    # 요일별 놀이 {"mon": "...", ...}. 월간 계획은 빈 객체입니다 (docs/api/organization.md)
+    daily_activities = Column(JSON, nullable=False, default=dict)
+    domains = Column(JSON, nullable=False, default=list)  # 누리과정 5영역 코드 목록
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )

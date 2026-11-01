@@ -4,7 +4,7 @@ face·media·agents는 organization 테이블(Child·ConsentRecord 등)을 직�
 이 함수들을 부릅니다 (backend/CLAUDE.md 계층 규칙). 동의 규칙이 바뀌어도 이 파일
 한 곳만 고치면 되도록 판정을 여기로 모읍니다 (#105, FR-04, H-2, H-3).
 
-조회만 하므로 커밋·flush하지 않습니다.
+판정·조회 함수는 커밋·flush하지 않습니다. 커밋은 교육 계획 쓰기 함수만 합니다.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from datetime import date, datetime
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import ColumnElement, Exists, select
+from sqlalchemy import ColumnElement, Exists, case, select
 from sqlalchemy.orm import Session
 
 from core.exceptions import (
@@ -26,21 +26,30 @@ from core.exceptions import (
     ChildNotInClass,
     ClassAccessDenied,
     ClassNotFound,
+    PlanNotFound,
+    RequestValidationFailed,
 )
 from domains.organization.models import (
     Center,
     Child,
     ConsentRecord,
+    EducationPlan,
     Klass,
     ParentChildRelation,
+    TeacherPersona,
 )
 from domains.organization.schemas import (
     ClassChildItem,
     ClassChildListResponse,
     ClassItem,
     ClassListResponse,
+    EducationPlanCreateRequest,
+    EducationPlanItem,
+    EducationPlanListResponse,
+    EducationPlanUpdateRequest,
     MyChildItem,
     MyChildListResponse,
+    PlanType,
 )
 
 # Child.status 값 — 재원 원아만 동의 판정 대상입니다 (졸업·퇴소 제외).
@@ -364,3 +373,226 @@ def list_my_children(
             for row in rows
         ]
     )
+
+
+@dataclass(frozen=True)
+class ActivityPlanSummary:
+    """초안 생성에 넣을 교육계획 하나. agents가 `activity_plan` 근거로 씁니다 (NFR-12).
+
+    계획은 "했다"가 아니라 "하려던 것"입니다 — 관찰 사실로 쓰지 않는 규칙은 agents 프롬프트에
+    있습니다. 작성 교사(`teacher_id`)는 넘기지 않습니다(LLM 입력에 교사 정보를 넣지 않음, H-2).
+    `title`·`goal`·`daily_activities`는 교사가 쓴 자유 텍스트라 원아 실명이 들어 있을 수 있습니다 —
+    LLM에 넣기 전에 실명 치환(`tools/generation/pseudonymize.py`)을 거쳐야 합니다 (H-2, #210 리뷰).
+    """
+
+    plan_id: UUID
+    plan_type: str
+    title: str
+    goal: str
+    daily_activities: dict[str, str]
+    domains: list[str]
+    start_date: date
+    end_date: date
+
+
+def get_activity_plans_for_date(
+    db: Session, class_id: UUID, target_date: date
+) -> list[ActivityPlanSummary]:
+    """그 반에서 `target_date`가 기간 안에 드는 교육계획 (NFR-12, 테크스펙 EducationPlan).
+
+    주간 계획을 월간 계획보다 앞에 둡니다 — 하루 활동에 더 가까운 쪽입니다. 같은 종류끼리는
+    시작일이 늦은(더 최근에 세운) 계획이 앞입니다. 어느 계획을 근거로 쓸지는 agents가 고릅니다.
+    해당 계획이 없으면 빈 리스트입니다. 접근 검사는 하지 않습니다(worker가 부르는 내부 함수).
+    """
+    rows = db.scalars(
+        select(EducationPlan)
+        .where(
+            EducationPlan.class_id == class_id,
+            EducationPlan.start_date <= target_date,
+            EducationPlan.end_date >= target_date,
+        )
+        .order_by(
+            case((EducationPlan.plan_type == PlanType.WEEKLY.value, 0), else_=1),
+            EducationPlan.start_date.desc(),
+            EducationPlan.id,
+        )
+    )
+    return [
+        ActivityPlanSummary(
+            plan_id=plan.id,
+            plan_type=plan.plan_type,
+            title=plan.title,
+            goal=plan.content,
+            daily_activities=dict(plan.daily_activities),
+            domains=list(plan.domains),
+            start_date=plan.start_date,
+            end_date=plan.end_date,
+        )
+        for plan in rows
+    ]
+
+
+@dataclass(frozen=True)
+class TeacherPersonaSummary:
+    """교사 문체 프로필의 최신 버전. agents가 `context_lookup["teacher_persona"]`에 넣습니다
+    (NFR-07). 교사 실명은 담지 않습니다 — 페르소나에는 문체만 둡니다 (organization/CLAUDE.md).
+    `sample_phrases`·`style_rules`는 교사 글에서 뽑은 문장이라 원아 실명이 섞일 수 있어, LLM에
+    넣기 전에 실명 치환을 거쳐야 합니다 (H-2, #210 리뷰)."""
+
+    persona_id: UUID
+    version: int
+    tone_summary: str
+    style_rules: list[str]
+    sample_phrases: list[str]
+
+
+def get_teacher_persona(db: Session, teacher_id: UUID) -> TeacherPersonaSummary | None:
+    """교사의 최신 문체 프로필. 아직 없으면 `None`입니다 — 문체 없이 기본 말투로 생성합니다.
+
+    갱신할 때마다 `version`이 오르고 이전 버전은 이력으로 남으므로 가장 높은 버전을 씁니다
+    (테크스펙 TeacherPersona).
+    """
+    persona = db.scalars(
+        select(TeacherPersona)
+        .where(TeacherPersona.teacher_id == teacher_id)
+        .order_by(TeacherPersona.version.desc(), TeacherPersona.updated_at.desc())
+        .limit(1)
+    ).first()
+    if persona is None:
+        return None
+    return TeacherPersonaSummary(
+        persona_id=persona.id,
+        version=persona.version,
+        tone_summary=persona.tone_summary,
+        style_rules=list(persona.style_rules),
+        sample_phrases=list(persona.sample_phrases),
+    )
+
+
+def _plan_item(plan: EducationPlan) -> EducationPlanItem:
+    return EducationPlanItem(
+        plan_id=plan.id,
+        class_id=plan.class_id,
+        plan_type=plan.plan_type,
+        start_date=plan.start_date,
+        end_date=plan.end_date,
+        title=plan.title,
+        goal=plan.content,
+        daily_activities=plan.daily_activities,
+        domains=plan.domains,
+        created_at=plan.created_at,
+        updated_at=plan.updated_at,
+    )
+
+
+def _validate_plan(plan: EducationPlan) -> None:
+    """필드 하나로는 못 막는 조합 조건 (docs/api/organization.md §공통 모양 EducationPlan).
+
+    - 끝나는 날이 시작일보다 앞이면 안 됩니다.
+    - 월간 계획에는 요일별 놀이가 없습니다(빈 객체).
+    - 같은 영역을 두 번 고르지 않습니다.
+    """
+    if plan.end_date < plan.start_date:
+        raise RequestValidationFailed("end_date는 start_date보다 앞일 수 없습니다.")
+    if plan.plan_type == PlanType.MONTHLY.value and plan.daily_activities:
+        raise RequestValidationFailed("월간 계획에는 daily_activities를 넣지 않습니다.")
+    if len(set(plan.domains)) != len(plan.domains):
+        raise RequestValidationFailed("domains에 같은 영역이 두 번 들어 있습니다.")
+
+
+def _plan_for_teacher(db: Session, plan_id: UUID, center_id: UUID | None) -> EducationPlan:
+    """계획을 찾고 그 반에 교사가 접근할 수 있는지 확인합니다.
+
+    - 없는 계획: `PlanNotFound` (404 `PLAN_NOT_FOUND`)
+    - 다른 어린이집 반의 계획: `ClassAccessDenied` (403 `CLASS_ACCESS_DENIED`)
+    """
+    plan = db.get(EducationPlan, plan_id)
+    if plan is None:
+        raise PlanNotFound("교육 계획을 찾을 수 없습니다.")
+    ensure_class_access(db, plan.class_id, center_id)
+    return plan
+
+
+def list_education_plans(
+    db: Session, class_id: UUID, center_id: UUID | None, plan_type: PlanType | None = None
+) -> EducationPlanListResponse:
+    """반의 교육 계획 목록 (FR-21). 시작일 최신순이고, `plan_type`을 주면 그 종류만 돌려줍니다."""
+    ensure_class_access(db, class_id, center_id)
+    stmt = select(EducationPlan).where(EducationPlan.class_id == class_id)
+    if plan_type is not None:
+        stmt = stmt.where(EducationPlan.plan_type == plan_type.value)
+    plans = db.scalars(stmt.order_by(EducationPlan.start_date.desc(), EducationPlan.id))
+    return EducationPlanListResponse(items=[_plan_item(plan) for plan in plans])
+
+
+def create_education_plan(
+    db: Session,
+    class_id: UUID,
+    *,
+    center_id: UUID | None,
+    teacher_id: UUID,
+    request: EducationPlanCreateRequest,
+) -> EducationPlanItem:
+    """교육 계획을 등록합니다 (FR-20). 같은 어린이집 교사면 어느 반에나 등록합니다(담당교사 폐지).
+
+    `teacher_id`는 작성 기록으로만 남기고 권한 판단에 쓰지 않습니다. 기간이 겹치는 계획도
+    막지 않습니다 — 초안 생성 때 어느 계획을 쓸지는 agents가 고릅니다.
+    """
+    ensure_class_access(db, class_id, center_id)
+    plan = EducationPlan(
+        class_id=class_id,
+        teacher_id=teacher_id,
+        plan_type=request.plan_type.value,
+        start_date=request.start_date,
+        end_date=request.end_date,
+        title=request.title,
+        content=request.goal,
+        daily_activities=dict(request.daily_activities),
+        domains=[domain.value for domain in request.domains],
+    )
+    _validate_plan(plan)
+    db.add(plan)
+    db.commit()
+    return _plan_item(plan)
+
+
+def get_education_plan(db: Session, plan_id: UUID, center_id: UUID | None) -> EducationPlanItem:
+    """교육 계획 하나 (수정 화면, FR-21)."""
+    return _plan_item(_plan_for_teacher(db, plan_id, center_id))
+
+
+def update_education_plan(
+    db: Session, plan_id: UUID, center_id: UUID | None, request: EducationPlanUpdateRequest
+) -> EducationPlanItem:
+    """보낸 필드만 바꿉니다. 필드를 `null`로 보내 지울 수는 없습니다 (VALIDATION_ERROR).
+
+    종류를 월간으로 바꾸면서 요일별 놀이를 그대로 두면 막힙니다 — 바꾼 결과 전체로 다시 확인합니다.
+    """
+    plan = _plan_for_teacher(db, plan_id, center_id)
+    changes = request.model_dump(exclude_unset=True)
+    if any(value is None for value in changes.values()):
+        raise RequestValidationFailed("교육 계획 필드는 null로 바꿀 수 없습니다.")
+    for field, value in changes.items():
+        if field == "goal":
+            plan.content = value
+        elif field == "plan_type":
+            plan.plan_type = value.value
+        elif field == "domains":
+            plan.domains = [domain.value for domain in value]
+        else:
+            setattr(plan, field, value)
+    try:
+        _validate_plan(plan)
+    except RequestValidationFailed:
+        db.rollback()
+        raise
+    db.commit()
+    return _plan_item(plan)
+
+
+def delete_education_plan(db: Session, plan_id: UUID, center_id: UUID | None) -> None:
+    """교육 계획을 지웁니다. `EvidenceBundle.source_activity_plan_id`는 FK가 없어 이미 만든
+    근거 묶음은 그대로 남습니다 (테크스펙 데이터 모델 ④)."""
+    plan = _plan_for_teacher(db, plan_id, center_id)
+    db.delete(plan)
+    db.commit()
