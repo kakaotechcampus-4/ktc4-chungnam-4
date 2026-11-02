@@ -21,7 +21,7 @@
 - [ ] develop(PR #14)의 학부모 알림장 API는 `child_id` 없이 로그인한 학부모 기준이라, W3 자녀 칩 전환과 `access_expired` 자녀의 `CHILD_ACCESS_EXPIRED` 차단을 어떻게 할지(한상균과 함께)
 - [x] `organization/CLAUDE.md`의 `/organization` 표기 수정 → 수정(이한나, #146)
 - [ ] 학부모 초대 링크의 만료 기한(7일 제안)과 보호자 여러 명이 한 링크를 쓸지(엄태은·송유진과 함께)
-- [ ] 교사 정보 입력의 가입 완료: 문서는 `POST /accounts`(auth)로 이메일 가입과 합쳐 보냄. FE는 #65와 맞추기 전까지 임시 경로 `PUT /teachers/me/profile`(`{ "name", "center_id" }`)을 목으로 씀(엄태은·송유진과 함께)
+- [x] 교사 정보 입력의 가입 완료: 문서는 `POST /accounts`(auth)로 이메일 가입과 합쳐 보냄. FE는 #65와 맞추기 전까지 임시 경로 `PUT /teachers/me/profile`(`{ "name", "center_id" }`)을 목으로 씀(엄태은·송유진과 함께) → `POST /accounts`로 합침, 임시 경로는 만들지 않음 (임시 결정(엄태은), 송유진 #221 리뷰 동의). 반영: `docs/api/auth.md` §교사 회원가입
 - [ ] 원아 개인 페이지의 이번 달 기록 수·누리과정 5영역별 수(documents). FE는 정해지기 전까지 임시 경로 `GET /children/{child_id}/overview`를 목으로 씀. 응답은 §② 화면용으로 채운 엔드포인트의 `ChildOverview`(김진하·한상균과 함께)
 
 ## 이 도메인의 규칙
@@ -56,7 +56,7 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 ```
 
 - `center_name`(제안)은 헤더에 쓰려고 `Center.name`을 붙인 값입니다.
-- 교사의 소속 어린이집이 아직 없으면(`center_id`가 null) `items: []`입니다. 소속은 있는데 반이 아직 없는 어린이집도 `items: []`이므로, FE는 두 경우를 `GET /me`의 `center_id`로 구분합니다 — null이면 가입 코드 입력, 있으면 반 만들기·고르기(FR-25). 온보딩 API는 경로만 정했습니다.
+- 교사의 소속 어린이집이 아직 없으면(`center_id`가 null) `items: []`입니다. 소속은 있는데 반이 아직 없는 어린이집도 `items: []`이므로, FE는 두 경우를 `GET /me`의 `center_id`로 구분합니다 — 있으면 반 만들기·고르기(FR-25). 회원가입이 소속을 정해야 끝나므로(`POST /accounts`) null은 `--center-id` 없이 만든 시드 계정뿐입니다. 온보딩 API는 경로만 정했습니다.
 - 구현됨(#146): 서버는 위 기본 필드만 돌려줍니다. §② `ClassSummary`의 확장 필드(`age_band`·`child_count`·`is_favorite`·`needs_record_today`)는 아직 없습니다.
 - 에러: 공통 에러만
 - `age_group` 값 형식 → 임시 결정(이한나): 표시용 문자열로 두고, 교육과정은 새 필드 `age_band`로 고릅니다. 이 응답에 더하는 필드는 아래 §② 화면용으로 채운 엔드포인트의 `ClassSummary`에 있습니다.
