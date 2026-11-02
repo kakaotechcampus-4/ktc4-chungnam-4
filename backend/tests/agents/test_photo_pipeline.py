@@ -54,8 +54,12 @@ def flow(monkeypatch: pytest.MonkeyPatch) -> Iterator[Flow]:
             conn.execute(CreateSchema(schema))
         engine = engine.execution_options(schema_translate_map={None: schema})
     else:
+        # Python 3.12 SQLite의 legacy transaction은 SAVEPOINT 해제를 커밋할 수 있다.
+        # 운영 PostgreSQL처럼 바깥 트랜잭션의 rollback이 중첩 저장에도 적용되게 한다.
         engine = create_engine(
-            "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+            "sqlite://",
+            connect_args={"check_same_thread": False, "autocommit": False},
+            poolclass=StaticPool,
         )
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)
@@ -311,3 +315,146 @@ def test_멈춘_worker는_폴링에서_실패로_끝나고_늦은_성공이_복�
     assert calls == []
     with factory() as db:
         assert db.get(Job, pending[0][0]).status == "failed"
+
+
+def test_미동의_사유가_작업과_미분류에_남는다(flow: Flow) -> None:
+    client, factory, klass, children, pending, calls = flow
+    login(client, TEACHER_EMAIL)
+    status = run(client, klass, photo(factory, klass, [children[3]]), pending)
+    assert status["children"][0]["unclassified_reason"] == "no_consent"
+    assert calls == []
+    with factory() as db:
+        assert db.scalar(select(UnclassifiedItem)).reason == "no_consent"
+
+
+def test_모든_사진의_응답형식_실패는_사진분석실패로_끝난다(
+    flow: Flow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, factory, klass, children, pending, calls = flow
+    monkeypatch.setattr(service, "call_vision", lambda *_: "invalid json")
+    login(client, TEACHER_EMAIL)
+    media = photo(factory, klass, [children[0]])
+    status = run(client, klass, media, pending)
+    assert status["status"] == "succeeded"
+    assert status["children"][0]["unclassified_reason"] == "photo_analysis_failed"
+    assert calls == []  # 문장 생성·Critic은 호출하지 않는다.
+    with factory() as db:
+        assert db.scalar(select(UnclassifiedItem)).reason == "photo_analysis_failed"
+        assert db.scalar(select(DraftDocument)) is None
+        assert db.scalar(select(service.EvidenceBundle)).failed_photo_ids == [str(media)]
+
+
+def test_일부_사진_실패는_교사_초안에_보이고_문장근거에는_들어가지_않는다(
+    flow: Flow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, factory, klass, children, pending, _calls = flow
+    good = photo(factory, klass, [children[0]])
+    bad = photo(factory, klass, [children[0]])
+    vision = service.call_vision
+
+    def sometimes_invalid(prompt: str, images: list[str]) -> str:
+        return "invalid json" if str(bad) in images[0] else vision(prompt, images)
+
+    monkeypatch.setattr(service, "call_vision", sometimes_invalid)
+    login(client, TEACHER_EMAIL)
+    status = run(client, klass, good, pending)
+    draft = status["children"][0]["drafts"][0]["draft_id"]
+    detail = client.get(f"/api/v1/drafts/{draft}").json()
+    assert detail["failed_media_ids"] == [str(bad)]
+    assert str(bad) in [m["media_id"] for m in detail["media"]]
+    assert str(bad) not in detail["selected_media_ids"]
+    assert all(e["media_id"] != str(bad) for s in detail["sentences"] for e in s["evidences"])
+    # 제외 안내를 추가한 뒤에도 부모에게 교사용 초안은 노출되지 않는다.
+    login(client, PARENT_EMAILS[0])
+    assert client.get(f"/api/v1/drafts/{draft}").status_code == 403
+
+
+def test_실행_중_실패한_worker의_늦은_초안과_문장근거를_롤백한다(
+    flow: Flow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from domains.agents.models import DraftDecisionLog, EvidenceBundle, SentenceEvidence
+    from domains.documents.models import DraftSentence
+
+    client, factory, klass, children, pending, calls = flow
+    login(client, TEACHER_EMAIL)
+    collect = service._collect_evidence
+
+    def fail_after_worker_started(session: Session, child_id: str, target_date: datetime):
+        # worker가 running을 커밋하고 job 객체를 읽은 이후, 다른 세션에서 실패를 확정한다.
+        # worker 메모리의 running 값은 그대로여서 뒤의 저장·조건부 커밋을 실제로 실행한다.
+        service.mark_job_failed(str(pending[0][0]), error_code="LLM_TIMEOUT")
+        return collect(session, child_id, target_date)
+
+    monkeypatch.setattr(service, "_collect_evidence", fail_after_worker_started)
+    status = run(client, klass, photo(factory, klass, [children[0]]), pending)
+    assert status["status"] == "failed"
+    assert status["children"][0]["error_code"] == "LLM_TIMEOUT"
+    assert [kind for kind, _ in calls] == ["vision", "llm", "llm"]
+    with factory() as db:
+        assert db.get(Job, pending[0][0]).status == "failed"
+        for model in (
+            DraftDocument,
+            DraftSentence,
+            SentenceEvidence,
+            UnclassifiedItem,
+        ):
+            assert db.scalar(select(model)) is None, model.__name__
+        # 수집·검증 이력은 기존 계약대로 보존한다. 교사에게 보이는 초안과 문장 근거만 롤백한다.
+        assert db.scalar(select(EvidenceBundle)) is not None
+        assert db.scalar(select(DraftDecisionLog)) is not None
+
+
+@pytest.mark.parametrize("completion", ["ai", "manual"])
+def test_미분류_재기록은_중복없이_갱신하고_완성하면_같은_원아_날짜만_해소한다(
+    flow: Flow, completion: str
+) -> None:
+    client, factory, klass, children, pending, _calls = flow
+    documents = service.documents
+    first_job, last_job = uuid4(), uuid4()
+    with factory() as db:
+        for job, reason in [(first_job, "no_consent"), (last_job, "photo_analysis_failed")]:
+            documents.record_unclassified(
+                db, child_id=children[0], record_date=DAY, reason=reason, job_id=job
+            )
+        documents.record_unclassified(
+            db, child_id=children[1], record_date=DAY, reason="no_consent", job_id=first_job
+        )
+        documents.record_unclassified(
+            db,
+            child_id=children[0],
+            record_date=DAY - timedelta(days=1),
+            reason="no_consent",
+            job_id=first_job,
+        )
+        db.commit()
+        rows = db.scalars(select(UnclassifiedItem)).all()
+        assert len(rows) == 3
+        target = next(row for row in rows if row.child_id == children[0] and row.record_date == DAY)
+        assert target.reason == "photo_analysis_failed"
+        assert target.ref_id == last_job
+    login(client, TEACHER_EMAIL)
+    if completion == "ai":
+        run(client, klass, photo(factory, klass, [children[0]]), pending)
+    else:
+        response = client.post(
+            f"/api/v1/children/{children[0]}/drafts",
+            json={
+                "record_date": str(DAY),
+                "doc_type": "parent_note",
+                "title": None,
+                "sentences": [{"text": "블록으로 놀이했어요."}],
+            },
+        )
+        assert response.status_code == 201, response.text
+    with factory() as db:
+        rows = db.scalars(select(UnclassifiedItem)).all()
+        target = next(row for row in rows if row.child_id == children[0] and row.record_date == DAY)
+        assert target.status == "resolved"
+        assert target.resolved_at is not None
+        assert all(row.status == "open" for row in rows if row.id != target.id)
+        # 해소된 과거 이력을 보존하고 새로운 실패는 새 열린 항목으로 남긴다.
+        documents.record_unclassified(
+            db, child_id=children[0], record_date=DAY, reason="verification_failed", job_id=uuid4()
+        )
+        db.commit()
+        assert len(db.scalars(select(UnclassifiedItem)).all()) == 4

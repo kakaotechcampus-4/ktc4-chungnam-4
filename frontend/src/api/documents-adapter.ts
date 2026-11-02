@@ -125,6 +125,7 @@ export function toDraftView(raw: DraftDetail): DraftView {
     title: raw.title,
     sentences: raw.sentences.map(toSentenceView),
     selected_media_ids: raw.selected_media_ids,
+    failed_media_ids: raw.failed_media_ids ?? [],
     media: raw.media.map(toDraftMediaView),
     published_at: raw.published_at,
     include_photos: raw.include_photos,
