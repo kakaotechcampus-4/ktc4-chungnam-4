@@ -59,113 +59,162 @@ describe("ProcessingPage", () => {
     expect(photos.map((item) => item.classify_state)).toEqual(["classified", "classified"]);
   }, 15000);
 
-  it("확정한 사진만 보내고, 초안이 생긴 첫 원아의 초안 검토로 간다", async () => {
-    const queue = useUploadQueue.getState();
-    queue.setRecordDate("2026-09-15");
-    queue.addFiles([photo("confirmed.jpg"), photo("unreviewed.jpg")]);
-    const [confirmed] = useUploadQueue.getState().items;
-    queue.setClassification(confirmed!.client_id, {
-      model_version: "buffalo_l-1.0",
-      classify_state: "classified",
-      candidates: [{ child_id: fixtureId("child", 1), confidence: 0.9 }],
-      has_unidentified_face: false,
-    });
-    queue.setReview(confirmed!.client_id, {
-      review_state: "확정",
-      assigned_child_ids: [fixtureId("child", 1), fixtureId("child", 2)],
-      excluded_reason: null,
-      llm_allowed: true,
-    });
-    // 요청 본문은 기본 목 핸들러를 그대로 두고 옆에서 받아 적습니다.
-    const requests: { method: string; path: string; body: unknown }[] = [];
-    const record = async ({ request }: { request: Request }) => {
-      const path = new URL(request.url).pathname;
-      // S3 PUT은 파일 바이트라 JSON 요청만 읽습니다.
-      const isJson = request.headers.get("content-type")?.includes("json") ?? false;
-      const body: unknown = isJson ? await request.clone().json() : null;
-      requests.push({ method: request.method, path, body });
-    };
-    server.events.on("request:start", record);
-    const unclassified: Job["children"][number] = {
-      child_id: fixtureId("child", 1),
-      status: "succeeded",
-      stage: null,
-      outcome: "unclassified",
-      unclassified_reason: "insufficient_evidence",
-      failed_stage: null,
-      error_code: null,
-      drafts: [],
-    };
+  it.each([false, true])(
+    "미식별 얼굴 %s인 확정 사진을 안전하게 보내고 초안 검토로 간다",
+    async (hasUnidentifiedFace) => {
+      const queue = useUploadQueue.getState();
+      queue.setRecordDate("2026-09-15");
+      queue.addFiles([photo("confirmed.jpg"), photo("unreviewed.jpg")]);
+      const [confirmed] = useUploadQueue.getState().items;
+      queue.setClassification(confirmed!.client_id, {
+        model_version: "buffalo_l-1.0",
+        classify_state: "classified",
+        candidates: [{ child_id: fixtureId("child", 1), confidence: 0.9 }],
+        has_unidentified_face: hasUnidentifiedFace,
+      });
+      queue.setReview(confirmed!.client_id, {
+        review_state: "확정",
+        assigned_child_ids: [fixtureId("child", 1), fixtureId("child", 2)],
+        excluded_reason: null,
+        llm_allowed: true,
+      });
+      // 요청 본문은 기본 목 핸들러를 그대로 두고 옆에서 받아 적습니다.
+      const requests: { method: string; path: string; body: unknown }[] = [];
+      const record = async ({ request }: { request: Request }) => {
+        const path = new URL(request.url).pathname;
+        // S3 PUT은 파일 바이트라 JSON 요청만 읽습니다.
+        const isJson = request.headers.get("content-type")?.includes("json") ?? false;
+        const body: unknown = isJson ? await request.clone().json() : null;
+        requests.push({ method: request.method, path, body });
+      };
+      server.events.on("request:start", record);
+      const unclassified: Job["children"][number] = {
+        child_id: fixtureId("child", 1),
+        status: "succeeded",
+        stage: null,
+        outcome: "unclassified",
+        unclassified_reason: "insufficient_evidence",
+        failed_stage: null,
+        error_code: null,
+        drafts: [],
+      };
+      server.use(
+        // 폴링을 기다리지 않게 첫 조회에서 끝난 것으로 둡니다. 첫 원아는 미분류라 초안이 없습니다.
+        http.get(apiPath("/jobs/:jobId"), ({ params }) =>
+          HttpResponse.json<Job>({
+            job_id: String(params.jobId),
+            class_id: fixtureId("class", 1),
+            record_date: "2026-09-15",
+            status: "succeeded",
+            stage: null,
+            progress: { percent: 100, total_children: 2, finished_children: 2 },
+            failed_stage: null,
+            error_code: null,
+            children: [
+              unclassified,
+              {
+                ...unclassified,
+                child_id: fixtureId("child", 2),
+                outcome: "drafted",
+                unclassified_reason: null,
+                drafts: [{ draft_id: fixtureId("draft", 21), doc_type: "parent_note" }],
+              },
+            ],
+            created_at: "2026-09-15T06:30:00Z",
+            updated_at: "2026-09-15T06:31:40Z",
+          }),
+        ),
+      );
+      const { router } = renderProcessing("/t/today/processing?step=send");
+
+      expect(
+        screen.getByRole("heading", { level: 1, name: "선택한 자료를 전송하고 있어요" }),
+      ).toBeInTheDocument();
+      await waitFor(
+        () =>
+          expect(router.state.location.pathname).toBe(`/t/today/review/${fixtureId("child", 2)}`),
+        { timeout: 3000 },
+      );
+      server.events.removeListener("request:start", record);
+
+      const writes = requests.filter((request) => request.method !== "GET");
+      // 사진은 완료 통지에 귀속을 함께 싣고 child-links는 부르지 않습니다(API 문서 §media).
+      expect(writes.map((request) => `${request.method} ${request.path}`)).toEqual([
+        "POST /api/v1/media/upload-urls",
+        `PUT /uploads/${confirmed!.client_id}`,
+        "POST /api/v1/media",
+        `POST /api/v1/classes/${fixtureId("class", 1)}/jobs`,
+      ]);
+      expect(writes[0]?.body).toMatchObject({
+        items: [{ client_photo_id: confirmed!.client_id, type: "photo" }],
+      });
+      expect(writes[2]?.body).toMatchObject({
+        client_photo_id: confirmed!.client_id,
+        captured_at: "2026-09-15T03:00:00.000Z",
+        type: "photo",
+        llm_allowed: !hasUnidentifiedFace,
+        child_links: [
+          { child_id: fixtureId("child", 1), method: "face_recognition", confidence_score: 0.9 },
+          { child_id: fixtureId("child", 2), method: "manual", confidence_score: null },
+        ],
+      });
+      // Job에는 방금 ack로 등록된 그 사진의 media_id가 실립니다.
+      const registered = Object.values(readDb().media).find(
+        (media) => media.client_photo_id === confirmed!.client_id,
+      );
+      expect(registered).toBeDefined();
+      expect(writes[3]?.body).toMatchObject({
+        media_ids: [registered!.media_id],
+        record_date: "2026-09-15",
+      });
+      expect(router.state.location.search).toBe("?record_date=2026-09-15");
+      expect(useUploadQueue.getState().items).toEqual([]);
+    },
+  );
+
+  it("조회가 끊겨도 재시도하면 같은 작업을 이어 보고 생성을 중복 요청하지 않는다", async () => {
+    const user = userEvent.setup();
+    const jobId = fixtureId("job", 9);
+    let creates = 0;
+    let polls = 0;
+    const ids: string[] = [];
     server.use(
-      // 폴링을 기다리지 않게 첫 조회에서 끝난 것으로 둡니다. 첫 원아는 미분류라 초안이 없습니다.
-      http.get(apiPath("/jobs/:jobId"), ({ params }) =>
-        HttpResponse.json<Job>({
-          job_id: String(params.jobId),
+      http.post(apiPath("/classes/:classId/jobs"), () => {
+        creates += 1;
+        return errorResponse(409, "JOB_ALREADY_RUNNING", "이미 처리 중", { job_id: jobId });
+      }),
+      http.get(apiPath("/jobs/:jobId"), ({ params }) => {
+        ids.push(String(params.jobId));
+        polls += 1;
+        if (polls === 1) return errorResponse(503, "UNAVAILABLE", "일시적으로 연결할 수 없어요.");
+        return HttpResponse.json<Job>({
+          job_id: jobId,
           class_id: fixtureId("class", 1),
           record_date: "2026-09-15",
-          status: "succeeded",
+          status: polls === 2 ? "running" : "succeeded",
           stage: null,
-          progress: { percent: 100, total_children: 2, finished_children: 2 },
+          progress: {
+            percent: polls === 2 ? 50 : 100,
+            total_children: 1,
+            finished_children: polls === 2 ? 0 : 1,
+          },
           failed_stage: null,
           error_code: null,
-          children: [
-            unclassified,
-            {
-              ...unclassified,
-              child_id: fixtureId("child", 2),
-              outcome: "drafted",
-              unclassified_reason: null,
-              drafts: [{ draft_id: fixtureId("draft", 21), doc_type: "parent_note" }],
-            },
-          ],
+          children: [],
           created_at: "2026-09-15T06:30:00Z",
-          updated_at: "2026-09-15T06:31:40Z",
-        }),
-      ),
+          updated_at: "2026-09-15T06:31:00Z",
+        });
+      }),
     );
-    const { router } = renderProcessing("/t/today/processing?step=send");
-
+    renderProcessing("/t/today/processing?step=send");
+    await user.click(await screen.findByRole("button", { name: "진행 상태 다시 확인" }));
     expect(
-      screen.getByRole("heading", { level: 1, name: "선택한 자료를 전송하고 있어요" }),
-    ).toBeInTheDocument();
-    await waitFor(
-      () => expect(router.state.location.pathname).toBe(`/t/today/review/${fixtureId("child", 2)}`),
-      { timeout: 3000 },
-    );
-    server.events.removeListener("request:start", record);
-
-    const writes = requests.filter((request) => request.method !== "GET");
-    // 사진은 완료 통지에 귀속을 함께 싣고 child-links는 부르지 않습니다(API 문서 §media).
-    expect(writes.map((request) => `${request.method} ${request.path}`)).toEqual([
-      "POST /api/v1/media/upload-urls",
-      `PUT /uploads/${confirmed!.client_id}`,
-      "POST /api/v1/media",
-      `POST /api/v1/classes/${fixtureId("class", 1)}/jobs`,
-    ]);
-    expect(writes[0]?.body).toMatchObject({
-      items: [{ client_photo_id: confirmed!.client_id, type: "photo" }],
-    });
-    expect(writes[2]?.body).toMatchObject({
-      client_photo_id: confirmed!.client_id,
-      captured_at: "2026-09-15T03:00:00.000Z",
-      type: "photo",
-      llm_allowed: true,
-      child_links: [
-        { child_id: fixtureId("child", 1), method: "face_recognition", confidence_score: 0.9 },
-        { child_id: fixtureId("child", 2), method: "manual", confidence_score: null },
-      ],
-    });
-    // Job에는 방금 ack로 등록된 그 사진의 media_id가 실립니다.
-    const registered = Object.values(readDb().media).find(
-      (media) => media.client_photo_id === confirmed!.client_id,
-    );
-    expect(registered).toBeDefined();
-    expect(writes[3]?.body).toMatchObject({
-      media_ids: [registered!.media_id],
-      record_date: "2026-09-15",
-    });
-    expect(router.state.location.search).toBe("?record_date=2026-09-15");
-    expect(useUploadQueue.getState().items).toEqual([]);
+      await screen.findByRole("progressbar", { name: "오늘의 기록을 문장으로 정리해요" }),
+    ).toHaveAttribute("aria-valuenow", "50");
+    // 수동 조회가 성공한 뒤 정기 폴링도 다시 돌아 최종 상태를 받습니다.
+    await screen.findByRole("button", { name: "결과 확인하기" }, { timeout: 5000 });
+    expect(creates).toBe(1);
+    expect(ids).toEqual([jobId, jobId, jobId]);
   });
 
   it("이미 돌고 있는 초안 작업이 있으면 409 문구 없이 그 작업의 진행률을 이어서 본다", async () => {
