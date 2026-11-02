@@ -451,10 +451,174 @@ def test_미분류_재기록은_중복없이_갱신하고_완성하면_같은_�
         target = next(row for row in rows if row.child_id == children[0] and row.record_date == DAY)
         assert target.status == "resolved"
         assert target.resolved_at is not None
+        expected_resolver = db.get(Klass, klass).teacher_id if completion == "manual" else None
+        assert target.resolved_by == expected_resolver
         assert all(row.status == "open" for row in rows if row.id != target.id)
-        # 해소된 과거 이력을 보존하고 새로운 실패는 새 열린 항목으로 남긴다.
+        # 알림장이 완성된 뒤 재실패해도 해소 이력과 기존 문서를 보존한다.
         documents.record_unclassified(
             db, child_id=children[0], record_date=DAY, reason="verification_failed", job_id=uuid4()
         )
         db.commit()
-        assert len(db.scalars(select(UnclassifiedItem)).all()) == 4
+        assert len(db.scalars(select(UnclassifiedItem)).all()) == 3
+
+
+@pytest.mark.parametrize("approved", [False, True])
+def test_기존_알림장_이후_생성_실패가_확인_필요를_다시_만들지_않는다(
+    flow: Flow, monkeypatch: pytest.MonkeyPatch, approved: bool
+) -> None:
+    client, factory, klass, children, pending, _calls = flow
+    login(client, TEACHER_EMAIL)
+    created = client.post(
+        f"/api/v1/children/{children[0]}/drafts",
+        json={
+            "record_date": str(DAY),
+            "doc_type": "parent_note",
+            "sentences": [{"text": "교사가 직접 작성한 기록입니다."}],
+        },
+    )
+    assert created.status_code == 201, created.text
+    draft = created.json()
+    if approved:
+        response = client.post(
+            f"/api/v1/drafts/{draft['draft_id']}/approve",
+            json={"expected_version": draft["version"], "reviewed": True},
+        )
+        assert response.status_code == 200, response.text
+        draft = response.json()
+    monkeypatch.setattr(service, "call_vision", lambda *_: "invalid-json")
+    run(client, klass, photo(factory, klass, [children[0]]), pending)
+    listed = client.get(f"/api/v1/classes/{klass}/drafts", params={"record_date": str(DAY)})
+    assert listed.status_code == 200, listed.text
+    row = next(item for item in listed.json()["items"] if item["child_id"] == str(children[0]))
+    assert row["unclassified"] is None
+    assert row["parent_note"]["draft_id"] == draft["draft_id"]
+    assert row["parent_note"]["status"] == draft["status"]
+    detail = client.get(f"/api/v1/drafts/{draft['draft_id']}").json()
+    assert detail["sentences"] == draft["sentences"]
+    with factory() as db:
+        assert db.scalar(select(Job)).unclassified_reason == "photo_analysis_failed"
+        assert db.scalar(select(UnclassifiedItem)) is None
+
+
+def test_관찰일지를_직접_써도_알림장_실패는_남는다(flow: Flow) -> None:
+    client, factory, klass, children, _pending, _calls = flow
+    with factory() as db:
+        service.documents.record_unclassified(
+            db,
+            child_id=children[0],
+            record_date=DAY,
+            reason="verification_failed",
+            job_id=uuid4(),
+        )
+        db.commit()
+    login(client, TEACHER_EMAIL)
+    response = client.post(
+        f"/api/v1/children/{children[0]}/drafts",
+        json={
+            "record_date": str(DAY),
+            "doc_type": "observation_log",
+            "sentences": [{"text": "관찰일지만 작성합니다."}],
+        },
+    )
+    assert response.status_code == 201, response.text
+    listed = client.get(f"/api/v1/classes/{klass}/drafts", params={"record_date": str(DAY)})
+    assert listed.status_code == 200, listed.text
+    row = listed.json()["items"][0]
+    assert row["parent_note"] is None
+    assert row["observation_log"] is not None
+    assert row["unclassified"]["reason"] == "verification_failed"
+    with factory() as db:
+        failure = db.scalar(select(UnclassifiedItem))
+        assert failure.status == "open"
+        assert failure.resolved_at is None
+        assert failure.resolved_by is None
+
+
+def test_알림장과_함께_남은_과거_실패는_목록에서_제외하고_재기록하면_해소한다(flow: Flow) -> None:
+    client, factory, klass, children, _pending, _calls = flow
+    login(client, TEACHER_EMAIL)
+    created = client.post(
+        f"/api/v1/children/{children[0]}/drafts",
+        json={
+            "record_date": str(DAY),
+            "doc_type": "parent_note",
+            "sentences": [{"text": "완성한 기록입니다."}],
+        },
+    )
+    assert created.status_code == 201
+    with factory() as db:
+        db.add(
+            UnclassifiedItem(
+                child_id=children[0],
+                record_date=DAY,
+                reason="verification_failed",
+                ref_type="job",
+                ref_id=uuid4(),
+            )
+        )
+        db.commit()
+    listed = client.get(f"/api/v1/classes/{klass}/drafts", params={"record_date": str(DAY)})
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["items"][0]["unclassified"] is None
+    with factory() as db:
+        service.documents.record_unclassified(
+            db,
+            child_id=children[0],
+            record_date=DAY,
+            reason="photo_analysis_failed",
+            job_id=uuid4(),
+        )
+        db.commit()
+        rows = db.scalars(select(UnclassifiedItem)).all()
+        assert len(rows) == 1
+        assert rows[0].status == "resolved"
+        assert rows[0].reason == "verification_failed"
+
+
+@pytest.mark.parametrize(
+    "instant,expected_activity",
+    [
+        (datetime(2026, 10, 29, 16, tzinfo=UTC), "금요일 활동"),
+        (datetime(2026, 10, 28, 3, tzinfo=UTC), None),
+        (datetime(2026, 10, 31, 3, tzinfo=UTC), None),
+    ],
+)
+def test_계획_근거는_KST_해당_요일만_사용하고_비어도_다른_요일을_섞지_않는다(
+    flow: Flow, instant: datetime, expected_activity: str | None
+) -> None:
+    from domains.agents.models import EvidenceBundle
+    from domains.organization.models import EducationPlan
+
+    _client, factory, klass, children, _pending, _calls = flow
+    with factory() as db:
+        for kind, activities in [
+            ("weekly", {"mon": "월요일 활동", "fri": "금요일 활동"}),
+            ("monthly", {}),
+        ]:
+            db.add(
+                EducationPlan(
+                    class_id=klass,
+                    teacher_id=db.get(Klass, klass).teacher_id,
+                    plan_type=kind,
+                    start_date=date(2026, 10, 1),
+                    end_date=date(2026, 10, 31),
+                    title=f"{kind} 제목",
+                    content="놀이 목표",
+                    daily_activities=activities,
+                    domains=[],
+                )
+            )
+        bundle = EvidenceBundle(
+            child_id=children[0], date=instant, media_refs=[], transcript_refs=[], context_lookup={}
+        )
+        db.add(bundle)
+        db.flush()
+        inputs = service._load_generation_inputs(bundle)
+        texts = [item.text for item in inputs.evidence]
+        assert len(texts) == 2
+        assert all("월요일 활동" not in text for text in texts)
+        assert "monthly 제목 / 놀이 목표" in texts
+        assert (
+            f"weekly 제목 / 놀이 목표{(' / ' + expected_activity) if expected_activity else ''}"
+            in texts
+        )

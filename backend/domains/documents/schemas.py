@@ -102,8 +102,7 @@ class ClassDraftItem(BaseModel):
     child_id: UUID
     observation_log: DraftSummary | None = None
     parent_note: DraftSummary | None = None
-    # TODO(한상균): 초안 없이 미분류로 끝난 원아의 사유. agents가 미분류를 기록하고
-    #   (_send_to_unclassified) 원아·날짜로 찾을 길이 생기면 채운다. 그전까지 항상 null.
+    # 해당 원아·날짜에 알림장이 없고 열린 생성 실패가 있을 때 사유를 담는다 (#196).
     unclassified: UnclassifiedSummary | None = None
 
 
