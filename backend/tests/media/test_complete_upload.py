@@ -179,6 +179,7 @@ def test_사진은_완료_통지_한_번으로_확정과_귀속이_끝난다(db:
     assert asset.attributed_at is not None
     assert _links(db, asset.id) == {DOYUN, SEOA}
     assert db.query(MediaUpload).one().media_id == asset.id
+    assert (asset.transcript_status, result.to_transcribe) == (None, None)  # 사진은 STT 없음
 
 
 def test_영상_음성은_귀속_없이_확정되고_LLM에서_빠진_채로_남는다(db: Session) -> None:
@@ -189,6 +190,15 @@ def test_영상_음성은_귀속_없이_확정되고_LLM에서_빠진_채로_남
 
     assert (asset.llm_allowed, asset.attributed_at, asset.model_version) == (False, None, None)
     assert _links(db, asset.id) == set()
+
+
+def test_영상_음성은_STT_대기로_확정되고_커밋_뒤_넣을_작업을_알려_준다(db: Session) -> None:
+    client_photo_id = _issue(db, "voice_memo")
+
+    result = _complete(db, client_photo_id, media_type="voice_memo")
+
+    assert result.asset.transcript_status == "pending"
+    assert result.to_transcribe == result.asset.id
 
 
 def test_영상_음성은_나중에_귀속을_저장하면_attributed_at이_찬다(db: Session) -> None:
@@ -223,6 +233,7 @@ def test_영상_음성을_다시_보내면_그대로_돌려준다(db: Session) -
     again = _complete(db, client_photo_id, media_type="voice_memo")
 
     assert (again.created, again.asset.id) == (False, first.id)
+    assert again.to_transcribe is None  # STT 작업을 두 번 넣지 않습니다
 
 
 def test_실측이_선언과_다르면_확정하지_않는다(

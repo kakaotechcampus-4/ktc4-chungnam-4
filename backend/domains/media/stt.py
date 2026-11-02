@@ -44,11 +44,16 @@ class _RetryableSttError(SttError):
 
 @dataclass(frozen=True)
 class SpeechSegment:
-    """STT가 나눠 준 구간. `start`·`end`는 원본 파일 처음부터의 초입니다."""
+    """STT가 나눠 준 구간. `start`·`end`는 원본 파일 처음부터의 초입니다.
+
+    `avg_logprob`는 Whisper의 구간 확신도입니다(0에 가까울수록 확신, 없으면 None). 소음이 만든
+    헛문장을 가려낼 근거라 받은 그대로 남깁니다(#218 리뷰).
+    """
 
     start: float
     end: float
     text: str
+    avg_logprob: float | None = None
 
 
 def transcribe_chunks(chunks: Sequence[AudioChunk]) -> list[SpeechSegment]:
@@ -64,18 +69,23 @@ def transcribe_chunks(chunks: Sequence[AudioChunk]) -> list[SpeechSegment]:
 
     url = settings.stt_gateway_base_url.rstrip("/") + "/audio/transcriptions"
     headers = {"Authorization": f"Bearer {api_key}"}
-    with (
-        httpx.Client(timeout=TIMEOUT, headers=headers) as client,
-        ThreadPoolExecutor(max_workers=settings.stt_max_concurrency) as pool,
-    ):
-        futures = [
-            pool.submit(_transcribe_with_retry, client, url, settings.stt_model, chunk)
-            for chunk in chunks
-        ]
-        done, pending = wait(futures, return_when=FIRST_EXCEPTION)
-        for future in pending:
-            future.cancel()
-        segments = [segment for future in futures if future in done for segment in future.result()]
+    with httpx.Client(timeout=TIMEOUT, headers=headers) as client:
+        # 풀을 with로 열면 빠져나갈 때 남은 조각을 모두 기다립니다. 작업 시간 제한
+        # (SoftTimeLimitExceeded)이 wait() 도중에 오면 그 기다림 때문에 강제 종료까지 가고,
+        # 강제 종료는 실패 훅을 부르지 않아 transcript_status가 pending으로 남습니다(#219 리뷰).
+        # 그래서 어떻게 끝나든 줄 선 조각은 취소하고, 보내는 중인 조각은 기다리지 않습니다.
+        pool = ThreadPoolExecutor(max_workers=settings.stt_max_concurrency)
+        try:
+            futures = [
+                pool.submit(_transcribe_with_retry, client, url, settings.stt_model, chunk)
+                for chunk in chunks
+            ]
+            done, _ = wait(futures, return_when=FIRST_EXCEPTION)
+            segments = [
+                segment for future in futures if future in done for segment in future.result()
+            ]
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
     return sorted(segments, key=lambda segment: segment.start)
 
 
@@ -131,7 +141,13 @@ def _segments_of(body: dict, chunk: AudioChunk) -> list[SpeechSegment]:
         # 조각 시작 시각을 더해 원본 기준으로 되돌립니다. 조각 끝을 넘는 시각은 조각 끝으로 자릅니다
         start = chunk.start + float(raw.get("start", 0.0))
         end = min(chunk.start + float(raw.get("end", 0.0)), chunk.end)
+        avg_logprob = raw.get("avg_logprob")
         segments.append(
-            SpeechSegment(start=round(start, 2), end=round(max(start, end), 2), text=text)
+            SpeechSegment(
+                start=round(start, 2),
+                end=round(max(start, end), 2),
+                text=text,
+                avg_logprob=float(avg_logprob) if avg_logprob is not None else None,
+            )
         )
     return segments
