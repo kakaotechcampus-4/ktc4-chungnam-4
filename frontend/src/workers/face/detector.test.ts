@@ -151,6 +151,12 @@ describe("모델 준비 실패", () => {
     // 날린 값을 되살립니다. 둘 중 하나만 빠져도 조용히 틀어집니다.
     expect(resetMock).toHaveBeenCalledTimes(2);
     expect(loadMock).toHaveBeenLastCalledWith(humanMock.mock.calls[0]?.[0]);
+    // 횟수와 인자만 보면 순서를 바꿔도 통과하는데, load → reset이면 올린 설정을 도로
+    // 날려 maxDetected가 1로 돌아갑니다. 같은 회차에서 reset이 먼저인지 봅니다
+    // (#226 재리뷰 송유진 님).
+    expect(resetMock.mock.invocationCallOrder[1]).toBeLessThan(
+      loadMock.mock.invocationCallOrder[1]!,
+    );
   });
 });
 
