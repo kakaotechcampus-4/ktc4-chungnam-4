@@ -1,8 +1,9 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http } from "msw";
 
 import { organizationKeys } from "@/api/organization";
+import { useUploadQueue } from "@/features/upload-queue/upload-queue-store";
 import { fixtureId } from "@/mocks/fixtures/ids";
 import { apiPath, errorResponse, listResponse } from "@/mocks/http";
 import { server } from "@/mocks/server";
@@ -42,7 +43,84 @@ function mockDrafts(items: ClassDraftItem[]) {
   server.use(http.get(apiPath("/classes/:classId/drafts"), () => listResponse(items)));
 }
 
+function dropFiles(files: File[]) {
+  fireEvent.drop(screen.getByRole("heading", { name: "오늘은 어떤 순간이 있었나요?" }), {
+    dataTransfer: { files },
+  });
+}
+
 describe("TodayPage", () => {
+  afterEach(() => useUploadQueue.getState().reset());
+
+  it("파일을 끌어다 놓으면 업로드 중으로 바뀌고, 취소하면 빈 상태로 돌아간다", async () => {
+    const user = userEvent.setup();
+    renderRoute(<TodayPage />);
+    await screen.findByRole("heading", { name: "아직 담긴 순간이 없어요" });
+
+    dropFiles([new File(["x"], "IMG_0001.jpg"), new File(["x"], "VID_0001.mp4")]);
+
+    expect(screen.getByRole("heading", { name: "이 기기로 불러오는 중이에요" })).toBeVisible();
+    expect(screen.getByText("사진 1장 중 0장")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "취소하고 돌아가기" }));
+    expect(useUploadQueue.getState().items).toEqual([]);
+    expect(
+      await screen.findByRole("heading", { name: "아직 담긴 순간이 없어요" }),
+    ).toBeInTheDocument();
+  });
+
+  it("형식이 안 맞는 파일만 놓으면 업로드 실패를 보여 주고, 제외하면 빈 상태로 돌아간다", async () => {
+    const user = userEvent.setup();
+    renderRoute(<TodayPage />);
+    await screen.findByRole("heading", { name: "아직 담긴 순간이 없어요" });
+
+    dropFiles([new File(["x"], "활동기록.zip")]);
+
+    expect(screen.getByRole("heading", { name: "올리지 못한 파일이 있어요" })).toBeVisible();
+    expect(screen.getByText("1개는 지원하지 않는 형식이에요.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /다시 시도/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "활동기록.zip 목록에서 제외" }));
+    expect(
+      await screen.findByRole("heading", { name: "아직 담긴 순간이 없어요" }),
+    ).toBeInTheDocument();
+  });
+
+  it("업로드 중·업로드 실패 화면에서 파일을 더 놓아도 브라우저가 열지 않고 큐에 담는다", async () => {
+    renderRoute(<TodayPage />);
+    await screen.findByRole("heading", { name: "아직 담긴 순간이 없어요" });
+
+    dropFiles([new File(["x"], "IMG_0001.jpg")]);
+    const uploading = screen.getByRole("heading", { name: "이 기기로 불러오는 중이에요" });
+    // fireEvent는 기본 동작이 취소되지 않으면 false를 돌려줍니다. false면 브라우저가 파일을 엽니다.
+    const files = [new File(["x"], "VID_0001.mp4")];
+    expect(fireEvent.drop(uploading, { dataTransfer: { files } })).toBe(false);
+    expect(useUploadQueue.getState().items.map((item) => item.kind)).toEqual(["photo", "video"]);
+
+    act(() => useUploadQueue.getState().reset());
+    await screen.findByRole("heading", { name: "아직 담긴 순간이 없어요" });
+    dropFiles([new File(["x"], "활동기록.zip")]);
+    const failed = await screen.findByRole("heading", { name: "올리지 못한 파일이 있어요" });
+    expect(fireEvent.drop(failed, { dataTransfer: { files: [new File(["x"], "b.mp4")] } })).toBe(
+      false,
+    );
+    expect(useUploadQueue.getState().items).toHaveLength(1);
+  });
+
+  it("영상만 놓으면 0%가 아니라 영상 기준으로 보이고, 다 불러오면 제목이 바뀐다", async () => {
+    renderRoute(<TodayPage />);
+    await screen.findByRole("heading", { name: "아직 담긴 순간이 없어요" });
+
+    dropFiles([new File(["x"], "VID_0001.mp4")]);
+
+    expect(screen.getByText("영상·녹음 1개 중 0개")).toBeInTheDocument();
+    expect(screen.queryByText(/사진/)).not.toBeInTheDocument();
+    useUploadQueue.setState((state) => ({
+      items: state.items.map((item) => ({ ...item, import_progress: 100 })),
+    }));
+    expect(
+      await screen.findByRole("heading", { name: "이 기기로 모두 불러왔어요" }),
+    ).toBeInTheDocument();
+  });
+
   it("빈 상태에서 자료 올리기로 보낸다", async () => {
     renderRoute(<TodayPage />);
 
@@ -159,5 +237,26 @@ describe("TodayPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "다시 시도" }));
 
     expect(await screen.findByRole("link", { name: "초안 검토하기" })).toBeInTheDocument();
+  });
+
+  it("분류 단계로 넘어간 큐에는 업로드 중 화면을 띄우지 않고, 새 파일도 섞지 않으며, 큐를 비우지 않는다", async () => {
+    mockDrafts([noteItem(SEOA, "verified", 99)]);
+    const queue = useUploadQueue.getState();
+    queue.addFiles([new File(["x"], "IMG_0001.jpg")]);
+    queue.setClassification(useUploadQueue.getState().items[0]!.client_id, {
+      model_version: "m1",
+      classify_state: "classified",
+      candidates: [],
+      has_unidentified_face: false,
+    });
+    renderRoute(<TodayPage />);
+
+    expect(await screen.findByRole("link", { name: "초안 검토하기" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "이 기기로 불러오는 중이에요" }),
+    ).not.toBeInTheDocument();
+
+    dropFiles([new File(["x"], "VID_0001.mp4")]);
+    expect(useUploadQueue.getState().items).toHaveLength(1);
   });
 });

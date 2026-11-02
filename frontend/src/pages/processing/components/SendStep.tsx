@@ -75,12 +75,12 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
         })),
       });
       for (const [index, item] of targets.entries()) {
-        const issued = items[index];
-        if (!issued) throw new Error("업로드 URL 응답의 항목 수가 요청과 다릅니다.");
+        const ticket = items[index];
+        if (!ticket) throw new Error("업로드 URL 응답의 항목 수가 요청과 다릅니다.");
         setUploadState(item.client_id, "전송중");
-        // media_id가 이미 있으면 등록이 끝난 파일이라 PUT을 건너뜁니다.
-        let mediaId = issued.media_id;
-        if (mediaId === null) await uploadFile(issued, item.file);
+        // 이미 등록된 파일(registered)이면 PUT을 건너뜁니다.
+        let mediaId = ticket.status === "registered" ? ticket.media_id : null;
+        if (ticket.status !== "registered") await uploadFile(ticket, item.file);
         // 사진은 등록된 파일이어도 완료 통지를 다시 보냅니다. 같은 client_photo_id면 서버가 기존 media_id를
         // 돌려주고 귀속을 전체 교체하므로, 끊긴 뒤 교사가 바꾼 귀속이 마지막 값으로 저장됩니다.
         if (mediaId === null || isPhoto(item)) {

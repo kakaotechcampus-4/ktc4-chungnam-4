@@ -1,5 +1,5 @@
 // Figma: 53:420 (알림장 발행 완료)
-import { useLocation, useNavigate } from "react-router";
+import { Navigate, useLocation, useNavigate } from "react-router";
 
 import { FocusCard } from "@/components/common/FocusCard";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -14,7 +14,10 @@ interface PublishedState {
 export function ParentNotePublishedPage() {
   const navigate = useNavigate();
   const { state } = useLocation();
-  const publishedCount = (state as PublishedState | null)?.publishedCount ?? 0;
+  const publishedCount = (state as PublishedState | null)?.publishedCount;
+  // 게시 직후에만 오는 화면입니다. 주소로 바로 열거나 새 탭에서 열면 게시 결과(state)가 없어
+  // '0명의 알림장을 게시했어요'로 보이므로, 게시한 알림장을 볼 수 있는 게시판으로 보냅니다.
+  if (publishedCount === undefined) return <Navigate to="/t/notes" replace />;
 
   return (
     <>

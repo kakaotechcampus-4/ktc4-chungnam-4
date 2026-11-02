@@ -47,6 +47,24 @@ describe("ChildrenSetupPage", () => {
     );
   });
 
+  // 서버 명단(#146)은 아직 기본 필드만 보냅니다. 동의 수가 없을 때 '완료'로 보이거나 세어지면
+  // 동의를 받지 않은 원아도 받은 것처럼 읽힙니다(10/30 배포 점검).
+  it("동의 수가 오지 않으면 '동의 완료'로 보이거나 세지 않는다", async () => {
+    server.use(
+      http.get(apiPath("/classes/:classId/children"), () =>
+        listResponse([
+          { child_id: fixtureId("child", 1), class_id: SUNSHINE_CLASS.class_id, name: "김도윤" },
+        ]),
+      ),
+    );
+    renderPage();
+
+    await screen.findByRole("list", { name: "원아별 동의와 얼굴 정보" });
+    expect(screen.getByText(/원아 1명/)).toBeInTheDocument();
+    expect(screen.queryByText(/동의 .*완료/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/undefined/)).not.toBeInTheDocument();
+  });
+
   it("원아가 없으면 빈 상태를 보여 준다", async () => {
     server.use(http.get(apiPath("/classes/:classId/children"), () => listResponse([])));
     renderPage();
