@@ -7,7 +7,7 @@
 import logging
 import tempfile
 import time as clock
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from functools import cache
@@ -31,10 +31,12 @@ from core.exceptions import (
     InvalidAttributionMethod,
     MediaAssetNotFound,
     MediaDeleted,
+    MediaHasNoAudio,
     MediaTypeNotAllowed,
     MediaUploadMismatch,
     MediaUploadNotFound,
     StorageNotConfigured,
+    TranscriptSegmentNotFound,
     UploadBatchTooLarge,
 )
 from domains.audit import service as audit
@@ -177,11 +179,20 @@ _FACE_CONSENT_TYPE = "face_feature"
 
 @dataclass(frozen=True)
 class TranscriptPart:
-    """영상·음성의 STT 구간. raw_text에는 실명 호명이 들어 있어 LLM 전에 비식별화합니다 (H-2)."""
+    """영상·음성의 STT 구간. raw_text·text에는 실명 호명이 들어 있어 LLM 전에 비식별화합니다 (H-2).
+
+    교사가 뺀 발화(`excluded`)는 싣지 않습니다. 나머지 필드는 perception의 발화 입력
+    (`tools/perception/types.py` `TranscriptSegmentInput`)을 만들 때 씁니다 — 화자가 없는 영상
+    발화를 빼는 것은 perception이 합니다.
+    """
 
     start_time: float | None
     end_time: float | None
     raw_text: str
+    segment_id: UUID | None = None
+    text: str | None = None  # 교사가 고친 문장. 고치지 않았으면 raw_text와 같음
+    speaker: str | None = None  # child / teacher_observation / together / null
+    source: str | None = None  # video_audio / voice_memo
 
 
 @dataclass(frozen=True)
@@ -269,12 +280,24 @@ def collect_media_for_llm(db: Session, child_id: UUID, target_date: date) -> lis
     segments: dict[UUID, list[TranscriptPart]] = {}
     for segment in db.scalars(
         select(TranscriptSegment)
-        .where(TranscriptSegment.media_id.in_(media_ids))
+        .where(
+            TranscriptSegment.media_id.in_(media_ids),
+            # 교사가 근거에서 뺀 발화 (FR-14, docs/api/agents.md 5단계)
+            TranscriptSegment.excluded.is_(False),
+        )
         # start_time이 nullable이라 NULL 위치가 DB마다 달라서(PostgreSQL은 뒤, SQLite는 앞) 고정합니다.
         .order_by(TranscriptSegment.start_time.nulls_last())
     ):
         segments.setdefault(segment.media_id, []).append(
-            TranscriptPart(segment.start_time, segment.end_time, segment.raw_text)
+            TranscriptPart(
+                segment.start_time,
+                segment.end_time,
+                segment.raw_text,
+                segment_id=segment.id,
+                text=transcript_text_of(segment),
+                speaker=segment.speaker,
+                source=segment.source,
+            )
         )
 
     evidence = []
@@ -591,6 +614,7 @@ def get_signed_urls(db: Session, media_ids: Sequence[UUID]) -> list[SignedMediaU
 # TODO(donggeon): target_type·action 값은 임시 결정(김동건). 한상균 님 확인 대기(media-face.md)
 _AUDIT_TARGET_TYPE = "media_asset"
 _AUDIT_ACTION_REISSUE_URL = "reissue_playback_url"
+_AUDIT_ACTION_VIEW_TRANSCRIPT = "view_transcript"
 
 
 def reissue_signed_url(
@@ -1226,3 +1250,102 @@ def mark_transcription_failed(media_id: str) -> None:
             .values(transcript_status=TRANSCRIPT_FAILED)
         )
         session.commit()
+
+
+# ---------------------------------------------------------------------------
+# 교사 발화 확인 (FR-14, FR-27, `GET /media/{id}/transcript-segments`·`PATCH /transcript-segments/{id}`)
+# ---------------------------------------------------------------------------
+
+# PATCH로 바꿀 수 있는 칸. 발화에 아이를 붙이는 child_ids는 없앴습니다 — 귀속은 파일 단위입니다(#163)
+_EDITABLE_FIELDS = frozenset({"speaker", "excluded", "text"})
+
+
+def transcript_text_of(segment: TranscriptSegment) -> str:
+    """교사가 고친 문장. 고치기 전(null)이면 STT 원문과 같습니다 (테크스펙 TranscriptSegment)."""
+    return segment.raw_text if segment.text is None else segment.text
+
+
+@dataclass(frozen=True)
+class TranscriptView:
+    """발화 조회 결과. `segments`는 STT가 끝났을(`done`) 때만 채웁니다."""
+
+    asset: MediaAsset
+    transcript_status: str
+    segments: list[TranscriptSegment]
+
+
+def list_transcript_segments(
+    db: Session, *, media_id: UUID, teacher_id: UUID, center_id: UUID | None
+) -> TranscriptView:
+    """영상·음성의 발화 구간을 시작 시각 순으로 돌려줍니다 (FR-14, FR-27).
+
+    - 없는 미디어: `MediaAssetNotFound`(404)
+    - 다른 어린이집 반의 미디어: `ClassAccessDenied`(403). 판정을 먼저 해서 남의 미디어가 사진인지
+      알려 주지 않습니다
+    - 사진: `MediaHasNoAudio`(400)
+    - STT 전 업로드라 상태가 없는(null) 영상·음성은 `failed`로 봅니다 — 발화 없이 넘어갈 수 있게
+      하려는 것이고, `pending`으로 두면 화면이 끝없이 폴링합니다
+    - 열람 기록(AccessLog)은 **`done`이고 발화가 있을 때만** 남깁니다. 화면이 STT를 기다리며 2초마다
+      부르므로, 보여 준 원문이 없는 응답까지 남기면 로그가 쌓이기만 합니다 — 임시 결정(김동건).
+      flush만 하므로 라우터가 커밋한 뒤에 응답해야 합니다(NFR-05)
+    """
+    asset = db.get(MediaAsset, media_id)
+    if asset is None:
+        raise MediaAssetNotFound("파일을 찾을 수 없어요.")
+    ensure_class_access(db, asset.class_id, center_id)
+    if asset.type not in _TRANSCRIPT_SOURCE:
+        raise MediaHasNoAudio("사진에는 발화가 없어요.")
+
+    status = asset.transcript_status or TRANSCRIPT_FAILED
+    if status != TRANSCRIPT_DONE:
+        return TranscriptView(asset=asset, transcript_status=status, segments=[])
+    segments = list(
+        db.scalars(
+            select(TranscriptSegment)
+            .where(TranscriptSegment.media_id == media_id)
+            # NULL 위치가 DB마다 달라서 고정합니다("멘트 없음"은 시각이 없어 맨 뒤)
+            .order_by(TranscriptSegment.start_time.nulls_last(), TranscriptSegment.id)
+        )
+    )
+    if segments:
+        audit.record_access(
+            db,
+            actor_type="teacher",
+            actor_id=teacher_id,
+            target_type=_AUDIT_TARGET_TYPE,
+            target_id=media_id,
+            action=_AUDIT_ACTION_VIEW_TRANSCRIPT,
+        )
+        db.flush()
+    return TranscriptView(asset=asset, transcript_status=status, segments=segments)
+
+
+def update_transcript_segment(
+    db: Session, *, segment_id: UUID, center_id: UUID | None, changes: Mapping[str, object]
+) -> TranscriptSegment:
+    """교사가 고친 화자·문장·제외를 저장하고 `reviewed_at`을 지금으로 바꿉니다 (FR-14, FR-27).
+
+    `changes`에는 요청에 온 칸만 들어 있습니다. 값 검사(화자 값, 빈 문장)는 스키마가 먼저 합니다.
+
+    - 없는 발화: `TranscriptSegmentNotFound`(404)
+    - 다른 어린이집 반의 미디어: `ClassAccessDenied`(403)
+    - flush만 하므로 커밋은 부르는 쪽이 합니다.
+    """
+    unknown = set(changes) - _EDITABLE_FIELDS
+    if unknown:
+        raise ValueError(f"Unknown transcript fields: {sorted(unknown)}")
+    segment = db.get(TranscriptSegment, segment_id)
+    if segment is None:
+        raise TranscriptSegmentNotFound("발화를 찾을 수 없어요.")
+    asset = db.get(MediaAsset, segment.media_id)
+    ensure_class_access(db, asset.class_id, center_id)
+
+    if "speaker" in changes:
+        segment.speaker = changes["speaker"]
+    if "excluded" in changes:
+        segment.excluded = changes["excluded"]
+    if "text" in changes:
+        segment.text = changes["text"]
+    segment.reviewed_at = datetime.now(UTC)
+    db.flush()
+    return segment
