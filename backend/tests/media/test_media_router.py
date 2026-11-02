@@ -716,7 +716,9 @@ def test_STT가_끝나면_시작_시각_순으로_주고_열람_기록을_커밋
         "speaker",
         "excluded",
         "reviewed_at",
+        "child_ids",
     }
+    assert all(i["child_ids"] == [] for i in body["items"])  # FE 어댑터 호환용, 귀속은 파일 단위
     with session_factory() as other:  # 요청이 쓴 세션과 다른 세션에서 보여야 커밋된 것입니다
         [log] = other.query(AccessLog).all()
         assert (log.actor_id, log.target_type, log.target_id, log.action) == (
