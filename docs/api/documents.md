@@ -215,6 +215,7 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
       ]
     }
   ],
+  "failed_media_ids": [],
   "selected_media_ids": [
     "3ed1a000-0000-4000-8000-000000000041",
     "3ed1a000-0000-4000-8000-000000000042",
@@ -254,7 +255,7 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
   - `CHILD_ACCESS_DENIED` (403) — 다른 어린이집 원아의 초안일 때. 원아 기준으로 검사합니다 — 임시 결정(한상균), #156
   - `ACCESS_LOG_FAILED` (500) — 열람 기록에 실패했을 때(본문 없이)
 - 볼 때마다 `AccessLog`(actor_type=teacher, target_type=draft_document, action=view_detail)를 남기고 커밋한 뒤 돌려줍니다. 승인 전 본문과 근거 원문(실명)을 보는 열람이라 NFR-05(모든 열람 기록)를 따릅니다 — 임시 결정(한상균). 수정·승인·되돌리기 응답은 열람으로 보지 않아 남기지 않습니다.
-- 분석하지 못해 근거에서 뺀 사진(#155)은 `failed_media_ids`(media_id 배열)로 싣고, 썸네일은 `media[]`에 같은 모양으로 넣습니다 — 임시 결정(한상균). agents가 이 목록을 저장하면(사진 분석 연결 PR) 응답에 붙이고, 그전까지는 응답에 없습니다.
+- 분석하지 못해 근거에서 뺀 사진(#155)은 `failed_media_ids`(media_id 배열, 기본 `[]`)로 싣고, 썸네일은 `media[]`에 같은 모양으로 넣습니다. agents가 `EvidenceBundle.failed_photo_ids`에 저장한 값을 public service 함수로 받습니다. 교사는 초안 검토에서 제외된 사진과 안내를 볼 수 있으며, 문장 근거·선택 사진·학부모 응답에는 자동으로 추가하지 않습니다. 전부 실패해 초안이 없으면 `photo_analysis_failed` 미분류 사유로 안내합니다.
 - 본문은 문장 단위(`DraftSentence`)로 저장합니다 — 임시 결정(정은), 이슈 #75. `sentences[]` 한 항목은 문법상 문장이 아니라 근거를 함께 쓰는 표시 단위입니다. 화면에서 두 문장이 한 덩어리로 보여도 근거와 수정은 이 항목 단위로 움직입니다.
 - ~~[확인 필요: 정은] `SentenceEvidence`에는 `source_type`·`end_ms`·`captured_at`이 없어서 조인 경로를 정해야 합니다. `source_text`가 비식별 토큰(`CHILD_A`) 상태로 저장되는지, 그렇다면 교사 응답의 어디에서 실명을 되살릴지 정해야 합니다. `evidence_id`를 UUID로 바꿀지도 정해야 합니다.~~ → 임시 결정(정은): `evidences[]`는 agents `list_sentence_evidences(db, draft_id)`로 받습니다(문장 ID → 근거 목록, 위 응답 모양 그대로). `source_text`는 원문으로 저장돼 실명을 되살릴 필요가 없습니다. `end_ms`는 아직 저장하지 않아 `null`입니다. `evidence_id`는 불투명 문자열 그대로 둡니다. 자세한 규칙은 `docs/api/agents.md` 상단 목록.
 
