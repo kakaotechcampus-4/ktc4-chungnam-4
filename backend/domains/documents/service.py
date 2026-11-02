@@ -931,6 +931,7 @@ def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
         .limit(1)
     )
     selected_media_ids = [UUID(media_id) for media_id in draft.selected_media_ids]
+    failed_media_ids = agents_service.list_failed_photo_ids(db, draft.evidence_bundle_id)
     evidences_by_sentence = agents_service.list_sentence_evidences(db, draft_id)
     views = [
         DraftSentenceView(
@@ -962,7 +963,10 @@ def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
         title=None,
         sentences=views,
         selected_media_ids=selected_media_ids,
-        media=_signed_media(db, list(dict.fromkeys(selected_media_ids + evidence_media_ids))),
+        failed_media_ids=failed_media_ids,
+        media=_signed_media(
+            db, list(dict.fromkeys(selected_media_ids + evidence_media_ids + failed_media_ids))
+        ),
         author_teacher_id=draft.author_teacher_id,
         author_name=get_teacher_names(db, [draft.author_teacher_id]).get(
             draft.author_teacher_id, ""

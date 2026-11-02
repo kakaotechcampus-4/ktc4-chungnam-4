@@ -544,6 +544,32 @@ export function DraftReviewPage() {
             </div>
           ) : (
             <>
+              {(draft.failed_media_ids?.length ?? 0) > 0 ? (
+                <section
+                  aria-label="분석하지 못한 사진"
+                  className="rounded-xl border border-line bg-paper p-5"
+                >
+                  <h2 className="text-body font-bold text-coral-ink">
+                    AI가 분석하지 못한 사진 {draft.failed_media_ids?.length}장
+                  </h2>
+                  <p className="text-caption text-ink-muted">
+                    아래 사진은 문장 근거에서 빠졌어요. 사진을 확인하고 필요한 내용을 직접 추가해
+                    주세요.
+                  </p>
+                  <div className="mt-3 grid grid-cols-3 gap-3">
+                    {draft.media
+                      .filter((media) => draft.failed_media_ids?.includes(media.media_id))
+                      .map((media, index) => (
+                        <img
+                          key={media.media_id}
+                          src={media.url}
+                          alt={`분석하지 못한 사진 ${index + 1}`}
+                          className="aspect-square w-full rounded-lg object-cover"
+                        />
+                      ))}
+                  </div>
+                </section>
+              ) : null}
               {/* 사진이 없는 초안(직접 쓴 글)에서도 추가 자리는 남겨 둡니다. */}
               <div className="grid grid-cols-3 gap-4">
                 {photos.map((photo) => (

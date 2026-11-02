@@ -45,7 +45,7 @@ from tools import contracts
 from tools.evidence.builder import build_evidence
 from tools.generation.draft import DraftResponseError, parse_draft_response
 from tools.generation.pseudonymize import pseudonymize_evidence, restore_names
-from tools.perception.merge import merge_perception_results
+from tools.perception.merge import failed_photo_ids, merge_perception_results
 from tools.perception.photo import parse_single_photo_analysis
 from tools.perception.transcript import normalize_transcript
 from tools.perception.types import (
@@ -418,6 +418,12 @@ def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[Sente
             )
         )
     return result
+
+
+def list_failed_photo_ids(session: Session, bundle_id: UUID | None) -> list[UUID]:
+    """권한을 확인한 교사 초안 상세가 쓰는 분석 제외 사진 목록(#155)."""
+    bundle = session.get(EvidenceBundle, bundle_id) if bundle_id else None
+    return [UUID(media_id) for media_id in bundle.failed_photo_ids] if bundle else []
 
 
 def orchestrate_drafts(job_id: str, child_id: str) -> None:
@@ -800,6 +806,7 @@ def _load_generation_inputs(bundle: EvidenceBundle) -> GenerationInputs:
         target_child_id=str(bundle.child_id),
         record_date=record_date,
     )
+    bundle.failed_photo_ids = failed_photo_ids(merged)
     if merged.status == PerceptionStatus.RESPONSE_ERROR:
         raise PhotoAnalysisFailed
     evidence = list(merged.items)

@@ -66,7 +66,8 @@ export const EXCLUDE_RESULT: ReviewResult = {
  * 분류 결과 화면의 확인 체크("아이 분류를 확인했어요")를 누르고 넘어갈 때의 확정 값입니다.
  * - 자동 분류가 확실한 사진: 확실한 후보로 확정
  * - 교사가 이미 고른 사진: 그대로
- * 둘 다 교사가 확인했으므로 llm_allowed를 켭니다. 미동의 원아는 서버가 LLM 경로에서 뺍니다(H-2, 09/28 (b)).
+ * 귀속 확인만으로 미식별 얼굴이 사라지지는 않습니다. 얼굴이 남으면 LLM 허용을 끕니다(H-2).
+ * 미동의 원아는 서버가 LLM 경로에서 다시 뺍니다(09/28 (b)).
  * 수동 확인을 안 한 사진은 미검수로 남아 업로드 대상에서 빠집니다(uploadTargets, H-3).
  */
 export function confirmReview(photo: LocalPhoto): ReviewResult | null {
@@ -76,7 +77,7 @@ export function confirmReview(photo: LocalPhoto): ReviewResult | null {
       review_state: "확정",
       assigned_child_ids: photo.assigned_child_ids,
       excluded_reason: null,
-      llm_allowed: true,
+      llm_allowed: !photo.has_unidentified_face,
     };
   }
   if (needsManualReview(photo)) return null;

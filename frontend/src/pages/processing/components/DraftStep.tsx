@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { createJob, isJobFinished, jobQueryOptions, type JobView } from "@/api/agents";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
-import { useUploadQueue } from "@/features/upload-queue/upload-queue-store";
+import { uploadTargets, useUploadQueue } from "@/features/upload-queue/upload-queue-store";
 import { ApiError } from "@/lib/api-client";
 
 import { Button } from "@/components/ui/button";
@@ -32,7 +32,7 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
   const [recordDate] = useState(() => useUploadQueue.getState().recordDate);
   // 이번에 보낸 자료. 전송 단계에서 ack를 받은 것만 server_media_id가 있습니다.
   const [mediaIds] = useState(() =>
-    useUploadQueue.getState().items.flatMap((item) => item.server_media_id ?? []),
+    uploadTargets(useUploadQueue.getState().items).flatMap((item) => item.server_media_id ?? []),
   );
   const started = useRef(false);
 
@@ -43,7 +43,12 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
   // 새로고침·화면 이탈 뒤 다시 들어오면 새 request_id로 요청해 409가 옵니다. 그때는 돌고 있는 작업을 이어서 봅니다.
   const resumedJobId = runningJobId(create.error);
   const jobId = create.data?.job_id ?? resumedJobId;
-  const { data: polled, error: pollError } = useQuery({
+  const {
+    data: polled,
+    error: pollError,
+    refetch,
+    isFetching,
+  } = useQuery({
     ...jobQueryOptions(jobId ?? ""),
     enabled: jobId !== undefined,
   });
@@ -97,13 +102,32 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
           {job.children.some((child) => child.error_code === "LLM_TIMEOUT") ? (
             <p>처리 제한 시간이 지났어요. 잠시 후 다시 시도해 주세요.</p>
           ) : null}
+          {job.children.some((child) => child.unclassified_reason === "photo_analysis_failed") ? (
+            <p>
+              사진 분석 응답을 읽지 못해 초안을 만들지 못한 아이가 있어요. 사진을 확인하거나 직접
+              작성해 주세요.
+            </p>
+          ) : null}
+          {job.children.some((child) => child.unclassified_reason === "no_consent") ? (
+            <p>AI 분석 동의가 없는 아이는 자동 생성에서 제외했어요.</p>
+          ) : null}
           <Button onClick={() => onDone(job)}>결과 확인하기</Button>
         </div>
       ) : null}
       {error ? (
-        <p role="alert" className="text-body text-coral-ink">
-          {error.message}
-        </p>
+        <div role="alert" className="space-y-3 text-body text-coral-ink">
+          <p>{error.message}</p>
+          <p>올린 자료는 유지돼요. 연결을 확인한 뒤 다시 시도해 주세요.</p>
+          <Button
+            disabled={isFetching || create.isPending || currentClass === null}
+            onClick={() => {
+              if (jobId) void refetch();
+              else if (currentClass) create.mutate(currentClass.class_id);
+            }}
+          >
+            {jobId ? "진행 상태 다시 확인" : "생성 요청 다시 시도"}
+          </Button>
+        </div>
       ) : null}
     </ProcessingCard>
   );

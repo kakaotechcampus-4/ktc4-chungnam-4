@@ -98,6 +98,8 @@ class EvidenceBundle(Base):
     date = Column(DateTime(timezone=True), nullable=False)
     media_refs = Column(JSON, nullable=False)
     transcript_refs = Column(JSON, nullable=False)
+    # 분석 응답 오류로 근거에서 제외된 사진. 교사 안내용이며 생성 입력에는 넣지 않는다.
+    failed_photo_ids = Column(JSON, nullable=False, default=list, server_default="[]")
     # 09/19 결정: developmental_guideline·teacher_persona 두 고정 키를 갖는 JSON
     # (teacher_persona는 09/22 이슈 #16 코멘트 반영해 persona에서 개명 — 원아 성향이
     # 아니라 교사 문체). 키를 고정해야 에이전트2·3이 조회 결과를 구조로 읽는다.

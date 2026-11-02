@@ -1,4 +1,6 @@
 import { useEffect } from "react";
+import { CLIPS_ENABLED } from "@/features/upload-queue/media-capabilities";
+import { activityDateInstant } from "@/lib/datetime";
 
 import { completeUpload, requestUploadUrls, uploadContentType, uploadFile } from "@/api/media";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
@@ -14,8 +16,6 @@ import {
 // - 사진은 여기서 올리지 않습니다. 교사가 확정한 뒤 서버 전송 단계(SendStep)가 올립니다.
 // - 귀속 저장(child-links)은 하지 않습니다. 서버 전송 단계가 이미 올라간 파일을 registered 응답으로 알아보고 귀속만 저장합니다.
 // 처리 중 화면에서 분류 확인 화면으로 넘어가도 끊기지 않게 컴포넌트 밖에서 돌고, 진행은 업로드 큐에 남깁니다.
-
-import { activityDateInstant } from "@/lib/datetime";
 
 function clipsToUpload(): LocalClip[] {
   return useUploadQueue
@@ -39,12 +39,13 @@ function setIfStillQueued(clip: LocalClip, state: "확인됨" | "실패", mediaI
  * 여러 번 불러도 됩니다.
  */
 export async function startClipUploads(classId: string) {
+  if (!CLIPS_ENABLED) return;
+  const capturedAt = activityDateInstant(useUploadQueue.getState().recordDate);
   const clips = clipsToUpload();
   if (clips.length === 0) return;
   // 기다리기 전에 전송중으로 바꿔 두어 동시에 부른 쪽이 같은 파일을 또 올리지 않게 합니다.
   const { setUploadState } = useUploadQueue.getState();
   for (const clip of clips) setUploadState(clip.client_id, "전송중");
-  const capturedAt = activityDateInstant(useUploadQueue.getState().recordDate);
   let current = 0;
   try {
     const { items } = await requestUploadUrls({

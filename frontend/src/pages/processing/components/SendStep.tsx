@@ -33,7 +33,7 @@ function childLinksBody(item: LocalMedia): ChildLinksInput {
   //             서버에 미분류로 남깁니다(빈 배열 = 미분류). 귀속을 저장해야 Job이 MEDIA_NOT_READY로 막히지 않습니다.
   if (!isPhoto(item)) return { llm_allowed: false, child_links: [] };
   return {
-    llm_allowed: item.llm_allowed,
+    llm_allowed: item.llm_allowed && !item.has_unidentified_face,
     child_links: item.assigned_child_ids.map((childId) => {
       const candidate = item.candidates.find((entry) => entry.child_id === childId);
       return candidate
@@ -55,6 +55,7 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
   const setUploadState = useUploadQueue((state) => state.setUploadState);
   // 이 단계에 들어온 순간의 확정 목록으로 고정합니다. 전송 중에 목록이 바뀌지 않게 하려는 것입니다.
   // 사진을 먼저 보냅니다. 영상·음성 귀속(child-links)이 실패해도 앞선 사진은 이미 서버에 귀속까지 저장돼 있습니다.
+  // child-links가 없는 사진 전용 배포에서는 uploadTargets가 클립을 제외합니다.
   const [targets] = useState(() => {
     const items = uploadTargets(useUploadQueue.getState().items);
     return [...items.filter(isPhoto), ...items.filter((item) => !isPhoto(item))];

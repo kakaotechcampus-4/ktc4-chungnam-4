@@ -174,6 +174,7 @@ class DraftDetailResponse(BaseModel):
     title: str | None
     sentences: list[DraftSentenceView]
     selected_media_ids: list[UUID]
+    failed_media_ids: list[UUID] = Field(default_factory=list)
     media: list[MediaUrl]
     author_teacher_id: UUID
     author_name: str

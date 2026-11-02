@@ -1,4 +1,5 @@
 // Figma: 1:2296 (자료 올리기)
+import { UPLOAD_GUIDE } from "@/features/upload-queue/media-capabilities";
 import { Upload } from "lucide-react";
 import { useRef, useState, type DragEvent } from "react";
 import { useNavigate } from "react-router";
@@ -19,7 +20,7 @@ import { RejectedList } from "./components/RejectedList";
 
 const GUIDES = [
   {
-    title: "사진·영상·음성을 함께 모아요",
+    title: "오늘의 활동 자료를 모아요",
     body: "자료를 불러온 뒤 처리 단계와 진행률을 확인할 수 있어요.",
   },
   {
@@ -56,10 +57,7 @@ export function UploadPage() {
 
   return (
     <>
-      <PageHeader
-        title="오늘의 자료 가져오기"
-        subtitle="사진·영상·녹음 파일을 이 기기로 불러와 주세요. 분류 결과를 확인한 뒤 선택한 자료를 전송해요."
-      />
+      <PageHeader title="오늘의 자료 가져오기" subtitle={UPLOAD_GUIDE} />
       <div className="flex items-start gap-5.5 pb-11">
         <div className="flex min-w-0 flex-1 flex-col gap-5.5">
           <label className="flex items-center gap-3 text-label font-bold text-ink">
@@ -93,9 +91,7 @@ export function UploadPage() {
               <Upload aria-hidden="true" className="size-6.5" />
             </span>
             <p className="pt-4.5 text-h3 font-bold text-ink">여기에 끌어다 놓으세요</p>
-            <p className="pt-2 text-label whitespace-pre text-ink-muted">
-              {"사진 JPG·PNG·HEIC  ·  영상 MP4·MOV  ·  녹음 M4A·WAV"}
-            </p>
+            <p className="pt-2 text-label whitespace-pre text-ink-muted">{UPLOAD_GUIDE}</p>
             <Button variant="solid" className="mt-5.5" onClick={() => inputRef.current?.click()}>
               폴더에서 고르기
             </Button>

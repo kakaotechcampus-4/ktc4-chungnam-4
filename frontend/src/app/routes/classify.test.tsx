@@ -1,3 +1,9 @@
+// 클립을 지원하는 화면 흐름의 회귀 검증. 사진 전용 배포 차단은 photo-only.test.ts에서 별도 검증합니다.
+vi.mock("@/features/upload-queue/media-capabilities", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/features/upload-queue/media-capabilities")>()),
+  CLIPS_ENABLED: true,
+}));
+
 vi.mock("@/workers/face/client", () => ({
   extractEmbedding: vi.fn(async () => ({
     extract_state: "extracted",

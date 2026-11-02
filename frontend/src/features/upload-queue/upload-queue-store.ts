@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { kstToday, type DateOnly } from "@/lib/datetime";
+import { CLIPS_ENABLED } from "./media-capabilities";
 
 // 오늘 올릴 자료의 로컬 상태입니다(테크스펙 데이터 모델 ⑧ LocalBatch·LocalPhoto).
 // 자료 올리기 → 처리 중 → 얼굴 분류(④)가 함께 씁니다. 서버에서 받은 데이터는 여기에 두지 않습니다.
@@ -79,8 +80,9 @@ const KIND_BY_EXTENSION: Record<string, MediaKind> = {
 };
 
 /** 파일 선택 창에 거는 확장자 목록 */
-export const ACCEPTED_EXTENSIONS = Object.keys(KIND_BY_EXTENSION)
-  .map((extension) => `.${extension}`)
+export const ACCEPTED_EXTENSIONS = Object.entries(KIND_BY_EXTENSION)
+  .filter(([, kind]) => CLIPS_ENABLED || kind === "photo")
+  .map(([extension]) => `.${extension}`)
   .join(",");
 
 /** 지원하지 않는 형식이면 null. HEIC는 브라우저가 MIME을 비워 주는 경우가 있어 확장자로 봅니다. */
@@ -153,7 +155,7 @@ export const useUploadQueue = create<UploadQueueState>()((set) => ({
       const rejected = new Set(state.rejected);
       for (const file of files) {
         const kind = mediaKindOf(file.name);
-        if (kind) accepted.push(toLocalMedia(file, kind));
+        if (kind && (CLIPS_ENABLED || kind === "photo")) accepted.push(toLocalMedia(file, kind));
         else rejected.add(file.name);
       }
       return { items: [...state.items, ...accepted], rejected: [...rejected] };
@@ -225,10 +227,10 @@ export function remainingImportSeconds(items: readonly LocalMedia[]) {
 }
 
 /**
- * 서버로 보낼 자료. H-3의 마지막 관문입니다.
+ * 서버로 보낼 자료. H-3의 마지막 관문입니다. 클립은 해당 API가 포함된 배포에서만 보냅니다.
  * 사진은 교사가 확정(review_state == 확정)한 것만 들어갑니다. 분류 실패분을 자동으로 넣지 않습니다.
  * 미동의 원아가 찍힌 사진도 확정했다면 보냅니다 — 보호는 서버가 LLM 경로에서 뺍니다(H-2).
  */
 export function uploadTargets(items: readonly LocalMedia[]): LocalMedia[] {
-  return items.filter((item) => !isPhoto(item) || item.review_state === "확정");
+  return items.filter((item) => (isPhoto(item) ? item.review_state === "확정" : CLIPS_ENABLED));
 }
