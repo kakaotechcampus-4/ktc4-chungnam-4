@@ -366,6 +366,13 @@ class CenterNotFound(AidamError):
     status_code = 404
 
 
+class CenterAccessDenied(AidamError):
+    """교사가 소속되지 않은 어린이집입니다. 소속이 없는 교사도 여기에 걸립니다."""
+
+    code = "CENTER_ACCESS_DENIED"
+    status_code = 403
+
+
 class PlanNotFound(AidamError):
     """교육 계획이 없습니다."""
 
