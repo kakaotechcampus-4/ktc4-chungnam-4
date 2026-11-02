@@ -5,6 +5,8 @@ import type {
   DraftStatus,
   DraftSummary,
   Evidence,
+  ParentNoteDetail,
+  ParentNoteList,
   PublicationResult,
   Sentence,
 } from "@/types/api-draft/documents";
@@ -18,6 +20,8 @@ import type {
   DraftSummaryView,
   DraftView,
   EvidenceView,
+  ParentNoteDetailView,
+  ParentNoteListView,
   PublicationResultView,
   PublicationStatusView,
   RosterStatusView,
@@ -264,8 +268,6 @@ export function isUnpublishedDraft(row: PublishRow): boolean {
   return row.note !== null && row.note.published_at === null;
 }
 
-import type { ParentNoteList, ParentNoteDetail } from "@/types/api-draft/documents";
-import type { ParentNoteListView, ParentNoteDetailView } from "./documents-view";
 export function toParentNoteListView(raw: ParentNoteList): ParentNoteListView {
   return {
     items: raw.items.map((item) => ({
@@ -285,6 +287,7 @@ export function toParentNoteListView(raw: ParentNoteList): ParentNoteListView {
     this_month_count: raw.this_month_count,
   };
 }
+
 export function toParentNoteDetailView(raw: ParentNoteDetail): ParentNoteDetailView {
   return {
     parent_note_id: raw.parent_note_id,

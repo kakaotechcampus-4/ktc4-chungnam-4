@@ -69,7 +69,9 @@ export const documentsKeys = {
   childDrafts: (childId: string, docType: DocTypeView, published: boolean) =>
     ["children", childId, "drafts", docType, published] as const,
   draft: (draftId: string) => ["drafts", draftId] as const,
-  parentNotes: (childId: string) => ["children", childId, "parent-notes"] as const,
+  /** 커서도 키에 넣습니다. 페이지마다 캐시가 따로여야 다음 페이지가 첫 페이지를 덮지 않습니다. */
+  parentNotes: (childId: string, cursor: string | null = null) =>
+    ["children", childId, "parent-notes", cursor] as const,
   parentNote: (parentNoteId: string) => ["parent-notes", parentNoteId] as const,
 };
 
@@ -159,7 +161,7 @@ export async function publishParentNotes(body: PublicationRequest) {
 /** 학부모용: 게시된 글만 서버 권한 게이트를 거쳐 조회합니다. */
 export function parentNotesQueryOptions(childId: string, cursor?: string) {
   return queryOptions({
-    queryKey: [...documentsKeys.parentNotes(childId), cursor ?? null],
+    queryKey: documentsKeys.parentNotes(childId, cursor ?? null),
     queryFn: async ({ signal }) =>
       toParentNoteListView(
         await api.get<ParentNoteList>(`/children/${encodeURIComponent(childId)}/parent-notes`, {

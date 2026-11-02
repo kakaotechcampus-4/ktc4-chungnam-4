@@ -28,7 +28,10 @@ export function ParentNoteReaderPage() {
               className="w-full rounded-xl"
             />
           ))}
-          <p className="text-ink-muted">{note.data.author_name} 선생님</p>
+          {/* 서버가 교사 이름을 못 찾으면 빈 문자열을 줍니다. " 선생님"만 남기지 않습니다. */}
+          {note.data.author_name ? (
+            <p className="text-ink-muted">{note.data.author_name} 선생님</p>
+          ) : null}
         </article>
       ) : null}
     </main>
