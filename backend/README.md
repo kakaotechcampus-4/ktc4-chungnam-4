@@ -662,7 +662,7 @@ Redis의 AOF와 볼륨은 컨테이너 교체에 대비한 저장 장치이며 �
 ### 준비
 
 1. API와 worker가 같은 커밋·환경설정을 사용하고 `alembic upgrade head`가 적용돼 있어야 합니다. 신규 마이그레이션 `a6d3b920e105`는 기존 미분류 기록을 보존하며 원아·날짜와 실패 코드를 추가합니다. `c8f4a21d6b90`는 분석에서 제외된 사진 ID 배열을 추가하고 기존 기록에는 빈 배열을 채웁니다.
-2. `LLM_GATEWAY_BASE_URL`, `ANTHROPIC_MODEL`, `VISION_GATEWAY_BASE_URL`, `VISION_MODEL`, `ANTHROPIC_API_KEY`를 엘리스 **모델 정보·API 예제**와 대조합니다. 모델 표시 이름과 API 모델 ID는 다를 수 있습니다. `mlapi.run` 모델 루트에 `/v1`을 붙인 base URL과 공식 모델 ID를 사용합니다. 코드도 `/v1` 누락을 보완하며, `/chat/completions`까지 넣었다면 중복 경로를 붙이지 않습니다. 키 만료일은 시연 종료 이후인지 확인합니다. 실제 값은 문서·채팅·로그에 남기지 않습니다.
+2. `LLM_GATEWAY_BASE_URL`, `ANTHROPIC_MODEL`, `VISION_GATEWAY_BASE_URL`, `VISION_MODEL`, `ANTHROPIC_API_KEY`를 엘리스 **모델 정보·API 예제**와 대조합니다. 모델 표시 이름과 API 모델 ID는 다를 수 있습니다. `mlapi.run` 모델 루트에 `/v1`을 붙인 base URL과 공식 모델 ID를 사용합니다. 필요한 `/v1` 경로는 설정에 직접 포함해야 합니다. 코드가 호스트를 보고 경로를 추정하지 않으며, `/chat/completions`까지 넣었다면 중복 경로를 붙이지 않습니다. 키 만료일은 시연 종료 이후인지 확인합니다. 실제 값은 문서·채팅·로그에 남기지 않습니다.
 3. 전용 합성 시연 계정과 반을 만듭니다. 기존 계정의 비밀번호·철회된 동의는 덮어쓰지 않습니다. 계정 비밀번호는 숨긴 입력으로 받습니다.
 
 ```bash
