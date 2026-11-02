@@ -919,8 +919,8 @@ def get_child_detail(
         if checked
         else None,
         consent_checked_by=None,
-        month_record_count=summary["month_record_count"],
-        today_note_sent=summary["today_note_sent"],
+        month_record_count=summary.month_record_count,
+        today_note_sent=summary.today_note_sent,
     )
 
 
@@ -957,9 +957,20 @@ def _record_child_view(db: Session, child_id: UUID, actor_id: UUID) -> None:
 
 def get_child_overview(db: Session, child_id: UUID, center_id: UUID | None, actor_id: UUID):
     from domains.documents.service import child_record_summary
-    from domains.organization.schemas import ChildOverview
+    from domains.organization.schemas import ChildNoteSummary, ChildOverview
 
     ensure_child_access(db, child_id, center_id)
     summary = child_record_summary(db, child_id, datetime.now(_KST).date())
     _record_child_view(db, child_id, actor_id)
-    return ChildOverview(**summary)
+    return ChildOverview(
+        recent_notes=[
+            ChildNoteSummary(
+                parent_note_id=note.parent_note_id,
+                record_date=note.record_date,
+                published=note.published,
+                summary=note.summary,
+            )
+            for note in summary.recent_notes
+        ],
+        domain_counts=None,
+    )
