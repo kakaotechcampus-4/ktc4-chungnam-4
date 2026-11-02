@@ -13,11 +13,14 @@ from domains.agents import llm
 @pytest.mark.parametrize(
     "endpoint,expected",
     [
-        ("https://mlapi.run/test-model", "https://mlapi.run/test-model/v1/chat/completions"),
-        ("https://mlapi.run/test-model/v1", "https://mlapi.run/test-model/v1/chat/completions"),
+        ("https://gateway.invalid/proxy", "https://gateway.invalid/proxy/chat/completions"),
         (
-            "https://mlapi.run/test-model/v1/chat/completions",
-            "https://mlapi.run/test-model/v1/chat/completions",
+            "https://gateway.invalid/test-model/v1",
+            "https://gateway.invalid/test-model/v1/chat/completions",
+        ),
+        (
+            "https://gateway.invalid/test-model/v1/chat/completions",
+            "https://gateway.invalid/test-model/v1/chat/completions",
         ),
         ("https://gateway.invalid/v1", "https://gateway.invalid/v1/chat/completions"),
     ],
@@ -88,7 +91,7 @@ def test_만료된_키는_인증_실패로_끝나고_자동_재시도하지_않�
         lambda: SimpleNamespace(
             anthropic_api_key=SecretStr("test-key"),
             anthropic_model="test",
-            llm_gateway_base_url="https://mlapi.run/test",
+            llm_gateway_base_url="https://gateway.invalid/test/v1",
         ),
     )
     with pytest.raises(openai.AuthenticationError):
