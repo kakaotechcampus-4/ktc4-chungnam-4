@@ -1,4 +1,4 @@
-import { activityDateInstant } from "@/lib/datetime";
+import { captureInstant } from "@/lib/datetime";
 import { useQueries } from "@tanstack/react-query";
 
 import { transcriptQueryOptions, type TranscriptSegmentView } from "@/api/media";
@@ -74,7 +74,7 @@ export function useQueueTranscripts() {
       clip,
       number: index + 1,
       spokenAt: new Date(
-        Date.parse(activityDateInstant(recordDate)) + segment.start_time * 1000,
+        Date.parse(captureInstant(recordDate, clip.file.lastModified)) + segment.start_time * 1000,
       ).toISOString(),
     }));
 

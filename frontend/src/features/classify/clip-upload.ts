@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { CLIPS_ENABLED } from "@/features/upload-queue/media-capabilities";
-import { activityDateInstant } from "@/lib/datetime";
+import { captureInstant } from "@/lib/datetime";
 
 import { completeUpload, requestUploadUrls, uploadContentType, uploadFile } from "@/api/media";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
@@ -40,7 +40,7 @@ function setIfStillQueued(clip: LocalClip, state: "확인됨" | "실패", mediaI
  */
 export async function startClipUploads(classId: string) {
   if (!CLIPS_ENABLED) return;
-  const capturedAt = activityDateInstant(useUploadQueue.getState().recordDate);
+  const { recordDate } = useUploadQueue.getState();
   const clips = clipsToUpload();
   if (clips.length === 0) return;
   // 기다리기 전에 전송중으로 바꿔 두어 동시에 부른 쪽이 같은 파일을 또 올리지 않게 합니다.
@@ -71,7 +71,7 @@ export async function startClipUploads(classId: string) {
             client_photo_id: clip.client_id,
             class_id: classId,
             type: clip.kind,
-            captured_at: capturedAt,
+            captured_at: captureInstant(recordDate, clip.file.lastModified),
             model_version: null,
           })
         ).media_id;

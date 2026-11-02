@@ -108,6 +108,22 @@ export function activityDateInstant(date: DateOnly): string {
   return new Date(`${date}T12:00:00+09:00`).toISOString();
 }
 
+/**
+ * 업로드할 파일의 `captured_at`입니다. 파일 수정 시각의 한국 날짜가 고른 활동 날짜와 같으면
+ * 그 시각을 그대로 쓰고, 다를 때만 활동 날짜 정오로 대신합니다.
+ *
+ * 전부 정오로 두면 하루치 파일 시각이 같아져 사진 순서가 id 순으로 섞이고, 여러 파일의
+ * 발화가 서로 끼어듭니다. 날짜가 다른 파일을 그대로 두면 서버가 그 날짜 범위로 걸러
+ * MEDIA_NOT_READY가 납니다(#232 리뷰).
+ */
+export function captureInstant(date: DateOnly, lastModified: number): string {
+  const modified = new Date(lastModified);
+  if (Number.isFinite(lastModified) && toKstDateOnly(modified) === date) {
+    return modified.toISOString();
+  }
+  return activityDateInstant(date);
+}
+
 // UTC 자정 Date를 DateOnly로 되돌립니다. parseDateOnly의 반대입니다.
 function fromUtcMidnight(value: Date): DateOnly {
   const month = String(value.getUTCMonth() + 1).padStart(2, "0");

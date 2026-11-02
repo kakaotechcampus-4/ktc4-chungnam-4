@@ -20,7 +20,7 @@ import {
 } from "@/features/upload-queue/upload-queue-store";
 
 import { ProcessingCard } from "./ProcessingCard";
-import { activityDateInstant } from "@/lib/datetime";
+import { captureInstant } from "@/lib/datetime";
 
 interface SendStepProps {
   onDone: () => void;
@@ -51,7 +51,7 @@ function childLinksBody(item: LocalMedia): ChildLinksInput {
 export function SendStep({ onDone, onCancel }: SendStepProps) {
   const { currentClass } = useCurrentClass();
   const queryClient = useQueryClient();
-  const [capturedAt] = useState(() => activityDateInstant(useUploadQueue.getState().recordDate));
+  const [recordDate] = useState(() => useUploadQueue.getState().recordDate);
   const setUploadState = useUploadQueue((state) => state.setUploadState);
   // 이 단계에 들어온 순간의 확정 목록으로 고정합니다. 전송 중에 목록이 바뀌지 않게 하려는 것입니다.
   // 사진을 먼저 보냅니다. 영상·음성 귀속(child-links)이 실패해도 앞선 사진은 이미 서버에 귀속까지 저장돼 있습니다.
@@ -91,7 +91,7 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
                     client_photo_id: item.client_id,
                     class_id: classId,
                     type: item.kind,
-                    captured_at: capturedAt,
+                    captured_at: captureInstant(recordDate, item.file.lastModified),
                     model_version: item.model_version,
                     attribution: childLinksBody(item),
                   }
@@ -99,7 +99,7 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
                     client_photo_id: item.client_id,
                     class_id: classId,
                     type: item.kind,
-                    captured_at: capturedAt,
+                    captured_at: captureInstant(recordDate, item.file.lastModified),
                     model_version: null,
                   },
             )
