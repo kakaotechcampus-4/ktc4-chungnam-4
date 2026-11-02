@@ -116,8 +116,10 @@
           됩니다
         </li>
         <li>
-          <strong>벡터 길이</strong> — 전부 1024. 다른 값이면 <code>detectFaces</code>가 걸러 내므로
-          애초에 안 나옵니다
+          <strong>벡터 길이</strong> — 전부 1024. 다른 값이면 <code>detectFaces</code>가
+          <strong>버리지 않고 <code>FaceModelError</code>를 던집니다.</strong> 버리면 결과가 "얼굴
+          없음"이 되어 모델이 깨진 것을 사진 탓으로 보여 주기 때문입니다. 그러면 아래 상태 줄에
+          빨갛게 나옵니다
         </li>
       </ul>
     </details>
@@ -240,20 +242,44 @@
         return new File([blob], name, { type: blob.type });
       }
 
+      /**
+       * 오류를 상태 줄에 보여 줍니다.
+       *
+       * `detectFaces`는 모델을 못 받거나 벡터 길이가 틀리면 `FaceModelError`를 던집니다.
+       * 받아 주지 않으면 상태 줄이 "n / 33"에 멈춘 채 아무 설명이 없어서, 모델을 못 받은
+       * 것인지 페이지가 죽은 것인지 알 수 없습니다 — 가장 헷갈릴 자리입니다
+       * (#226 재리뷰 송유진 님).
+       */
+      function showFailure(error, context) {
+        statusEl.className = "bad";
+        statusEl.textContent = `${context}에서 멈췄습니다 — ${error?.name ?? "오류"}: ${error?.message ?? error}`;
+        console.error(error);
+      }
+
+      function clearFailure() {
+        statusEl.className = "";
+      }
+
       runAllEl.addEventListener("click", async () => {
         runAllEl.disabled = true;
         rowsEl.replaceChildren();
         results.length = 0;
+        clearFailure();
+        let current = "모델 받기";
         try {
           await ensureModels();
           const paths = Object.keys(fixtures).sort();
           for (const [index, path] of paths.entries()) {
-            statusEl.textContent = `${index + 1} / ${paths.length} · ${shortName(path)}`;
-            const file = await fileFromUrl(fixtures[path], shortName(path));
-            await runOne(shortName(path), file, expectedFor(path));
+            current = shortName(path);
+            statusEl.textContent = `${index + 1} / ${paths.length} · ${current}`;
+            const file = await fileFromUrl(fixtures[path], current);
+            await runOne(current, file, expectedFor(path));
           }
           const failed = results.filter((r) => !r.passed).length;
           statusEl.textContent = `끝났습니다 — ${results.length}장 중 ${failed}장 확인 필요`;
+        } catch (error) {
+          // 여기까지 왔으면 남은 사진은 돌지 않았습니다. 몇 장째였는지 함께 남깁니다.
+          showFailure(error, `${results.length + 1}번째 (${current})`);
         } finally {
           runAllEl.disabled = false;
         }
@@ -262,11 +288,18 @@
       pickEl.addEventListener("change", async () => {
         const files = [...(pickEl.files ?? [])];
         if (files.length === 0) return;
-        await ensureModels();
-        for (const file of files) {
-          await runOne(file.name, file, { label: "?", ok: () => true });
+        clearFailure();
+        let current = "모델 받기";
+        try {
+          await ensureModels();
+          for (const file of files) {
+            current = file.name;
+            await runOne(current, file, { label: "?", ok: () => true });
+          }
+          statusEl.textContent = `고른 ${files.length}장을 돌렸습니다.`;
+        } catch (error) {
+          showFailure(error, current);
         }
-        statusEl.textContent = `고른 ${files.length}장을 돌렸습니다.`;
       });
     </script>
   </body>
