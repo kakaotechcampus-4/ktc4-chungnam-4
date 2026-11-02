@@ -131,6 +131,40 @@ def save_attributions(
     return links
 
 
+def save_child_links(
+    db: Session,
+    *,
+    media_id: UUID,
+    center_id: UUID | None,
+    attributions: Sequence[Attribution],
+    llm_allowed: bool,
+) -> tuple[MediaAsset, list[MediaChildLink]]:
+    """교사가 고른 귀속과 `llm_allowed`를 저장합니다 (FR-04, FR-14, `PUT /media/{id}/child-links`).
+
+    주로 영상·음성에 씁니다. 교사 확인 전에 먼저 올라와 완료 통지 때 귀속이 없으므로, 서버
+    전송 단계에서 교사가 그 파일에 나온다고 고른 아이들을 파일 단위로 저장합니다(10/29 #163).
+    사진도 받고 규칙은 같습니다. 저장 규칙(전체 교체·짝 검사·`attributed_at`)은
+    `save_attributions`를 따릅니다.
+
+    - 없는 미디어: `MediaAssetNotFound`(404)
+    - 다른 어린이집 반의 미디어: `ClassAccessDenied`(403) — 판정을 먼저 해서 남의 미디어의
+      원아 소속을 알려 주지 않습니다
+    - 파기된 미디어: `MediaDeleted`(409). 파일이 없어 근거로 쓸 수 없으니 귀속도 받지 않습니다 —
+      임시 결정(김동건). 재발급처럼 반 판정 뒤에 봐서 남의 미디어가 파기됐는지 알려 주지 않습니다
+    - 미디어가 속한 반의 원아가 아님: `ChildNotInClass`(400)
+    - 검사에 걸리면 아무것도 바꾸지 않습니다. flush만 하므로 커밋은 부르는 쪽이 합니다.
+    """
+    asset = db.get(MediaAsset, media_id)
+    if asset is None:
+        raise MediaAssetNotFound("파일을 찾을 수 없어요.")
+    ensure_class_access(db, asset.class_id, center_id)
+    if asset.storage_tier == "deleted":
+        raise MediaDeleted("보관 기간이 끝나 삭제된 파일이에요.")
+    ensure_children_in_class(db, asset.class_id, [link.child_id for link in attributions])
+    links = save_attributions(db, media_id, attributions, llm_allowed)
+    return asset, links
+
+
 # ---------------------------------------------------------------------------
 # LLM 근거용 미디어 (agents 근거 수집, #34)
 # ---------------------------------------------------------------------------
@@ -1052,8 +1086,8 @@ def complete_upload(
     부르는 쪽이 하고, 중간에 예외가 나면 부르는 쪽이 롤백해 아무것도 남지 않습니다.
 
     - **사진은 귀속이 필수, 영상·음성은 귀속을 받지 않습니다.** 영상·음성은 교사 확인 전에
-      먼저 올라오므로 귀속 없이 만들고(`llm_allowed` false, `attributed_at` null), 교사가
-      발화 검수를 확정할 때 서버가 발화 연결로 귀속을 계산합니다(다음 PR, #132 리뷰).
+      먼저 올라오므로 귀속 없이 만들고(`llm_allowed` false, `attributed_at` null), 서버 전송
+      단계에서 `save_child_links`로 파일 단위 귀속을 저장합니다(10/29 #163).
       요청 모양 검사는 스키마가 먼저 하고, 여기서는 잘못 불린 경우만 막습니다.
     - **같은 파일을 다시 보내면** 새로 만들지 않고 기존 것을 돌려줍니다. 사진이면 보낸 귀속으로
       전체 교체합니다 — 응답이 끊겨 재전송해도 결과가 같습니다.

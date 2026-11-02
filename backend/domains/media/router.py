@@ -19,6 +19,8 @@ from domains.auth.middleware import CurrentTeacher
 from domains.media import service
 from domains.media.schemas import (
     ChildLinkBody,
+    ChildLinksRequest,
+    ChildLinksResponse,
     MediaAssetResponse,
     MediaCompleteRequest,
     MediaUrlResponse,
@@ -98,6 +100,31 @@ def complete_upload(
         size_bytes=asset.size_bytes,
         llm_allowed=asset.llm_allowed,
         child_links=_links(result.child_links),
+        attributed_at=asset.attributed_at,
+    )
+
+
+@router.put("/media/{media_id}/child-links", response_model=ChildLinksResponse)
+def save_child_links(
+    media_id: UUID,
+    body: ChildLinksRequest,
+    db: Annotated[Session, Depends(get_db)],
+    teacher: CurrentTeacher,
+) -> ChildLinksResponse:
+    """교사가 고른 귀속과 `llm_allowed`를 전체 교체로 저장합니다. 주로 영상·음성 (FR-04, FR-14)."""
+    asset, links = service.save_child_links(
+        db,
+        media_id=media_id,
+        center_id=teacher.center_id,
+        attributions=body.to_attributions(),
+        llm_allowed=body.llm_allowed,
+    )
+    # agents가 attributed_at으로 Job 시작을 판정하므로 커밋이 끝난 뒤에 돌려줍니다
+    db.commit()
+    return ChildLinksResponse(
+        media_id=asset.id,
+        llm_allowed=asset.llm_allowed,
+        child_links=_links(links),
         attributed_at=asset.attributed_at,
     )
 
