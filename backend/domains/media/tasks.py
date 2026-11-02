@@ -1,9 +1,13 @@
+import logging
 from uuid import UUID
 
 from celery import Task
+from kombu.exceptions import OperationalError
 
 from celery_app import celery_app
 from domains.media import service
+
+logger = logging.getLogger(__name__)
 
 
 def _media_id(args: tuple, kwargs: dict) -> str:
@@ -13,7 +17,9 @@ def _media_id(args: tuple, kwargs: dict) -> str:
 class _TranscribeTask(Task):
     """최종 실패를 MediaAsset에 남기는 훅만 둔다. 로직은 service에 있다."""
 
-    def on_failure(self, exc, task_id, args, kwargs, einfo) -> None:
+    def on_failure(
+        self, exc: BaseException, task_id: str, args: tuple, kwargs: dict, einfo: object
+    ) -> None:
         service.mark_transcription_failed(_media_id(args, kwargs))
 
 
@@ -28,13 +34,16 @@ def transcribe_media(media_id: str) -> None:
 def enqueue_transcription(media_id: UUID | None) -> None:
     """영상·음성의 STT 작업을 큐에 넣는다. worker가 MediaAsset을 읽으므로 커밋한 뒤에 부른다.
 
-    브로커 장애로 넣지 못하면 failed로 바꾼 뒤 예외를 다시 올린다. pending으로 두면
-    화면이 STT를 영원히 기다린다.
+    넣기 재시도는 Celery 기본값(3번, 0→0.2→0.4초 간격)이 교사 몰래 한다. 그래도 못 넣으면
+    failed로 바꾸고 예외를 올리지 않는다(#219 리뷰). 업로드는 이미 커밋돼 확정됐으므로 완료
+    통지는 성공으로 답하고, STT 실패는 transcript_status로 화면에 알린다. 500으로 답하면 교사는
+    업로드 실패로 보고 다시 올리지만, 이미 등록된 파일이라 STT가 다시 시작되지 않는다.
+    pending으로 두면 화면이 STT를 영원히 기다린다.
     """
     if media_id is None:
         return
     try:
         transcribe_media.delay(media_id=str(media_id))
-    except Exception:
+    except OperationalError as error:  # 재시도를 다 쓴 브로커 연결 실패. Celery가 이걸로 감싼다
+        logger.warning("stt enqueue failed: media_id=%s error=%s", media_id, type(error).__name__)
         service.mark_transcription_failed(str(media_id))
-        raise

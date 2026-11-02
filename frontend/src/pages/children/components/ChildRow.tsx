@@ -32,7 +32,7 @@ export function ChildRow({ child, klassName }: ChildRowProps) {
           <ArrowRight aria-hidden="true" className="size-4" />
         </Link>
         <p className="text-label text-ink-muted">
-          {klassName} · {child.age_group}
+          {child.age_group ? `${klassName} · ${child.age_group}` : klassName}
         </p>
       </div>
       <p className="w-45 shrink-0 text-body text-ink-muted">

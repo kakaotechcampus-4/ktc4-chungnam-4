@@ -23,7 +23,9 @@ const EMPTY_SLOTS: Slots = Array.from({ length: MAX_PHOTOS }, () => null);
 
 // 등록 사진은 브라우저에서 임베딩만 뽑고 버립니다. 원본은 서버·S3로 보내지 않습니다(H-3).
 // 미리보기도 이 탭의 메모리(object URL)에만 있고, 등록이 끝나거나 화면을 떠나면 지웁니다.
-// TODO(김동건): 동의 상태·등록 여부 조회 API가 없어 부제와 "등록됨" 줄은 예시 값입니다. 동의가 없으면 등록을 막아야 합니다.
+// TODO(송유진): 동의 상태·등록 여부는 원아 상세(GET /children/{child_id}, docs/api/screens.md)가 생기면
+// 부제와 "등록됨" 줄로 보여 줍니다. 그 전에는 서버 값이 없어 아무것도 보이지 않습니다. 고정 예시 값을 두면
+// 등록하지 않은 원아도 "등록됨"으로 보입니다(10/30 배포 점검). 동의가 없으면 등록을 막아야 합니다.
 export function FaceRegisterPage() {
   const route = useRouteChild();
   const location = useLocation();
@@ -79,11 +81,7 @@ export function FaceRegisterPage() {
 
   return (
     <div className="pb-10">
-      <PageHeader
-        eyebrow="우리 반 관리 / 얼굴 정보"
-        title={`${child.name} · 얼굴 정보 관리`}
-        subtitle="동의 3 / 3 확인 완료 · 이 기기 등록 상태"
-      />
+      <PageHeader eyebrow="우리 반 관리 / 얼굴 정보" title={`${child.name} · 얼굴 정보 관리`} />
 
       <FocusCard
         className="min-h-140"
@@ -162,7 +160,6 @@ export function FaceRegisterPage() {
           <p className="text-label text-ink-muted">
             다시 등록하면 이전에 등록한 얼굴 정보가 이번에 고른 사진으로 모두 바뀌어요.
           </p>
-          <p className="text-label text-ink-muted">등록됨 · 2026. 9. 15. · 김하늘 선생님</p>
           <div aria-live="polite" className="text-body">
             {registration.isSuccess ? (
               <p className="text-brand-ink">얼굴 정보를 등록했어요.</p>

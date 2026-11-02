@@ -19,7 +19,7 @@ import boto3
 from botocore.client import BaseClient
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.orm import Session
 
 from core.config import get_settings
@@ -127,6 +127,40 @@ def save_attributions(
     asset.attributed_at = datetime.now(UTC)
     db.flush()
     return links
+
+
+def save_child_links(
+    db: Session,
+    *,
+    media_id: UUID,
+    center_id: UUID | None,
+    attributions: Sequence[Attribution],
+    llm_allowed: bool,
+) -> tuple[MediaAsset, list[MediaChildLink]]:
+    """교사가 고른 귀속과 `llm_allowed`를 저장합니다 (FR-04, FR-14, `PUT /media/{id}/child-links`).
+
+    주로 영상·음성에 씁니다. 교사 확인 전에 먼저 올라와 완료 통지 때 귀속이 없으므로, 서버
+    전송 단계에서 교사가 그 파일에 나온다고 고른 아이들을 파일 단위로 저장합니다(10/29 #163).
+    사진도 받고 규칙은 같습니다. 저장 규칙(전체 교체·짝 검사·`attributed_at`)은
+    `save_attributions`를 따릅니다.
+
+    - 없는 미디어: `MediaAssetNotFound`(404)
+    - 다른 어린이집 반의 미디어: `ClassAccessDenied`(403) — 판정을 먼저 해서 남의 미디어의
+      원아 소속을 알려 주지 않습니다
+    - 파기된 미디어: `MediaDeleted`(409). 파일이 없어 근거로 쓸 수 없으니 귀속도 받지 않습니다 —
+      임시 결정(김동건). 재발급처럼 반 판정 뒤에 봐서 남의 미디어가 파기됐는지 알려 주지 않습니다
+    - 미디어가 속한 반의 원아가 아님: `ChildNotInClass`(400)
+    - 검사에 걸리면 아무것도 바꾸지 않습니다. flush만 하므로 커밋은 부르는 쪽이 합니다.
+    """
+    asset = db.get(MediaAsset, media_id)
+    if asset is None:
+        raise MediaAssetNotFound("파일을 찾을 수 없어요.")
+    ensure_class_access(db, asset.class_id, center_id)
+    if asset.storage_tier == "deleted":
+        raise MediaDeleted("보관 기간이 끝나 삭제된 파일이에요.")
+    ensure_children_in_class(db, asset.class_id, [link.child_id for link in attributions])
+    links = save_attributions(db, media_id, attributions, llm_allowed)
+    return asset, links
 
 
 # ---------------------------------------------------------------------------
@@ -267,8 +301,9 @@ def find_unready_media(
 ) -> list[UUID]:
     """초안 생성 작업을 시작하기 전에, 보낸 미디어 중 아직 쓸 수 없는 것을 돌려줍니다.
 
-    완료 통지 전(행 없음)이거나, 귀속 저장 전(`attributed_at` null)이거나, 파기됐거나, 이 반·날짜
-    (KST)의 자료가 아니면 걸립니다 (docs/api/agents.md `MEDIA_NOT_READY`). 보낸 순서를 지킵니다.
+    완료 통지 전(행 없음)이거나, 귀속 저장 전(`attributed_at` null)이거나, STT 중(`transcript_status`
+    pending)이거나, 파기됐거나, 이 반·날짜(KST)의 자료가 아니면 걸립니다 (docs/api/agents.md
+    `MEDIA_NOT_READY`). STT가 failed면 발화 없이 쓰므로 준비된 것으로 봅니다. 보낸 순서를 지킵니다.
     """
     start, end = _kst_day_range(target_date)
     ready = set(
@@ -280,6 +315,11 @@ def find_unready_media(
                 MediaAsset.captured_at >= start,
                 MediaAsset.captured_at < end,
                 MediaAsset.attributed_at.is_not(None),
+                # 사진은 null. STT 전에 시작하면 발화 없이 초안이 만들어집니다(#219 리뷰)
+                or_(
+                    MediaAsset.transcript_status.is_(None),
+                    MediaAsset.transcript_status != TRANSCRIPT_PENDING,
+                ),
             )
         )
     )
@@ -1022,8 +1062,8 @@ def complete_upload(
     부르는 쪽이 하고, 중간에 예외가 나면 부르는 쪽이 롤백해 아무것도 남지 않습니다.
 
     - **사진은 귀속이 필수, 영상·음성은 귀속을 받지 않습니다.** 영상·음성은 교사 확인 전에
-      먼저 올라오므로 귀속 없이 만들고(`llm_allowed` false, `attributed_at` null), 교사가
-      발화 검수를 확정할 때 서버가 발화 연결로 귀속을 계산합니다(다음 PR, #132 리뷰).
+      먼저 올라오므로 귀속 없이 만들고(`llm_allowed` false, `attributed_at` null), 서버 전송
+      단계에서 `save_child_links`로 파일 단위 귀속을 저장합니다(10/29 #163).
       요청 모양 검사는 스키마가 먼저 하고, 여기서는 잘못 불린 경우만 막습니다.
     - **같은 파일을 다시 보내면** 새로 만들지 않고 기존 것을 돌려줍니다. 사진이면 보낸 귀속으로
       전체 교체합니다 — 응답이 끊겨 재전송해도 결과가 같습니다.
@@ -1138,6 +1178,7 @@ def transcribe_media(media_id: str) -> None:
                 end_time=segment.end,
                 raw_text=segment.text,
                 source=source,
+                avg_logprob=segment.avg_logprob,
             )
             for segment in speech
         ] or [TranscriptSegment(media_id=UUID(media_id), raw_text=NO_SPEECH_TEXT, source=source)]
@@ -1162,7 +1203,12 @@ def transcribe_media(media_id: str) -> None:
 
 
 def _speech_chunks(storage_key: str) -> list[audio.AudioChunk]:
-    """원본을 임시 폴더에 받아 음성만 뽑고 조각으로 나눕니다. 300MB 영상도 메모리에 올리지 않습니다."""
+    """원본을 임시 폴더에 받아 음성만 뽑고 조각으로 나눕니다.
+
+    원본 파일은 메모리에 올리지 않지만, 뽑은 PCM 전체와 조각 WAV는 메모리에 올라갑니다.
+    60분 음성이면 최대 약 400MiB이고, 조각이 많으면 작업 상한(600초)도 넘을 수 있습니다(#218 리뷰).
+    TODO(donggeon): 음성메모 길이 상한을 둘지 팀 결정 대기 — 값은 스펙에 없어 미정
+    """
     with tempfile.TemporaryDirectory(prefix="aidam-stt-") as folder:
         path = Path(folder) / "source"
         _s3_client(get_settings().s3_region).download_file(_bucket(), storage_key, str(path))

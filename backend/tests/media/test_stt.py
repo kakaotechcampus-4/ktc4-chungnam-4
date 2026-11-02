@@ -3,10 +3,13 @@
 실제 엘리스를 부르지 않습니다. httpx 전송을 가짜로 바꿉니다.
 """
 
+import threading
+import time
 from collections.abc import Callable
 
 import httpx
 import pytest
+from celery.exceptions import SoftTimeLimitExceeded
 
 from core.config import Settings
 from domains.media import stt
@@ -119,6 +122,55 @@ def test_다시_보내도_같은_실패는_재시도하지_않는다(
     with pytest.raises(stt.SttError):
         stt.transcribe_chunks([_chunk(0.0, 5.0)])
     assert calls["count"] == 1
+
+
+def test_기다리는_도중_작업_시간_제한이_오면_남은_조각을_기다리지_않고_바로_올린다(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 시간 제한 예외가 늦게 올라오면 강제 종료까지 가서 실패 훅이 돌지 않습니다(#219 리뷰).
+    started: list[int] = []
+    release = threading.Event()
+    two_started = threading.Event()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        started.append(1)
+        if len(started) == 2:
+            two_started.set()
+        release.wait(timeout=5)  # 엘리스가 응답하지 않는 상황
+        return _ok((0.0, 1.0, "안녕"))
+
+    def wait_until_limit(futures: object, return_when: str) -> None:
+        two_started.wait(timeout=5)
+        raise SoftTimeLimitExceeded()
+
+    _transport(monkeypatch, handler)
+    monkeypatch.setattr(stt, "wait", wait_until_limit)
+
+    begin = time.monotonic()
+    try:
+        with pytest.raises(SoftTimeLimitExceeded):
+            stt.transcribe_chunks([_chunk(float(i), float(i) + 1.0) for i in range(4)])
+        elapsed = time.monotonic() - begin
+    finally:
+        release.set()
+
+    assert elapsed < 2  # 보내는 중인 조각(응답 5초)을 기다리지 않음
+    assert len(started) == 2  # 동시 2개만 보냈고, 줄 서 있던 2개는 취소됨
+
+
+def test_구간_확신도를_받은_그대로_남기고_없으면_None이다(monkeypatch: pytest.MonkeyPatch) -> None:
+    body = {
+        "text": "하나 둘",
+        "segments": [
+            {"start": 0.0, "end": 1.0, "text": "하나", "avg_logprob": -0.92},
+            {"start": 1.0, "end": 2.0, "text": "둘"},
+        ],
+    }
+    _transport(monkeypatch, lambda request: httpx.Response(200, json=body))
+
+    segments = stt.transcribe_chunks([_chunk(0.0, 5.0)])
+
+    assert [s.avg_logprob for s in segments] == [-0.92, None]
 
 
 def test_빈_문장은_버린다(monkeypatch: pytest.MonkeyPatch) -> None:

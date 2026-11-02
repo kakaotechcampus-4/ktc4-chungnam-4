@@ -94,7 +94,7 @@ export function planToForm(plan: EducationPlanView): PlanFormInput {
 }
 
 /** 폼 값을 요청 본문으로. 월간 계획은 요일별 놀이를 비우고, 빈 요일은 보내지 않습니다. */
-export function formToRequest(values: PlanFormValues): EducationPlanInput {
+export function formToInput(values: PlanFormValues): EducationPlanInput {
   const daily_activities: EducationPlanInput["daily_activities"] = {};
   if (values.plan_type === "weekly") {
     for (const day of WEEKDAYS) {

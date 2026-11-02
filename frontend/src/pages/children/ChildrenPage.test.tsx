@@ -20,6 +20,23 @@ function renderPage() {
 }
 
 describe("ChildrenPage", () => {
+  // 서버 명단(#146)은 아직 기본 필드만 보냅니다. 빈 값을 그대로 그리면 '동의 undefined / undefined
+  // 완료'와 '햇살반 ·'가 보였습니다(10/30 배포 점검).
+  it("연령·동의 수가 오지 않으면 빈 값을 그리지 않는다", async () => {
+    server.use(
+      http.get(apiPath("/classes/:classId/children"), ({ params }) =>
+        listResponse([{ child_id: "k1", class_id: String(params.classId), name: "김도윤" }]),
+      ),
+    );
+    renderPage();
+
+    await screen.findByRole("list", { name: "원아 명단" });
+    const row = rowOf("김도윤");
+    expect(within(row).queryByText(/undefined/)).not.toBeInTheDocument();
+    expect(within(row).queryByText(/동의 .*완료/)).not.toBeInTheDocument();
+    expect(within(row).queryByText(/·\s*$/)).not.toBeInTheDocument();
+  });
+
   it("반의 원아 명단과 상태를 보여 주고 이름으로 거른다", async () => {
     renderPage();
 
