@@ -96,15 +96,25 @@ export function toTeacherProfileBody(input: TeacherProfileInput): TeacherProfile
   return { name: input.name, center_id: input.center_id };
 }
 
+// 서버 명단(#146)은 아직 기본 필드(child_id·class_id·name)만 보냅니다. 문서의 확장 필드가 오지
+// 않으면 null로 받고 값을 지어내지 않습니다(10/30 배포 점검).
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" ? value : null;
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
 export function toClassChildView(raw: ClassChild): ClassChildView {
   return {
     child_id: raw.child_id,
     class_id: raw.class_id,
     name: raw.name,
     birth_date: raw.birth_date,
-    age_group: raw.age_group,
-    consent_agreed_count: raw.consent_agreed_count,
-    consent_total: raw.consent_total,
+    age_group: stringOrNull(raw.age_group),
+    consent_agreed_count: numberOrNull(raw.consent_agreed_count),
+    consent_total: numberOrNull(raw.consent_total),
     is_face_registered: raw.is_face_registered,
     face_feature_agreed: raw.face_feature_agreed,
     face_photo_count: raw.face_photo_count,

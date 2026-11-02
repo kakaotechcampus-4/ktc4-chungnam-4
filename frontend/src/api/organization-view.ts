@@ -66,9 +66,13 @@ export interface ClassChildView {
   class_id: string;
   name: string;
   birth_date: DateOnly;
-  age_group: string;
-  consent_agreed_count: number;
-  consent_total: number;
+  /**
+   * 연령·동의 수는 서버 명단(#146)이 아직 보내지 않아 null일 수 있습니다. 값이 없을 때
+   * '동의 완료'로 보이면 동의를 받은 것처럼 읽히므로, 모르는 값은 null로 둡니다.
+   */
+  age_group: string | null;
+  consent_agreed_count: number | null;
+  consent_total: number | null;
   is_face_registered: boolean;
   face_feature_agreed: boolean;
   /** 등록된 얼굴 사진 수. 0이면 미등록 */
