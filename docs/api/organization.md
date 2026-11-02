@@ -279,7 +279,7 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 }
 ```
 
-- `recent_notes`는 `record_date` 최신순 최대 4개입니다. 필드 이름은 documents(`parent_note_id`, 게시 여부)와 맞췄습니다. `published`는 학부모에게 게시됐는지입니다.
+- `recent_notes`는 `record_date` 최신순 최대 10개입니다. `summary`는 다른 목록의 `preview`와 같은 규칙(100자, 문장 경계)입니다. 필드 이름은 documents(`parent_note_id`, 게시 여부)와 맞췄습니다. `published`는 학부모에게 게시됐는지입니다.
 - `domain_counts`의 키는 위 `EducationPlan.domains`와 같은 누리과정 5영역 코드입니다.
 - 임시 경로입니다. 알림장 목록은 documents의 `GET /children/{child_id}/drafts?doc_type=parent_note`로 옮기고, 5영역 수를 어느 도메인이 줄지는 위 체크리스트에 있습니다.
 
