@@ -20,13 +20,16 @@ describe("검수 규칙", () => {
     expect(clips.map(needsManualReview)).toEqual([false, false]);
   });
 
-  it("확인 체크는 확실한 사진과 교사가 고른 사진만 확정하고 LLM 허용을 켠다", () => {
+  it("확인 체크 후에도 미식별 얼굴이 남은 사진의 LLM 허용은 켜지지 않는다", () => {
     expect(confirmReview(classified!)).toMatchObject({ review_state: "확정", llm_allowed: true });
+    expect(confirmReview({ ...classified!, ...assignResult(["c"]) })).toMatchObject({
+      llm_allowed: true,
+    });
     // 수동 확인을 안 한 사진은 그대로 미검수라 업로드 목록에서 빠집니다(H-3).
     expect(confirmReview(unidentified!)).toBeNull();
     expect(confirmReview({ ...unidentified!, ...assignResult(["c"]) })).toMatchObject({
       assigned_child_ids: ["c"],
-      llm_allowed: true,
+      llm_allowed: false,
     });
   });
 });
