@@ -7,6 +7,7 @@ celery[redis]>=5.6,<5.7
 alembic>=1.16,<2
 cryptography>=42,<47
 openai>=1.50,<2
+httpx>=0.28,<1
 bcrypt>=4.2,<6
 pyjwt>=2.9,<3
 boto3>=1.35,<2
