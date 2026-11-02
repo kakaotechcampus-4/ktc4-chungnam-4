@@ -117,8 +117,8 @@ export interface DraftView {
   sentences: SentenceView[];
   /** 교사가 고른 미디어의 id. 어느 것이 사진인지는 `selectedPhotos`가 가립니다. */
   selected_media_ids: string[];
-  /** 분석 실패로 근거에서 제외된 사진. 구버전 서버 응답에는 없을 수 있습니다. */
-  failed_media_ids?: string[];
+  /** 분석 실패로 근거에서 제외된 사진. 구버전 서버 응답에 없으면 adapter가 빈 배열로 채웁니다. */
+  failed_media_ids: string[];
   /** 선택 미디어와 근거 미디어 전부. 근거 패널이 씁니다. */
   media: DraftMediaView[];
   published_at: string | null;

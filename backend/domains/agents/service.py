@@ -810,6 +810,8 @@ def _load_generation_inputs(bundle: EvidenceBundle) -> GenerationInputs:
     if merged.status == PerceptionStatus.RESPONSE_ERROR:
         raise PhotoAnalysisFailed
     evidence = list(merged.items)
+    # FR-05: 다른 요일의 계획을 해당 날짜의 관찰 맥락으로 섞지 않는다.
+    weekday = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")[record_date.weekday()]
     for plan in organization_service.get_activity_plans_for_date(session, class_id, record_date):
         evidence.append(
             contracts.EvidenceItem(
@@ -817,7 +819,11 @@ def _load_generation_inputs(bundle: EvidenceBundle) -> GenerationInputs:
                 source_type=contracts.SourceType.ACTIVITY_PLAN,
                 child_ids=[str(bundle.child_id)],
                 observed_date=record_date,
-                text=" / ".join([plan.title, plan.goal, *plan.daily_activities.values()]),
+                text=" / ".join(
+                    part
+                    for part in [plan.title, plan.goal, plan.daily_activities.get(weekday, "")]
+                    if part
+                ),
                 assignment_status=contracts.AssignmentStatus.TEACHER_CONFIRMED,
             )
         )

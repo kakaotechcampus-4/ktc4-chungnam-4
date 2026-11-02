@@ -45,7 +45,8 @@ describe("DraftReviewPage", () => {
     act(() =>
       queryClient.setQueryData(key, {
         ...draft!,
-        failed_media_ids: ["failed-photo"],
+        // media에 없는 id는 그릴 수 없으니 장수에서도 빠져야 합니다.
+        failed_media_ids: ["failed-photo", "missing-photo"],
         media: [
           ...draft!.media,
           {
@@ -57,9 +58,9 @@ describe("DraftReviewPage", () => {
         ],
       }),
     );
-    expect(await screen.findByRole("region", { name: "분석하지 못한 사진" })).toHaveTextContent(
-      "문장 근거에서 빠졌어요",
-    );
+    const region = await screen.findByRole("region", { name: "분석하지 못한 사진" });
+    expect(region).toHaveTextContent("문장 근거에서 빠졌어요");
+    expect(region).toHaveTextContent("AI가 분석하지 못한 사진 1장");
     expect(screen.getByAltText("분석하지 못한 사진 1")).toHaveAttribute(
       "src",
       "https://example.invalid/failed.png",

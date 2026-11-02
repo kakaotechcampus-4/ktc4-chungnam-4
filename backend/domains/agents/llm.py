@@ -1,5 +1,4 @@
 from collections.abc import Sequence
-from urllib.parse import urlsplit
 
 import openai
 from openai import OpenAI
@@ -31,21 +30,14 @@ _VISION_MAX_TOKENS = 2048
 
 
 def _complete(*, endpoint: str, model: str, messages: list[dict], max_tokens: int) -> str | None:
-    """모델별 Elice 주소에 OpenAI 호환 /v1 경로를 보완한다(FR-05).
+    """설정된 API base URL 또는 완전한 chat/completions 주소를 사용한다(FR-05).
 
-    2026-11-02 실호출: 모델 루트만 쓰면 404, /v1/chat/completions는 200.
-    완전한 chat/completions 주소도 중복 경로를 붙이지 않고 받는다.
+    필요한 API 버전 경로(/v1 등)는 환경설정에 포함한다. 호스트별로 추정하지 않는다.
     SDK의 인증·시간 초과·재시도 예외 계약은 유지한다.
     """
     settings = get_settings()
     endpoint = endpoint.rstrip("/")
     is_complete_url = endpoint.endswith("/chat/completions")
-    if (
-        urlsplit(endpoint).hostname == "mlapi.run"
-        and not is_complete_url
-        and not endpoint.endswith("/v1")
-    ):
-        endpoint += "/v1"
     with OpenAI(
         api_key=settings.anthropic_api_key.get_secret_value(),
         base_url=endpoint,

@@ -63,9 +63,8 @@ class DraftStatus(StrEnum):
     VERIFIED는 agents가 검증을 통과한 초안을 저장한 상태(교사 검토 대기)다. 교사는
     이 상태에서 수정·승인한다 (#75·#106). DRAFT는 생성·검증 중이라 화면이 잠근다.
 
-    테크스펙의 "unclassified"는 아직 값으로 두지 않는다 — 이 문서가 UnclassifiedItem으로
-    빠졌다는 뜻이라 ref_type=draft_document인 UnclassifiedItem 존재 여부로 보는 안과 함께
-    docs/open-questions.md에 남아 있다.
+    초안 없는 생성 실패는 문서 상태 대신 원아·날짜별 UnclassifiedItem에
+    ref_type=job으로 기록한다 (#196).
     """
 
     DRAFT = "draft"
@@ -238,7 +237,8 @@ class UnclassifiedItem(Base):
     docs/open-questions.md).
 
     ref_type/ref_id로 여러 종류를 가리키는 폴리모픽 참조다 (AccessLog/DeletionLog와
-    같은 패턴). reason은 발화없음/검증실패/근거부족 등 **서버 도달 이후** 발생한
+    같은 패턴). reason은 insufficient_evidence/verification_failed/photo_analysis_failed/
+    no_consent처럼 **서버 도달 이후** 발생한
     사유만 기록한다 — 얼굴미매칭 등 업로드 전 판정 사유는 프론트(LocalPhoto)에서만
     관리되고 서버로 오지 않는다 (docs/open-questions.md 확인 완료 사항).
     """
@@ -258,11 +258,11 @@ class UnclassifiedItem(Base):
     record_date = Column(Date, nullable=True)
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    ref_type = Column(String, nullable=False)  # 예: "draft_document"
+    ref_type = Column(String, nullable=False)  # 생성 실패는 "job"
     ref_id = Column(UUID(as_uuid=True), nullable=False)
     reason = Column(String, nullable=False)
     status = Column(String, nullable=False, default="open")
-    # auth.Teacher 참조 — 처리한 교사. 미해결이면 null.
+    # auth.Teacher 참조 — 직접 작성한 교사. 미해결·AI 자동 해소이면 null.
     resolved_by = Column(UUID(as_uuid=True), nullable=True)
     resolved_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)

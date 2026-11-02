@@ -236,7 +236,7 @@ def save_draft(db: Session, data: DraftSaveInput, *, expected_version: int | Non
         if expected_version is None
         else _update_generated_draft(db, data, expected_version=expected_version)
     )
-    resolve_unclassified(db, draft.child_id, draft.record_date)
+    resolve_unclassified(db, draft.child_id, draft.record_date, doc_type=data.doc_type)
     return draft
 
 
@@ -367,7 +367,8 @@ def list_class_drafts(
 
     - 접근 검사와 재원 원아 명단은 organization이 맡는다. 같은 어린이집 교사면 모든 반을
       본다 (FR-25). 검수 권한이 있는 교사라 승인 전 초안의 미리보기도 싣는다 (H-1).
-    - 그날 초안이 있는 원아만 명단 순서대로 담는다. "자료 없음" 행은 FE가 명단과 비교해 만든다.
+    - 그날 초안 또는 열린 알림장 실패가 있는 원아를 명단 순서대로 담는다.
+      "자료 없음" 행은 FE가 명단과 비교해 만든다.
     - published=True면 활성 게시 회차가 있는 문서만 담는다. 이때 record_date가 없으면
       원아·문서 종류마다 가장 최근 게시본 1건만 담는다 (임시 결정(김진하)).
     """
@@ -418,6 +419,13 @@ def list_class_drafts(
                     UnclassifiedItem.child_id.in_(child_ids),
                     UnclassifiedItem.record_date == record_date,
                     UnclassifiedItem.status == "open",
+                    ~select(DraftDocument.id)
+                    .where(
+                        DraftDocument.child_id == UnclassifiedItem.child_id,
+                        DraftDocument.record_date == UnclassifiedItem.record_date,
+                        DraftDocument.doc_type == DocType.PARENT_NOTE.value,
+                    )
+                    .exists(),
                 )
             )
         }
@@ -571,7 +579,7 @@ def create_draft(
     - 같은 원아·문서 종류·날짜의 초안이 이미 있으면 DRAFT_ALREADY_EXISTS다. 동시에 두 번 와도
       유일 제약(uq_draft_child_type_date)이 하나만 남긴다.
 
-    - 같은 원아·날짜의 미분류 항목도 같은 트랜잭션에서 해소한다 (#196).
+    - 알림장을 직접 쓰면 같은 원아·날짜의 실패도 해소하고 처리 교사를 남긴다 (#196).
     """
     organization_service.ensure_child_access(db, child_id, center_id)
     draft = DraftDocument(
@@ -606,7 +614,9 @@ def create_draft(
         )
         for position, sentence in enumerate(request.sentences)
     )
-    resolve_unclassified(db, child_id, request.record_date)
+    resolve_unclassified(
+        db, child_id, request.record_date, doc_type=request.doc_type, resolved_by=teacher_id
+    )
     return _commit_with_detail(db, draft.id)
 
 
@@ -1332,6 +1342,19 @@ def record_unclassified(
     }:
         raise ValueError("Unknown generation failure reason")
 
+    # FR-06 / #196: 이미 검토할 알림장이 있으면 재생성 실패로 확인 필요를 만들지 않는다.
+    # 과거에 함께 남은 실패도 이 트랜잭션에서 해소하고 기존 문서는 보존한다.
+    existing = db.scalar(
+        select(DraftDocument.id).where(
+            DraftDocument.child_id == child_id,
+            DraftDocument.record_date == record_date,
+            DraftDocument.doc_type == DocType.PARENT_NOTE.value,
+        )
+    )
+    if existing is not None:
+        resolve_unclassified(db, child_id, record_date, doc_type=DocType.PARENT_NOTE)
+        return
+
     def current() -> UnclassifiedItem | None:
         return db.scalar(
             select(UnclassifiedItem).where(
@@ -1365,8 +1388,17 @@ def record_unclassified(
     db.flush()
 
 
-def resolve_unclassified(db: Session, child_id: UUID, record_date: date) -> None:
-    """AI 성공·직접 작성과 실패 해소를 같은 트랜잭션으로 묶는다(#196)."""
+def resolve_unclassified(
+    db: Session,
+    child_id: UUID,
+    record_date: date,
+    *,
+    doc_type: DocType,
+    resolved_by: UUID | None = None,
+) -> None:
+    """알림장 저장과 실패 해소를 같은 트랜잭션으로 묶는다(FR-06, #196)."""
+    if doc_type != DocType.PARENT_NOTE:
+        return
     db.execute(
         update(UnclassifiedItem)
         .where(
@@ -1374,7 +1406,7 @@ def resolve_unclassified(db: Session, child_id: UUID, record_date: date) -> None
             UnclassifiedItem.record_date == record_date,
             UnclassifiedItem.status == "open",
         )
-        .values(status="resolved", resolved_at=datetime.now(UTC))
+        .values(status="resolved", resolved_at=datetime.now(UTC), resolved_by=resolved_by)
     )
 
 
