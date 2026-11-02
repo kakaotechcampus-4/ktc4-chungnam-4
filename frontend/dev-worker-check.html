@@ -11,7 +11,7 @@
       extractEmbedding,
       classifyPhoto,
     } from "/src/workers/face/client.ts";
-    const paths = import.meta.glob("/test/fixtures/faces/**/*.png", {
+    const paths = import.meta.glob("/test/fixtures/faces/**/*.jpg", {
       eager: true,
       import: "default",
       query: "?url",
