@@ -116,7 +116,9 @@ export function SpeechSortView({ renderTabs }: SpeechSortViewProps) {
   const { segment } = current;
   const draft = drafts[segment.segment_id] ?? {};
   const text = draft.text ?? segment.text;
-  const speaker = draft.speaker ?? segment.speaker ?? "child";
+  // 고르지 않은 화자를 "아이"로 채우지 않습니다. 교사의 말이 아이가 한 말로 생성 근거에 들어가
+  // 인용될 수 있습니다. null로 저장하면 서버가 근거에서 뺍니다(UNMAPPED_SPEAKER, FR-06).
+  const speaker = draft.speaker ?? segment.speaker;
 
   function setDraft(change: { text?: string; speaker?: TranscriptSpeakerView }) {
     setDrafts((prev) => ({

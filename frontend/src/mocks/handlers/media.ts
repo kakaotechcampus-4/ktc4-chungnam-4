@@ -372,7 +372,8 @@ export const handlers = [
     if (body.text !== undefined && !body.text.trim()) {
       return validationError("body.text", "문장을 비울 수 없습니다");
     }
-    if (body.speaker !== undefined && !SPEAKERS.includes(body.speaker)) {
+    // null은 서버와 같이 "화자 지우기"로 받습니다(backend media/schemas.py).
+    if (body.speaker != null && !SPEAKERS.includes(body.speaker)) {
       return validationError("body.speaker", "child, teacher_observation, together 중 하나입니다");
     }
     const { segment } = found;
