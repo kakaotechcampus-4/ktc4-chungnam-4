@@ -100,10 +100,13 @@ from core.exceptions import (
     DraftAlreadyApproved,
     DraftAlreadyExists,
     DraftAlreadyPublished,
+    DraftAlreadyViewed,
     DraftNotApprovable,
     DraftNotApproved,
     DraftNotFound,
+    DraftNotPublished,
     DraftNotReady,
+    DraftRevoked,
     DraftVersionConflict,
     InvalidCursor,
     InvalidSentenceId,
@@ -112,6 +115,7 @@ from core.exceptions import (
     NotParentNote,
     ParentNoteNotFound,
     RequestValidationFailed,
+    RevokeDeadlinePassed,
 )
 
 # agents도 documents를 import한다(save_draft). 순환이라 이름이 아니라 모듈째 import한다 — 이름을 직접
@@ -679,6 +683,8 @@ def _shareable_photo_ids(db: Session, child_id: UUID, record_date: date) -> set[
 def _not_editable(status: str) -> AidamError:
     if status == DraftStatus.DRAFT.value:
         return DraftNotReady("초안을 만드는 중입니다. 다 만들어진 뒤에 고칠 수 있습니다.")
+    if status == DraftStatus.REVOKED.value:
+        return DraftRevoked("회수한 알림장입니다. 다시 검토로 돌린 뒤에 고칠 수 있습니다.")
     return DraftAlreadyApproved("승인된 초안입니다. 승인을 되돌린 뒤에 고칠 수 있습니다.")
 
 
@@ -743,20 +749,22 @@ def reopen_draft(
     center_id: UUID | None,
     expected_version: int,
 ) -> DraftDetailResponse:
-    """게시 전 승인을 되돌려 다시 검토하게 한다 (임시 결정(김진하), docs/api/documents.md).
+    """승인 또는 회수를 되돌려 다시 검토하게 한다 (임시 결정(김진하·한상균), docs/api/documents.md).
 
     학부모에게 게시된 초안은 되돌리지 않는다 — 이미 나갔으므로 회수가 따로 필요하다 (H-1).
+    읽어 둔 상태로 시작 상태를 고르지만, 그 사이 상태가 바뀌면 버전이 달라 _claim_version이 막는다.
     """
-    _draft_for_teacher(db, draft_id, center_id)
+    draft = _draft_for_teacher(db, draft_id, center_id)
+    is_revoked = draft.status == DraftStatus.REVOKED.value
     _change_status(
         db,
         draft_id,
         teacher_id=teacher_id,
         expected_version=expected_version,
-        from_status=DraftStatus.APPROVED,
+        from_status=DraftStatus.REVOKED if is_revoked else DraftStatus.APPROVED,
         to_status=DraftStatus.VERIFIED,
         action=RevisionAction.REOPEN,
-        wrong_status=lambda _: DraftNotApproved("승인된 초안만 되돌릴 수 있습니다."),
+        wrong_status=lambda _: DraftNotApproved("승인했거나 회수한 초안만 되돌릴 수 있습니다."),
         unless_exists=(
             _active_publication_exists(),
             DraftAlreadyPublished("게시한 알림장은 회수한 뒤에 고칠 수 있습니다."),
@@ -926,6 +934,8 @@ def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
         approved_at=draft.approved_at,
         published_at=publication.published_at if publication else None,
         include_photos=publication.include_photos if publication else None,
+        revoke_deadline=publication.revoke_deadline if publication else None,
+        can_revoke=_can_revoke(publication),
         updated_at=draft.updated_at,
     )
 
@@ -1057,17 +1067,75 @@ def _published_result(draft: DraftDocument, publication: DocumentPublication) ->
 
 
 def revoke_publication(
-    db: Session, *, draft_id: UUID, teacher_id: UUID, expected_version: int
+    db: Session, *, draft_id: UUID, teacher_id: UUID, center_id: UUID | None, expected_version: int
 ) -> RevokeResponse:
-    # TODO(한상균): 검수 권한 교사인지부터 확인(B와 협의, UPDATE 성공을 권한 통과로
-    #   착각하지 않는다). DraftDocument.version/status 갱신은 모듈 docstring의 버전
-    #   UPDATE 패턴으로. 회수 자격(revoke_deadline 이내 + 미열람 + 미회수) 판단은
-    #   DocumentPublication 갱신 하나로 — "열람·회수 공통 주의사항" 패턴 그대로 쓴다
-    #   (조회로 먼저 판단하지 않는다). rowcount==0이면 이미 회수됐거나 열람됐거나
-    #   기한 초과. 두 UPDATE(DraftDocument, DocumentPublication)는 같은 트랜잭션에서
-    #   함께 커밋하고, 하나라도 실패하면 전체 롤백한다(모듈 docstring "트랜잭션 범위").
-    #   통과 시 RevisionLog에 action=revoke를 남긴다(테크스펙 RevisionLog.action).
-    raise NotImplementedError("게시 회수 처리 구현 예정")
+    """게시한 알림장을 회수한다 (테크스펙 파이프라인 9단계, H-1, docs/api/documents.md).
+
+    - 회수 자격(미회수·미열람·기한 이내)은 회차 UPDATE 한 문장으로 판단한다 — 그 사이 학부모가
+      열면 둘 중 하나만 성공한다 (모듈 docstring "열람·회수 공통 주의사항").
+    - 회차 갱신과 초안 상태 전이·RevisionLog는 한 트랜잭션이다. 버전이 달라 전이가 실패하면
+      _claim_version이 롤백해 회차도 그대로 남는다.
+    """
+    _draft_for_teacher(db, draft_id, center_id)
+    publication_id = db.scalar(
+        select(DocumentPublication.id).where(
+            DocumentPublication.draft_id == draft_id, _is_active_publication()
+        )
+    )
+    if publication_id is None:
+        raise DraftNotPublished("게시 중인 알림장이 아닙니다.")
+    revoked_at = datetime.now(UTC)
+    result = db.execute(
+        update(DocumentPublication)
+        .where(
+            DocumentPublication.id == publication_id,
+            _is_active_publication(),
+            DocumentPublication.first_viewed_at.is_(None),
+            DocumentPublication.revoke_deadline > revoked_at,
+        )
+        .values(revoked_at=revoked_at)
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount == 0:
+        db.rollback()
+        raise _not_revocable(db, publication_id)
+    _change_status(
+        db,
+        draft_id,
+        teacher_id=teacher_id,
+        expected_version=expected_version,
+        from_status=DraftStatus.APPROVED,
+        to_status=DraftStatus.REVOKED,
+        action=RevisionAction.REVOKE,
+        wrong_status=lambda _: DraftNotPublished("게시 중인 알림장이 아닙니다."),
+    )
+    # develop의 _change_status는 커밋하지 않는다(#214). 빠뜨리면 성공으로 답하고도 회수가 사라진다.
+    db.commit()
+    return RevokeResponse(
+        draft_id=draft_id,
+        publication_id=publication_id,
+        revoked_at=revoked_at,
+        version=expected_version + 1,
+    )
+
+
+def _not_revocable(db: Session, publication_id: UUID) -> AidamError:
+    """회수 UPDATE가 0행일 때 이유를 다시 읽어 예외로 바꾼다. 읽기만 한다."""
+    publication = db.get(DocumentPublication, publication_id, populate_existing=True)
+    if publication.revoked_at is not None:
+        return DraftNotPublished("이미 회수한 알림장입니다.")
+    if publication.first_viewed_at is not None:
+        return DraftAlreadyViewed("학부모가 이미 열어 본 알림장은 회수할 수 없습니다.")
+    return RevokeDeadlinePassed("회수 기한(게시 후 24시간)이 지났습니다.")
+
+
+def _can_revoke(publication: DocumentPublication | None) -> bool:
+    """상세 응답용. 실제 판단은 revoke_publication의 UPDATE가 한다."""
+    if publication is None or publication.first_viewed_at is not None:
+        return False
+    deadline = publication.revoke_deadline
+    # SQLite는 시간대를 저장하지 않는다. DB에는 UTC로 저장한다(backend/CLAUDE.md).
+    return (deadline if deadline.tzinfo else deadline.replace(tzinfo=UTC)) > datetime.now(UTC)
 
 
 def list_letters_for_parent(

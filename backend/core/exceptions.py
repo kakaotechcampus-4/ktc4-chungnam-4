@@ -102,6 +102,34 @@ class DraftAlreadyPublished(AidamError):
     status_code = 409
 
 
+class DraftNotPublished(AidamError):
+    """활성 게시 회차가 없는 초안을 회수하려 한 경우. 게시 전이거나 이미 회수했다."""
+
+    code = "DRAFT_NOT_PUBLISHED"
+    status_code = 409
+
+
+class DraftAlreadyViewed(AidamError):
+    """학부모가 본문을 연 알림장을 회수하려 한 경우 (테크스펙 파이프라인 9단계)."""
+
+    code = "DRAFT_ALREADY_VIEWED"
+    status_code = 409
+
+
+class RevokeDeadlinePassed(AidamError):
+    """회수 기한(게시 후 24시간)이 지난 알림장을 회수하려 한 경우 (테크스펙 파이프라인 9단계)."""
+
+    code = "REVOKE_DEADLINE_PASSED"
+    status_code = 409
+
+
+class DraftRevoked(AidamError):
+    """회수한 알림장을 바로 고치려 한 경우. reopen으로 검토 대기로 돌린 뒤 고친다."""
+
+    code = "DRAFT_REVOKED"
+    status_code = 409
+
+
 class NoLinkedParent(AidamError):
     """알림장을 받을 보호자가 연결되지 않은 원아. 게시 결과에 건별로만 실린다 (FR-09)."""
 
