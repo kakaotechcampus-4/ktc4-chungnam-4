@@ -40,6 +40,12 @@ const FACE_CONFIG: Partial<Config> = {
   // 기본 0.7은 비슷한 사진이 이어지면 앞 사진 결과를 다시 씁니다. 정지 사진이라 끕니다.
   cacheSensitivity: 0,
   backend: "humangl",
+  // 밝기 보정을 끕니다. 기본값 `filter.autoBrightness`가 **첫 사진의 최대 밝기 하나로**
+  // 보정값을 정한 뒤 그 값을 그 뒤 모든 사진에 곱합니다(`src/image/image.ts`의 autoBrightness,
+  // `src/human.ts`가 바로 끕니다). 그래서 같은 사진도 **먼저 돌린 사진에 따라 벡터가
+  // 달라집니다** — 어두운 사진을 먼저 넣으면 거리가 4.04 움직였고, 이는 다른 아이끼리
+  // 최소 거리(5.3)에 가깝습니다(#226 리뷰 송유진 님).
+  filter: { enabled: false },
   // 쓰지 않는 모델은 끕니다. 켜 두면 복사하지 않은 파일을 요청하다 실패합니다.
   body: { enabled: false },
   hand: { enabled: false },
@@ -61,7 +67,28 @@ const FACE_CONFIG: Partial<Config> = {
   },
 };
 
-let humanPromise: Promise<Human> | null = null;
+/**
+ * 반드시 올라와야 하는 모델입니다. `scripts/copy-face-models.mjs`가 복사하는 셋과 같고,
+ * 이름은 HUMAN이 모델 파일 이름에서 따옵니다(`src/tfjs/load.ts`).
+ */
+const REQUIRED_MODELS = ["blazeface", "facemesh", "faceres"] as const;
+
+/**
+ * 모델을 받지 못했거나 벡터를 만들지 못했습니다.
+ *
+ * 부르는 쪽은 이 오류를 `ExtractionResult`의 **`failed`**로 바꿉니다(`types.ts`).
+ * `no_face`와 반드시 구분해야 합니다 — 교사가 할 일이 다릅니다. 얼굴이 없으면 다른
+ * 사진을 고르면 되지만, 실패는 다시 시도해야 합니다.
+ */
+export class FaceModelError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FaceModelError";
+  }
+}
+
+let human: Human | null = null;
+let loading: Promise<Human> | null = null;
 
 /**
  * HUMAN을 한 번만 만들고 모델을 미리 받아 둡니다. 모델이 약 9MB라 사진마다 다시 받으면
@@ -69,60 +96,131 @@ let humanPromise: Promise<Human> | null = null;
  *
  * `cacheModels`는 **생성자에서만** 적용되고 `load()` 인자로는 바뀌지 않습니다
  * (#121 리뷰 송유진 님).
+ *
+ * 받다 실패하면 기억해 둔 약속을 비웁니다. 그대로 두면 한 번 실패한 세션이 새로고침
+ * 전까지 영영 실패합니다.
  */
 export function loadFaceModels(): Promise<Human> {
-  humanPromise ??= (async () => {
-    const human = new Human(FACE_CONFIG);
-    await human.load();
-    const loaded = human.models.loaded();
-    if (!["blazeface", "facemesh", "faceres"].every((name) => loaded.includes(name))) {
-      throw new Error("Face models are unavailable");
-    }
-    return human;
-  })();
-  return humanPromise.catch((error: unknown) => {
-    humanPromise = null;
+  loading ??= prepare().catch((error: unknown) => {
+    loading = null;
     throw error;
   });
+  return loading;
 }
 
-/** 테스트에서 모델 준비 상태를 비웁니다. */
+async function prepare(): Promise<Human> {
+  // 인스턴스는 다시 만들지 않습니다 — `cacheModels`가 생성자에서만 먹힙니다(#121).
+  human ??= new Human(FACE_CONFIG);
+
+  // `reset()` → `load(FACE_CONFIG)` 두 걸음이 필요합니다. 한 걸음씩 이유가 다릅니다.
+  //
+  // 모델마다 **자기 모듈 안에** 인스턴스를 따로 들고 있습니다(`src/face/faceres.ts`의
+  // module-level `model`). 받다 실패해도 `loadModel`이 예외를 삼키고 **껍데기 객체를
+  // 돌려주므로**(`src/tfjs/load.ts`) 그 껍데기가 캐시되고, 다시 불러도 `if (!model)`에
+  // 걸려 새로 받지 않습니다. `models.reset()`은 Human이 들고 있는 쪽만 비우고 이
+  // 모듈 캐시는 못 비웁니다. 비우는 조건은 `env.initial`뿐이고, 그걸 켜는 공개 함수가
+  // `human.reset()`입니다(#226 리뷰 송유진 님).
+  //
+  // 그런데 `human.reset()`은 **설정도 전부 기본값으로 되돌립니다**(`src/human.ts`의
+  // reset) — 그대로 두면 `maxDetected`가 1로, `filter`가 다시 켜진 채로 돌아갑니다.
+  // `load()`가 넘긴 설정을 다시 합쳐 주므로(`human.ts`의 load) 여기서 되살립니다.
+  human.reset();
+  await human.load(FACE_CONFIG);
+
+  assertModelsLoaded(human);
+  return human;
+}
+
+/**
+ * 모델이 진짜 다 올라왔는지 봅니다.
+ *
+ * **HUMAN은 모델을 받지 못해도 예외를 던지지 않고 로그만 남깁니다**(`src/tfjs/load.ts`).
+ * 그래서 그냥 두면 이렇게 됩니다(#226 리뷰 송유진 님).
+ *
+ * - `faceres`가 없으면 — 모든 사진이 **얼굴 0개**가 되어, 모델을 못 받은 것을 사진 탓으로
+ *   보여 줍니다
+ * - `blazeface`가 없으면 — `detectFaces`가 **끝나지 않습니다**
+ * - `facemesh`가 없으면 — 길이는 1024라 아래 검사를 통과하는데 **값이 0.35 달라집니다.**
+ *   조용히 틀린 벡터로 등록·분류됩니다
+ *
+ * `models.loaded()`는 실패한 모델도 세므로 `stats().modelStats`의 `loaded`를 봅니다.
+ */
+function assertModelsLoaded(instance: Human): void {
+  const stats = instance.models.stats().modelStats;
+  const missing = REQUIRED_MODELS.filter(
+    (name) => !stats.some((model) => model.name === name && model.loaded),
+  );
+  if (missing.length > 0) {
+    throw new FaceModelError(`얼굴 모델을 받지 못했습니다: ${missing.join(", ")}`);
+  }
+}
+
+/**
+ * `human.detect`를 한 번에 하나만 돌립니다.
+ *
+ * HUMAN facemesh가 얼굴 박스를 **모듈 전역**(`src/face/facemesh.ts`의 `cache.boxes`)에
+ * 두고 `await` 사이에 다시 읽습니다. 그래서 동시에 부르면 **남의 박스로 사진을 자릅니다.**
+ * 개수·길이·신뢰도가 모두 정상이라 걸러지지 않고, 틀어진 정도가 다른 아이끼리 거리와
+ * 비슷했습니다(#226 리뷰 송유진 님).
+ *
+ * 등록 여러 장과 분류 100~150장은 병렬로 부르기 쉬워 부르는 쪽에 맡기지 않고 여기서 막습니다.
+ */
+let detectChain: Promise<unknown> = Promise.resolve();
+
+function detectOneAtATime<T>(work: () => Promise<T>): Promise<T> {
+  const result = detectChain.then(work, work);
+  // 앞 호출이 실패해도 줄이 끊기지 않게, 오류를 삼킨 약속을 다음 차례로 넘깁니다.
+  detectChain = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+/** 테스트에서 모델 준비 상태와 대기 줄을 비웁니다. */
 export function resetFaceModels(): void {
-  humanPromise = null;
+  human = null;
+  loading = null;
+  detectChain = Promise.resolve();
 }
 
 /**
- * 쓸 수 있는 벡터인지 봅니다.
+ * 벡터 하나를 화면이 쓸 모양으로 바꿉니다.
  *
- * **모델 로딩이 실패해도 HUMAN은 예외를 던지지 않고 로그만 남깁니다.** `faceres`가 없으면
- * `embedding`이 빈 배열로 나오는데, `human.match.similarity([], x)`는 **1(완전 일치)**을
- * 돌려줍니다. 그대로 두면 모든 원아가 서로 같은 사람으로 판정됩니다
- * (#121 리뷰 송유진 님 2번) — 길이를 반드시 확인합니다.
+ * 길이가 안 맞으면 **버리지 않고 던집니다.** 버리면 결과가 "얼굴 없음"이 되어, 모델이
+ * 깨진 것을 사진 탓으로 보여 주게 됩니다(#226 리뷰 송유진 님). 길이를 보는 이유는
+ * `faceres`가 없을 때 `embedding`이 빈 배열로 나오는데 `match.similarity([], x)`가
+ * **1(완전 일치)**을 돌려줘, 그대로 두면 원아 전원이 서로 같은 사람이 되기 때문입니다
+ * (#121 리뷰 송유진 님 2번).
+ *
+ * 한 얼굴이라도 던지면 사진 전체가 실패합니다. 그 얼굴만 버리면 미식별 얼굴이 없는
+ * 사진처럼 외부 AI에 전달될 수 있습니다(H-2).
  */
-function hasUsableDescriptor(face: FaceResult): boolean {
-  return face.embedding?.length === FACE_DESCRIPTOR_LENGTH && face.embedding.every(Number.isFinite);
+function toDetectedFace(face: FaceResult): DetectedFace {
+  if (face.embedding?.length !== FACE_DESCRIPTOR_LENGTH) {
+    throw new FaceModelError(
+      `얼굴 벡터 길이가 ${FACE_DESCRIPTOR_LENGTH}가 아닙니다: ${face.embedding?.length ?? "없음"}`,
+    );
+  }
+  // 길이가 맞아도 NaN·Infinity가 섞이면 유사도가 NaN이 되어 대조 결과를 믿을 수 없습니다.
+  if (!face.embedding.every(Number.isFinite)) {
+    throw new FaceModelError("얼굴 벡터에 유한하지 않은 값이 있습니다");
+  }
+  return {
+    descriptor: face.embedding,
+    // HUMAN의 score는 검출·정렬 점수를 합친 값입니다. 테크스펙 §온디바이스 모델의
+    // confidence가 가리키는 "얼굴로 볼 만한 정도"가 이 값입니다.
+    confidence: face.score,
+  };
 }
 
-/**
- * 사진 한 장에서 얼굴을 모두 찾습니다. 못 찾으면 빈 배열입니다.
- *
- * 벡터를 못 만든 얼굴이 하나라도 있으면 사진 전체를 실패 처리합니다.
- * 그 얼굴만 버리면 미식별 얼굴이 없는 사진처럼 외부 AI에 전달될 수 있습니다(H-2).
- */
+/** 사진 한 장에서 얼굴을 모두 찾습니다. 못 찾으면 빈 배열입니다. */
 export async function detectFaces(photo: File): Promise<DetectedFace[]> {
-  const human = await loadFaceModels();
+  const instance = await loadFaceModels();
   const bitmap = await createImageBitmap(photo);
   try {
-    const result = await human.detect(bitmap);
-    if (result.face.some((face) => !hasUsableDescriptor(face)))
-      throw new Error("Unusable face descriptor");
-    return result.face.map((face) => ({
-      // 위 검사에서 모든 얼굴의 벡터를 확인했습니다.
-      descriptor: face.embedding as number[],
-      // HUMAN의 score는 검출·정렬 점수를 합친 값입니다. 테크스펙 §온디바이스 모델의
-      // confidence가 가리키는 "얼굴로 볼 만한 정도"가 이 값입니다.
-      confidence: face.score,
-    }));
+    const result = await detectOneAtATime(() => instance.detect(bitmap));
+    return result.face.map(toDetectedFace);
   } finally {
     // 비트맵은 GC를 기다리지 않고 바로 놓습니다. 사진이 수십 장이면 메모리가 금방 찹니다.
     bitmap.close();
