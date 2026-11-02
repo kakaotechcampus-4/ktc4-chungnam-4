@@ -5,8 +5,9 @@
 위함입니다(#142 실측, #163).
 
 쉼 판정은 송유진 스파이크(#163)의 vad_packed28을 옮겼습니다. 50ms마다 RMS를 재고, 고정 dB가
-아니라 그 파일의 잡음 바닥(하위 20% RMS)에 맞춰 기준을 움직입니다. 수치는 성인 TTS 합성
-음성 기준이라 실제 교실 녹음으로 다시 맞춰야 할 수 있습니다.
+아니라 그 파일의 잡음 바닥(하위 20% RMS)에 맞춰 기준을 움직입니다. 쉼이 적어 기준이
+파일 전체의 최대 RMS보다 높아지면 가장 조용한 프레임으로 다시 계산합니다. 수치는 성인 TTS
+합성 음성 기준이라 실제 교실 녹음으로 다시 맞춰야 할 수 있습니다.
 """
 
 import io
@@ -138,6 +139,11 @@ def _frame_rms(samples: array) -> list[float]:
 def _speech_regions(rms: list[float], duration: float) -> list[tuple[float, float]]:
     noise_floor = sorted(rms)[int(len(rms) * NOISE_FLOOR_PERCENTILE)]
     threshold = max(noise_floor * SPEECH_THRESHOLD_MULTIPLIER, MIN_SPEECH_RMS)
+    if threshold > max(rms):
+        # FR-05 / 파이프라인 1-B: 짧은 음성메모는 쉼이 20%보다 적어 하위 20%에도
+        # 말소리가 섞입니다. 기준이 모든 프레임을 넘었을 때만 실제 최저 RMS로 재평가합니다.
+        # 절대 하한과 4배 비율은 유지해 거의 무음·일정한 잡음을 발화로 바꾸지 않습니다.
+        threshold = max(min(rms) * SPEECH_THRESHOLD_MULTIPLIER, MIN_SPEECH_RMS)
 
     regions: list[tuple[float, float]] = []
     start = None
