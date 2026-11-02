@@ -282,9 +282,10 @@ def collect_media_for_llm(db: Session, child_id: UUID, target_date: date) -> lis
         select(TranscriptSegment)
         .where(
             TranscriptSegment.media_id.in_(media_ids),
-            # 교사가 근거에서 뺀 발화 (FR-14, docs/api/agents.md 5단계)
+            # 교사가 근거에서 뺀 발화만 거릅니다 (FR-14, docs/api/agents.md 5단계).
+            # `reviewed_at`은 "마지막으로 손댄 시각"이지 검수 완료 표시가 아니라 조건에 쓰지
+            # 않습니다. 열어 보지 않은 발화까지 빼면 음성메모가 안내 없이 통째로 빠집니다.
             TranscriptSegment.excluded.is_(False),
-            TranscriptSegment.reviewed_at.is_not(None),
         )
         # start_time이 nullable이라 NULL 위치가 DB마다 달라서(PostgreSQL은 뒤, SQLite는 앞) 고정합니다.
         .order_by(TranscriptSegment.start_time.nulls_last())

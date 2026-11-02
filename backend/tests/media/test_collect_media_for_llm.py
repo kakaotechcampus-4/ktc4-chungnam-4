@@ -325,7 +325,9 @@ def test_귀속된_원아_전원과_귀속_방법을_함께_싣는다(db: Sessio
     )
 
 
-def test_검수하지_않은_발화는_생성에_보내지_않는다(db: Session) -> None:
+# 스펙은 교사가 뺀 것만 빼는 구조입니다. reviewed_at은 "마지막으로 손댄 시각"이라
+# 열어 보지 않은 발화도 그대로 넘기고, 화자 판정은 perception이 합니다(#232 리뷰).
+def test_교사가_손대지_않은_발화도_생성에_넘긴다(db: Session) -> None:
     voice = add_media(db, [DOYUN], type="voice_memo")
     db.add(
         TranscriptSegment(
@@ -334,4 +336,4 @@ def test_검수하지_않은_발화는_생성에_보내지_않는다(db: Session
     )
     db.flush()
     [item] = service.collect_media_for_llm(db, DOYUN, DAY)
-    assert item.transcript == ()
+    assert [part.text for part in item.transcript] == ["미검수"]

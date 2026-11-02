@@ -414,12 +414,11 @@ def test_영상음성_업로드_STT_검수_파일귀속_생성_게시_열람(
     status = run(client, klass, media_id, pending)
     assert status["status"] == "succeeded", status
     assert [kind for kind, _ in calls] == ["llm", "llm"]  # 영상 프레임은 vision에 보내지 않는다.
-    assert all(
-        "김도윤" not in prompt
-        and "제외할 문장" not in prompt
-        and "검수하지 않은 문장" not in prompt
-        for _, prompt in calls
-    )
+    assert all("김도윤" not in prompt and "제외할 문장" not in prompt for _, prompt in calls)
+    # 교사가 손대지 않은 발화도 뺀 것이 아니라 넘깁니다(#232 리뷰). 음성메모는 교사 음성메모로
+    # 근거가 되고, 화자를 정하지 않은 영상 발화는 아이 말로 단정하지 않고 perception이 뺍니다.
+    generation_prompt = calls[0][1]
+    assert ("검수하지 않은 문장" in generation_prompt) is (kind == "voice_memo")
     draft = status["children"][0]["drafts"][0]["draft_id"]
     detail = client.get(f"/api/v1/drafts/{draft}").json()
     assert detail["sentences"][0]["evidences"]
