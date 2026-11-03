@@ -257,7 +257,7 @@ describe("ProcessingPage", () => {
     expect(router.state.location.pathname).toBe("/t/today/processing");
   });
 
-  it("초안이 없으면 이유를 확인한 뒤 결과 화면으로 간다", async () => {
+  it("초안이 없으면 이유를 확인한 뒤 그날의 초안 검토로 간다", async () => {
     const queue = useUploadQueue.getState();
     queue.addFiles([photo("confirmed.jpg")]);
     const [confirmed] = useUploadQueue.getState().items;
@@ -300,7 +300,11 @@ describe("ProcessingPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("근거가 부족해요");
     expect(router.state.location.pathname).toBe("/t/today/processing");
     await userEvent.setup().click(screen.getByRole("button", { name: "결과 확인하기" }));
-    await waitFor(() => expect(router.state.location.pathname).toBe("/t/dashboard"));
+    // 대시보드는 오늘 날짜로 고정이라, 지난 날짜도 그날 결과를 보도록 첫 원아의 초안 검토로 갑니다.
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(`/t/today/review/${fixtureId("child", 1)}`),
+    );
+    expect(router.state.location.search).toBe("?record_date=2026-09-15");
   });
 
   it("불러온 자료 없이 들어오면 자료 올리기로 보낸다", async () => {
@@ -352,7 +356,8 @@ describe("ProcessingPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("AI 서비스에 연결하지 못했어요");
     expect(screen.getByText("종료")).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("button", { name: "결과 확인하기" }));
-    expect(router.state.location.pathname).toBe("/t/dashboard");
+    expect(router.state.location.pathname).toBe(`/t/today/review/${fixtureId("child", 1)}`);
+    expect(router.state.location.search).toBe("?record_date=2026-09-15");
     expect(polled).toHaveBeenCalledTimes(1);
   });
 });
