@@ -148,3 +148,25 @@ export interface PublicationResultView {
   /** 실패했을 때 서버가 준 사유 코드 */
   error_code: string | null;
 }
+
+export interface ParentNoteSummaryView {
+  photos: DraftMediaView[];
+  parent_note_id: string;
+  record_date: string;
+  preview: string;
+  is_read: boolean;
+}
+export interface ParentNoteListView {
+  items: ParentNoteSummaryView[];
+  next_cursor: string | null;
+  unread_count: number;
+  this_month_count: number;
+}
+export interface ParentNoteDetailView {
+  parent_note_id: string;
+  child_id: string;
+  record_date: string;
+  content: string;
+  photos: DraftMediaView[];
+  author_name: string;
+}

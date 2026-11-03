@@ -395,12 +395,28 @@ describe("수동 분류 · 발화", () => {
     expect(screen.getByText("처리 1 / 4개")).toBeVisible();
     expect(patched).toEqual([
       {
-        child_ids: [DOYUN],
         speaker: "together",
         excluded: false,
         text: "내가 제일 높이 쌓아 볼게!",
       },
     ]);
+  });
+
+  // 고르지 않은 화자를 "아이"로 채우면 교사의 말이 아이가 한 말로 생성 근거에 들어갑니다.
+  // null로 저장해야 서버가 근거에서 뺍니다(#232 리뷰, FR-06).
+  it("화자를 고르지 않고 연결하면 화자를 비운 채 저장한다", async () => {
+    const patched = capture("PATCH", (url) => url.includes("/transcript-segments/"));
+    seedQueue();
+    const user = userEvent.setup();
+    renderAt("/t/today/manual-sort?tab=speech");
+
+    expect(await screen.findByText("“내가 더 높이 쌓아 볼게!”")).toBeVisible();
+    for (const radio of screen.getAllByRole("radio")) expect(radio).not.toBeChecked();
+    await user.click(await screen.findByRole("checkbox", { name: "김도윤" }));
+    await user.click(screen.getByRole("button", { name: "선택한 아이에게 연결" }));
+
+    expect(await screen.findByText("“탑이 무너졌네. 다시 해 볼까?”")).toBeVisible();
+    expect(patched).toEqual([{ speaker: null, excluded: false }]);
   });
 
   it("발화를 다 처리하면 분류 결과로 돌아가고, 연결한 발화는 아이 카드에 센다", async () => {
@@ -414,10 +430,14 @@ describe("수동 분류 · 발화", () => {
     // 저장 → 다음 발화로 이동을 세 번 거쳐서, 전체 테스트가 함께 돌 때는 기본 대기(1초)를 넘길 수 있습니다.
     for (let i = 0; i < 3; i += 1) {
       await screen.findByText(`처리 ${i + 1} / 4개`, undefined, { timeout: 5000 });
-      await user.click(screen.getByRole("button", { name: "이 자료 제외" }));
+      const exclude = screen.getByRole("button", { name: "이 자료 제외" });
+      await waitFor(() => expect(exclude).toBeEnabled());
+      await user.click(exclude);
     }
 
-    await waitFor(() => expect(router.state.location.pathname).toBe("/t/today/classification"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/t/today/classification"), {
+      timeout: 5000,
+    });
     expect(await screen.findByText("미분류 발화를 모두 정리했어요.")).toBeVisible();
     const list = await findResultList();
     const hajunCard = await waitFor(() => {
@@ -426,7 +446,7 @@ describe("수동 분류 · 발화", () => {
       return card;
     });
     expect(hajunCard).toBeInTheDocument();
-  });
+  }, 15_000);
 
   it("발화 저장에 실패하면 화면에 남아 이유를 보여 준다", async () => {
     server.use(

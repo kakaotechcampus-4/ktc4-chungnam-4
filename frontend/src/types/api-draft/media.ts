@@ -134,15 +134,15 @@ export interface TranscriptSegment {
   media_id: string;
   source: "video_audio" | "voice_memo";
   /** 파일 처음부터 초 */
-  start_time: number;
-  end_time: number;
+  start_time: number | null;
+  end_time: number | null;
   /** STT 원문. 실명 호명이 그대로 들어 있어 LLM으로 보내기 전 비식별화가 필요합니다(H-2). 교사에게만 보입니다. */
   raw_text: string;
   /** 교사가 고친 문장. 고치지 않았으면 raw_text와 같습니다. */
   text: string;
   speaker: TranscriptSpeaker | null;
   /** 교사가 연결한 아이. 비어 있으면 미분류입니다. */
-  child_ids: string[];
+  child_ids?: string[]; // 이전 목 호환용. 실제 귀속은 파일 child_links를 사용합니다.
   /** 교사가 뺀 발화. 초안 근거에서 빠집니다. */
   excluded: boolean;
   /** 교사가 마지막으로 연결·제외·수정한 시각. 손대기 전이면 null */
@@ -153,6 +153,9 @@ export interface TranscriptSegment {
 export interface TranscriptSegmentsResponse {
   media_id: string;
   transcript_status: TranscriptStatus;
+  child_links?: ChildLink[];
+  llm_allowed?: boolean;
+  attributed_at?: string | null;
   /** 시작 시각 순. pending·failed면 빈 배열입니다. */
   items: TranscriptSegment[];
 }

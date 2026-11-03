@@ -29,4 +29,17 @@ describe("클립의 활동 날짜", () => {
     );
     expect(useUploadQueue.getState().items[0]?.upload_state).toBe("확인됨");
   });
+
+  it("활동 날짜에 수정한 파일은 실제 시각을 그대로 보낸다", async () => {
+    useUploadQueue.getState().setRecordDate("2026-10-30");
+    useUploadQueue
+      .getState()
+      .addFiles([
+        new File(["x"], "clip.mp4", { lastModified: Date.parse("2026-10-30T01:20:00Z") }),
+      ]);
+    await startClipUploads("class");
+    expect(completeUpload).toHaveBeenCalledWith(
+      expect.objectContaining({ captured_at: "2026-10-30T01:20:00.000Z" }),
+    );
+  });
 });

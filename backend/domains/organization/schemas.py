@@ -136,7 +136,7 @@ class ChildDetail(BaseModel):
     consent_total: int
     is_face_registered: bool
     face_feature_agreed: bool
-    face_photo_count: int
+    face_photo_count: int | None
     parent_linked: bool
     class_name: str
     consents: list[ConsentItem]
@@ -212,3 +212,15 @@ class EducationPlanUpdateRequest(BaseModel):
     goal: PlanGoal | None = None
     daily_activities: dict[Weekday, DailyActivity] | None = None
     domains: list[NuriDomain] | None = None
+
+
+class ChildNoteSummary(BaseModel):
+    parent_note_id: UUID
+    record_date: date
+    published: bool
+    summary: str
+
+
+class ChildOverview(BaseModel):
+    recent_notes: list[ChildNoteSummary]
+    domain_counts: dict[str, int] | None = None

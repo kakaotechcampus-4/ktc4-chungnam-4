@@ -154,7 +154,7 @@ function toChildNoteSummaryView(raw: ChildNoteSummary): ChildNoteSummaryView {
 export function toChildOverviewView(raw: ChildOverview): ChildOverviewView {
   return {
     recent_notes: raw.recent_notes.map(toChildNoteSummaryView),
-    domain_counts: toDomainCounts(raw.domain_counts),
+    domain_counts: raw.domain_counts ? toDomainCounts(raw.domain_counts) : null,
   };
 }
 

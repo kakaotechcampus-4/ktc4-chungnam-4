@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from core.access_logging import configure_access_logging
 from core.config import get_settings
 from core.database import engine, get_db
 from core.exceptions import AidamError, RequestValidationFailed
@@ -29,6 +30,7 @@ async def lifespan(app: FastAPI):
 # 운영에서는 API 목록·스키마를 공개하지 않습니다. Caddy가 경로 제한 없이
 # 프록시하므로 끄지 않으면 /docs·/redoc·/openapi.json이 그대로 외부에
 # 열립니다. 로컬·테스트에서는 프론트가 스키마를 봐야 하므로 켜둡니다.
+configure_access_logging()
 _docs_public = get_settings().app_env != "production"
 
 app = FastAPI(

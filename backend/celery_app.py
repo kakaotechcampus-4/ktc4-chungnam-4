@@ -9,7 +9,7 @@ celery_app = Celery(
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
     # API가 이름으로 task를 보내므로 worker가 등록하지 않으면 Job이 pending으로 남습니다.
-    include=["scripts.celery_smoke", "domains.agents.tasks"],
+    include=["scripts.celery_smoke", "domains.agents.tasks", "domains.media.tasks"],
 )
 celery_app.conf.update(
     task_serializer="json",

@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useMutation } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
@@ -6,6 +7,7 @@ import {
   completeUpload,
   requestUploadUrls,
   saveChildLinks,
+  transcriptQueryOptions,
   uploadContentType,
   uploadFile,
 } from "@/api/media";
@@ -18,7 +20,7 @@ import {
 } from "@/features/upload-queue/upload-queue-store";
 
 import { ProcessingCard } from "./ProcessingCard";
-import { activityDateInstant } from "@/lib/datetime";
+import { captureInstant } from "@/lib/datetime";
 
 interface SendStepProps {
   onDone: () => void;
@@ -48,7 +50,8 @@ function childLinksBody(item: LocalMedia): ChildLinksInput {
  */
 export function SendStep({ onDone, onCancel }: SendStepProps) {
   const { currentClass } = useCurrentClass();
-  const [capturedAt] = useState(() => activityDateInstant(useUploadQueue.getState().recordDate));
+  const queryClient = useQueryClient();
+  const [recordDate] = useState(() => useUploadQueue.getState().recordDate);
   const setUploadState = useUploadQueue((state) => state.setUploadState);
   // 이 단계에 들어온 순간의 확정 목록으로 고정합니다. 전송 중에 목록이 바뀌지 않게 하려는 것입니다.
   // 사진을 먼저 보냅니다. 영상·음성 귀속(child-links)이 실패해도 앞선 사진은 이미 서버에 귀속까지 저장돼 있습니다.
@@ -88,7 +91,7 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
                     client_photo_id: item.client_id,
                     class_id: classId,
                     type: item.kind,
-                    captured_at: capturedAt,
+                    captured_at: captureInstant(recordDate, item.file.lastModified),
                     model_version: item.model_version,
                     attribution: childLinksBody(item),
                   }
@@ -96,7 +99,7 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
                     client_photo_id: item.client_id,
                     class_id: classId,
                     type: item.kind,
-                    captured_at: capturedAt,
+                    captured_at: captureInstant(recordDate, item.file.lastModified),
                     model_version: null,
                   },
             )
@@ -105,7 +108,14 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
         // ack를 받았으니 upload_state를 확인됨으로 둡니다. 원본 삭제는 큐를 비울 때 함께 합니다.
         setUploadState(item.client_id, "확인됨", mediaId);
         setAcked(index + 1);
-        if (!isPhoto(item)) await saveChildLinks(mediaId, childLinksBody(item));
+        if (!isPhoto(item)) {
+          const transcript = await queryClient.fetchQuery({
+            ...transcriptQueryOptions(mediaId),
+            staleTime: 0,
+          });
+          if (transcript.attributed_at === null)
+            await saveChildLinks(mediaId, { llm_allowed: false, child_links: [] });
+        }
       }
     },
     onSuccess: onDone,

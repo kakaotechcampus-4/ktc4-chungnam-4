@@ -86,6 +86,7 @@ import base64
 import re
 import uuid
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -1407,4 +1408,91 @@ def resolve_unclassified(
             UnclassifiedItem.status == "open",
         )
         .values(status="resolved", resolved_at=datetime.now(UTC), resolved_by=resolved_by)
+    )
+
+
+@dataclass(frozen=True)
+class ChildNoteRecord:
+    """원아 상세의 최근 알림장 한 건."""
+
+    parent_note_id: UUID
+    record_date: date
+    published: bool
+    summary: str
+
+
+@dataclass(frozen=True)
+class ChildRecordSummary:
+    """organization 원아 상세·개요에 싣는 documents 집계. 도메인 사이 계약이라 타입으로 둡니다."""
+
+    month_record_count: int
+    today_note_sent: bool
+    recent_notes: tuple[ChildNoteRecord, ...]
+
+
+_RECENT_NOTE_LIMIT = 10
+_EMPTY_NOTE_SUMMARY = "작성 중인 알림장입니다."
+
+
+def child_record_summary(db: Session, child_id: UUID, today: date) -> ChildRecordSummary:
+    """organization 상세용 내부 조회. 호출자는 먼저 원아 접근 권한을 검사합니다 (#231).
+
+    원아·동의 모델을 직접 읽지 않고 documents 소유 기록만 집계합니다. 커밋하지 않습니다.
+    `month_record_count`는 이번 달(1일~오늘)의 알림장 수이고, 승인 전·회수한 초안도 셉니다.
+    """
+    base = select(DraftDocument).where(
+        DraftDocument.child_id == child_id,
+        DraftDocument.doc_type == DocType.PARENT_NOTE.value,
+    )
+    month_count = (
+        db.scalar(
+            select(func.count()).select_from(
+                base.where(
+                    DraftDocument.record_date >= today.replace(day=1),
+                    DraftDocument.record_date <= today,
+                ).subquery()
+            )
+        )
+        or 0
+    )
+    today_sent = (
+        db.scalar(
+            base.where(
+                DraftDocument.record_date == today,
+                DraftDocument.status == DraftStatus.APPROVED.value,
+                _active_publication_exists(),
+            ).limit(1)
+        )
+        is not None
+    )
+    rows = db.scalars(
+        base.order_by(DraftDocument.record_date.desc()).limit(_RECENT_NOTE_LIMIT)
+    ).all()
+    draft_ids = [row.id for row in rows]
+    # 미리보기는 다른 목록과 같은 규칙(100자, 문장 경계)으로 한 번에 읽습니다.
+    previews = _previews(db, draft_ids)
+    published_ids = (
+        set(
+            db.scalars(
+                select(DocumentPublication.draft_id).where(
+                    DocumentPublication.draft_id.in_(draft_ids), _is_active_publication()
+                )
+            )
+        )
+        if draft_ids
+        else set()
+    )
+    recent = tuple(
+        ChildNoteRecord(
+            parent_note_id=row.id,
+            record_date=row.record_date,
+            published=row.status == DraftStatus.APPROVED.value and row.id in published_ids,
+            summary=previews.get(row.id) or _EMPTY_NOTE_SUMMARY,
+        )
+        for row in rows
+    )
+    return ChildRecordSummary(
+        month_record_count=month_count,
+        today_note_sent=today_sent,
+        recent_notes=recent,
     )

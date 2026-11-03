@@ -112,7 +112,7 @@ export interface ChildNoteSummaryView {
 /** 가정: GET /children/{child_id}/overview */
 export interface ChildOverviewView {
   recent_notes: ChildNoteSummaryView[];
-  domain_counts: Record<NuriDomainView, number>;
+  domain_counts: Record<NuriDomainView, number> | null;
 }
 
 /** GET·POST /children/{child_id}/parent-invites */

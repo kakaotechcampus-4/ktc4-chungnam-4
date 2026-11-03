@@ -200,12 +200,12 @@ export function toTranscriptSegmentView(raw: TranscriptSegment): TranscriptSegme
     segment_id: raw.segment_id,
     media_id: raw.media_id,
     source: raw.source,
-    start_time: raw.start_time,
-    end_time: raw.end_time,
+    start_time: raw.start_time ?? 0,
+    end_time: raw.end_time ?? 0,
     raw_text: raw.raw_text,
     text: raw.text,
     speaker: raw.speaker,
-    child_ids: [...raw.child_ids],
+    child_ids: [],
     excluded: raw.excluded,
     reviewed_at: raw.reviewed_at,
   };
@@ -215,6 +215,9 @@ export function toTranscriptView(raw: TranscriptSegmentsResponse): TranscriptVie
   return {
     media_id: raw.media_id,
     transcript_status: toTranscriptStatus(raw.transcript_status),
+    child_ids: (raw.child_links ?? []).map((link) => link.child_id),
+    llm_allowed: raw.llm_allowed ?? false,
+    attributed_at: raw.attributed_at ?? null,
     items: raw.items.map(toTranscriptSegmentView),
   };
 }
@@ -226,7 +229,6 @@ export function toTranscriptSegmentBody(
   const body: TranscriptSegmentUpdateRequest = {};
   if (input.text !== undefined) body.text = input.text;
   if (input.speaker !== undefined) body.speaker = input.speaker;
-  if (input.child_ids !== undefined) body.child_ids = [...input.child_ids];
   if (input.excluded !== undefined) body.excluded = input.excluded;
   return body;
 }
