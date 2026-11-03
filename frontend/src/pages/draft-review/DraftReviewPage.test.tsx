@@ -1096,7 +1096,7 @@ describe("DraftReviewPage", () => {
     expect(screen.getByRole("checkbox")).not.toBeChecked();
     expect(screen.getByRole("checkbox")).toBeDisabled();
     expect(screen.getByRole("button", { name: "검토 완료하고 승인하기" })).toBeDisabled();
-    expect(screen.getByText("수정을 마치면 승인할 수 있어요.")).toBeInTheDocument();
+    expect(screen.getByText("수정을 마쳐야 승인하고 게시할 수 있어요.")).toBeInTheDocument();
 
     // "수정 완료"로 빠져나오면 다시 승인할 수 있다.
     await user.click(screen.getByRole("button", { name: "수정 완료" }));
@@ -1146,9 +1146,14 @@ describe("DraftReviewPage", () => {
 
     expect(screen.queryByRole("button", { name: "수정 완료" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "게시하기" })).toBeDisabled();
+    // 게시하기가 왜 잠겼는지, 무엇을 누르면 되는지 화면에 남아야 한다.
+    expect(
+      screen.getByText("그 사이 승인돼 더 고칠 수 없어요. 수정을 취소해야 게시할 수 있어요."),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "수정 취소" }));
 
+    expect(screen.queryByText(/수정을 취소해야 게시할 수 있어요/)).not.toBeInTheDocument();
     expect(screen.queryAllByRole("textbox", { name: "초안 문장 수정" })).toHaveLength(0);
     expect(screen.getByRole("button", { name: "다시 검토하기" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled();

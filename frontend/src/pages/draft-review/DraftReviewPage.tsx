@@ -787,8 +787,14 @@ export function DraftReviewPage() {
                 .join(", ")}
             </p>
           ) : null}
-          {isEditing && isDraftApprovable ? (
-            <p className="text-caption text-ink-muted">수정을 마치면 승인할 수 있어요.</p>
+          {/* 수정 중에는 승인과 게시를 함께 잠가서 그 이유를 같이 적습니다. 그 사이 다른 곳에서 승인돼
+              "수정 완료"가 사라져도 게시하기가 왜 잠겼는지 보이게, 남은 "수정 취소"로 안내합니다. */}
+          {isEditing ? (
+            <p className="text-caption text-ink-muted">
+              {isDraftApprovable
+                ? "수정을 마쳐야 승인하고 게시할 수 있어요."
+                : "그 사이 승인돼 더 고칠 수 없어요. 수정을 취소해야 게시할 수 있어요."}
+            </p>
           ) : null}
           <label className="flex items-center gap-2 text-body text-ink">
             <Checkbox
