@@ -1,7 +1,7 @@
 // Figma: 1:2952 (추출본 Untitled 1:867)
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import { classEvidenceQueryOptions } from "@/api/agents";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -11,7 +11,6 @@ import { confirmReview } from "@/features/classify/review-policy";
 import { useClassChildren } from "@/features/classify/use-class-children";
 import { useQueueTranscripts } from "@/features/classify/use-queue-transcripts";
 import { isPhoto, useUploadQueue } from "@/features/upload-queue/upload-queue-store";
-import { kstToday } from "@/lib/datetime";
 
 import { formatCounts, summarize } from "./classification-summary";
 import { EmptyQueueCard } from "./components/EmptyQueueCard";
@@ -38,9 +37,10 @@ export function ClassificationPage() {
   } = useClassChildren();
   // 로컬 상태는 업로드 큐(정은) 하나입니다. 분류는 처리 중 화면이 끝내고 이 화면으로 보냅니다.
   const items = useUploadQueue((state) => state.items);
+  const recordDate = useUploadQueue((state) => state.recordDate);
   const setReview = useUploadQueue((state) => state.setReview);
   const evidence = useQuery({
-    ...classEvidenceQueryOptions(currentClass?.class_id ?? "", kstToday()),
+    ...classEvidenceQueryOptions(currentClass?.class_id ?? "", recordDate),
     enabled: currentClass !== null,
   });
   const transcripts = useQueueTranscripts();
@@ -145,13 +145,11 @@ export function ClassificationPage() {
 
       <div className="mt-5.5 flex gap-10 text-caption text-ink-muted">
         <p>미분류로 남은 자료는 이번 초안에서만 제외돼요.</p>
-        {/* 직접 작성 화면은 record 영역(정은)에 있습니다. 등록 전에는 404가 뜹니다. */}
-        <Link
-          to="/t/today/write"
-          className="rounded-xs outline-none hover:text-brand-ink focus-visible:ring-3 focus-visible:ring-ring/50"
-        >
-          자료 없는 원아 {summary.childrenWithoutData}명 · 직접 기록 →
-        </Link>
+        {/* 직접 작성 화면은 두지 않기로 했습니다(10/06 회의, docs/api/screens.md). 자료 없는 원아는
+            초안 검토 화면에서 직접 쓰므로, 갈 곳 없는 링크 대신 그 사실만 알립니다. */}
+        {summary.childrenWithoutData > 0 ? (
+          <p>자료 없는 원아 {summary.childrenWithoutData}명은 초안 검토에서 직접 쓸 수 있어요.</p>
+        ) : null}
       </div>
 
       <div className="mt-4 flex items-center justify-between gap-6 border-t border-line pt-4">

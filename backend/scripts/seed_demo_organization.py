@@ -32,6 +32,7 @@ from core.database import SessionLocal
 from core.exceptions import CenterNotFound
 from domains.organization import service
 from domains.organization.models import Center, Child, ConsentRecord, Klass, ParentChildRelation
+from domains.organization.schemas import AgeBand
 
 DEFAULT_CHILD_NAMES = ("김하늘", "이바다", "박가람", "최새봄")
 # personal_info(①)·activity_media(②)·face_feature(③) — 시연에서는 셋 다 동의한 상태로 둡니다.
@@ -51,6 +52,14 @@ def ensure_center(db: Session, *, center_code: str, name: str) -> uuid.UUID:
         return center.id
 
 
+def age_band_for(age_group: str) -> str:
+    """표시용 age_group으로 연령 구분 코드를 고릅니다. 마이그레이션 `7b2d5e8c1a64`의 백필과
+    같은 규칙입니다: "만 0"·"만 1"·"만 2"로 시작하면 infant, 그 밖은 preschool."""
+    if age_group.startswith(("만 0", "만 1", "만 2")):
+        return AgeBand.INFANT.value
+    return AgeBand.PRESCHOOL.value
+
+
 def ensure_class_roster(
     db: Session,
     *,
@@ -66,7 +75,11 @@ def ensure_class_roster(
     )
     if class_id is None:
         klass = Klass(
-            center_id=center_id, teacher_id=teacher_id, name=class_name, age_group=age_group
+            center_id=center_id,
+            teacher_id=teacher_id,
+            name=class_name,
+            age_group=age_group,
+            age_band=age_band_for(age_group),
         )
         db.add(klass)
         db.flush()

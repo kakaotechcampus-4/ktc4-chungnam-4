@@ -73,7 +73,11 @@ export function faceStatus(
   return child.is_face_registered ? "registered" : "unregistered";
 }
 
-/** "동의 3 / 3 완료", 덜 됐으면 "동의 2 / 3 확인" */
-export function consentSummary(agreed: number, total: number) {
+/**
+ * "동의 3 / 3 완료", 덜 됐으면 "동의 2 / 3 확인". 서버가 동의 수를 주지 않으면 null입니다 —
+ * 둘 다 없을 때 같은 값으로 보고 '완료'를 내면, 동의를 받지 않은 원아도 완료로 보입니다.
+ */
+export function consentSummary(agreed: number | null, total: number | null) {
+  if (agreed === null || total === null) return null;
   return `동의 ${agreed} / ${total} ${agreed === total ? "완료" : "확인"}`;
 }

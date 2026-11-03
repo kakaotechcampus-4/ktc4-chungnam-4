@@ -1,4 +1,5 @@
 // Figma: 1:2296 (자료 올리기)
+import { UPLOAD_GUIDE } from "@/features/upload-queue/media-capabilities";
 import { Upload } from "lucide-react";
 import { useRef, useState, type DragEvent } from "react";
 import { useNavigate } from "react-router";
@@ -7,19 +8,19 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import {
   ACCEPTED_EXTENSIONS,
-  IMPORT_TICK_AMOUNT,
-  IMPORT_TICK_MS,
   isImportDone,
   useUploadQueue,
 } from "@/features/upload-queue/upload-queue-store";
-import { useInterval } from "@/lib/use-interval";
+import { useImportTicker } from "@/features/upload-queue/use-import-ticker";
 import { cn } from "@/lib/utils";
+import { isDateOnly, kstToday } from "@/lib/datetime";
 
 import { ImportList } from "./components/ImportList";
+import { RejectedList } from "./components/RejectedList";
 
 const GUIDES = [
   {
-    title: "사진·영상·음성을 함께 모아요",
+    title: "오늘의 활동 자료를 모아요",
     body: "자료를 불러온 뒤 처리 단계와 진행률을 확인할 수 있어요.",
   },
   {
@@ -33,20 +34,20 @@ const GUIDES = [
 ];
 
 // FR-15. 고른 자료를 이 기기로 불러옵니다. 서버로는 아직 보내지 않습니다 — 교사가 확인한 것만 처리 중 화면에서 보냅니다(H-3).
-// TODO(정은): 형식이 안 맞는 파일은 지금 조용히 빠집니다. 업로드 실패 화면(1:2520)과 연결할 때 안내합니다.
+// 형식이 안 맞는 파일은 담지 않고 드롭존 아래에 이름을 알려 줍니다.
 export function UploadPage() {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const items = useUploadQueue((state) => state.items);
+  const recordDate = useUploadQueue((state) => state.recordDate);
+  const setRecordDate = useUploadQueue((state) => state.setRecordDate);
+  const rejected = useUploadQueue((state) => state.rejected);
   const addFiles = useUploadQueue((state) => state.addFiles);
-  const advanceImport = useUploadQueue((state) => state.advanceImport);
+  const removeRejected = useUploadQueue((state) => state.removeRejected);
   const done = isImportDone(items);
 
-  useInterval(
-    () => advanceImport(IMPORT_TICK_AMOUNT),
-    items.length > 0 && !done ? IMPORT_TICK_MS : null,
-  );
+  useImportTicker();
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -56,12 +57,24 @@ export function UploadPage() {
 
   return (
     <>
-      <PageHeader
-        title="오늘의 자료 가져오기"
-        subtitle="사진·영상·녹음 파일을 이 기기로 불러와 주세요. 분류 결과를 확인한 뒤 선택한 자료를 전송해요."
-      />
+      <PageHeader title="오늘의 자료 가져오기" subtitle={UPLOAD_GUIDE} />
       <div className="flex items-start gap-5.5 pb-11">
         <div className="flex min-w-0 flex-1 flex-col gap-5.5">
+          <label className="flex items-center gap-3 text-label font-bold text-ink">
+            활동 날짜
+            <input
+              type="date"
+              value={recordDate}
+              max={kstToday()}
+              onChange={(event) => {
+                if (isDateOnly(event.target.value)) setRecordDate(event.target.value);
+              }}
+              className="rounded-md border border-line bg-paper px-3 py-2"
+            />
+            <span className="text-caption font-normal text-ink-muted">
+              선택한 날짜의 알림장에 사용할 자료를 골라 주세요.
+            </span>
+          </label>
           <div
             onDragOver={(event) => {
               event.preventDefault();
@@ -78,9 +91,7 @@ export function UploadPage() {
               <Upload aria-hidden="true" className="size-6.5" />
             </span>
             <p className="pt-4.5 text-h3 font-bold text-ink">여기에 끌어다 놓으세요</p>
-            <p className="pt-2 text-label whitespace-pre text-ink-muted">
-              {"사진 JPG·PNG·HEIC  ·  영상 MP4·MOV  ·  녹음 M4A·WAV"}
-            </p>
+            <p className="pt-2 text-label whitespace-pre text-ink-muted">{UPLOAD_GUIDE}</p>
             <Button variant="solid" className="mt-5.5" onClick={() => inputRef.current?.click()}>
               폴더에서 고르기
             </Button>
@@ -99,6 +110,9 @@ export function UploadPage() {
             />
           </div>
 
+          {rejected.length > 0 ? (
+            <RejectedList fileNames={rejected} onRemove={removeRejected} />
+          ) : null}
           {items.length > 0 ? <ImportList items={items} /> : null}
         </div>
 
@@ -121,7 +135,7 @@ export function UploadPage() {
           <Button
             variant="solid"
             className="w-full"
-            disabled={!done}
+            disabled={!done || recordDate > kstToday()}
             onClick={() => navigate("/t/today/processing")}
           >
             불러오기 완료 후 분류 시작

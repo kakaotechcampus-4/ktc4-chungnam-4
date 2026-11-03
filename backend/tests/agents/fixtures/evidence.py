@@ -20,7 +20,7 @@ EVIDENCE_CHILD_A = EvidenceItem(
     child_ids=["child_A"],
     observed_date=RECORD_DATE,
     text="제가 높은 탑을 만들었어요",
-    media_id="video_002",
+    media_id="00000000-0000-4000-b000-000000000002",
     start_ms=12000,
     end_ms=15000,
     assignment_status=AssignmentStatus.TEACHER_CONFIRMED,
@@ -32,7 +32,7 @@ EVIDENCE_CHILD_B = EvidenceItem(
     child_ids=["child_B"],
     observed_date=RECORD_DATE,
     text="아이가 종이에 그림을 그리고 있다.",
-    media_id="photo_010",
+    media_id="00000000-0000-4000-b000-000000000010",
     assignment_status=AssignmentStatus.TEACHER_CONFIRMED,
 )
 
@@ -43,7 +43,7 @@ EVIDENCE_COMMON_ACTIVITY = EvidenceItem(
     child_ids=["child_A", "child_B"],
     observed_date=RECORD_DATE,
     text="아이들이 함께 블록을 정리하고 있다.",
-    media_id="video_002",
+    media_id="00000000-0000-4000-b000-000000000002",
     start_ms=20000,
     end_ms=25000,
     assignment_status=AssignmentStatus.AUTO_LINKED,
@@ -56,7 +56,7 @@ EVIDENCE_UNCONFIRMED = EvidenceItem(
     child_ids=[],
     observed_date=RECORD_DATE,
     text="누구인지 확인되지 않은 아동이 미끄럼틀을 타고 있다.",
-    media_id="video_003",
+    media_id="00000000-0000-4000-b000-000000000003",
     start_ms=5000,
     end_ms=8000,
     assignment_status=AssignmentStatus.NEEDS_CONFIRMATION,
@@ -69,7 +69,7 @@ EVIDENCE_OTHER_DATE = EvidenceItem(
     child_ids=["child_A"],
     observed_date=OTHER_DATE,
     text="child_A가 어제 그림책을 봤다.",
-    media_id="photo_099",
+    media_id="00000000-0000-4000-b000-000000000099",
     assignment_status=AssignmentStatus.TEACHER_CONFIRMED,
 )
 

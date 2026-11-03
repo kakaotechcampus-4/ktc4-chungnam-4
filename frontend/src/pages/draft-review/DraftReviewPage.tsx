@@ -376,6 +376,10 @@ export function DraftReviewPage() {
   // 게시 전 초안이라 교사가 고른 사진을 그대로 보여 줍니다. 게시본을 되짚어 보는 화면은
   // adapter의 sentPhotos를 써서 실제로 나간 사진만 봅니다.
   const photos = selectedPhotos(draft);
+  // 제목의 장수와 실제로 그리는 장수가 어긋나지 않게, 그릴 사진을 먼저 걸러 그 길이로 셉니다.
+  // `failed_media_ids`에 있어도 `media`에 없는 id는 그릴 수 없습니다.
+  const failedPhotos =
+    draft?.media.filter((media) => draft.failed_media_ids.includes(media.media_id)) ?? [];
 
   // 승인은 검증을 마친 초안만(목·API 문서 규칙). 게시는 검토가 남은 원아가 없을 때만 엽니다.
   // 수정 중에는 잠급니다 — "수정 완료" 없이 승인하면 고치기 전 문장이 승인·게시되는데
@@ -544,6 +548,30 @@ export function DraftReviewPage() {
             </div>
           ) : (
             <>
+              {failedPhotos.length > 0 ? (
+                <section
+                  aria-label="분석하지 못한 사진"
+                  className="rounded-xl border border-line bg-paper p-5"
+                >
+                  <h2 className="text-body font-bold text-coral-ink">
+                    AI가 분석하지 못한 사진 {failedPhotos.length}장
+                  </h2>
+                  <p className="text-caption text-ink-muted">
+                    아래 사진은 문장 근거에서 빠졌어요. 사진을 확인하고 필요한 내용을 직접 추가해
+                    주세요.
+                  </p>
+                  <div className="mt-3 grid grid-cols-3 gap-3">
+                    {failedPhotos.map((media, index) => (
+                      <img
+                        key={media.media_id}
+                        src={media.url}
+                        alt={`분석하지 못한 사진 ${index + 1}`}
+                        className="aspect-square w-full rounded-lg object-cover"
+                      />
+                    ))}
+                  </div>
+                </section>
+              ) : null}
               {/* 사진이 없는 초안(직접 쓴 글)에서도 추가 자리는 남겨 둡니다. */}
               <div className="grid grid-cols-3 gap-4">
                 {photos.map((photo) => (

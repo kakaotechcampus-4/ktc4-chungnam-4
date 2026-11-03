@@ -4,9 +4,7 @@
 // ExtractedEmbedding을, 처리 중(정은)은 ClassificationResult를 받습니다. 모양을 먼저 못
 // 박아 두면 두 화면이 구현을 기다려야 합니다.
 //
-// 검출·벡터 추출·대조 구현은 같은 폴더의 detector·embedding·matcher가 맡고, 지금은
-// pages/face-register/mock-embedding.ts와 pages/processing/fake-classify.ts가 가짜로
-// 대신하고 있습니다. 구현이 들어오는 PR에서 그 두 파일을 지웁니다.
+// client가 Web Worker를 호출하고 detector·matcher가 실제 모델 계산을 맡습니다.
 //
 // H-3: 얼굴 검출·벡터 계산은 전부 브라우저 안에서 끝납니다. 등록 사진 원본은 서버·S3로
 // 나가지 않고, 서버로 보내는 것은 등록 때의 embedding과 model_version뿐입니다.
@@ -167,7 +165,7 @@ export type MatchFace = (
  * 사진 한 장을 분류한 결과입니다. 처리 중 화면이 그대로 씁니다.
  *
  * 모양을 새로 만들지 않고 upload-queue-store의 것을 그대로 내보냅니다 — 지금
- * fake-classify.ts가 돌려주는 것과 같아야 화면을 고치지 않고 진짜 구현으로 바꿀 수 있습니다.
+ * 처리 화면과 Worker 사이에 같은 분류 결과 계약을 사용합니다.
  */
 export type { ChildCandidate, ClassificationResult };
 

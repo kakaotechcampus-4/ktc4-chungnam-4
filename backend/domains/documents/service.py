@@ -120,6 +120,7 @@ from core.exceptions import (
 # import하면 import 순서에 따라 깨진다. import-linter를 도입하면 이 순환을 예외로 적는다.
 from domains.agents import service as agents_service
 from domains.audit import service as audit_service
+from domains.auth.service import get_teacher_names
 from domains.documents.models import (
     DocType,
     DocumentPublication,
@@ -129,6 +130,7 @@ from domains.documents.models import (
     EditMethod,
     RevisionAction,
     RevisionLog,
+    UnclassifiedItem,
 )
 from domains.documents.schemas import (
     ChildDraftItem,
@@ -153,6 +155,7 @@ from domains.documents.schemas import (
     PublishRequest,
     PublishResponse,
     RevokeResponse,
+    UnclassifiedSummary,
 )
 from domains.media import service as media_service
 from domains.organization import service as organization_service
@@ -228,9 +231,13 @@ def save_draft(db: Session, data: DraftSaveInput, *, expected_version: int | Non
     커밋하지 않고 flush만 한다. 근거(SentenceEvidence) 저장과 최종 커밋은 호출한 쪽
     트랜잭션에서 처리한다 — 담당 분담은 정은님 확인 전이다 (#35).
     """
-    if expected_version is None:
-        return _insert_draft(db, data)
-    return _update_generated_draft(db, data, expected_version=expected_version)
+    draft = (
+        _insert_draft(db, data)
+        if expected_version is None
+        else _update_generated_draft(db, data, expected_version=expected_version)
+    )
+    resolve_unclassified(db, draft.child_id, draft.record_date, doc_type=data.doc_type)
+    return draft
 
 
 def _insert_draft(db: Session, data: DraftSaveInput) -> DraftDocument:
@@ -360,7 +367,8 @@ def list_class_drafts(
 
     - 접근 검사와 재원 원아 명단은 organization이 맡는다. 같은 어린이집 교사면 모든 반을
       본다 (FR-25). 검수 권한이 있는 교사라 승인 전 초안의 미리보기도 싣는다 (H-1).
-    - 그날 초안이 있는 원아만 명단 순서대로 담는다. "자료 없음" 행은 FE가 명단과 비교해 만든다.
+    - 그날 초안 또는 열린 알림장 실패가 있는 원아를 명단 순서대로 담는다.
+      "자료 없음" 행은 FE가 명단과 비교해 만든다.
     - published=True면 활성 게시 회차가 있는 문서만 담는다. 이때 record_date가 없으면
       원아·문서 종류마다 가장 최근 게시본 1건만 담는다 (임시 결정(김진하)).
     """
@@ -401,11 +409,36 @@ def list_class_drafts(
             published_at=published_at,
             preview=previews.get(draft.id, ""),
         )
+    failures = (
+        {}
+        if published
+        else {
+            row.child_id: UnclassifiedSummary(reason=row.reason)
+            for row in db.scalars(
+                select(UnclassifiedItem).where(
+                    UnclassifiedItem.child_id.in_(child_ids),
+                    UnclassifiedItem.record_date == record_date,
+                    UnclassifiedItem.status == "open",
+                    ~select(DraftDocument.id)
+                    .where(
+                        DraftDocument.child_id == UnclassifiedItem.child_id,
+                        DraftDocument.record_date == UnclassifiedItem.record_date,
+                        DraftDocument.doc_type == DocType.PARENT_NOTE.value,
+                    )
+                    .exists(),
+                )
+            )
+        }
+    )
     return ClassDraftListResponse(
         items=[
-            ClassDraftItem(child_id=child_id, **documents_by_child[child_id])
+            ClassDraftItem(
+                child_id=child_id,
+                unclassified=failures.get(child_id),
+                **documents_by_child.get(child_id, {}),
+            )
             for child_id in child_ids
-            if child_id in documents_by_child
+            if child_id in documents_by_child or child_id in failures
         ]
     )
 
@@ -546,8 +579,7 @@ def create_draft(
     - 같은 원아·문서 종류·날짜의 초안이 이미 있으면 DRAFT_ALREADY_EXISTS다. 동시에 두 번 와도
       유일 제약(uq_draft_child_type_date)이 하나만 남긴다.
 
-    TODO(한상균): "만들면 그 원아·날짜의 미분류 항목을 해소한다"(API 문서)는 UnclassifiedItem에
-      원아·날짜가 생긴 뒤에 붙인다 (#196).
+    - 알림장을 직접 쓰면 같은 원아·날짜의 실패도 해소하고 처리 교사를 남긴다 (#196).
     """
     organization_service.ensure_child_access(db, child_id, center_id)
     draft = DraftDocument(
@@ -581,6 +613,9 @@ def create_draft(
             is_edited_by_teacher=False,
         )
         for position, sentence in enumerate(request.sentences)
+    )
+    resolve_unclassified(
+        db, child_id, request.record_date, doc_type=request.doc_type, resolved_by=teacher_id
     )
     return _commit_with_detail(db, draft.id)
 
@@ -890,8 +925,7 @@ def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
     - media에는 선택 사진, 그다음 보여 주는 근거의 미디어 서명 URL을 겹치지 않게 싣는다.
     - include_photos는 게시할 때 정해져 게시 전에는 null이다.
 
-    TODO(한상균): 작성 교사 이름은 auth 조회 함수(get_teacher_names)가 생기면 채운다. 그전까지
-      빈 문자열이다 — FE 타입이 문자열이라 null을 보내지 않는다.
+    - 작성 교사 이름은 auth.get_teacher_names로 조회한다. LLM 입력에는 넣지 않는다.
     """
     draft = db.get(DraftDocument, draft_id, populate_existing=True)
     sentences = db.scalars(
@@ -907,6 +941,7 @@ def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
         .limit(1)
     )
     selected_media_ids = [UUID(media_id) for media_id in draft.selected_media_ids]
+    failed_media_ids = agents_service.list_failed_photo_ids(db, draft.evidence_bundle_id)
     evidences_by_sentence = agents_service.list_sentence_evidences(db, draft_id)
     views = [
         DraftSentenceView(
@@ -938,9 +973,14 @@ def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
         title=None,
         sentences=views,
         selected_media_ids=selected_media_ids,
-        media=_signed_media(db, list(dict.fromkeys(selected_media_ids + evidence_media_ids))),
+        failed_media_ids=failed_media_ids,
+        media=_signed_media(
+            db, list(dict.fromkeys(selected_media_ids + evidence_media_ids + failed_media_ids))
+        ),
         author_teacher_id=draft.author_teacher_id,
-        author_name="",
+        author_name=get_teacher_names(db, [draft.author_teacher_id]).get(
+            draft.author_teacher_id, ""
+        ),
         approved_at=draft.approved_at,
         published_at=publication.published_at if publication else None,
         include_photos=publication.include_photos if publication else None,
@@ -1183,8 +1223,9 @@ def get_letter_for_parent(
         record_date=draft.record_date,
         content=content,
         photos=photos,
-        # TODO(한상균): 작성 교사 이름은 auth 조회 함수가 생기면 채운다(FR-26). FE 타입이 문자열이다.
-        author_name="",
+        author_name=get_teacher_names(db, [draft.author_teacher_id]).get(
+            draft.author_teacher_id, ""
+        ),
         published_at=publication.published_at,
         prev=ParentNoteLink(parent_note_id=older.id, record_date=older.record_date)
         if older
@@ -1287,3 +1328,83 @@ def _decode_cursor(cursor: str | None) -> date | None:
         return date.fromisoformat(base64.urlsafe_b64decode(cursor.encode()).decode())
     except ValueError:
         raise InvalidCursor("목록 위치를 읽을 수 없습니다.") from None
+
+
+def record_unclassified(
+    db: Session, *, child_id: UUID, record_date: date, reason: str, job_id: UUID
+) -> None:
+    """원아·날짜의 열린 실패를 갱신한다. 커밋은 작업 호출자가 한다(#196)."""
+    if reason not in {
+        "insufficient_evidence",
+        "verification_failed",
+        "photo_analysis_failed",
+        "no_consent",
+    }:
+        raise ValueError("Unknown generation failure reason")
+
+    # FR-06 / #196: 이미 검토할 알림장이 있으면 재생성 실패로 확인 필요를 만들지 않는다.
+    # 과거에 함께 남은 실패도 이 트랜잭션에서 해소하고 기존 문서는 보존한다.
+    existing = db.scalar(
+        select(DraftDocument.id).where(
+            DraftDocument.child_id == child_id,
+            DraftDocument.record_date == record_date,
+            DraftDocument.doc_type == DocType.PARENT_NOTE.value,
+        )
+    )
+    if existing is not None:
+        resolve_unclassified(db, child_id, record_date, doc_type=DocType.PARENT_NOTE)
+        return
+
+    def current() -> UnclassifiedItem | None:
+        return db.scalar(
+            select(UnclassifiedItem).where(
+                UnclassifiedItem.child_id == child_id,
+                UnclassifiedItem.record_date == record_date,
+                UnclassifiedItem.status == "open",
+            )
+        )
+
+    row = current()
+    if row is None:
+        try:
+            with db.begin_nested():
+                row = UnclassifiedItem(
+                    child_id=child_id,
+                    record_date=record_date,
+                    reason=reason,
+                    ref_type="job",
+                    ref_id=job_id,
+                    status="open",
+                )
+                db.add(row)
+                db.flush()
+        except IntegrityError:
+            row = current()
+            if row is None:
+                raise
+    row.reason = reason
+    row.ref_type = "job"
+    row.ref_id = job_id
+    db.flush()
+
+
+def resolve_unclassified(
+    db: Session,
+    child_id: UUID,
+    record_date: date,
+    *,
+    doc_type: DocType,
+    resolved_by: UUID | None = None,
+) -> None:
+    """알림장 저장과 실패 해소를 같은 트랜잭션으로 묶는다(FR-06, #196)."""
+    if doc_type != DocType.PARENT_NOTE:
+        return
+    db.execute(
+        update(UnclassifiedItem)
+        .where(
+            UnclassifiedItem.child_id == child_id,
+            UnclassifiedItem.record_date == record_date,
+            UnclassifiedItem.status == "open",
+        )
+        .values(status="resolved", resolved_at=datetime.now(UTC), resolved_by=resolved_by)
+    )

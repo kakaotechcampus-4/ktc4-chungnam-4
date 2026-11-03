@@ -11,7 +11,7 @@ import { ApiError } from "@/lib/api-client";
 import { kstToday } from "@/lib/datetime";
 
 import { PlanForm } from "./components/PlanForm";
-import { emptyPlanForm, formToRequest, planToForm, type PlanFormValues } from "./plan-form-schema";
+import { emptyPlanForm, formToInput, planToForm, type PlanFormValues } from "./plan-form-schema";
 
 export function EducationPlanFormPage() {
   const { planId } = useParams();
@@ -26,7 +26,7 @@ export function EducationPlanFormPage() {
 
   const save = useMutation({
     mutationFn: (values: PlanFormValues) => {
-      const body = formToRequest(values);
+      const body = formToInput(values);
       return planId ? updatePlan(planId, body) : createPlan(currentClass?.class_id ?? "", body);
     },
     onSuccess: async (saved) => {

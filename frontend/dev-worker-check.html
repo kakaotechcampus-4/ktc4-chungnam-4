@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ko">
+  <meta charset="UTF-8" /><title>사진 파이프라인 얼굴 검증</title>
+  <h1>실제 Web Worker 얼굴 검증</h1>
+  <p>개발 전용. #226 합성 사진만 사용하며 서버로 전송하지 않습니다.</p>
+  <button id="run">등록·매칭 검증 실행</button>
+  <pre id="result" role="status">대기</pre>
+  <script type="module">
+    import {
+      prepareFaceModels,
+      extractEmbedding,
+      classifyPhoto,
+    } from "/src/workers/face/client.ts";
+    const paths = import.meta.glob("/test/fixtures/faces/**/*.jpg", {
+      eager: true,
+      import: "default",
+      query: "?url",
+    });
+    const out = document.querySelector("#result"),
+      button = document.querySelector("#run");
+    const file = async (p) =>
+      new File([await (await fetch(paths[p])).blob()], p, { type: "image/png" });
+    button.onclick = async () => {
+      button.disabled = true;
+      out.textContent = "모델 준비 중";
+      const lines = [];
+      try {
+        await prepareFaceModels();
+        const registered = [];
+        for (const name of ["김도윤", "박서아", "이하준", "최지우"]) {
+          const selected = Object.keys(paths).filter(
+            (p) => p.includes(`/${name}/`) && /_(01|02|03)_/.test(p),
+          );
+          const r = await extractEmbedding(await Promise.all(selected.map(file)));
+          lines.push(`${name} 등록: ${r.extract_state}`);
+          if (r.extract_state === "extracted") registered.push({ child_id: name, ...r.embedding });
+          out.textContent = lines.join("\n");
+        }
+        for (const p of Object.keys(paths)
+          .sort()
+          .filter((p) => p.includes("_06_") || p.includes("/group/") || p.includes("/no-face/"))) {
+          const r = await classifyPhoto(await file(p), registered);
+          lines.push(
+            `${p.split("/").at(-1)}: ${r.classify_state}, 미식별=${r.has_unidentified_face}, 후보=${r.candidates.map((c) => `${c.child_id}(${c.confidence.toFixed(3)})`).join(",")}`,
+          );
+          out.textContent = lines.join("\n");
+        }
+        lines.push("검증 완료");
+      } catch (e) {
+        lines.push(`실패: ${e.message}`);
+      } finally {
+        out.textContent = lines.join("\n");
+        button.disabled = false;
+      }
+    };
+  </script>
+</html>

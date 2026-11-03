@@ -43,7 +43,10 @@ class Klass(Base):
         UUID(as_uuid=True), nullable=False
     )  # auth.Teacher 참조. 담당교사 개념 폐지(팀 회의 결정)로 접근 권한 판단에는 쓰지 않음 — 반 생성 기록용
     name = Column(String, nullable=False)
-    age_group = Column(String, nullable=False)
+    age_group = Column(String, nullable=False)  # 표시용("만 4세"). 분기는 age_band로 합니다
+    # infant(만 0~2세, 표준보육과정) / preschool(만 3~5세, 누리과정). agents가 교육과정을 고를 때 씁니다.
+    # 반 만들기는 항상 값을 넣고, 기본값은 이 컬럼 전에 만든 반과 시드를 위한 것입니다.
+    age_band = Column(String, nullable=False, server_default="preschool")
     # TODO(이한나): 이 컬럼을 유지할지(생성자 기록용) 삭제할지 미정
 
 
@@ -125,5 +128,14 @@ class EducationPlan(Base):
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
     title = Column(String, nullable=False)
-    content = Column(Text, nullable=False)
+    content = Column(Text, nullable=False)  # 놀이 목표. API에서는 `goal`로 주고받습니다
+    # 요일별 놀이 {"mon": "...", ...}. 월간 계획은 빈 객체입니다 (docs/api/organization.md)
+    daily_activities = Column(JSON, nullable=False, default=dict)
+    domains = Column(JSON, nullable=False, default=list)  # 누리과정 5영역 코드 목록
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )

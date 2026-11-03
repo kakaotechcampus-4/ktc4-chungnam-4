@@ -1,3 +1,18 @@
+// 클립을 지원하는 화면 흐름의 회귀 검증. 사진 전용 배포 차단은 photo-only.test.ts에서 별도 검증합니다.
+vi.mock("@/features/upload-queue/media-capabilities", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/features/upload-queue/media-capabilities")>()),
+  CLIPS_ENABLED: true,
+}));
+
+vi.mock("@/workers/face/client", () => ({
+  extractEmbedding: vi.fn(async () => ({
+    extract_state: "extracted",
+    embedding: { embedding: Array(1024).fill(0.1), model_version: "human-face-test" },
+  })),
+  prepareFaceModels: vi.fn(async () => true),
+  classifyPhoto: vi.fn(),
+}));
+
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { File as NodeFile } from "node:buffer";
@@ -126,6 +141,18 @@ describe("분류 결과", () => {
       "href",
       `/t/today/children/${DOYUN}/summary`,
     );
+  });
+
+  // 직접 작성 화면은 두지 않기로 했습니다(10/06 회의). 없는 화면으로 가는 링크를 두면 404가 뜹니다.
+  it("자료 없는 원아는 없는 화면으로 가는 링크 대신 초안 검토에서 쓸 수 있다고 알린다", async () => {
+    seedQueue();
+    renderAt("/t/today/classification");
+
+    await findResultList();
+    expect(screen.queryByRole("link", { name: /직접 기록/ })).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/자료 없는 원아 \d+명은 초안 검토에서 직접 쓸 수 있어요/),
+    ).toBeVisible();
   });
 
   it("확인 체크를 해야 넘어가고, 넘어가면 확실한 사진만 확정해 전송 단계로 간다", async () => {
@@ -555,6 +582,16 @@ describe("얼굴 정보", () => {
     expect(screen.queryByRole("img", { name: "고른 사진 1" })).not.toBeInTheDocument();
     // H-3: 사진이 아니라 벡터와 모델 버전만 보냅니다.
     expect(Object.keys(requests[0] as object).sort()).toEqual(["embedding", "model_version"]);
+    expect((requests[0] as { embedding: number[] }).embedding).toHaveLength(1024);
+  });
+
+  // 동의·등록 상태 조회 API가 아직 없습니다. 고정 예시 값을 두면 등록하지 않은 원아도 "등록됨"으로 보입니다.
+  it("서버 값이 없는 동안에는 예시 등록 상태를 보이지 않는다", async () => {
+    renderAt(`/t/children/${DOYUN}/face`);
+
+    await screen.findByRole("button", { name: "얼굴 정보 등록 · 갱신" });
+    expect(screen.queryByText(/등록됨 ·/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/동의 3 \/ 3/)).not.toBeInTheDocument();
   });
 
   it("등록 전에는 칸마다 사진을 뺄 수 있다", async () => {

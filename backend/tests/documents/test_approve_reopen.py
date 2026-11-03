@@ -16,6 +16,8 @@ from core.database import get_db
 from core.exceptions import StorageNotConfigured
 from domains.agents.models import SentenceEvidence
 from domains.auth.middleware import get_current_user
+from domains.auth.models import Account as LookupAccount
+from domains.auth.models import Teacher as LookupTeacher
 from domains.auth.service import ParentProfile, TeacherProfile
 from domains.documents import service as documents_service
 from domains.documents.models import (
@@ -27,6 +29,7 @@ from domains.documents.models import (
     RevisionAction,
     RevisionLog,
 )
+from domains.documents.models import UnclassifiedItem as FailureItem
 from domains.documents.service import get_draft_version
 from domains.organization.models import Center, Child, Klass
 from main import app
@@ -41,6 +44,9 @@ def db() -> Iterator[Session]:
     )
     tables = [Center, Klass, Child, DraftDocument, DraftSentence, DocumentPublication, RevisionLog]
     tables.append(SentenceEvidence)  # 상세 응답이 문장별 근거를 읽는다(agents)
+    Base.metadata.create_all(
+        engine, tables=[LookupAccount.__table__, LookupTeacher.__table__, FailureItem.__table__]
+    )
     Base.metadata.create_all(engine, tables=[table.__table__ for table in tables])
     session = sessionmaker(bind=engine)()
     yield session
