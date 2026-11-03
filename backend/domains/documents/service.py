@@ -107,6 +107,7 @@ from core.exceptions import (
     DraftVersionConflict,
     InvalidCursor,
     InvalidSentenceId,
+    MediaAssetNotFound,
     MediaNotLinkedToChild,
     NoLinkedParent,
     NotParentNote,
@@ -142,6 +143,10 @@ from domains.documents.schemas import (
     DraftVersionInfo,
     EvidenceView,
     MediaUrl,
+    ParentMediaDay,
+    ParentMediaDownloadResponse,
+    ParentMediaItem,
+    ParentMediaListResponse,
     ParentNoteDetailResponse,
     ParentNoteLink,
     ParentNoteListResponse,
@@ -166,6 +171,10 @@ _REVOKE_WINDOW = timedelta(hours=24)
 
 # 학부모 목록에 싣는 알림장당 사진 수 (docs/api/documents.md "앞 3장").
 _LIST_PHOTOS_PER_NOTE = 3
+# 학부모에게 보내는 미디어 종류 (FR-10). 음성메모는 보내지 않는다.
+_PARENT_MEDIA_TYPES = frozenset({"photo", "video"})
+# 학부모 사진·영상 모아 보기의 한 쪽 알림장 수 (임시 결정(김동건)).
+MEDIA_NOTES_PER_PAGE_MAX = 30
 _KST = ZoneInfo("Asia/Seoul")
 
 # 반·날짜 목록의 미리보기 길이 (docs/api/documents.md §GET /classes/{class_id}/drafts, 제안).
@@ -656,23 +665,25 @@ def update_draft(
 
 
 def _ensure_selectable_photos(db: Session, draft: DraftDocument, media_ids: Sequence[UUID]) -> None:
-    """알림장 사진은 그 원아·그 날짜에 학부모에게 보여도 되는 사진 중에서만 고른다."""
-    if not set(media_ids) <= _shareable_photo_ids(db, draft.child_id, draft.record_date):
-        raise MediaNotLinkedToChild("이 원아의 그날 사진만 고를 수 있습니다.")
+    """알림장 사진·영상은 그 원아·그 날짜에 학부모에게 보여도 되는 것 중에서만 고른다."""
+    if not set(media_ids) <= _shareable_media_ids(db, draft.child_id, draft.record_date):
+        raise MediaNotLinkedToChild("이 원아의 그날 사진·영상만 고를 수 있습니다.")
 
 
-def _shareable_photo_ids(db: Session, child_id: UUID, record_date: date) -> set[UUID]:
-    """그 원아·그 날짜에 학부모에게 보여도 되는 사진. 고를 때와 보여 줄 때 같은 범위를 쓴다.
+def _shareable_media_ids(db: Session, child_id: UUID, record_date: date) -> set[UUID]:
+    """그 원아·그 날짜에 학부모에게 보여도 되는 사진·영상. 고를 때와 보여 줄 때 같은 범위를 쓴다.
 
-    media의 collect_media_for_llm 범위(llm_allowed, 귀속 원아 전원 ③ 동의)를 그대로 쓴다 —
-    다른 아이가 함께 찍힌 사진이 학부모에게 나가는 것을 줄이는 보수적인 범위다(임시 결정
-    (한상균), docs/api/documents.md "llm_allowed인 사진만 학부모에게" 제안). 그 함수는
-    영상·음성메모도 돌려주므로 사진만 남긴다.
+    교사가 그 원아에게 귀속시킨 사진·영상이면 다른 아이가 함께 찍혀도 된다(FR-10). 함께 찍힌
+    아이의 촬영·공유는 필수 동의(②) 범위로 보고, ③(얼굴특징정보) 동의와 llm_allowed는 LLM
+    경로에서만 본다(H-2). 무엇을 보낼지는 교사가 고르고 승인한다(H-1). 음성메모는 보내지 않는다.
+    TODO(donggeon): 11/03 김동건 결정, 팀 확인 전. 이전 범위는 llm_allowed·귀속 원아 전원 ③
+      동의였다(임시 결정(한상균)). docs/api/documents.md와 테크스펙 D-4 반영 대기.
     """
     return {
         media.media_id
-        for media in media_service.collect_media_for_llm(db, child_id, record_date)
-        if media.type == "photo"
+        for media in media_service.list_child_media(
+            db, child_id, record_date, types=_PARENT_MEDIA_TYPES
+        )
     }
 
 
@@ -1177,6 +1188,80 @@ def get_letter_for_parent(
     )
 
 
+def list_media_for_parent(
+    db: Session, *, child_id: UUID, parent_id: UUID, limit: int, cursor: str | None
+) -> ParentMediaListResponse:
+    """학부모가 자녀의 사진·영상을 알림장 날짜별로 모아 본다 (FR-10, H-1).
+
+    - 알림장 게이트(_parent_notes)를 통과한 게시본 중 사진을 함께 보내기로 한 것에서, 교사가
+      고른 사진·영상만 싣는다(_parent_note_media_ids). 교사가 승인하지 않은 것은 나가지 않는다.
+    - 보낼 것이 없는 알림장은 건너뛰고, 기록 날짜 최신순으로 limit개 알림장씩 나눈다.
+    - 화면에 실린 알림장마다 AccessLog(view_media)를 커밋한 뒤 돌려준다 — 임시 결정(김동건).
+      목록과 같이 first_viewed_at은 건드리지 않는다(회수 판단은 본문 열람 기준).
+    """
+    notes = _parent_notes(db, parent_id=parent_id, child_id=child_id)
+    note_media = _parent_note_media_ids(db, notes)
+    with_media = [(draft, publication) for draft, publication in notes if note_media[draft.id]]
+    after = _decode_cursor(cursor)
+    remaining = [note for note in with_media if after is None or note[0].record_date < after]
+    page = remaining[:limit]
+
+    meta = media_service.get_media_meta(
+        db, list(dict.fromkeys(m for ids in note_media.values() for m in ids))
+    )
+    page_ids = list(dict.fromkeys(m for draft, _ in page for m in note_media[draft.id]))
+    signed = {item.media_id: item for item in media_service.get_signed_urls(db, page_ids)}
+    response = ParentMediaListResponse(
+        days=[
+            ParentMediaDay(
+                parent_note_id=draft.id,
+                record_date=draft.record_date,
+                items=[
+                    ParentMediaItem(
+                        media_id=media_id,
+                        type=meta[media_id].type,
+                        captured_at=meta[media_id].captured_at,
+                        url=signed[media_id].url,
+                        url_expires_at=signed[media_id].url_expires_at,
+                    )
+                    for media_id in note_media[draft.id]
+                    if media_id in signed
+                ],
+            )
+            for draft, _ in page
+        ],
+        next_cursor=_encode_cursor(page[-1][0].record_date) if len(remaining) > limit else None,
+        photo_count=sum(item.type == "photo" for item in meta.values()),
+        video_count=sum(item.type == "video" for item in meta.values()),
+    )
+    _record_parent_views(db, parent_id, [publication.id for _, publication in page], "view_media")
+    return response
+
+
+def get_media_download_for_parent(
+    db: Session, *, child_id: UUID, media_id: UUID, parent_id: UUID
+) -> ParentMediaDownloadResponse:
+    """학부모가 자녀의 사진·영상 원본을 내려받는 URL을 받는다 (FR-10, H-1, NFR-05).
+
+    - 모아 보기와 같은 게이트를 지난 것만 준다. 미게시·미선택·남의 자녀 것을 구분하지 않고
+      404(MEDIA_ASSET_NOT_FOUND)다. 학부모–원아 관계가 없거나 열람 기간이 지났으면 403이다.
+    - AccessLog(download, 대상 media_asset)를 커밋한 뒤에만 URL을 돌려준다 — 임시 결정(김동건).
+    """
+    notes = _parent_notes(db, parent_id=parent_id, child_id=child_id)
+    note_media = _parent_note_media_ids(db, notes)
+    if not any(media_id in ids for ids in note_media.values()):
+        raise MediaAssetNotFound("사진·영상을 찾을 수 없어요.")
+    download = media_service.get_download_url(db, media_id)
+    _record_parent_views(db, parent_id, [media_id], "download", target_type="media_asset")
+    return ParentMediaDownloadResponse(
+        media_id=download.media_id,
+        type=download.type,
+        url=download.url,
+        url_expires_at=download.url_expires_at,
+        filename=download.filename,
+    )
+
+
 def _parent_notes(
     db: Session, *, parent_id: UUID, child_id: UUID
 ) -> list[tuple[DraftDocument, DocumentPublication]]:
@@ -1209,19 +1294,11 @@ def _parent_photos(
     *,
     max_per_note: int | None,
 ) -> dict[UUID, list[MediaUrl]]:
-    """게시 때 사진을 함께 보내기로 한 알림장만 선택 사진의 서명 URL을 싣는다. 한 번에 서명한다.
-
-    볼 때마다 고를 때와 같은 범위로 다시 거른다. media는 동의 철회를 저장된 값을 고치지 않고
-    조회할 때 빼므로, 게시 뒤 함께 찍힌 아이가 ③을 철회하면 그 사진은 더 나가지 않는다(#174 리뷰).
-    """
-    chosen: dict[UUID, list[UUID]] = {}
-    for draft, publication in notes:
-        if not publication.include_photos:
-            chosen[draft.id] = []
-            continue
-        shareable = _shareable_photo_ids(db, draft.child_id, draft.record_date)
-        selected = [UUID(media_id) for media_id in draft.selected_media_ids]
-        chosen[draft.id] = [m for m in selected if m in shareable][:max_per_note]
+    """게시 때 사진을 함께 보내기로 한 알림장만 선택 사진의 서명 URL을 싣는다. 한 번에 서명한다."""
+    chosen = {
+        draft_id: media_ids[:max_per_note]
+        for draft_id, media_ids in _parent_note_media_ids(db, notes).items()
+    }
     signed = {
         photo.media_id: photo
         for photo in _signed_media(
@@ -1234,21 +1311,46 @@ def _parent_photos(
     }
 
 
+def _parent_note_media_ids(
+    db: Session, notes: Sequence[tuple[DraftDocument, DocumentPublication]]
+) -> dict[UUID, list[UUID]]:
+    """게이트(_parent_notes)를 통과한 알림장마다 학부모에게 보낼 미디어 id. 교사가 고른 순서다.
+
+    사진을 함께 보내기로 게시한 알림장만 싣는다. 볼 때마다 고를 때와 같은 범위(_shareable_media_ids)로
+    다시 거른다 — 게시 뒤 귀속이 바뀌거나 파기된 미디어는 더 나가지 않는다(#174 리뷰).
+    """
+    chosen: dict[UUID, list[UUID]] = {}
+    for draft, publication in notes:
+        if not publication.include_photos:
+            chosen[draft.id] = []
+            continue
+        shareable = _shareable_media_ids(db, draft.child_id, draft.record_date)
+        selected = [UUID(media_id) for media_id in draft.selected_media_ids]
+        chosen[draft.id] = [m for m in dict.fromkeys(selected) if m in shareable]
+    return chosen
+
+
 def _record_parent_views(
-    db: Session, parent_id: UUID, publication_ids: Sequence[UUID], action: str
+    db: Session,
+    parent_id: UUID,
+    target_ids: Sequence[UUID],
+    action: str,
+    *,
+    target_type: str = "document_publication",
 ) -> None:
     """학부모 열람을 남기고 커밋한다. 실패하면 응답하지 않도록 드러낸다 (NFR-05, audit/CLAUDE.md).
 
-    로그에는 ID만 남긴다 (H-4). target은 게시 회차다 — 임시 결정(한상균).
+    로그에는 ID만 남긴다 (H-4). target은 게시 회차다 — 임시 결정(한상균). 원본 내려받기만
+    미디어(media_asset)를 target으로 남긴다 — 임시 결정(김동건).
     """
     try:
-        for publication_id in publication_ids:
+        for target_id in target_ids:
             audit_service.record_access(
                 db,
                 actor_type="parent",
                 actor_id=parent_id,
-                target_type="document_publication",
-                target_id=publication_id,
+                target_type=target_type,
+                target_id=target_id,
                 action=action,
             )
         db.commit()
