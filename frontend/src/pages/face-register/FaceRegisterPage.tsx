@@ -1,9 +1,11 @@
 // Figma: 1:3451 (추출본 Untitled 1:1872)
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useRef, useState } from "react";
 import { Link, useLocation } from "react-router";
 
 import { registerFaceEmbedding } from "@/api/face";
+import { mediaKeys } from "@/api/media";
+import { organizationKeys } from "@/api/organization";
 import { FocusCard } from "@/components/common/FocusCard";
 import { PageHeader } from "@/components/common/PageHeader";
 import { PhotoPlaceholder } from "@/components/common/PhotoPlaceholder";
@@ -37,6 +39,7 @@ export function FaceRegisterPage() {
   const fileInput = useRef<HTMLInputElement>(null);
   // 파일 선택 창을 연 칸. null이면 빈 칸부터 차례로 채웁니다.
   const targetSlot = useRef<number | null>(null);
+  const queryClient = useQueryClient();
   const [slots, setSlots] = useState<Slots>(EMPTY_SLOTS);
   // 칸에서 빼거나 바꾼 사진, 등록한 사진, 화면을 떠날 때의 사진은 미리보기 주소를 지웁니다(#83 리뷰 7).
   useReleaseObjectUrls(slots);
@@ -44,12 +47,20 @@ export function FaceRegisterPage() {
   const photos = slots.filter((file): file is File => file !== null);
 
   const registration = useMutation({
-    mutationFn: async ({ childId, files }: { childId: string; files: File[] }) => {
+    mutationFn: async ({ childId, files }: { childId: string; classId: string; files: File[] }) => {
       const extracted = await extractMockEmbedding(files);
       return registerFaceEmbedding(childId, extracted);
     },
-    // 벡터를 보냈으면 사진은 더 들고 있지 않습니다.
-    onSuccess: () => setSlots(EMPTY_SLOTS),
+    onSuccess: async (_result, variables) => {
+      // 벡터를 보냈으면 사진은 더 들고 있지 않습니다.
+      setSlots(EMPTY_SLOTS);
+      // 삭제와 같은 이유로 캐시를 비웁니다(FaceDeletePage 주석). 비우지 않으면 방금 등록한
+      // 아이가 분류에서 빠지고, 원아 등록 화면도 "미등록"으로 남습니다.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: mediaKeys.faceEmbeddings(variables.classId) }),
+        queryClient.invalidateQueries({ queryKey: organizationKeys.children(variables.classId) }),
+      ]);
+    },
   });
 
   function pick(slot: number | null) {
@@ -94,7 +105,13 @@ export function FaceRegisterPage() {
             <Button
               className="w-70 border-transparent"
               disabled={photos.length === 0 || registration.isPending}
-              onClick={() => registration.mutate({ childId: child.child_id, files: photos })}
+              onClick={() =>
+                registration.mutate({
+                  childId: child.child_id,
+                  classId: child.class_id,
+                  files: photos,
+                })
+              }
             >
               {registration.isPending ? "등록하는 중…" : "얼굴 정보 등록 · 갱신"}
             </Button>
