@@ -198,6 +198,39 @@ describe("DraftReviewPage", () => {
     expect(screen.getByRole("textbox", { name: "직접 작성" })).toHaveValue("박서아의 글이에요.");
   });
 
+  it("승인을 기다리는 사이 다른 원아로 옮겨 누른 확인 체크는 풀지 않는다", async () => {
+    const user = userEvent.setup();
+    // 최지우 초안도 검토 대기로 둔다(시드에서는 승인 완료).
+    updateDb((db) => {
+      const draft = db.drafts[fixtureId("draft", 42)];
+      if (!draft) throw new Error("최지우 초안이 시드에 없습니다.");
+      draft.status = "verified";
+      draft.approved_at = null;
+    });
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.post(apiPath("/drafts/:draftId/approve"), async () => {
+        await gate;
+      }),
+    );
+    const { queryClient } = renderPage();
+    await screen.findByRole("heading", { name: /작은 블록/ });
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+
+    await user.click(screen.getByRole("button", { name: /최지우/ }));
+    await screen.findByRole("heading", { name: /그림책 속 토끼/ });
+    await waitFor(() => expect(screen.getByRole("checkbox")).toBeEnabled());
+    await user.click(screen.getByRole("checkbox"));
+    release();
+    await waitFor(() => expect(queryClient.isMutating()).toBe(0));
+
+    expect(screen.getByRole("checkbox")).toBeChecked();
+  });
+
   // 승인은 잠금이지만 게시 전까지는 되돌릴 수 있어야 한다.
   it("승인한 초안은 다시 검토하기로 되돌려 수정할 수 있다", async () => {
     const user = userEvent.setup();

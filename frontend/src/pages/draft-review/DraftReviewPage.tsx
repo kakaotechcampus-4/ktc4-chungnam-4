@@ -263,8 +263,10 @@ export function DraftReviewPage() {
     mutationFn: (input: { draftId: string; version: number }) =>
       // "사진과 본문을 확인했어요" 체크가 reviewed로 들어갑니다(H-1 승인 게이트).
       approveDraft(input.draftId, { expected_version: input.version, reviewed: true }),
-    onSuccess: async (updated) => {
-      setConfirmed(false);
+    onSuccess: async (updated, variables) => {
+      // 승인을 기다리는 사이 다른 원아로 옮겼으면 지금 체크는 그 아이의 것입니다. 콜백은 마지막 렌더의
+      // 값을 보므로, 요청한 초안을 보고 있을 때만 풉니다.
+      if (variables.draftId === draftId) setConfirmed(false);
       queryClient.setQueryData(documentsKeys.draft(updated.draft_id), updated);
       await queryClient.invalidateQueries({
         queryKey: documentsKeys.classDraftLists(classId),
