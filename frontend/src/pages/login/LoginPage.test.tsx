@@ -12,12 +12,12 @@ import { renderRoutes } from "@/test/render";
 
 import { LoginPage } from "./LoginPage";
 
-// 로그인 뒤 가는 곳을 확인하려고 교사·학부모 홈 자리를 함께 둡니다.
+// 로그인 뒤 가는 곳을 확인하려고 교사 첫 화면(반 목록)·학부모 홈 자리를 함께 둡니다.
 function renderLogin() {
   const { router, queryClient } = renderRoutes(
     [
       { path: "/login", element: <LoginPage /> },
-      { path: "/t", element: <p>교사 홈</p> },
+      { path: "/onboarding/class", element: <p>반 목록</p> },
       { path: "/p", element: <p>학부모 홈</p> },
       { path: "/forgot-password", element: <p>비밀번호 찾기 화면</p> },
     ],
@@ -50,7 +50,7 @@ describe("LoginPage", () => {
   });
 
   it.each([
-    [TEACHER_ME.email, "/t", "교사 홈"],
+    [TEACHER_ME.email, "/onboarding/class", "반 목록"],
     [PARENT_ME.email, "/p", "학부모 홈"],
   ])("%s로 로그인하면 %s로 간다", async (email, path, home) => {
     const { router, user } = renderLogin();
@@ -86,12 +86,12 @@ describe("LoginPage", () => {
     expect(screen.getByRole("button", { name: "로그인" })).toBeDisabled();
 
     release();
-    expect(await screen.findByText("교사 홈")).toBeInTheDocument();
+    expect(await screen.findByText("반 목록")).toBeInTheDocument();
     expect(queryClient.getQueryData(authKeys.me())).toEqual(TEACHER_ME);
     expect(queryClient.getQueryData(organizationKeys.classes())).toEqual([SUNSHINE_CLASS]);
   });
 
-  it("반 목록을 받지 못해도 교사 홈으로 넘어간다", async () => {
+  it("반 목록을 받지 못해도 교사 첫 화면으로 넘어간다", async () => {
     server.use(
       http.get(apiPath("/classes"), () =>
         errorResponse(500, "INTERNAL_ERROR", "서버에 문제가 생겼어요."),
@@ -103,7 +103,7 @@ describe("LoginPage", () => {
     await user.type(screen.getByLabelText("비밀번호"), "anything");
     await user.click(screen.getByRole("button", { name: "로그인" }));
 
-    expect(await screen.findByText("교사 홈")).toBeInTheDocument();
+    expect(await screen.findByText("반 목록")).toBeInTheDocument();
   });
 
   it("학부모로 로그인하면 반 목록은 받지 않는다", async () => {

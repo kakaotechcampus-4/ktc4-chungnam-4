@@ -7,8 +7,10 @@ export interface AreaRoutes {
   standalone?: RouteObject[];
   /** 공개 레이아웃. 예: "login", "forgot-password" */
   public?: RouteObject[];
-  /** 공개 레이아웃. 온보딩 가드가 붙을 자리입니다. 예: "signup", "onboarding/class" */
+  /** 공개 레이아웃, 로그인 전에도 엽니다. 온보딩 가드가 붙을 자리입니다. 예: "signup", "signup/teacher-info" */
   onboarding?: RouteObject[];
+  /** 공개 레이아웃, 교사 로그인 후. 교사 틀 밖에서 보는 교사 화면입니다. 예: "onboarding/class" */
+  onboardingTeacher?: RouteObject[];
   /** 교사 레이아웃, /t 아래. 예: "today", "children/:childId" */
   teacher?: RouteObject[];
   /** /p 아래, 로그인 전. 예: "invite/:inviteToken" */

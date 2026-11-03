@@ -2,7 +2,7 @@ import { homePath } from "./home-path";
 
 describe("homePath", () => {
   it.each([
-    ["teacher", "/t"],
+    ["teacher", "/onboarding/class"],
     ["parent", "/p"],
     ["unknown", "/"],
   ] as const)("%s는 %s로 간다", (role, path) => {
