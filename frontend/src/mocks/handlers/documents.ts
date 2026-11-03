@@ -11,6 +11,9 @@ import type {
   DraftPatchRequest,
   DraftReopenRequest,
   DraftSummary,
+  ParentMediaDownload,
+  ParentMediaItem,
+  ParentMediaList,
   ParentNoteDetail,
   ParentNoteList,
   ParentNoteSummary,
@@ -102,15 +105,32 @@ function parentPhotos(
   draft: DraftRecord,
   limit = Number.POSITIVE_INFINITY,
 ): MediaUrl[] {
+  return parentMedia(db, draft).slice(0, limit).map(toMediaUrl);
+}
+
+// 서버 _parent_note_media_ids와 같은 범위입니다: 사진을 함께 보내기로 게시한 알림장에서, 교사가 고른
+// 것 중 그 원아에게 귀속된 사진·영상. 함께 찍힌 아이의 ③ 동의와 llm_allowed는 보지 않습니다(FR-10).
+function parentMedia(db: MockDb, draft: DraftRecord): MediaRecord[] {
   if (!draft.include_photos) return [];
   return draft.selected_media_ids
     .map((id) => db.media[id])
     .filter(
       (media): media is MediaRecord =>
-        media !== undefined && media.type === "photo" && media.llm_allowed,
-    )
-    .slice(0, limit)
-    .map(toMediaUrl);
+        media !== undefined &&
+        (media.type === "photo" || media.type === "video") &&
+        media.child_links.some((link) => link.child_id === draft.child_id),
+    );
+}
+
+function toParentMediaItem(media: MediaRecord): ParentMediaItem {
+  const { url, url_expires_at } = toMediaUrl(media);
+  return {
+    media_id: media.media_id,
+    type: media.type as ParentMediaItem["type"],
+    captured_at: media.captured_at,
+    url,
+    url_expires_at,
+  };
 }
 
 function visibleNotesOfChild(db: MockDb, childId: string) {
@@ -546,5 +566,58 @@ export const handlers = [
     });
     if (!outcome) return errorResponse(404, "PARENT_NOTE_NOT_FOUND", "알림장을 찾을 수 없어요.");
     return HttpResponse.json<ParentNoteDetail>(outcome);
+  }),
+
+  // 학부모 사진·영상 모아 보기(FR-10). 알림장 단위로 쪽을 나눕니다. 커서는 목에서만 오프셋입니다.
+  http.get(apiPath("/children/:childId/parent-media"), ({ request, params }) => {
+    const denied = requireParent();
+    if (denied) return denied;
+    const childId = String(params.childId);
+    if (PARENT_OF_CHILD[childId] !== MOCK_PARENT_ID) {
+      return errorResponse(403, "CHILD_ACCESS_DENIED", "이 아이의 사진은 볼 수 없어요.");
+    }
+    const query = new URL(request.url).searchParams;
+    const limit = Number(query.get("limit") ?? 10);
+    const offset = Number(query.get("cursor") ?? 0);
+    if (!Number.isInteger(offset) || offset < 0) {
+      return errorResponse(400, "INVALID_CURSOR", "목록을 이어서 불러오지 못했어요.");
+    }
+    const db = readDb();
+    const notes = visibleNotesOfChild(db, childId)
+      .map((draft) => ({ draft, media: parentMedia(db, draft) }))
+      .filter((note) => note.media.length > 0);
+    const all = notes.flatMap((note) => note.media);
+    return HttpResponse.json<ParentMediaList>({
+      days: notes.slice(offset, offset + limit).map(({ draft, media }) => ({
+        parent_note_id: draft.draft_id,
+        record_date: draft.record_date,
+        items: media.map(toParentMediaItem),
+      })),
+      next_cursor: offset + limit < notes.length ? String(offset + limit) : null,
+      photo_count: all.filter((media) => media.type === "photo").length,
+      video_count: all.filter((media) => media.type === "video").length,
+    });
+  }),
+
+  http.get(apiPath("/children/:childId/parent-media/:mediaId/download"), ({ params }) => {
+    const denied = requireParent();
+    if (denied) return denied;
+    const childId = String(params.childId);
+    if (PARENT_OF_CHILD[childId] !== MOCK_PARENT_ID) {
+      return errorResponse(403, "CHILD_ACCESS_DENIED", "이 아이의 사진은 볼 수 없어요.");
+    }
+    const db = readDb();
+    const media = visibleNotesOfChild(db, childId)
+      .flatMap((draft) => parentMedia(db, draft))
+      .find((item) => item.media_id === String(params.mediaId));
+    if (!media) return errorResponse(404, "MEDIA_ASSET_NOT_FOUND", "사진·영상을 찾을 수 없어요.");
+    const { url, url_expires_at } = toMediaUrl(media);
+    return HttpResponse.json<ParentMediaDownload>({
+      media_id: media.media_id,
+      type: media.type as ParentMediaDownload["type"],
+      url,
+      url_expires_at,
+      filename: `aidam_${media.media_id.slice(0, 6)}.jpg`,
+    });
   }),
 ];

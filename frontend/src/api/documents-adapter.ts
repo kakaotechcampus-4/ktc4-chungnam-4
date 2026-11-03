@@ -5,6 +5,9 @@ import type {
   DraftStatus,
   DraftSummary,
   Evidence,
+  ParentMediaDownload,
+  ParentMediaItem,
+  ParentMediaList,
   PublicationResult,
   Sentence,
 } from "@/types/api-draft/documents";
@@ -18,6 +21,10 @@ import type {
   DraftSummaryView,
   DraftView,
   EvidenceView,
+  ParentMediaDownloadView,
+  ParentMediaItemView,
+  ParentMediaListView,
+  ParentMediaTypeView,
   PublicationResultView,
   PublicationStatusView,
   RosterStatusView,
@@ -159,6 +166,51 @@ export function toPublicationResultView(raw: PublicationResult): PublicationResu
     parent_note_id: raw.parent_note_id,
     error_code: raw.error_code,
   };
+}
+
+function toParentMediaTypeView(value: ParentMediaItem["type"]): ParentMediaTypeView {
+  switch (value) {
+    case "photo":
+      return "photo";
+    case "video":
+      return "video";
+    default: {
+      const unexpected: never = value;
+      return warnUnknownStatus("모르는 미디어 종류", unexpected);
+    }
+  }
+}
+
+function toParentMediaItemView(raw: ParentMediaItem): ParentMediaItemView {
+  return {
+    media_id: raw.media_id,
+    type: toParentMediaTypeView(raw.type),
+    captured_at: raw.captured_at,
+    url: raw.url,
+    url_expires_at: raw.url_expires_at,
+  };
+}
+
+export function toParentMediaListView(raw: ParentMediaList): ParentMediaListView {
+  return {
+    days: raw.days.map((day) => ({
+      parent_note_id: day.parent_note_id,
+      record_date: day.record_date,
+      items: day.items.map(toParentMediaItemView),
+    })),
+    next_cursor: raw.next_cursor,
+    photo_count: raw.photo_count,
+    video_count: raw.video_count,
+  };
+}
+
+export function toParentMediaDownloadView(raw: ParentMediaDownload): ParentMediaDownloadView {
+  return { media_id: raw.media_id, url: raw.url, filename: raw.filename };
+}
+
+/** 학부모가 저장할 수 있는 미디어인지. 모르는 종류는 잠급니다. */
+export function canSaveParentMedia(item: ParentMediaItemView): boolean {
+  return item.type !== "unknown";
 }
 
 /**
