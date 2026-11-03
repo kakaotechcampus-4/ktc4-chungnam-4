@@ -15,6 +15,7 @@ import { File as NodeFile } from "node:buffer";
 import { http, HttpResponse } from "msw";
 
 import { isPhoto, useUploadQueue } from "@/features/upload-queue/upload-queue-store";
+import { prepareFaceModels } from "@/workers/face/client";
 import { readDb } from "@/mocks/db";
 import { fixtureId } from "@/mocks/fixtures/ids";
 import { apiPath, errorResponse } from "@/mocks/http";
@@ -58,6 +59,37 @@ describe("ProcessingPage", () => {
     const photos = useUploadQueue.getState().items.filter(isPhoto);
     expect(photos.map((item) => item.classify_state)).toEqual(["classified", "classified"]);
   }, 15000);
+
+  it("모델 준비가 실패하면 고른 사진을 지우지 않고 그 단계만 다시 시도한다", async () => {
+    vi.mocked(prepareFaceModels).mockRejectedValueOnce(new Error("load failed"));
+    useUploadQueue.getState().addFiles([photo("a.jpg")]);
+    const { router } = renderProcessing("/t/today/processing");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("분석 모델을 준비하지 못했어요");
+    await userEvent.setup().click(screen.getByRole("button", { name: "모델 준비 다시 시도" }));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/t/today/classification"));
+    expect(useUploadQueue.getState().items).toHaveLength(1);
+  });
+
+  it("기준 얼굴을 받지 못하면 분류 단계만 다시 시도한다", async () => {
+    let failed = false;
+    server.use(
+      http.get(apiPath("/classes/:classId/face-embeddings"), () => {
+        if (failed) return undefined;
+        failed = true;
+        return errorResponse(500, "INTERNAL_ERROR", "기준 얼굴을 불러오지 못했어요.");
+      }),
+    );
+    useUploadQueue.getState().addFiles([photo("a.jpg")]);
+    const { router } = renderProcessing("/t/today/processing");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("기준 얼굴을 불러오지 못했어요");
+    await userEvent.setup().click(screen.getByRole("button", { name: "분류 다시 시도" }));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/t/today/classification"));
+    expect(useUploadQueue.getState().items.filter(isPhoto)[0]?.classify_state).toBe("classified");
+  });
 
   it.each([false, true])(
     "미식별 얼굴 %s인 확정 사진을 안전하게 보내고 초안 검토로 간다",
@@ -257,7 +289,7 @@ describe("ProcessingPage", () => {
     expect(router.state.location.pathname).toBe("/t/today/processing");
   });
 
-  it("초안이 없으면 이유를 확인한 뒤 결과 화면으로 간다", async () => {
+  it("초안이 없으면 이유를 확인한 뒤 그날의 초안 검토로 간다", async () => {
     const queue = useUploadQueue.getState();
     queue.addFiles([photo("confirmed.jpg")]);
     const [confirmed] = useUploadQueue.getState().items;
@@ -300,7 +332,11 @@ describe("ProcessingPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("근거가 부족해요");
     expect(router.state.location.pathname).toBe("/t/today/processing");
     await userEvent.setup().click(screen.getByRole("button", { name: "결과 확인하기" }));
-    await waitFor(() => expect(router.state.location.pathname).toBe("/t/dashboard"));
+    // 대시보드는 오늘 날짜로 고정이라, 지난 날짜도 그날 결과를 보도록 첫 원아의 초안 검토로 갑니다.
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(`/t/today/review/${fixtureId("child", 1)}`),
+    );
+    expect(router.state.location.search).toBe("?record_date=2026-09-15");
     expect(useUploadQueue.getState().items).toEqual([]);
   });
 
@@ -400,7 +436,8 @@ describe("ProcessingPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("AI 서비스에 연결하지 못했어요");
     expect(screen.getByText("종료")).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("button", { name: "결과 확인하기" }));
-    expect(router.state.location.pathname).toBe("/t/dashboard");
+    expect(router.state.location.pathname).toBe(`/t/today/review/${fixtureId("child", 1)}`);
+    expect(router.state.location.search).toBe("?record_date=2026-09-15");
     expect(polled).toHaveBeenCalledTimes(1);
   });
 });

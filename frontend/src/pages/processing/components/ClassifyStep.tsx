@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { faceEmbeddingsQueryOptions } from "@/api/media";
+import { Button } from "@/components/ui/button";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
 import { isPhoto, useUploadQueue } from "@/features/upload-queue/upload-queue-store";
 import { classifyPhoto } from "@/workers/face/client";
@@ -13,7 +14,12 @@ export function ClassifyStep({ onDone, onCancel }: ClassifyStepProps) {
   const [photos] = useState(() => useUploadQueue.getState().items.filter(isPhoto));
   const [classified, setClassified] = useState(0);
   const { currentClass } = useCurrentClass();
-  const { data: embeddings, error } = useQuery({
+  const {
+    data: embeddings,
+    error,
+    refetch,
+    isFetching,
+  } = useQuery({
     ...faceEmbeddingsQueryOptions(currentClass?.class_id ?? ""),
     enabled: currentClass !== null,
     refetchOnWindowFocus: false,
@@ -47,7 +53,15 @@ export function ClassifyStep({ onDone, onCancel }: ClassifyStepProps) {
       note="이 기기에서 분석한 뒤 선생님이 결과를 확인해요."
       onCancel={onCancel}
     >
-      {error && <p role="alert">{error.message}</p>}
+      {error && (
+        <div role="alert" className="space-y-3">
+          <p>{error.message}</p>
+          {/* 취소하면 고른 사진과 날짜가 지워지므로, 기준 얼굴만 다시 받아 분류를 이어 가게 합니다(#231 리뷰). */}
+          <Button disabled={isFetching} onClick={() => void refetch()}>
+            분류 다시 시도
+          </Button>
+        </div>
+      )}
     </ProcessingCard>
   );
 }
