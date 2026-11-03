@@ -61,6 +61,11 @@ function failureText(error: unknown) {
   return error instanceof ApiError ? error.message : "잠시 후 다시 시도해 주세요.";
 }
 
+/** 그 사이 다른 곳에서 초안을 바꿔 서버가 요청을 반영하지 않은 경우입니다. */
+function isVersionConflict(error: unknown) {
+  return error instanceof ApiError && error.code === "DRAFT_VERSION_CONFLICT";
+}
+
 // 근거가 문장 단위로 붙어서 수정도 문장별 칸으로 받습니다. 한 칸으로 합치면 교사가 문장을
 // 합치거나 쪼갤 때 어느 문장(sentence_id)의 글인지 알 수 없어, 안 고친 문장의 근거까지
 // 엉뚱한 곳에 붙습니다.
@@ -71,6 +76,8 @@ const EDIT_FIELD_CLASS =
   "min-h-0 resize-none rounded-md border-0 bg-transparent p-0 text-lead whitespace-pre-line shadow-none focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent";
 
 // TODO(김진하): 사진 추가는 업로드 흐름(media, 정은·김동건)이 정해지지 않아 자리만 둡니다.
+// Figma 타일은 '사진 추가'뿐이지만 '준비 중'을 보이는 글자로도 둡니다. 스크린리더에만 읽히면 화면을 보는
+// 교사는 왜 눌리지 않는지 모릅니다(10/30 배포 점검 25번).
 function AddPhotoTile() {
   return (
     <button
@@ -81,6 +88,7 @@ function AddPhotoTile() {
     >
       <Plus className="size-6" />
       <span className="text-label">사진 추가</span>
+      <span className="text-caption">준비 중</span>
     </button>
   );
 }
@@ -104,6 +112,8 @@ export function DraftReviewPage() {
   // 주소는 누구나 고칠 수 있어서, 날짜가 아니면 오늘로 돌립니다(알림장 상세와 같은 이유).
   const recordDateParam = searchParams.get("record_date");
   const recordDate = isDateOnly(recordDateParam) ? recordDateParam : kstToday();
+  // 지난 날짜로 열었는데 '오늘의 기록'이라고 하면 교사가 오늘 것으로 읽습니다. 날짜는 부제가 보여 줍니다.
+  const reviewTitle = recordDate === kstToday() ? "오늘의 기록을 완성해요" : "기록을 완성해요";
 
   const {
     currentClass,
@@ -123,8 +133,15 @@ export function DraftReviewPage() {
 
   const [confirmed, setConfirmed] = useState(false);
   const [selectedSentenceId, setSelectedSentenceId] = useState<string | null>(null);
-  /** 편집 중인 문장 텍스트(sentence_id → text). null이면 읽기 모드 */
-  const [editing, setEditing] = useState<Record<string, string> | null>(null);
+  /**
+   * 편집 중인 문장 텍스트(sentence_id → text)와 편집을 시작할 때 본 초안 version. null이면 읽기 모드.
+   * 저장은 이 version으로 합니다. 편집하는 사이 다른 곳에서 고친 본문을 새로 받아도 칸에는 시작할 때의
+   * 문장이 남아 있어서, 새 version으로 보내면 그 문장이 다른 곳의 수정을 조용히 덮어씁니다.
+   */
+  const [editing, setEditing] = useState<{
+    version: number;
+    texts: Record<string, string>;
+  } | null>(null);
   /** 편집 중 새로 쓴 문장. 저장할 때 added_sentences로 보냅니다. */
   const [addedTexts, setAddedTexts] = useState<string[]>([]);
   /** 고친 문장을 비운 채 "수정 완료"를 누르면 저장하지 않고 이 안내를 보여 줍니다. */
@@ -170,6 +187,15 @@ export function DraftReviewPage() {
     setEmptyEdit(false);
   }
 
+  // 고치던 문장과 새 문장을 저장하지 않고 버립니다. 같은 원아를 다시 눌러 버리던 길은 실수로
+  // 작업을 날리지 않게 막아서(#209), 버리는 버튼을 따로 둡니다(#209 리뷰). 확인 체크는 수정을
+  // 시작할 때 풀었으니, 본문을 다시 보고 체크하게 그대로 둡니다.
+  function cancelEditing() {
+    setEditing(null);
+    setAddedTexts([]);
+    setEmptyEdit(false);
+  }
+
   // 화면의 원아·날짜가 바뀌면 그 원아에 딸린 상태를 비웁니다. 레일 클릭뿐 아니라 뒤로·앞으로 가기로
   // 바뀔 때도 비워야 합니다. 문장 ID는 초안마다 s1부터 다시 시작해서, 남겨 두면 앞 원아에서 고치던
   // 문장이 이 원아 초안에 저장되고 "사진과 본문을 확인했어요" 체크도 넘어옵니다(H-1). #206 멘토님 리뷰의
@@ -202,12 +228,12 @@ export function DraftReviewPage() {
   // 버전이 밀리면 화면이 든 version이 낡은 값입니다. 다시 받아 두지 않으면 교사가 다시 눌러도
   // 같은 낡은 version을 또 보내 계속 실패합니다(새로고침 말고는 빠져나갈 길이 없습니다).
   async function refetchOnVersionConflict(error: unknown, conflictedDraftId?: string) {
-    if (!(error instanceof ApiError) || error.code !== "DRAFT_VERSION_CONFLICT") return;
+    if (!isVersionConflict(error)) return;
     if (conflictedDraftId !== undefined) {
       await queryClient.invalidateQueries({ queryKey: documentsKeys.draft(conflictedDraftId) });
     }
     await queryClient.invalidateQueries({
-      queryKey: documentsKeys.classDrafts(classId, recordDate),
+      queryKey: documentsKeys.classDraftLists(classId),
     });
   }
 
@@ -220,11 +246,15 @@ export function DraftReviewPage() {
         title: null,
         sentences: toSentences(input.text),
       }),
-    onSuccess: async (created) => {
-      setNewText("");
+    onSuccess: async (created, variables) => {
+      // 저장을 기다리는 사이 다른 원아·날짜로 옮겼으면 지금 칸은 그 아이의 글입니다. 콜백은 마지막 렌더의
+      // 값을 보므로, 요청한 원아·날짜를 보고 있을 때만 비웁니다.
+      if (variables.childId === selectedChildId && variables.recordDate === recordDate) {
+        setNewText("");
+      }
       queryClient.setQueryData(documentsKeys.draft(created.draft_id), created);
       await queryClient.invalidateQueries({
-        queryKey: documentsKeys.classDrafts(classId, recordDate),
+        queryKey: documentsKeys.classDraftLists(classId),
       });
     },
   });
@@ -233,11 +263,13 @@ export function DraftReviewPage() {
     mutationFn: (input: { draftId: string; version: number }) =>
       // "사진과 본문을 확인했어요" 체크가 reviewed로 들어갑니다(H-1 승인 게이트).
       approveDraft(input.draftId, { expected_version: input.version, reviewed: true }),
-    onSuccess: async (updated) => {
-      setConfirmed(false);
+    onSuccess: async (updated, variables) => {
+      // 승인을 기다리는 사이 다른 원아로 옮겼으면 지금 체크는 그 아이의 것입니다. 콜백은 마지막 렌더의
+      // 값을 보므로, 요청한 초안을 보고 있을 때만 풉니다.
+      if (variables.draftId === draftId) setConfirmed(false);
       queryClient.setQueryData(documentsKeys.draft(updated.draft_id), updated);
       await queryClient.invalidateQueries({
-        queryKey: documentsKeys.classDrafts(classId, recordDate),
+        queryKey: documentsKeys.classDraftLists(classId),
       });
     },
     onError: (error, variables) => refetchOnVersionConflict(error, variables.draftId),
@@ -261,10 +293,15 @@ export function DraftReviewPage() {
       setEditing(null);
       setAddedTexts([]);
       await queryClient.invalidateQueries({
-        queryKey: documentsKeys.classDrafts(classId, recordDate),
+        queryKey: documentsKeys.classDraftLists(classId),
       });
     },
-    onError: (error, variables) => refetchOnVersionConflict(error, variables.draftId),
+    onError: async (error, variables) => {
+      // 그 사이 다른 곳에서 고쳤으면 고치던 칸을 닫고 새 본문을 보여 줍니다. 칸에 남은 옛 문장을 다시
+      // 저장하면 다른 곳의 수정을 덮어씁니다. 실패 문구는 남겨 왜 닫혔는지 알립니다.
+      if (isVersionConflict(error) && variables.draftId === draft?.draft_id) cancelEditing();
+      await refetchOnVersionConflict(error, variables.draftId);
+    },
   });
 
   // 승인은 잠금이지만, 게시 전까지는 교사가 되돌려 다시 고칠 수 있어야 합니다.
@@ -274,7 +311,7 @@ export function DraftReviewPage() {
     onSuccess: async (updated) => {
       queryClient.setQueryData(documentsKeys.draft(updated.draft_id), updated);
       await queryClient.invalidateQueries({
-        queryKey: documentsKeys.classDrafts(classId, recordDate),
+        queryKey: documentsKeys.classDraftLists(classId),
       });
     },
     onError: (error, variables) => refetchOnVersionConflict(error, variables.draftId),
@@ -309,10 +346,10 @@ export function DraftReviewPage() {
             queryKey: documentsKeys.childDrafts(id, "parent_note", true),
           }),
         ),
+        // 날짜별 목록과 알림장 명단(publishedNotes)을 함께 비웁니다.
         queryClient.invalidateQueries({
-          queryKey: documentsKeys.classDrafts(classId, recordDate),
+          queryKey: documentsKeys.classDraftLists(classId),
         }),
-        queryClient.invalidateQueries({ queryKey: documentsKeys.publishedNotes(classId) }),
       ]);
       // 게시는 HTTP 200 안에서 건별로 성공·실패가 옵니다. 실패를 두고 발행 완료로 넘어가면
       // "전달했어요"만 보여서 교사가 못 올린 원아를 영영 모릅니다. 그래서 남아서 알립니다.
@@ -324,8 +361,9 @@ export function DraftReviewPage() {
         publishedCount: results.length - failures.length,
       });
       if (failures.length > 0) return;
+      // 발행 완료 화면이 오늘이 아니라 게시한 날짜를 보여 주도록 요청 때의 날짜를 함께 넘깁니다.
       navigate("/t/notes/publish/done", {
-        state: { publishedCount: results.length },
+        state: { publishedCount: results.length, recordDate: variables.recordDate },
       });
     },
     onError: (error) => refetchOnVersionConflict(error),
@@ -352,7 +390,7 @@ export function DraftReviewPage() {
   if (classPending) {
     return (
       <>
-        <PageHeader eyebrow="오늘의 기록  /  초안 검토" title="오늘의 기록을 완성해요" />
+        <PageHeader eyebrow="오늘의 기록  /  초안 검토" title={reviewTitle} />
         <p className="text-body text-ink-muted">반 정보를 불러오는 중이에요.</p>
       </>
     );
@@ -360,7 +398,7 @@ export function DraftReviewPage() {
   if (classError || childrenQuery.isError || draftsQuery.isError) {
     return (
       <>
-        <PageHeader eyebrow="오늘의 기록  /  초안 검토" title="오늘의 기록을 완성해요" />
+        <PageHeader eyebrow="오늘의 기록  /  초안 검토" title={reviewTitle} />
         <p className="text-body text-ink-muted">
           {failureText(classErrorValue ?? childrenQuery.error ?? draftsQuery.error)}
         </p>
@@ -412,7 +450,9 @@ export function DraftReviewPage() {
   // 초안이 없는 원아도 같은 이유로 막지 않고, 모달에 따로 셉니다.
   const hasUnreviewedDraft = rows.some(needsReview);
   const notReadyCount = rows.filter(isNotReady).length;
-  const canPublish = publishTargets.length > 0 && !hasUnreviewedDraft;
+  // 수정 중에도 게시를 잠급니다. 고치던 초안이 그 사이 다른 곳에서 승인되면 화면에는 저장하지 않은
+  // 글이 남는데 승인본이 나갑니다. 승인을 잠그는 것과 같은 이유입니다(H-1).
+  const canPublish = publishTargets.length > 0 && !hasUnreviewedDraft && !isEditing;
 
   function selectChild(id: string) {
     // 지금 원아를 다시 누르면 아무것도 하지 않습니다. 고치던 문장을 지우거나 같은 주소를 이력에 또 쌓지
@@ -428,11 +468,12 @@ export function DraftReviewPage() {
       // 고치기 전 문장을 보고 눌러 둔 체크입니다. 수정이 끝나면 다시 확인해야 합니다.
       setConfirmed(false);
       setSelectedSentenceId(null);
-      setEditing(
-        Object.fromEntries(
+      setEditing({
+        version: draft.version,
+        texts: Object.fromEntries(
           draft.sentences.map((sentence) => [sentence.sentence_id, sentence.text]),
         ),
-      );
+      });
       setAddedTexts([]);
       setEmptyEdit(false);
       return;
@@ -441,7 +482,7 @@ export function DraftReviewPage() {
     // 줄바꿈만 달라진 문장은 고친 것으로 보지 않아 근거가 끊기지 않습니다. 공백만 남은 문장은
     // 정하지 않은 "문장 삭제"와 같아서 저장하지 않습니다.
     const edited = draft.sentences.flatMap((sentence) => {
-      const text = editing[sentence.sentence_id];
+      const text = editing.texts[sentence.sentence_id];
       return text === undefined ? [] : [{ sentence, text: text.trim() }];
     });
     if (edited.some(({ text }) => text === "")) {
@@ -462,7 +503,7 @@ export function DraftReviewPage() {
     }
     patchMutation.mutate({
       draftId: draft.draft_id,
-      version: draft.version,
+      version: editing.version,
       sentences: changed,
       addedSentences: added,
     });
@@ -498,7 +539,7 @@ export function DraftReviewPage() {
     <>
       <PageHeader
         eyebrow="오늘의 기록  /  초안 검토"
-        title="오늘의 기록을 완성해요"
+        title={reviewTitle}
         subtitle={`${formatDate(recordDate)}  ·  ${klassName}`}
       />
 
@@ -513,11 +554,23 @@ export function DraftReviewPage() {
         <section className="flex min-w-0 flex-1 flex-col gap-3.5">
           {draftQuery.isPending && draftId !== "" ? (
             <p className="text-body text-ink-muted">초안을 불러오는 중이에요.</p>
+          ) : draftQuery.isError && draft === undefined ? (
+            // 초안이 있는 원아인데 본문을 못 받았습니다. 빈 상태로 보이면 교사가 새로 쓰고, 저장하면
+            // 이미 초안이 있어 실패합니다. 같은 원아를 다시 눌러도 그대로라 다시 받는 버튼을 둡니다.
+            // Figma에 없는 상태라 발화 목록(TranscriptStatus)의 '다시 불러오기'를 따릅니다.
+            <div role="alert" className="flex flex-col items-start gap-3 rounded-xl bg-paper p-7">
+              <p className="text-lead font-bold text-ink">초안을 불러오지 못했어요</p>
+              <p className="text-body text-ink-muted">{failureText(draftQuery.error)}</p>
+              <Button variant="outline" size="sm" onClick={() => void draftQuery.refetch()}>
+                다시 불러오기
+              </Button>
+            </div>
           ) : draft === undefined ? (
             <div className="flex flex-col gap-5 rounded-xl bg-paper p-7">
-              {/* TODO(김진하): 빈 상태 문구와 디자인이 Figma에 없어 임시로 둡니다. */}
+              {/* TODO(김진하): 빈 상태 문구와 디자인이 Figma에 없어 임시로 둡니다.
+                  '사진 추가'는 아직 꺼져 있어 문구에서 뺐습니다. 사진 고르기가 정해지면 다시 넣습니다. */}
               <p className="text-body text-ink-muted">
-                아직 이 아이의 기록이 없어요. 사진을 추가하거나 직접 작성할 수 있어요.
+                아직 이 아이의 기록이 없어요. 직접 작성할 수 있어요.
               </p>
               <div className="grid grid-cols-3 gap-4">
                 <AddPhotoTile />
@@ -574,16 +627,23 @@ export function DraftReviewPage() {
                     {draft.sentences.map((sentence) => (
                       <Textarea
                         key={sentence.sentence_id}
-                        value={editing[sentence.sentence_id] ?? sentence.text}
+                        value={editing.texts[sentence.sentence_id] ?? sentence.text}
                         rows={1}
                         className={EDIT_FIELD_CLASS}
                         aria-label="초안 문장 수정"
                         onChange={(event) => {
                           setEmptyEdit(false);
-                          setEditing((prev) => ({
-                            ...prev,
-                            [sentence.sentence_id]: event.target.value,
-                          }));
+                          setEditing((prev) =>
+                            prev === null
+                              ? prev
+                              : {
+                                  ...prev,
+                                  texts: {
+                                    ...prev.texts,
+                                    [sentence.sentence_id]: event.target.value,
+                                  },
+                                },
+                          );
                         }}
                       />
                     ))}
@@ -642,16 +702,39 @@ export function DraftReviewPage() {
                   )
                 )}
 
-                {/* 수정 중에도 이 버튼은 남아야 "수정 완료"로 빠져나올 수 있습니다. */}
-                {isDraftApprovable ? (
-                  <button
-                    type="button"
-                    onClick={toggleEditing}
-                    disabled={patchMutation.isPending}
-                    className="self-start text-label font-bold text-ink-muted underline-offset-4 outline-none transition-colors hover:text-brand-ink hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
-                  >
-                    {editing !== null ? "수정 완료" : "직접 수정"}
-                  </button>
+                {/* 수정 중에도 이 버튼은 남아야 "수정 완료"로 빠져나올 수 있습니다.
+                    그 사이 다른 곳에서 승인돼 "수정 완료"가 사라져도 "수정 취소"는 남깁니다. */}
+                {isDraftApprovable || isEditing ? (
+                  <div className="flex items-center gap-5 self-start">
+                    {isDraftApprovable ? (
+                      <button
+                        type="button"
+                        onClick={toggleEditing}
+                        // 승인을 기다리는 사이 수정을 시작하면, 승인된 초안에 고치던 칸만 남습니다.
+                        disabled={patchMutation.isPending || approveMutation.isPending}
+                        className="text-label font-bold text-ink-muted underline-offset-4 outline-none transition-colors hover:text-brand-ink hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+                      >
+                        {editing !== null ? "수정 완료" : "직접 수정"}
+                      </button>
+                    ) : null}
+                    {editing !== null ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // 교사가 스스로 버렸으니 '다시 시도해 주세요' 같은 이 초안의 저장 실패 문구도
+                          // 지웁니다. 다른 원아의 실패는 그 원아로 돌아왔을 때 보이게 남깁니다.
+                          if (patchMutation.variables?.draftId === draft.draft_id) {
+                            patchMutation.reset();
+                          }
+                          cancelEditing();
+                        }}
+                        disabled={patchMutation.isPending}
+                        className="text-label font-bold text-ink-muted underline-offset-4 outline-none transition-colors hover:text-brand-ink hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+                      >
+                        수정 취소
+                      </button>
+                    ) : null}
+                  </div>
                 ) : canReopenNow ? (
                   <button
                     type="button"
@@ -706,8 +789,14 @@ export function DraftReviewPage() {
                 .join(", ")}
             </p>
           ) : null}
+          {/* 수정 중에는 승인과 게시를 함께 잠가서 그 이유를 같이 적습니다. 그 사이 다른 곳에서 승인돼
+              "수정 완료"가 사라져도 게시하기가 왜 잠겼는지 보이게, 남은 "수정 취소"로 안내합니다. */}
           {isEditing ? (
-            <p className="text-caption text-ink-muted">수정을 마치면 승인할 수 있어요.</p>
+            <p className="text-caption text-ink-muted">
+              {isDraftApprovable
+                ? "수정을 마쳐야 승인하고 게시할 수 있어요."
+                : "그 사이 승인돼 더 고칠 수 없어요. 수정을 취소해야 게시할 수 있어요."}
+            </p>
           ) : null}
           <label className="flex items-center gap-2 text-body text-ink">
             <Checkbox

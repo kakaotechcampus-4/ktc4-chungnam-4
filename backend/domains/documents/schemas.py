@@ -181,6 +181,10 @@ class DraftDetailResponse(BaseModel):
     # 활성 게시 회차의 게시 시각. 게시 전이면 null이다 (승인·게시 분리).
     published_at: datetime | None
     include_photos: bool | None
+    # 활성 게시 회차의 회수 기한. 활성 회차가 없으면 null이다.
+    revoke_deadline: datetime | None
+    # 지금 회수할 수 있는가 (기한 이내이고 학부모가 본문을 열기 전).
+    can_revoke: bool
     updated_at: datetime
 
 

@@ -10,6 +10,7 @@
 
 **한상균**
 
+- [x] (막힘) 회수 뒤 초안 상태 → **`revoked`로 잠그고, `reopen`으로 `verified`에 돌린 뒤 수정 → 승인 → 다시 게시합니다.** 회수 조건은 테크스펙 파이프라인 9단계(게시 후 24시간 이내, 열람 전)를 따릅니다. 임시 결정(한상균). 테크스펙 ⑤ RevisionLog의 reopen 설명은 아직 "게시 전 승인 되돌리기"만 적고 있어 팀 확인 뒤 고칩니다. 반영: 이 문서 §`POST /api/v1/drafts/{draft_id}/revoke`·§`POST /api/v1/drafts/{draft_id}/reopen`
 - [x] (막힘) 초안 `status` 값: 테크스펙 4값(제안) vs develop에 병합된 PR #14 값(정은과 함께) → **`draft`(생성·검증 중) → `verified`(교사 검토 대기) → `approved`**. 검증을 통과한 초안은 `verified`로 저장하고, 승인 판정은 `status == verified` 하나입니다. PR #14의 `in_review`는 `verified`로 바꿨고, `revoked`는 아래 게시 모델이 정해질 때까지 그대로 둡니다. `unclassified`를 상태값으로 둘지는 아직 열려 있습니다(`docs/open-questions.md`). 임시 결정(한상균), 이슈 #75·#106에서 정은·김진하 확인. 반영: 테크스펙 ④ DraftDocument, `backend/domains/documents/models.py`
 - [x] (막힘) 승인·게시 분리(`DocumentPublication`) → **분리하고 일괄 `POST /publications`로 게시**합니다. 승인만으로는 학부모에게 보이지 않고, 회수되지 않은 게시 회차가 있을 때만 보입니다. 임시 결정(한상균), 팀 확인 대기(#158 6번). 반영: 테크스펙 ⑤ DocumentPublication
 - [ ] (막힘) **생성 중인 원아를 목록에서 알리는 방법** (#139 리뷰 송유진·김진하) — 지금은 `draft`로 저장되는 경로가 없습니다. agents는 검증을 통과한 초안만 `verified`로 저장해서, 생성 중인 원아가 초안 없는 원아와 구분되지 않습니다. 화면 쪽은 Job(`job_id`)이 아니라 반·날짜 목록(`GET /classes/{class_id}/drafts`)에 생성 중을 알리는 값이 있기를 원합니다 — 화면을 떠났다 오면 `job_id`를 잃고, 두 응답의 시점이 어긋나서입니다. 목록 구현 PR에서 값의 모양을 정하고, 그때 `draft` 상태값과 아래 표의 `draft` → 생성 중 행을 함께 정리합니다
@@ -32,7 +33,7 @@
 
 - [ ] 레일 "검토 완료" 기준(두 문서가 모두 `approved`인지). 한 원아의 두 문서를 한 번에 승인하는 UX가 필요한지
 - [ ] 레일을 organization 명단, drafts 목록, Job `children[]`로 합치는 방식
-- [ ] **게시한 알림장의 "수정하기"** — 알림장 상세에서 뺐습니다(이번 범위 밖). 게시본은 학부모가 이미 본 뒤라 바로 고칠 수 없고, 회수(`POST /drafts/{draft_id}/revoke`, 경로만)를 거치는 흐름이 필요합니다. 회수 명세가 정해지면 화면에 다시 넣습니다
+- [ ] **게시한 알림장의 "수정하기"** — 알림장 상세에서 뺐습니다(이번 범위 밖). 게시본은 학부모가 이미 본 뒤라 바로 고칠 수 없고, 회수(`POST /drafts/{draft_id}/revoke`)를 거치는 흐름이 필요합니다. 서버 명세는 §`POST /api/v1/drafts/{draft_id}/revoke`에 있고, 화면이 남았습니다
 - [x] 레일에서 `확인 필요`와 `자료 없음`을 구분할지 → 임시 결정(김진하), #107 리뷰 송유진 님 반영: **초안 없이 미분류인 원아는 자료 없음과 묶어 `검토 필요`**, **초안 `status`가 `unclassified`이거나 모르는 값이면 `확인 필요`로 따로** 표시. 묶는 쪽은 교사가 할 일이 사진 추가·직접 작성으로 같고, 나누는 쪽은 초안이 이미 있어 직접 작성이 409에 걸려 할 일이 다릅니다. 반영: 이 문서 §레일·목록 표기, `frontend/src/pages/draft-review/components/RosterList.tsx`
 - [x] 문장 **추가** → 임시 결정(김진하): `PATCH`에 `added_sentences`를 두어 맨 뒤에 이어 붙임. 반영: 이 문서 §`PATCH /api/v1/drafts/{draft_id}`. 문장 **삭제**는 근거가 붙은 문장을 지울 때의 규칙이 필요해 미정으로 남깁니다(위 한상균 항목)
 - [x] 교사가 고친 문장의 근거를 어떻게 할지 → 임시 결정(김진하): `PATCH`에서 바뀐 문장의 `evidences`를 비움. 반영: 이 문서 §`PATCH /api/v1/drafts/{draft_id}`. 고친 문장을 원문 발화로 뒷받침한다고 볼 수 없어서입니다
@@ -55,7 +56,6 @@
 | 미분류 | 반·날짜 목록의 `unclassified`에 원아별 사유, 직접 작성하면 그 원아·날짜의 미분류 해소 | `unclassified`는 항상 `null`이고 해소도 하지 않음. agents가 미분류를 기록하지 않고(`_send_to_unclassified`가 빈 함수), `UnclassifiedItem`에 원아·날짜가 없음(#196) |
 | 작성 교사 이름 `author_name` | 교사용·학부모용 응답에 작성 교사 이름 | 빈 문자열. auth 조회 함수(`get_teacher_names`, 엄태은)가 생기면 채움 |
 | 분석 못 한 사진 `failed_media_ids` | 교사 상세에 실음 | 응답에 없음. agents가 목록을 저장하면(사진 분석 연결 PR) 붙임 |
-| 회수 | 경로만(`POST /api/v1/drafts/{draft_id}/revoke`, 화면 없음) | 요청·응답 모양만 있고 서비스는 구현 전(`NotImplementedError` → 500). FE는 부르지 않음 |
 
 - [ ] 남은 차이 정리(한상균). 기본 경로와 경로 이름은 이 문서에 맞췄습니다 — `main.py`가 `/api/v1`을 붙입니다(#136 리뷰 합의)
 
@@ -70,7 +70,7 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 
 - 초안 `status`
   - 흐름은 `draft`(생성·검증 중) → `verified`(교사 검토 대기) → `approved`입니다. 재시도 상한을 넘기면 `unclassified`가 됩니다.
-  - PR #14의 `in_review`는 `verified`로 바꿨습니다. `revoked`는 게시 모델이 정해질 때까지 그대로 둡니다(위 §막힘 상태값 항목).
+  - PR #14의 `in_review`는 `verified`로 바꿨습니다. `revoked`는 회수한 문서입니다(§`POST /api/v1/drafts/{draft_id}/revoke`).
 - 게시(학부모 노출)
   - 게시해도 `status`는 그대로입니다. 게시 여부는 `published_at`으로 나타냅니다. PR #14 `DocumentPublication`의 활성 회차에 해당합니다.
   - 학부모 응답은 모두 단일 게이트 함수를 거칩니다(H-1). 이 함수는 네 가지를 한 번에 검사합니다: `status == approved`, 활성 게시가 있음, 학부모–원아 관계, NFR-03 열람 기간.
@@ -232,10 +232,13 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
   "approved_at": null,
   "published_at": null,
   "include_photos": null,
+  "revoke_deadline": null,
+  "can_revoke": false,
   "updated_at": "2026-09-15T06:40:11Z"
 }
 ```
 
+- `revoke_deadline`은 활성 게시 회차의 회수 기한이고, 활성 회차가 없으면 `null`입니다. `can_revoke`는 지금 회수할 수 있는지입니다(기한 이내이고 학부모가 본문을 열기 전). FE가 규칙을 따로 계산하지 않게 서버가 답합니다 — 임시 결정(한상균).
 - `include_photos`는 게시할 때 정해지는 값이라 **게시 전에는 `null`** 입니다 — 임시 결정(김진하). `false`면 학부모에게 글만 갔다는 뜻이고, 교사 화면(알림장 상세)도 사진을 감춥니다. 보낸 것과 교사가 보는 것이 달라지면 교사가 "사진을 보냈다"고 착각합니다. 초안 검토 화면은 아직 게시 전(`null`)이라 선택 사진을 그대로 보여 줍니다.
 - `sentence_id`는 초안 안에서만 유일한 문자열입니다 — 임시 결정(한상균), 이슈 #75. 순번으로 가리키면 교사가 문장을 끼워 넣거나 지울 때 뒤 번호가 밀려 근거가 다른 문장을 가리킵니다. 문장 순서는 배열 순서입니다.
   - AI 문장은 agents가 붙인 값(`s…`), 교사가 쓴 문장은 서버가 붙인 `t1`·`t2`…입니다(임시 결정(정은)). FE는 값의 모양을 해석하지 않습니다.
@@ -249,7 +252,7 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 - `selected_media_ids`는 선택 사진의 순서입니다. PATCH와 같은 필드입니다.
 - `author_name`은 서버가 `author_teacher_id`로 조회해 붙입니다. LLM에는 보내지 않습니다(FR-26, H-2).
 - `status == unclassified`이면 `evidences`가 빈 배열일 수 있습니다. 지금 코드는 PASS일 때만 근거를 저장합니다.
-- 스펙 모델에 없는 필드는 `title`, `selected_media_ids`, `media`, `published_at`입니다(제안).
+- 스펙 모델에 없는 필드는 `title`, `selected_media_ids`, `media`, `published_at`, `revoke_deadline`, `can_revoke`입니다(제안).
 - 에러:
   - `DRAFT_NOT_FOUND` (404) — 없는 초안일 때
   - `CHILD_ACCESS_DENIED` (403) — 다른 어린이집 원아의 초안일 때. 원아 기준으로 검사합니다 — 임시 결정(한상균), #156
@@ -327,6 +330,7 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
   - `DRAFT_VERSION_CONFLICT` (409) — `expected_version`이 현재 값과 다를 때
   - `DRAFT_NOT_READY` (409) — `status == draft`일 때(생성·검증 중)
   - `DRAFT_ALREADY_APPROVED` (409) — 이미 승인됐을 때(게시된 것 포함). 승인을 되돌리는 것은 `reopen`에서 다룹니다.
+  - `DRAFT_REVOKED` (409) — 회수한 알림장일 때. `reopen`으로 검토 대기로 돌린 뒤 고칩니다.
   - `INVALID_SENTENCE_ID` (400) — 그 초안에 없는 `sentence_id`일 때
   - `MEDIA_NOT_LINKED_TO_CHILD` (400) — 고를 수 있는 사진이 아닐 때(영상·음성메모 포함). 고를 수 있는 사진은 그 원아·그 날짜에 LLM 근거로 쓸 수 있는 **사진**(`type == photo`, `llm_allowed`, 귀속 원아 전원 ③ 동의, media `collect_media_for_llm`)입니다 — 다른 아이가 함께 찍힌 사진이 학부모에게 나가지 않게 보수적으로 둡니다. 임시 결정(한상균)
   - `DRAFT_NOT_FOUND` (404) — 없는 초안일 때
@@ -359,7 +363,7 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 - 필드 이름은 `reviewed`입니다 — 임시 결정(한상균). 이미 승인된 초안을 다시 승인하면 멱등 200이 아니라 `409 DRAFT_NOT_APPROVABLE`입니다(`verified`가 아니므로) — 임시 결정(한상균).
 - [확인 필요: 한상균] 정은과 함께 승인 차단 조건(`DraftDecisionLog`)을 정해야 합니다. 지금은 agents가 검증을 통과한 초안만 `verified`로 저장하므로 `status` 검사로 대신합니다.
 
-### `POST /api/v1/drafts/{draft_id}/reopen` — 교사용: 승인을 되돌려 다시 검토
+### `POST /api/v1/drafts/{draft_id}/reopen` — 교사용: 승인 또는 회수를 되돌려 다시 검토
 
 - 쓰는 화면: 초안 검토/왼쪽 원아 목록("다시 검토하기")
 - 요구사항: (미정) 승인을 되돌리는 경로의 FR 번호가 테크스펙에 없습니다
@@ -371,9 +375,10 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 ```
 
 - 응답 `200`: 상세와 같은 교사용 스키마입니다. `status`가 `approved` → `verified`로 돌아가고 `approved_at`은 `null`이 되며, `version`이 1 오릅니다. 되돌린 뒤에는 다시 수정(`PATCH`)하고 승인할 수 있습니다.
+- **회수한 알림장도 같은 경로로 되돌립니다** — `revoked` → `verified`입니다. 임시 결정(한상균). 회수본을 고쳐 다시 게시하는 첫 단계입니다.
 - **게시한 알림장은 되돌릴 수 없습니다** — `published_at`이 있으면 `409 DRAFT_ALREADY_PUBLISHED`입니다. 이미 학부모에게 나갔으므로 회수(`POST /api/v1/drafts/{draft_id}/revoke`)가 따로 필요합니다(H-1).
 - 되돌린 사실은 `RevisionLog`(action=reopen)에 남깁니다 — 임시 결정(한상균), 테크스펙 ⑤ RevisionLog.
-- 에러: 승인 상태가 아니면 `409 DRAFT_NOT_APPROVED`, 버전이 다르면 `409 DRAFT_VERSION_CONFLICT`, 없는 초안이면 `404 DRAFT_NOT_FOUND`, 다른 어린이집 원아의 초안이면 `403 CHILD_ACCESS_DENIED`입니다.
+- 에러: 승인 또는 회수 상태가 아니면 `409 DRAFT_NOT_APPROVED`, 버전이 다르면 `409 DRAFT_VERSION_CONFLICT`, 없는 초안이면 `404 DRAFT_NOT_FOUND`, 다른 어린이집 원아의 초안이면 `403 CHILD_ACCESS_DENIED`입니다.
 
 ### `POST /api/v1/publications` — 교사용: 승인된 알림장을 골라 학부모에게 게시(일괄, 건별 결과)
 
@@ -384,7 +389,7 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
   - **교사가 지금 승인할 수 있는 초안(`verified`)이 모두 승인돼야** 게시 버튼이 열립니다. 보고 넘긴 것과 아직 안 본 것을 구분할 수 없게 되기 때문입니다.
   - 승인할 수 없는 상태(`draft`·`unclassified`·모르는 값)와 초안이 없는 원아(자료 없음)는 **게시를 막지 않습니다** — 기다려도 교사가 할 수 있는 것이 없는데 막으면 그날을 영영 못 닫습니다. 대신 **게시 확인 모달이 "초안이 없는 N명"과 "초안이 아직 준비되지 않은 N명"을 나눠 알려 줍니다.** 조용히 빠지면 교사가 다 보냈다고 믿습니다(#107 리뷰 송유진 님).
   - 승인한 원아라도 교사가 **게시 확인 모달에서 체크를 풀어 이번 게시에서 뺄 수 있습니다.** 조용히 빠지면 결석한 아이와 "등원했는데 자료가 안 잡힌" 아이를 교사가 구분할 수 없습니다.
-  - **게시를 마친 날짜는 닫힙니다.** 그 날짜의 초안 검토 화면은 "게시를 마쳤어요"만 보여 주고 수정·승인·게시를 막습니다. 게시본을 고치려면 회수(`POST /api/v1/drafts/{draft_id}/revoke`, 경로만)가 필요합니다.
+  - **게시를 마친 날짜는 닫힙니다.** 그 날짜의 초안 검토 화면은 "게시를 마쳤어요"만 보여 주고 수정·승인·게시를 막습니다. 게시본을 고치려면 회수(`POST /api/v1/drafts/{draft_id}/revoke`)가 필요합니다.
   - 따라서 한 날짜는 **"아무도 게시되지 않음"(검토 중)** 이거나 **"그날 게시분이 다 나감"(닫힘)** 둘 중 하나입니다. 한 원아만 게시된 상태는 이 흐름에서 나오지 않습니다(목 시드도 이 규칙을 따릅니다).
   - **건별 실패는 예외입니다** — 임시 결정(김진하). `results[]`에 `failed`가 섞이면 게시된 원아와 못 한 원아가 함께 남습니다. 이때는 날짜를 닫지 않고(완료 판정은 "승인했는데 아직 안 나간 초안이 없을 때") 화면에 실패한 원아를 알려 다시 올릴 수 있게 합니다. 교사가 이번 게시에서 뺀 원아도 같은 상태라 함께 다룹니다.
 - 위 게시 단위는 **FE 화면 규칙으로만** 둡니다 — 서버는 같은 날 두 번째 게시를 막지 않습니다. 건별 실패와 교사가 뺀 원아를 다시 올릴 수 있어야 하기 때문입니다. 이미 게시 중인 초안은 건별 `DRAFT_ALREADY_PUBLISHED`로 막힙니다. 임시 결정(한상균), 엄태은 #173 리뷰 동의.
@@ -430,6 +435,40 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 - 게시하면 `version`이 1 오르고 `DocumentPublication` 회차가 생깁니다(회수 기한 = 게시 시각 + 24시간). 최초 게시는 회차가 기록이라 `RevisionLog`를 따로 남기지 않고, 회수 뒤 다시 게시하면 `RevisionLog`(action=resend)를 남깁니다.
 - 승인과 게시를 나누고 일괄 게시로 합니다. `include_photos`는 게시 회차(`DocumentPublication`)에 저장합니다 — 임시 결정(한상균), 팀 확인 대기(#158 6번).
 - 학부모에게 보일 사진의 범위는 **고르는 단계에서** 위 제안(`llm_allowed`)과 같은 범위로 제한합니다(§PATCH `MEDIA_NOT_LINKED_TO_CHILD`) — 임시 결정(한상균). [확인 필요: 김동건] 이 범위를 media `collect_media_for_llm`에 맡기는 것
+
+### `POST /api/v1/drafts/{draft_id}/revoke` — 교사용: 게시한 알림장 회수
+
+- 쓰는 화면: 아직 없음(`DraftReviewPage`의 `TODO(김진하)`)
+- 요구사항: 테크스펙 파이프라인 9단계·흐름 D-6(게시 후 24시간 이내, 열람 후에는 회수 불가), H-1
+- 권한: 교사 — 같은 어린이집 원아의 초안만
+- 요청: `expected_version`만 보냅니다.
+
+```json
+{ "expected_version": 5 }
+```
+
+- 응답 `200`:
+
+```json
+{
+  "draft_id": "9f000000-0000-4000-8000-000000000001",
+  "publication_id": "9f000000-0000-4000-8000-000000000002",
+  "revoked_at": "2026-09-15T09:10:00Z",
+  "version": 6
+}
+```
+
+- 회수할 수 있는 조건은 세 가지입니다: 활성 게시 회차가 있고, 학부모가 **본문을 열기 전**이고(`first_viewed_at`, 목록만 본 것은 열람이 아닙니다), 회수 기한(게시 시각 + 24시간) 이내입니다.
+- 회수하면 회차의 `revoked_at`을 채우고, `status`를 `revoked`로, `approved_at`을 `null`로 바꾸고, `version`을 1 올리고, `RevisionLog`(action=revoke)를 남깁니다. 넷은 한 트랜잭션입니다 — 임시 결정(한상균). 학부모 목록에서 바로 사라지고 본문은 `404 PARENT_NOTE_NOT_FOUND`입니다.
+- 회수와 학부모 열람이 동시에 와도 회차 행의 UPDATE 한 문장으로 판단하므로 둘 중 하나만 성공합니다.
+- `revoked`인 문서는 잠깁니다. 고쳐서 다시 보내려면 `reopen` → `PATCH` → `approve` → `POST /publications` 순서입니다. 다시 게시하면 새 회차와 새 회수 기한이 생기고 `RevisionLog`(action=resend)를 남깁니다.
+- 에러:
+  - `DRAFT_VERSION_CONFLICT` (409) — `expected_version`이 현재 값과 다를 때. 회수도 함께 취소됩니다.
+  - `DRAFT_NOT_PUBLISHED` (409) — 활성 게시 회차가 없을 때(게시 전이거나 이미 회수함)
+  - `DRAFT_ALREADY_VIEWED` (409) — 학부모가 본문을 열었을 때
+  - `REVOKE_DEADLINE_PASSED` (409) — 회수 기한이 지났을 때
+  - `DRAFT_NOT_FOUND` (404) — 없는 초안일 때
+  - `CHILD_ACCESS_DENIED` (403) — 다른 어린이집 원아의 초안일 때
 
 ### `GET /api/v1/children/{child_id}/parent-notes` — 학부모용: 자녀의 게시된 알림장 목록
 
@@ -516,7 +555,6 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 
 | 메서드·경로 | 하는 일 | 단계 | BE 담당 |
 |---|---|---|---|
-| `POST /api/v1/drafts/{draft_id}/revoke` | 게시 회수(지금 화면 없음) | 경로만 | 한상균 |
 | `GET /api/v1/classes/{class_id}/unclassified-items` | 미분류 목록(전용 화면 없음) | 경로만 | 한상균 |
 | `POST /api/v1/unclassified-items/{item_id}/resolve` | 미분류 처리 | 경로만 | 한상균 |
 | `GET /api/v1/drafts/{draft_id}/read-receipts` | 보호자 확인(읽음) 현황 | 경로만 | 한상균 |

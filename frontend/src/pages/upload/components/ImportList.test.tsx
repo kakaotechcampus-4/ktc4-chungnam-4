@@ -21,4 +21,18 @@ describe("ImportList", () => {
     expect(screen.getByText("9KB")).toBeInTheDocument();
     expect(screen.getByText("3.0MB")).toBeInTheDocument();
   });
+
+  // KB는 올림이라 1MB 바로 아래 파일을 KB로 쓰면 '1024KB'가 됩니다.
+  it("1MB 바로 아래 파일은 1024KB가 아니라 MB로 보여 준다", () => {
+    useUploadQueue
+      .getState()
+      .addFiles([
+        new File([new Uint8Array(1024 * 1024 - 100)], "edge.jpg", { type: "image/jpeg" }),
+      ]);
+
+    render(<ImportList items={useUploadQueue.getState().items} />);
+
+    expect(screen.getByText("1.0MB")).toBeInTheDocument();
+    expect(screen.queryByText("1024KB")).not.toBeInTheDocument();
+  });
 });

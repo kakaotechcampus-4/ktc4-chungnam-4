@@ -13,6 +13,9 @@ import { RouteChildFallback } from "@/features/classify/RouteChildFallback";
 import { useRouteChild } from "@/features/classify/use-route-child";
 
 // 되돌릴 수 없는 동작이라 Figma대로 별도 화면에서 한 번 더 묻습니다.
+// Figma와 다르게 둔 곳: Figma 문구는 '이 기기에 저장된 정보'이지만, 기기에서 버리는 것은 등록 사진
+// 원본뿐이고 얼굴 특징정보는 서버에 저장했다가 서버에서 지웁니다(H-3, DELETE /children/{id}/face-embedding).
+// 개인정보를 어디서 처리하는지 잘못 알리지 않게 '서버에 저장된'으로 씁니다(10/30 배포 점검 8번).
 export function FaceDeletePage() {
   const route = useRouteChild();
   const { currentClass } = useCurrentClass();
@@ -66,12 +69,13 @@ export function FaceDeletePage() {
               </p>
               <p className="text-body text-ink-muted">
                 등록 사진(최대 3장)으로 만든 얼굴 특징정보
-                <br />이 기기에 저장된 자동 분류용 정보
+                <br />
+                서버에 저장된 자동 분류용 정보
               </p>
             </div>
           </div>
           <p className="text-lead text-ink-muted">
-            이 기기에서 사용하던 얼굴 특징정보를 삭제해요.
+            서버에 저장된 얼굴 특징정보를 삭제해요.
             <br />
             다시 자동 분류하려면 사진을 등록해야 해요.
           </p>

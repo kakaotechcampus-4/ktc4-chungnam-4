@@ -2,10 +2,15 @@ import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 
-import { childDraftsQueryOptions, documentsKeys } from "@/api/documents";
+import {
+  childDraftsQueryOptions,
+  documentsKeys,
+  publishedParentNotesQueryOptions,
+} from "@/api/documents";
 import { kstToday, shiftDate } from "@/lib/datetime";
-import { updateDb } from "@/mocks/db";
+import { readDb, updateDb } from "@/mocks/db";
 import { fixtureId } from "@/mocks/fixtures/ids";
+import { SUNSHINE_CLASS } from "@/mocks/fixtures/organization";
 import { apiPath, errorResponse } from "@/mocks/http";
 import { server } from "@/mocks/server";
 import { renderRoutes } from "@/test/render";
@@ -30,6 +35,19 @@ async function renderAndWait() {
   renderPage();
   await screen.findByRole("button", { name: /김도윤/ });
   await screen.findByRole("heading", { name: /작은 블록/ });
+}
+
+const DOYUN_NOTE = fixtureId("draft", 12);
+
+/** 다른 교사나 다른 탭에서 김도윤 초안의 첫 문장을 고쳐 버전이 오른 상황을 만듭니다. */
+function editDoyunNoteElsewhere() {
+  updateDb((db) => {
+    const draft = db.drafts[DOYUN_NOTE];
+    const first = draft?.sentences[0];
+    if (!draft || !first) throw new Error("김도윤 초안이 시드에 없습니다.");
+    draft.version += 1;
+    first.text = "다른 곳에서 고친 첫 문장이에요.";
+  });
 }
 
 describe("DraftReviewPage", () => {
@@ -70,6 +88,71 @@ describe("DraftReviewPage", () => {
     expect(screen.getByRole("button", { name: "게시하기" })).toBeDisabled();
   });
 
+  // 지난 날짜로 열어도 제목이 '오늘의 기록을 완성해요'였습니다(10/30 배포 점검 29번).
+  it("지난 날짜로 열면 제목에 '오늘의'를 붙이지 않는다", async () => {
+    await renderAndWait();
+    expect(screen.getByRole("heading", { name: "기록을 완성해요" })).toBeInTheDocument();
+  });
+
+  it("지난 날짜의 목록을 못 불러와도 제목에 '오늘의'를 붙이지 않는다", async () => {
+    server.use(
+      http.get(apiPath("/classes/:classId/drafts"), () =>
+        errorResponse(500, "INTERNAL_ERROR", "잠시 후 다시 시도해 주세요."),
+      ),
+    );
+    renderPage();
+    expect(await screen.findByText("잠시 후 다시 시도해 주세요.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "기록을 완성해요" })).toBeInTheDocument();
+  });
+
+  it("오늘 날짜면 제목이 '오늘의 기록을 완성해요'다", async () => {
+    renderRoutes([{ path: "/t/today/review/:childId", element: <DraftReviewPage /> }], {
+      initialEntry: `/t/today/review/${DOYUN}`,
+    });
+    expect(
+      await screen.findByRole("heading", { name: "오늘의 기록을 완성해요" }),
+    ).toBeInTheDocument();
+  });
+
+  // '사진 추가'가 꺼져 있는데 빈 상태 문구가 사진을 추가하라고 안내했습니다(10/30 배포 점검 25번).
+  it("자료 없는 원아의 빈 상태는 꺼진 사진 추가를 안내하지 않는다", async () => {
+    renderPage(fixtureId("child", 5)); // 정예린 — 시드에 초안이 없다
+    expect(
+      await screen.findByText("아직 이 아이의 기록이 없어요. 직접 작성할 수 있어요."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/사진을 추가하거나/)).not.toBeInTheDocument();
+  });
+
+  // '준비 중'이 스크린리더에만 읽혀, 화면을 보는 교사는 왜 눌리지 않는지 몰랐습니다(10/30 배포 점검 25번).
+  it("꺼진 사진 추가 타일은 준비 중이라고 화면에도 보여 준다", async () => {
+    await renderAndWait();
+    const tile = screen.getByRole("button", { name: "사진 추가 (준비 중)" });
+    expect(tile).toBeDisabled();
+    expect(tile).toHaveTextContent("준비 중");
+  });
+
+  // 본문을 못 받으면 초안이 있는데도 빈 상태와 직접 작성 칸이 떴습니다. 새로 써서 저장하면 이미
+  // 초안이 있어 실패합니다(11/01 검증에서 발견).
+  it("초안 본문을 못 불러오면 빈 상태 대신 실패를 알리고 다시 불러올 수 있다", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(apiPath("/drafts/:draftId"), () =>
+        errorResponse(500, "INTERNAL_ERROR", "잠시 문제가 생겼어요."),
+      ),
+    );
+    renderPage();
+
+    expect(await screen.findByText("초안을 불러오지 못했어요")).toBeInTheDocument();
+    expect(screen.getByText("잠시 문제가 생겼어요.")).toBeInTheDocument();
+    expect(screen.queryByText(/아직 이 아이의 기록이 없어요/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "직접 작성" })).not.toBeInTheDocument();
+
+    server.resetHandlers();
+    await user.click(screen.getByRole("button", { name: "다시 불러오기" }));
+
+    expect(await screen.findByRole("heading", { name: /작은 블록/ })).toBeInTheDocument();
+  });
+
   // 자료 없는 원아도 교사가 직접 써서 검토·승인할 수 있어야 한다.
   it("자료 없는 원아에게 직접 쓰면 초안이 생겨 승인할 수 있다", async () => {
     const user = userEvent.setup();
@@ -86,6 +169,66 @@ describe("DraftReviewPage", () => {
     await user.click(screen.getByRole("button", { name: "저장하기" }));
 
     await waitFor(() => expect(screen.getByRole("checkbox")).toBeEnabled());
+  });
+
+  // 저장을 기다리는 사이 다른 원아로 옮겨 쓰기 시작하면, 응답이 올 때 그 글이 지워졌습니다(11/01 검증에서 발견).
+  it("직접 쓴 초안을 저장하는 사이 다른 원아로 옮겨 쓴 글은 지우지 않는다", async () => {
+    const user = userEvent.setup();
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.post(apiPath("/children/:childId/drafts"), async () => {
+        await gate;
+      }),
+    );
+    const { queryClient } = renderPage(fixtureId("child", 5)); // 정예린 — 시드에 초안이 없다
+    await user.type(
+      await screen.findByRole("textbox", { name: "직접 작성" }),
+      "오늘은 그림책을 보았어요.",
+    );
+    await user.click(screen.getByRole("button", { name: "저장하기" }));
+
+    await user.click(screen.getByRole("button", { name: /박서아/ })); // 박서아도 시드에 초안이 없다
+    await user.type(screen.getByRole("textbox", { name: "직접 작성" }), "박서아의 글이에요.");
+    release();
+    await waitFor(() => expect(queryClient.isMutating()).toBe(0));
+
+    expect(screen.getByRole("textbox", { name: "직접 작성" })).toHaveValue("박서아의 글이에요.");
+  });
+
+  it("승인을 기다리는 사이 다른 원아로 옮겨 누른 확인 체크는 풀지 않는다", async () => {
+    const user = userEvent.setup();
+    // 최지우 초안도 검토 대기로 둔다(시드에서는 승인 완료).
+    updateDb((db) => {
+      const draft = db.drafts[fixtureId("draft", 42)];
+      if (!draft) throw new Error("최지우 초안이 시드에 없습니다.");
+      draft.status = "verified";
+      draft.approved_at = null;
+    });
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.post(apiPath("/drafts/:draftId/approve"), async () => {
+        await gate;
+      }),
+    );
+    const { queryClient } = renderPage();
+    await screen.findByRole("heading", { name: /작은 블록/ });
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+
+    await user.click(screen.getByRole("button", { name: /최지우/ }));
+    await screen.findByRole("heading", { name: /그림책 속 토끼/ });
+    await waitFor(() => expect(screen.getByRole("checkbox")).toBeEnabled());
+    await user.click(screen.getByRole("checkbox"));
+    release();
+    await waitFor(() => expect(queryClient.isMutating()).toBe(0));
+
+    expect(screen.getByRole("checkbox")).toBeChecked();
   });
 
   // 승인은 잠금이지만 게시 전까지는 되돌릴 수 있어야 한다.
@@ -293,6 +436,49 @@ describe("DraftReviewPage", () => {
     expect(screen.getByRole("button", { name: "검토 완료하고 승인하기" })).toBeDisabled();
   });
 
+  // 다른 곳에서 먼저 고친 초안을 다시 저장하면, 칸에 남은 옛 문장이 그 수정을 덮어썼습니다(11/01 검증에서 발견).
+  it("저장하다 버전이 밀리면 고치던 칸을 닫고 다른 곳에서 고친 본문을 보여 준다", async () => {
+    const user = userEvent.setup();
+    await renderAndWait();
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    const [, second] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
+    await user.type(second as HTMLElement, " 덧붙였어요.");
+    editDoyunNoteElsewhere();
+
+    await user.click(screen.getByRole("button", { name: "수정 완료" }));
+
+    expect(await screen.findByText("다른 곳에서 고친 첫 문장이에요.")).toBeInTheDocument();
+    expect(screen.queryAllByRole("textbox", { name: "초안 문장 수정" })).toHaveLength(0);
+    // 왜 칸이 닫혔는지 알 수 있게 실패 문구는 남깁니다.
+    expect(screen.getByText("다른 곳에서 먼저 고쳤어요. 새로 불러와 주세요.")).toBeInTheDocument();
+  });
+
+  it("편집하는 사이 새 본문을 받아도 시작할 때의 버전으로 저장해 다른 곳의 수정을 덮어쓰지 않는다", async () => {
+    const user = userEvent.setup();
+    let sent: DraftPatchRequest | null = null;
+    server.use(
+      http.patch(apiPath("/drafts/:draftId"), async ({ request }) => {
+        sent = (await request.clone().json()) as DraftPatchRequest;
+      }),
+    );
+    const { queryClient } = renderPage();
+    await screen.findByRole("heading", { name: /작은 블록/ });
+    const startVersion = readDb().drafts[DOYUN_NOTE]?.version;
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    editDoyunNoteElsewhere();
+    // 연결이 다시 이어질 때처럼 화면이 초안을 새로 받습니다. 칸에는 시작할 때의 문장이 그대로 있습니다.
+    await act(() => queryClient.invalidateQueries({ queryKey: documentsKeys.draft(DOYUN_NOTE) }));
+
+    const [, second] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
+    await user.type(second as HTMLElement, " 덧붙였어요.");
+    await user.click(screen.getByRole("button", { name: "수정 완료" }));
+
+    await waitFor(() => expect(sent).not.toBeNull());
+    expect(sent!.expected_version).toBe(startVersion);
+    expect(await screen.findByText("다른 곳에서 고친 첫 문장이에요.")).toBeInTheDocument();
+    expect(readDb().drafts[DOYUN_NOTE]?.sentences[0]?.text).toBe("다른 곳에서 고친 첫 문장이에요.");
+  });
+
   // 같은 원아라도 날짜가 바뀌면 다른 초안이라, 돌아와도 고치던 문장이 남으면 안 된다.
   it("기록 날짜를 바꿨다가 돌아오면 고치던 문장이 남지 않는다", async () => {
     const user = userEvent.setup();
@@ -322,6 +508,100 @@ describe("DraftReviewPage", () => {
 
     const [after] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
     expect((after as HTMLTextAreaElement).value).toMatch(/ 덧붙인 말$/);
+  });
+
+  // 같은 원아를 다시 눌러 편집을 버리던 길을 #209에서 막아서, 버리는 버튼을 따로 둡니다(#209 리뷰).
+  it("수정 취소를 누르면 고친 문장과 새 문장을 저장하지 않고 버린다", async () => {
+    const user = userEvent.setup();
+    let patched = false;
+    server.use(
+      http.patch(apiPath("/drafts/:draftId"), () => {
+        patched = true;
+      }),
+    );
+    await renderAndWait();
+
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    const [first] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
+    const original = (first as HTMLTextAreaElement).value;
+    await user.clear(first as HTMLElement);
+    await user.type(first as HTMLElement, "버릴 문장이에요.");
+    await user.click(screen.getByRole("button", { name: "+ 문장 추가" }));
+    await user.type(screen.getByRole("textbox", { name: "새 문장" }), "이것도 버려요.");
+    await user.click(screen.getByRole("button", { name: "수정 취소" }));
+
+    expect(screen.queryAllByRole("textbox", { name: "초안 문장 수정" })).toHaveLength(0);
+    expect(screen.getByText(original)).toBeInTheDocument();
+    expect(screen.queryByText("버릴 문장이에요.")).not.toBeInTheDocument();
+    expect(screen.queryByText("이것도 버려요.")).not.toBeInTheDocument();
+    expect(patched).toBe(false);
+
+    // 다시 수정을 시작하면 원래 문장부터 시작한다.
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    expect(screen.getAllByRole("textbox", { name: "초안 문장 수정" })[0]).toHaveValue(original);
+    expect(screen.queryByRole("textbox", { name: "새 문장" })).not.toBeInTheDocument();
+  });
+
+  it("빈 문장 안내가 떠 있어도 수정 취소로 빠져나오면 안내가 사라진다", async () => {
+    const user = userEvent.setup();
+    await renderAndWait();
+
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    const [first] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
+    await user.clear(first as HTMLElement);
+    await user.click(screen.getByRole("button", { name: "수정 완료" }));
+    expect(screen.getByText(/비어 있는 문장은 저장할 수 없어요/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "수정 취소" }));
+    expect(screen.queryByText(/비어 있는 문장은 저장할 수 없어요/)).not.toBeInTheDocument();
+  });
+
+  // 버린 뒤에도 '저장하지 못했어요'가 남으면 교사는 무엇을 다시 해야 하는지 헷갈립니다.
+  it("저장에 실패한 뒤 수정 취소를 누르면 실패 문구도 사라진다", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.patch(apiPath("/drafts/:draftId"), () =>
+        errorResponse(500, "INTERNAL_ERROR", "저장하지 못했어요."),
+      ),
+    );
+    await renderAndWait();
+
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    const [first] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
+    await user.type(first as HTMLElement, " 더 적었어요.");
+    await user.click(screen.getByRole("button", { name: "수정 완료" }));
+    expect(await screen.findByText("저장하지 못했어요.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "수정 취소" }));
+
+    expect(screen.queryAllByRole("textbox", { name: "초안 문장 수정" })).toHaveLength(0);
+    expect(screen.queryByText("저장하지 못했어요.")).not.toBeInTheDocument();
+  });
+
+  // 저장 중에 버리면 칸은 닫히는데 응답이 와서 고친 글이 그대로 저장됩니다.
+  it("저장하는 동안에는 수정 취소를 누를 수 없다", async () => {
+    const user = userEvent.setup();
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.patch(apiPath("/drafts/:draftId"), async () => {
+        await gate;
+      }),
+    );
+    await renderAndWait();
+
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+    const [first] = screen.getAllByRole("textbox", { name: "초안 문장 수정" });
+    await user.type(first as HTMLElement, " 더 적었어요.");
+    await user.click(screen.getByRole("button", { name: "수정 완료" }));
+
+    expect(screen.getByRole("button", { name: "수정 취소" })).toBeDisabled();
+    release();
+    await waitFor(() =>
+      expect(screen.queryAllByRole("textbox", { name: "초안 문장 수정" })).toHaveLength(0),
+    );
   });
 
   // 교사가 새로 쓴 문장은 원문 근거가 없으므로 밑줄·클릭 없이 문단으로만 보인다.
@@ -502,6 +782,92 @@ describe("DraftReviewPage", () => {
       );
       expect(after.length).toBe(before.length + 1);
     });
+  });
+
+  // 알림장 게시판 명단은 반의 초안 목록 키 아래에 있어 같이 비워집니다. 따로 부르던 비우기를 지웠으므로
+  // 고정해 둡니다. 안 비워지면 직전에 본 명단이 남아, 방금 게시한 알림장이 게시판에 바로 보이지 않습니다.
+  it("게시하면 알림장 게시판 명단 캐시도 비운다", async () => {
+    const user = userEvent.setup();
+    const { queryClient } = renderPage();
+    await screen.findByRole("heading", { name: /작은 블록/ });
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+
+    // 승인도 반의 목록을 비우므로, 승인한 뒤에 명단을 받아 둬야 게시가 비우는지 볼 수 있습니다.
+    const notesKey = documentsKeys.publishedNotes(SUNSHINE_CLASS.class_id);
+    await queryClient.fetchQuery(publishedParentNotesQueryOptions(SUNSHINE_CLASS.class_id));
+    expect(queryClient.getQueryState(notesKey)?.isInvalidated).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+    await user.click(await screen.findByRole("button", { name: "게시하기" }));
+
+    await waitFor(() => expect(queryClient.getQueryState(notesKey)?.isInvalidated).toBe(true));
+  });
+
+  // 지난 날짜를 게시해도 발행 완료 화면이 오늘로 보였습니다. 요청 때의 날짜를 넘겨야 합니다(10/31 #209 검증에서 발견).
+  it("모두 게시되면 게시한 날짜를 발행 완료 화면에 넘긴다", async () => {
+    const user = userEvent.setup();
+    const { router } = renderRoutes(
+      [
+        { path: "/t/today/review/:childId", element: <DraftReviewPage /> },
+        { path: "/t/notes/publish/done", element: <p>발행 완료</p> },
+      ],
+      { initialEntry: `/t/today/review/${DOYUN}?record_date=${YESTERDAY}` },
+    );
+    await screen.findByRole("heading", { name: /작은 블록/ });
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+    await user.click(await screen.findByRole("button", { name: "게시하기" }));
+
+    expect(await screen.findByText("발행 완료")).toBeInTheDocument();
+    expect(router.state.location.state).toMatchObject({ recordDate: YESTERDAY });
+  });
+
+  // 응답을 기다리는 사이 날짜를 옮기면 화면의 날짜는 이미 바뀌어 있습니다. 그 날짜로 고르면 게시한
+  // 날짜의 목록은 그대로 남아, 돌아왔을 때 게시 전 상태가 보입니다(10/31 #209 검증에서 발견).
+  it("게시를 기다리는 사이 날짜를 옮겨도 게시한 날짜의 목록을 비운다", async () => {
+    const user = userEvent.setup();
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.post(apiPath("/publications"), async ({ request }) => {
+        const body = (await request.json()) as PublicationRequest;
+        await gate;
+        // 하나를 실패로 두어 발행 완료 화면으로 넘어가지 않게 합니다.
+        return HttpResponse.json({
+          results: body.items.map((item, index) => ({
+            draft_id: item.draft_id,
+            child_id: index === 0 ? DOYUN : fixtureId("child", 2),
+            status: index === 0 ? "failed" : "published",
+            parent_note_id: index === 0 ? null : item.draft_id,
+            version: null,
+            published_at: null,
+            error_code: index === 0 ? "DRAFT_VERSION_CONFLICT" : null,
+          })),
+        });
+      }),
+    );
+    const { router, queryClient } = renderPage();
+    await screen.findByRole("heading", { name: /작은 블록/ });
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+    await user.click(await screen.findByRole("button", { name: "게시하기" }));
+
+    await act(() =>
+      router.navigate(`/t/today/review/${DOYUN}?record_date=${shiftDate(YESTERDAY, -1)}`),
+    );
+    const published = documentsKeys.classDrafts(SUNSHINE_CLASS.class_id, YESTERDAY);
+    expect(queryClient.getQueryState(published)?.isInvalidated).toBe(false);
+
+    release();
+    await waitFor(() => expect(queryClient.getQueryState(published)?.isInvalidated).toBe(true));
   });
 
   // 게시는 HTTP 200 안에서 건별로 성공·실패가 옵니다. 실패를 두고 발행 완료로 넘어가면
@@ -763,11 +1129,67 @@ describe("DraftReviewPage", () => {
     expect(screen.getByRole("checkbox")).not.toBeChecked();
     expect(screen.getByRole("checkbox")).toBeDisabled();
     expect(screen.getByRole("button", { name: "검토 완료하고 승인하기" })).toBeDisabled();
-    expect(screen.getByText("수정을 마치면 승인할 수 있어요.")).toBeInTheDocument();
+    expect(screen.getByText("수정을 마쳐야 승인하고 게시할 수 있어요.")).toBeInTheDocument();
 
     // "수정 완료"로 빠져나오면 다시 승인할 수 있다.
     await user.click(screen.getByRole("button", { name: "수정 완료" }));
     await waitFor(() => expect(screen.getByRole("checkbox")).toBeEnabled());
+  });
+
+  // 승인을 기다리는 사이 수정을 시작하면, 승인된 초안에 고치던 칸만 남습니다(11/01 검증에서 발견).
+  it("승인을 기다리는 동안에는 직접 수정을 누를 수 없다", async () => {
+    const user = userEvent.setup();
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.post(apiPath("/drafts/:draftId/approve"), async () => {
+        await gate;
+      }),
+    );
+    await renderAndWait();
+
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+
+    expect(screen.getByRole("button", { name: "직접 수정" })).toBeDisabled();
+    release();
+    expect(await screen.findByRole("button", { name: "다시 검토하기" })).toBeInTheDocument();
+  });
+
+  // 고치던 초안을 다른 곳에서 승인하면 "수정 완료"가 사라져 빠져나갈 길이 없었고, 게시가 열려
+  // 화면의 고친 글 대신 승인본이 나갈 수 있었습니다(11/01 검증에서 발견).
+  it("수정하는 사이 다른 곳에서 승인되면 수정 취소로 빠져나오고, 그동안 게시는 잠긴다", async () => {
+    const user = userEvent.setup();
+    const { queryClient } = renderPage();
+    await screen.findByRole("heading", { name: /작은 블록/ });
+    await user.click(screen.getByRole("button", { name: "직접 수정" }));
+
+    updateDb((db) => {
+      const draft = db.drafts[fixtureId("draft", 12)];
+      if (!draft) throw new Error("김도윤 초안이 시드에 없습니다.");
+      draft.status = "approved";
+      draft.version += 1;
+      draft.approved_at = `${YESTERDAY}T07:00:00Z`;
+    });
+    // 연결이 다시 이어질 때처럼 화면이 초안과 명단을 새로 받습니다.
+    await act(() => queryClient.invalidateQueries());
+    await screen.findByRole("button", { name: /김도윤.*검토 완료/ });
+
+    expect(screen.queryByRole("button", { name: "수정 완료" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "게시하기" })).toBeDisabled();
+    // 게시하기가 왜 잠겼는지, 무엇을 누르면 되는지 화면에 남아야 한다.
+    expect(
+      screen.getByText("그 사이 승인돼 더 고칠 수 없어요. 수정을 취소해야 게시할 수 있어요."),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "수정 취소" }));
+
+    expect(screen.queryByText(/수정을 취소해야 게시할 수 있어요/)).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("textbox", { name: "초안 문장 수정" })).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "다시 검토하기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled();
   });
 
   // 무엇이 막혔는지 알려 줘야 교사가 다음 행동을 고를 수 있다(고정 문구 대신 응답 message).

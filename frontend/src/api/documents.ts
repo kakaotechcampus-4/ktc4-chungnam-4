@@ -67,6 +67,12 @@ export type {
 // 초안·게시·학부모 알림장 요청과 query key는 이 파일에서만 만듭니다(frontend/CLAUDE.md §데이터).
 // 교사용(/drafts)과 학부모용(/parent-notes)은 경로와 스키마가 다릅니다. 학부모 응답에는 상태·버전·근거가 없습니다.
 export const documentsKeys = {
+  /**
+   * 반의 초안 목록 전부(날짜별 목록과 알림장 명단). 초안을 바꾼 뒤 비울 때 씁니다 — 응답을 기다리는
+   * 사이 교사가 날짜를 옮기면 화면의 날짜는 이미 바뀌어 있어서, 날짜로 고르면 요청한 날짜가 아닌
+   * 다른 날짜의 목록을 비웁니다.
+   */
+  classDraftLists: (classId: string) => ["classes", classId, "drafts"] as const,
   classDrafts: (classId: string, recordDate: string) =>
     ["classes", classId, "drafts", recordDate] as const,
   /** 반에서 게시된 알림장이 있는 원아(알림장 명단) */

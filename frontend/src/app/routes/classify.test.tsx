@@ -645,6 +645,16 @@ describe("얼굴 정보", () => {
     expect(await screen.findByText("얼굴 정보를 삭제했어요.")).toBeVisible();
   });
 
+  // 얼굴 특징정보는 서버에 저장하고 서버에서 지웁니다. '이 기기에 저장된'이라고 하면 개인정보를
+  // 어디서 처리하는지 잘못 알립니다(10/30 배포 점검 8번).
+  it("삭제 화면은 얼굴 특징정보를 서버에서 지운다고 안내한다", async () => {
+    renderAt(`/t/children/${DOYUN}/face/delete`);
+
+    expect(await screen.findByText(/서버에 저장된 얼굴 특징정보를 삭제해요/)).toBeVisible();
+    expect(screen.getByText(/서버에 저장된 자동 분류용 정보/)).toBeVisible();
+    expect(screen.queryByText(/이 기기/)).not.toBeInTheDocument();
+  });
+
   it("삭제에 실패하면 화면에 남아 이유를 보여 준다", async () => {
     server.use(
       http.delete(apiPath("/children/:childId/face-embedding"), () =>
