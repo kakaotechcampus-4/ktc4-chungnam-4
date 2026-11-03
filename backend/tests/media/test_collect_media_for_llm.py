@@ -205,6 +205,62 @@ def test_구간_시작_시각이_없으면_맨_뒤로_보낸다(db: Session) -> 
     assert [part.raw_text for part in item.transcript] == ["하나", "둘", "멘트 없음"]
 
 
+def test_교사가_뺀_발화는_싣지_않는다(db: Session) -> None:
+    """교사가 발화 확인에서 뺀 것은 초안 근거로 가지 않습니다 (FR-14, docs/api/agents.md 5단계)."""
+    voice = add_media(db, [DOYUN], type="voice_memo")
+    db.add_all(
+        [
+            TranscriptSegment(
+                media_id=voice.id, start_time=0.0, raw_text="남김", source="voice_memo"
+            ),
+            TranscriptSegment(
+                media_id=voice.id,
+                start_time=3.0,
+                raw_text="뺌",
+                source="voice_memo",
+                excluded=True,
+            ),
+        ]
+    )
+    db.flush()
+
+    [item] = service.collect_media_for_llm(db, DOYUN, DAY)
+
+    assert [part.raw_text for part in item.transcript] == ["남김"]
+
+
+def test_발화는_교사가_고친_문장과_화자를_함께_싣는다(db: Session) -> None:
+    """perception 입력(segment_id·text·speaker·source)을 만들 수 있게 그대로 넘깁니다."""
+    video = add_media(db, [DOYUN], type="video")
+    edited = TranscriptSegment(
+        media_id=video.id,
+        start_time=0.0,
+        raw_text="노픈 타블 만드러써요",
+        text="높은 탑을 만들었어요",
+        speaker="child",
+        source="video_audio",
+    )
+    untouched = TranscriptSegment(
+        media_id=video.id, start_time=4.0, raw_text="그대로", source="video_audio"
+    )
+    db.add_all([edited, untouched])
+    db.flush()
+
+    [item] = service.collect_media_for_llm(db, DOYUN, DAY)
+
+    first, second = item.transcript
+    assert (first.segment_id, first.text, first.speaker, first.source) == (
+        edited.id,
+        "높은 탑을 만들었어요",
+        "child",
+        "video_audio",
+    )
+    assert (
+        first.raw_text == "노픈 타블 만드러써요"
+    )  # 원문도 남깁니다(perception의 "멘트 없음" 판정)
+    assert (second.text, second.speaker) == ("그대로", None)  # 고치기 전이면 원문과 같음
+
+
 def test_없으면_빈_리스트이고_동의_판정도_부르지_않는다(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

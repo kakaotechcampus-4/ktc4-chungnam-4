@@ -179,6 +179,17 @@ class InvalidCredentials(AidamError):
     status_code = 401
 
 
+class AccountAlreadyExists(AidamError):
+    """이 이메일로 가입한 계정이 이미 있습니다 (회원가입).
+
+    로그인과 달리 가입은 이유를 알려야 다음 행동(로그인·비밀번호 찾기)으로 갈 수 있어 구분합니다.
+    메시지에 이메일을 넣지 않습니다 (H-4).
+    """
+
+    code = "ACCOUNT_ALREADY_EXISTS"
+    status_code = 409
+
+
 class InvalidToken(AidamError):
     """토큰이 위조됐거나 만료됐습니다. 사유를 구분하지 않습니다."""
 
@@ -236,6 +247,20 @@ class MediaDeleted(AidamError):
 
     code = "MEDIA_DELETED"
     status_code = 409
+
+
+class MediaHasNoAudio(AidamError):
+    """사진처럼 소리가 없는 미디어의 발화를 찾았습니다. 발화는 영상·음성메모에만 있습니다."""
+
+    code = "MEDIA_HAS_NO_AUDIO"
+    status_code = 400
+
+
+class TranscriptSegmentNotFound(AidamError):
+    """알 수 없는 발화 구간입니다."""
+
+    code = "TRANSCRIPT_SEGMENT_NOT_FOUND"
+    status_code = 404
 
 
 class DuplicateChildLink(AidamError):
@@ -364,6 +389,13 @@ class CenterNotFound(AidamError):
 
     code = "CENTER_NOT_FOUND"
     status_code = 404
+
+
+class CenterAccessDenied(AidamError):
+    """교사가 소속되지 않은 어린이집입니다. 소속이 없는 교사도 여기에 걸립니다."""
+
+    code = "CENTER_ACCESS_DENIED"
+    status_code = 403
 
 
 class PlanNotFound(AidamError):

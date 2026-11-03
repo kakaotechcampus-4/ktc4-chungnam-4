@@ -5,10 +5,13 @@
 """
 
 import logging
-from collections.abc import Sequence
+import tempfile
+import time as clock
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from functools import cache
+from pathlib import Path
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
@@ -16,10 +19,11 @@ import boto3
 from botocore.client import BaseClient
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
-from sqlalchemy import select
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.orm import Session
 
 from core.config import get_settings
+from core.database import SessionLocal
 from core.exceptions import (
     AidamError,
     ClientPhotoIdConflict,
@@ -27,13 +31,16 @@ from core.exceptions import (
     InvalidAttributionMethod,
     MediaAssetNotFound,
     MediaDeleted,
+    MediaHasNoAudio,
     MediaTypeNotAllowed,
     MediaUploadMismatch,
     MediaUploadNotFound,
     StorageNotConfigured,
+    TranscriptSegmentNotFound,
     UploadBatchTooLarge,
 )
 from domains.audit import service as audit
+from domains.media import audio, stt
 from domains.media.models import MediaAsset, MediaChildLink, MediaUpload, TranscriptSegment
 from domains.organization.service import (
     ensure_children_in_class,
@@ -124,6 +131,40 @@ def save_attributions(
     return links
 
 
+def save_child_links(
+    db: Session,
+    *,
+    media_id: UUID,
+    center_id: UUID | None,
+    attributions: Sequence[Attribution],
+    llm_allowed: bool,
+) -> tuple[MediaAsset, list[MediaChildLink]]:
+    """교사가 고른 귀속과 `llm_allowed`를 저장합니다 (FR-04, FR-14, `PUT /media/{id}/child-links`).
+
+    주로 영상·음성에 씁니다. 교사 확인 전에 먼저 올라와 완료 통지 때 귀속이 없으므로, 서버
+    전송 단계에서 교사가 그 파일에 나온다고 고른 아이들을 파일 단위로 저장합니다(10/29 #163).
+    사진도 받고 규칙은 같습니다. 저장 규칙(전체 교체·짝 검사·`attributed_at`)은
+    `save_attributions`를 따릅니다.
+
+    - 없는 미디어: `MediaAssetNotFound`(404)
+    - 다른 어린이집 반의 미디어: `ClassAccessDenied`(403) — 판정을 먼저 해서 남의 미디어의
+      원아 소속을 알려 주지 않습니다
+    - 파기된 미디어: `MediaDeleted`(409). 파일이 없어 근거로 쓸 수 없으니 귀속도 받지 않습니다 —
+      임시 결정(김동건). 재발급처럼 반 판정 뒤에 봐서 남의 미디어가 파기됐는지 알려 주지 않습니다
+    - 미디어가 속한 반의 원아가 아님: `ChildNotInClass`(400)
+    - 검사에 걸리면 아무것도 바꾸지 않습니다. flush만 하므로 커밋은 부르는 쪽이 합니다.
+    """
+    asset = db.get(MediaAsset, media_id)
+    if asset is None:
+        raise MediaAssetNotFound("파일을 찾을 수 없어요.")
+    ensure_class_access(db, asset.class_id, center_id)
+    if asset.storage_tier == "deleted":
+        raise MediaDeleted("보관 기간이 끝나 삭제된 파일이에요.")
+    ensure_children_in_class(db, asset.class_id, [link.child_id for link in attributions])
+    links = save_attributions(db, media_id, attributions, llm_allowed)
+    return asset, links
+
+
 # ---------------------------------------------------------------------------
 # LLM 근거용 미디어 (agents 근거 수집, #34)
 # ---------------------------------------------------------------------------
@@ -138,11 +179,20 @@ _FACE_CONSENT_TYPE = "face_feature"
 
 @dataclass(frozen=True)
 class TranscriptPart:
-    """영상·음성의 STT 구간. raw_text에는 실명 호명이 들어 있어 LLM 전에 비식별화합니다 (H-2)."""
+    """영상·음성의 STT 구간. raw_text·text에는 실명 호명이 들어 있어 LLM 전에 비식별화합니다 (H-2).
+
+    교사가 뺀 발화(`excluded`)는 싣지 않습니다. 나머지 필드는 perception의 발화 입력
+    (`tools/perception/types.py` `TranscriptSegmentInput`)을 만들 때 씁니다 — 화자가 없는 영상
+    발화를 빼는 것은 perception이 합니다.
+    """
 
     start_time: float | None
     end_time: float | None
     raw_text: str
+    segment_id: UUID | None = None
+    text: str | None = None  # 교사가 고친 문장. 고치지 않았으면 raw_text와 같음
+    speaker: str | None = None  # child / teacher_observation / together / null
+    source: str | None = None  # video_audio / voice_memo
 
 
 @dataclass(frozen=True)
@@ -230,12 +280,24 @@ def collect_media_for_llm(db: Session, child_id: UUID, target_date: date) -> lis
     segments: dict[UUID, list[TranscriptPart]] = {}
     for segment in db.scalars(
         select(TranscriptSegment)
-        .where(TranscriptSegment.media_id.in_(media_ids))
+        .where(
+            TranscriptSegment.media_id.in_(media_ids),
+            # 교사가 근거에서 뺀 발화 (FR-14, docs/api/agents.md 5단계)
+            TranscriptSegment.excluded.is_(False),
+        )
         # start_time이 nullable이라 NULL 위치가 DB마다 달라서(PostgreSQL은 뒤, SQLite는 앞) 고정합니다.
         .order_by(TranscriptSegment.start_time.nulls_last())
     ):
         segments.setdefault(segment.media_id, []).append(
-            TranscriptPart(segment.start_time, segment.end_time, segment.raw_text)
+            TranscriptPart(
+                segment.start_time,
+                segment.end_time,
+                segment.raw_text,
+                segment_id=segment.id,
+                text=transcript_text_of(segment),
+                speaker=segment.speaker,
+                source=segment.source,
+            )
         )
 
     evidence = []
@@ -262,8 +324,9 @@ def find_unready_media(
 ) -> list[UUID]:
     """초안 생성 작업을 시작하기 전에, 보낸 미디어 중 아직 쓸 수 없는 것을 돌려줍니다.
 
-    완료 통지 전(행 없음)이거나, 귀속 저장 전(`attributed_at` null)이거나, 파기됐거나, 이 반·날짜
-    (KST)의 자료가 아니면 걸립니다 (docs/api/agents.md `MEDIA_NOT_READY`). 보낸 순서를 지킵니다.
+    완료 통지 전(행 없음)이거나, 귀속 저장 전(`attributed_at` null)이거나, STT 중(`transcript_status`
+    pending)이거나, 파기됐거나, 이 반·날짜(KST)의 자료가 아니면 걸립니다 (docs/api/agents.md
+    `MEDIA_NOT_READY`). STT가 failed면 발화 없이 쓰므로 준비된 것으로 봅니다. 보낸 순서를 지킵니다.
     """
     start, end = _kst_day_range(target_date)
     ready = set(
@@ -275,6 +338,11 @@ def find_unready_media(
                 MediaAsset.captured_at >= start,
                 MediaAsset.captured_at < end,
                 MediaAsset.attributed_at.is_not(None),
+                # 사진은 null. STT 전에 시작하면 발화 없이 초안이 만들어집니다(#219 리뷰)
+                or_(
+                    MediaAsset.transcript_status.is_(None),
+                    MediaAsset.transcript_status != TRANSCRIPT_PENDING,
+                ),
             )
         )
     )
@@ -546,6 +614,7 @@ def get_signed_urls(db: Session, media_ids: Sequence[UUID]) -> list[SignedMediaU
 # TODO(donggeon): target_type·action 값은 임시 결정(김동건). 한상균 님 확인 대기(media-face.md)
 _AUDIT_TARGET_TYPE = "media_asset"
 _AUDIT_ACTION_REISSUE_URL = "reissue_playback_url"
+_AUDIT_ACTION_VIEW_TRANSCRIPT = "view_transcript"
 
 
 def reissue_signed_url(
@@ -994,6 +1063,8 @@ class CompletedUpload:
     asset: MediaAsset
     child_links: list[MediaChildLink]
     created: bool
+    # 새로 확정한 영상·음성이면 그 id. 부르는 쪽이 커밋한 뒤 STT 작업을 넣습니다
+    to_transcribe: UUID | None = None
 
 
 def complete_upload(
@@ -1015,8 +1086,8 @@ def complete_upload(
     부르는 쪽이 하고, 중간에 예외가 나면 부르는 쪽이 롤백해 아무것도 남지 않습니다.
 
     - **사진은 귀속이 필수, 영상·음성은 귀속을 받지 않습니다.** 영상·음성은 교사 확인 전에
-      먼저 올라오므로 귀속 없이 만들고(`llm_allowed` false, `attributed_at` null), 교사가
-      발화 검수를 확정할 때 서버가 발화 연결로 귀속을 계산합니다(다음 PR, #132 리뷰).
+      먼저 올라오므로 귀속 없이 만들고(`llm_allowed` false, `attributed_at` null), 서버 전송
+      단계에서 `save_child_links`로 파일 단위 귀속을 저장합니다(10/29 #163).
       요청 모양 검사는 스키마가 먼저 하고, 여기서는 잘못 불린 경우만 막습니다.
     - **같은 파일을 다시 보내면** 새로 만들지 않고 기존 것을 돌려줍니다. 사진이면 보낸 귀속으로
       전체 교체합니다 — 응답이 끊겨 재전송해도 결과가 같습니다.
@@ -1065,6 +1136,7 @@ def complete_upload(
         size_bytes=verified.actual_size_bytes,
         storage_tier="original",
         model_version=model_version if is_photo else None,
+        transcript_status=None if is_photo else TRANSCRIPT_PENDING,
     )
     db.add(asset)
     db.flush()
@@ -1072,4 +1144,208 @@ def complete_upload(
     if attribution is not None:
         save_attributions(db, asset.id, attribution.child_links, attribution.llm_allowed)
     db.flush()
-    return CompletedUpload(asset=asset, child_links=_child_links_of(db, asset.id), created=True)
+    return CompletedUpload(
+        asset=asset,
+        child_links=_child_links_of(db, asset.id),
+        created=True,
+        to_transcribe=None if is_photo else asset.id,
+    )
+
+
+# STT 진행 상태 (MediaAsset.transcript_status, 파이프라인 1-B)
+TRANSCRIPT_PENDING = "pending"
+TRANSCRIPT_DONE = "done"
+TRANSCRIPT_FAILED = "failed"
+# 말소리 구간을 하나도 찾지 못했을 때 남기는 한 줄 (테크스펙 TranscriptSegment)
+NO_SPEECH_TEXT = "멘트 없음"
+_TRANSCRIPT_SOURCE = {"video": "video_audio", "voice_memo": "voice_memo"}
+
+
+def transcribe_media(media_id: str) -> None:
+    """영상·음성의 발화를 만듭니다 (NFR-08, FR-27, 파이프라인 1-B). Celery worker가 부릅니다.
+
+    S3 원본 → 음성 추출 → 말소리 구간을 28초 이하 조각으로 → 조각 동시 STT → 원본 기준
+    시각으로 `TranscriptSegment` 저장 → `transcript_status = done`.
+
+    - 말소리를 못 찾으면 STT를 부르지 않고 "멘트 없음" 한 줄로 done입니다.
+    - 음성 추출이나 STT가 끝내 실패하면 발화 없이 failed입니다. 화면은 "발화 없이 계속"을
+      보여 줍니다. 그 밖의 예외(코드 오류)는 올리고, 작업의 실패 훅이 failed로 바꿉니다.
+    - `pending`일 때만 처리합니다. 같은 작업이 두 번 와도 이미 끝난 것은 건드리지 않고,
+      교사가 손댄 발화(done 뒤에만 보임)를 지우지 않습니다.
+
+    원본은 서버 임시 폴더에 받았다가 작업이 끝나면 지웁니다. 로그에 발화 원문을 찍지 않습니다(H-4).
+    """
+    with SessionLocal() as session:
+        asset = session.get(MediaAsset, UUID(media_id))
+        if asset is None or asset.transcript_status != TRANSCRIPT_PENDING:
+            return
+        storage_key, source = asset.storage_url, _TRANSCRIPT_SOURCE[asset.type]
+
+    started = clock.monotonic()
+    try:
+        chunks = _speech_chunks(storage_key)
+        speech = stt.transcribe_chunks(chunks) if chunks else []
+    except (audio.AudioExtractionError, stt.SttError, ClientError, BotoCoreError) as error:
+        logger.warning("transcription failed for media %s: %s", media_id, type(error).__name__)
+        mark_transcription_failed(media_id)
+        return
+
+    with SessionLocal() as session:
+        # 이 작업만 pending을 done으로 바꿉니다. 행이 이미 지워진 경우 등은 아무것도 남기지 않습니다
+        session.execute(
+            delete(TranscriptSegment).where(TranscriptSegment.media_id == UUID(media_id))
+        )
+        rows = [
+            TranscriptSegment(
+                media_id=UUID(media_id),
+                start_time=segment.start,
+                end_time=segment.end,
+                raw_text=segment.text,
+                source=source,
+                avg_logprob=segment.avg_logprob,
+            )
+            for segment in speech
+        ] or [TranscriptSegment(media_id=UUID(media_id), raw_text=NO_SPEECH_TEXT, source=source)]
+        session.add_all(rows)
+        updated = session.execute(
+            update(MediaAsset)
+            .where(MediaAsset.id == UUID(media_id))
+            .where(MediaAsset.transcript_status == TRANSCRIPT_PENDING)
+            .values(transcript_status=TRANSCRIPT_DONE)
+        ).rowcount
+        if updated == 0:
+            session.rollback()
+            return
+        session.commit()
+    logger.info(
+        "transcribed media %s: %d chunks, %d segments, %.1fs",
+        media_id,
+        len(chunks),
+        len(speech),
+        clock.monotonic() - started,
+    )
+
+
+def _speech_chunks(storage_key: str) -> list[audio.AudioChunk]:
+    """원본을 임시 폴더에 받아 음성만 뽑고 조각으로 나눕니다.
+
+    원본 파일은 메모리에 올리지 않지만, 뽑은 PCM 전체와 조각 WAV는 메모리에 올라갑니다.
+    60분 음성이면 최대 약 400MiB이고, 조각이 많으면 작업 상한(600초)도 넘을 수 있습니다(#218 리뷰).
+    TODO(donggeon): 음성메모 길이 상한을 둘지 팀 결정 대기 — 값은 스펙에 없어 미정
+    """
+    with tempfile.TemporaryDirectory(prefix="aidam-stt-") as folder:
+        path = Path(folder) / "source"
+        _s3_client(get_settings().s3_region).download_file(_bucket(), storage_key, str(path))
+        pcm = audio.extract_pcm(path)
+    return audio.split_speech(pcm)
+
+
+def mark_transcription_failed(media_id: str) -> None:
+    """STT를 끝내지 못했을 때 부릅니다. 이미 done인 것은 덮어쓰지 않습니다."""
+    with SessionLocal() as session:
+        session.execute(
+            update(MediaAsset)
+            .where(MediaAsset.id == UUID(media_id))
+            .where(MediaAsset.transcript_status == TRANSCRIPT_PENDING)
+            .values(transcript_status=TRANSCRIPT_FAILED)
+        )
+        session.commit()
+
+
+# ---------------------------------------------------------------------------
+# 교사 발화 확인 (FR-14, FR-27, `GET /media/{id}/transcript-segments`·`PATCH /transcript-segments/{id}`)
+# ---------------------------------------------------------------------------
+
+# PATCH로 바꿀 수 있는 칸. 발화에 아이를 붙이는 child_ids는 없앴습니다 — 귀속은 파일 단위입니다(#163)
+_EDITABLE_FIELDS = frozenset({"speaker", "excluded", "text"})
+
+
+def transcript_text_of(segment: TranscriptSegment) -> str:
+    """교사가 고친 문장. 고치기 전(null)이면 STT 원문과 같습니다 (테크스펙 TranscriptSegment)."""
+    return segment.raw_text if segment.text is None else segment.text
+
+
+@dataclass(frozen=True)
+class TranscriptView:
+    """발화 조회 결과. `segments`는 STT가 끝났을(`done`) 때만 채웁니다."""
+
+    asset: MediaAsset
+    transcript_status: str
+    segments: list[TranscriptSegment]
+
+
+def list_transcript_segments(
+    db: Session, *, media_id: UUID, teacher_id: UUID, center_id: UUID | None
+) -> TranscriptView:
+    """영상·음성의 발화 구간을 시작 시각 순으로 돌려줍니다 (FR-14, FR-27).
+
+    - 없는 미디어: `MediaAssetNotFound`(404)
+    - 다른 어린이집 반의 미디어: `ClassAccessDenied`(403). 판정을 먼저 해서 남의 미디어가 사진인지
+      알려 주지 않습니다
+    - 사진: `MediaHasNoAudio`(400)
+    - STT 전 업로드라 상태가 없는(null) 영상·음성은 `failed`로 봅니다 — 발화 없이 넘어갈 수 있게
+      하려는 것이고, `pending`으로 두면 화면이 끝없이 폴링합니다
+    - 열람 기록(AccessLog)은 **`done`이고 발화가 있을 때만** 남깁니다. 화면이 STT를 기다리며 2초마다
+      부르므로, 보여 준 원문이 없는 응답까지 남기면 로그가 쌓이기만 합니다 — 임시 결정(김동건).
+      flush만 하므로 라우터가 커밋한 뒤에 응답해야 합니다(NFR-05)
+    """
+    asset = db.get(MediaAsset, media_id)
+    if asset is None:
+        raise MediaAssetNotFound("파일을 찾을 수 없어요.")
+    ensure_class_access(db, asset.class_id, center_id)
+    if asset.type not in _TRANSCRIPT_SOURCE:
+        raise MediaHasNoAudio("사진에는 발화가 없어요.")
+
+    status = asset.transcript_status or TRANSCRIPT_FAILED
+    if status != TRANSCRIPT_DONE:
+        return TranscriptView(asset=asset, transcript_status=status, segments=[])
+    segments = list(
+        db.scalars(
+            select(TranscriptSegment)
+            .where(TranscriptSegment.media_id == media_id)
+            # NULL 위치가 DB마다 달라서 고정합니다("멘트 없음"은 시각이 없어 맨 뒤)
+            .order_by(TranscriptSegment.start_time.nulls_last(), TranscriptSegment.id)
+        )
+    )
+    if segments:
+        audit.record_access(
+            db,
+            actor_type="teacher",
+            actor_id=teacher_id,
+            target_type=_AUDIT_TARGET_TYPE,
+            target_id=media_id,
+            action=_AUDIT_ACTION_VIEW_TRANSCRIPT,
+        )
+        db.flush()
+    return TranscriptView(asset=asset, transcript_status=status, segments=segments)
+
+
+def update_transcript_segment(
+    db: Session, *, segment_id: UUID, center_id: UUID | None, changes: Mapping[str, object]
+) -> TranscriptSegment:
+    """교사가 고친 화자·문장·제외를 저장하고 `reviewed_at`을 지금으로 바꿉니다 (FR-14, FR-27).
+
+    `changes`에는 요청에 온 칸만 들어 있습니다. 값 검사(화자 값, 빈 문장)는 스키마가 먼저 합니다.
+
+    - 없는 발화: `TranscriptSegmentNotFound`(404)
+    - 다른 어린이집 반의 미디어: `ClassAccessDenied`(403)
+    - flush만 하므로 커밋은 부르는 쪽이 합니다.
+    """
+    unknown = set(changes) - _EDITABLE_FIELDS
+    if unknown:
+        raise ValueError(f"Unknown transcript fields: {sorted(unknown)}")
+    segment = db.get(TranscriptSegment, segment_id)
+    if segment is None:
+        raise TranscriptSegmentNotFound("발화를 찾을 수 없어요.")
+    asset = db.get(MediaAsset, segment.media_id)
+    ensure_class_access(db, asset.class_id, center_id)
+
+    if "speaker" in changes:
+        segment.speaker = changes["speaker"]
+    if "excluded" in changes:
+        segment.excluded = changes["excluded"]
+    if "text" in changes:
+        segment.text = changes["text"]
+    segment.reviewed_at = datetime.now(UTC)
+    db.flush()
+    return segment
