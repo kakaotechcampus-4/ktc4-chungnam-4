@@ -124,6 +124,10 @@ async function prepare(): Promise<Human> {
   // 그런데 `human.reset()`은 **설정도 전부 기본값으로 되돌립니다**(`src/human.ts`의
   // reset) — 그대로 두면 `maxDetected`가 1로, `filter`가 다시 켜진 채로 돌아갑니다.
   // `load()`가 넘긴 설정을 다시 합쳐 주므로(`human.ts`의 load) 여기서 되살립니다.
+  //
+  // **HUMAN 버전을 올릴 때 이 두 걸음이 아직 필요한지 다시 확인하세요.** 둘 다 HUMAN
+  // 내부 구현(모듈 전역 모델 캐시, reset이 설정을 덮어쓰는 것)에 기대고 있어서, 라이브러리
+  // 쪽이 바뀌면 조용히 어긋납니다(#226 재리뷰 송유진 님).
   human.reset();
   await human.load(FACE_CONFIG);
 
