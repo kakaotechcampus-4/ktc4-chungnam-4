@@ -15,6 +15,7 @@ import { File as NodeFile } from "node:buffer";
 import { http, HttpResponse } from "msw";
 
 import { isPhoto, useUploadQueue } from "@/features/upload-queue/upload-queue-store";
+import { prepareFaceModels } from "@/workers/face/client";
 import { readDb } from "@/mocks/db";
 import { fixtureId } from "@/mocks/fixtures/ids";
 import { apiPath, errorResponse } from "@/mocks/http";
@@ -58,6 +59,37 @@ describe("ProcessingPage", () => {
     const photos = useUploadQueue.getState().items.filter(isPhoto);
     expect(photos.map((item) => item.classify_state)).toEqual(["classified", "classified"]);
   }, 15000);
+
+  it("모델 준비가 실패하면 고른 사진을 지우지 않고 그 단계만 다시 시도한다", async () => {
+    vi.mocked(prepareFaceModels).mockRejectedValueOnce(new Error("load failed"));
+    useUploadQueue.getState().addFiles([photo("a.jpg")]);
+    const { router } = renderProcessing("/t/today/processing");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("분석 모델을 준비하지 못했어요");
+    await userEvent.setup().click(screen.getByRole("button", { name: "모델 준비 다시 시도" }));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/t/today/classification"));
+    expect(useUploadQueue.getState().items).toHaveLength(1);
+  });
+
+  it("기준 얼굴을 받지 못하면 분류 단계만 다시 시도한다", async () => {
+    let failed = false;
+    server.use(
+      http.get(apiPath("/classes/:classId/face-embeddings"), () => {
+        if (failed) return undefined;
+        failed = true;
+        return errorResponse(500, "INTERNAL_ERROR", "기준 얼굴을 불러오지 못했어요.");
+      }),
+    );
+    useUploadQueue.getState().addFiles([photo("a.jpg")]);
+    const { router } = renderProcessing("/t/today/processing");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("기준 얼굴을 불러오지 못했어요");
+    await userEvent.setup().click(screen.getByRole("button", { name: "분류 다시 시도" }));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/t/today/classification"));
+    expect(useUploadQueue.getState().items.filter(isPhoto)[0]?.classify_state).toBe("classified");
+  });
 
   it.each([false, true])(
     "미식별 얼굴 %s인 확정 사진을 안전하게 보내고 초안 검토로 간다",
