@@ -56,7 +56,13 @@ const FACE_CONFIG: Partial<Config> = {
     enabled: true,
     detector: { enabled: true, maxDetected: MAX_DETECTED_FACES },
     // 정렬. 끄면 잘라내는 그림이 달라져 벡터가 바뀝니다.
-    mesh: { enabled: true },
+    //
+    // `keepInvalid: true`가 핵심입니다. 기본값은 정렬 점수가 낮은 얼굴을 **버리는데**
+    // (`src/face/facemesh.ts`), 옆모습은 한쪽 눈이 가려져 그 대상이 됩니다. 버리면 사진에
+    // 없는 사람이 되어, 미동의 원아가 옆으로 찍혔을 때 미식별 얼굴로도 안 잡히고
+    // `has_unidentified_face`가 거짓이 됩니다 — 그 사진이 외부 LLM으로 나갑니다(H-2).
+    // 받아 두고 `usable`로 가릅니다(#226 재리뷰 송유진 님, #238 김동건 님 둘 다 찬성).
+    mesh: { enabled: true, keepInvalid: true },
     // 벡터를 만드는 모델(faceres).
     description: { enabled: true },
     // 아래는 얼굴 모델이지만 우리가 복사하지 않습니다. iris만 켜도 약 3MB가 늘어납니다.
@@ -200,6 +206,26 @@ export function resetFaceModels(): void {
  * 한 얼굴이라도 던지면 사진 전체가 실패합니다. 그 얼굴만 버리면 미식별 얼굴이 없는
  * 사진처럼 외부 AI에 전달될 수 있습니다(H-2).
  */
+/**
+ * 정렬이 제대로 된 얼굴인가 — 벡터를 믿고 대조에 써도 되는지입니다.
+ *
+ * **`score`가 아니라 `faceScore`를 봅니다.** `score`는 검출·정렬을 합친 값이라 옆모습도
+ * 검출 점수가 높으면 함께 올라갑니다. 정렬 점수만 따로 보는 `faceScore`가 "눈·코·입을
+ * 제대로 잡았나"에 해당합니다.
+ *
+ * **기준값은 아직 실측 전입니다(미정).** 합성 사진 옆모습 10장에서 7장이 0.01~0.08,
+ * 3장이 0.35~0.64였습니다(#226 진하 · #238 동건 님이 따로 재서 같은 값). 지금은 그 7장을
+ * 확실히 거르는 선에서 보수적으로 두고, 조원 실사진으로 다시 정합니다(#237).
+ * 0.2를 넘긴 3장은 이 기준으로 안 걸립니다 — `yaw`(얼굴 각도) 기준이 더 필요한지도
+ * 그때 함께 정합니다.
+ */
+export const MIN_MESH_SCORE = 0.2;
+
+function isUsable(face: FaceResult): boolean {
+  // faceScore가 없으면(모델 구성이 바뀌면) 믿을 수 없는 쪽으로 봅니다 — 애매하면 잠급니다(H-2).
+  return (face.faceScore ?? 0) >= MIN_MESH_SCORE;
+}
+
 function toDetectedFace(face: FaceResult): DetectedFace {
   if (face.embedding?.length !== FACE_DESCRIPTOR_LENGTH) {
     throw new FaceModelError(
@@ -215,6 +241,7 @@ function toDetectedFace(face: FaceResult): DetectedFace {
     // HUMAN의 score는 검출·정렬 점수를 합친 값입니다. 테크스펙 §온디바이스 모델의
     // confidence가 가리키는 "얼굴로 볼 만한 정도"가 이 값입니다.
     confidence: face.score,
+    usable: isUsable(face),
   };
 }
 

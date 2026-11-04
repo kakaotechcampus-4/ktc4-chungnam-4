@@ -44,9 +44,11 @@ function modelStats(loaded: Partial<Record<string, boolean>> = {}) {
 }
 
 /** HUMAN이 돌려주는 얼굴 하나. 길이만 바꿔 가며 씁니다. */
-function faceResult(descriptorLength: number | null, score = 0.9) {
+function faceResult(descriptorLength: number | null, score = 0.9, faceScore = 0.9) {
   return {
     score,
+    // 정렬(facemesh) 점수. score와 달리 "눈·코·입을 제대로 잡았나"만 봅니다.
+    faceScore,
     embedding: descriptorLength === null ? undefined : Array<number>(descriptorLength).fill(0.1),
   };
 }
@@ -98,8 +100,9 @@ describe("얼굴 인식 설정", () => {
         // 기본값 1이면 얼굴이 여럿이어도 하나만 돌려줘, 등록에서 multiple_faces를 가릴
         // 수 없고 단체 사진도 한 명만 잡힙니다.
         detector: { enabled: true, maxDetected: 20 },
-        // 정렬. 끄면 잘라내는 그림이 달라져 벡터가 바뀝니다.
-        mesh: { enabled: true },
+        // 정렬. 끄면 잘라내는 그림이 달라져 벡터가 바뀝니다. keepInvalid를 켜 두지 않으면
+        // HUMAN이 옆모습을 버려, 미동의 원아가 사진에 없는 사람이 됩니다(H-2).
+        mesh: { enabled: true, keepInvalid: true },
         // 벡터를 만드는 모델(faceres).
         description: { enabled: true },
         // iris도 얼굴 모델이지만 홍채 추적용이라 빼서 약 3MB를 아낍니다.
@@ -249,5 +252,43 @@ describe("얼굴 검출", () => {
 
     await expect(detectFaces(photo())).rejects.toThrow();
     expect(close).toHaveBeenCalledOnce();
+  });
+});
+
+// 옆모습은 정렬 점수가 낮습니다. keepInvalid로 받아 두고 여기서 usable=false로 표시해야
+// 미식별 얼굴로 잡혀 LLM 경로에서 빠집니다(H-2). 버리면 사진에 "없는 사람"이 됩니다.
+describe("정렬 점수", () => {
+  it("정렬 점수가 낮은 얼굴은 버리지 않고 usable=false로 돌려준다", async () => {
+    detectMock.mockResolvedValue({
+      face: [faceResult(FACE_DESCRIPTOR_LENGTH, 0.95, 0.05)],
+    });
+
+    const faces = await detectFaces(photo());
+
+    expect(faces).toHaveLength(1);
+    expect(faces[0]?.usable).toBe(false);
+  });
+
+  it("정렬이 된 얼굴은 usable=true다", async () => {
+    detectMock.mockResolvedValue({ face: [faceResult(FACE_DESCRIPTOR_LENGTH, 0.95, 0.9)] });
+
+    expect((await detectFaces(photo()))[0]?.usable).toBe(true);
+  });
+
+  // score는 검출·정렬을 합친 값이라 옆모습도 검출이 잘되면 높게 나옵니다. 그걸로 가르면
+  // 거르지 못합니다.
+  it("합산 score가 높아도 정렬 점수가 낮으면 usable=false다", async () => {
+    detectMock.mockResolvedValue({ face: [faceResult(FACE_DESCRIPTOR_LENGTH, 0.99, 0.05)] });
+
+    expect((await detectFaces(photo()))[0]?.usable).toBe(false);
+  });
+
+  // 모델 구성이 바뀌어 값이 안 오면 믿을 수 없는 쪽으로 봅니다 — 애매하면 잠급니다.
+  it("정렬 점수가 없으면 usable=false다", async () => {
+    detectMock.mockResolvedValue({
+      face: [{ score: 0.95, embedding: Array<number>(FACE_DESCRIPTOR_LENGTH).fill(0.1) }],
+    });
+
+    expect((await detectFaces(photo()))[0]?.usable).toBe(false);
   });
 });
