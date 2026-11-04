@@ -456,8 +456,8 @@ CONSENT_TYPES = ("personal_info", "activity_media", "face_feature")
 CONTRACT_STATUS_TRIAL = "trial"
 # 반 만들기 화면의 2택 문구를 표시용 age_group으로 씁니다 (FE types/api-draft/organization.ts AgeBand).
 _AGE_GROUP_LABELS = {AgeBand.INFANT: "만 0~2세", AgeBand.PRESCHOOL: "만 3~5세"}
-# 가입 코드 문자 — 헷갈리는 0/O, 1/I를 뺀 대문자·숫자. TODO(이한나): 임시 결정, #158 3번에서
-#   길이·문자셋·재발급 여부가 정해지면 _new_center_code만 고칩니다.
+# 가입 코드 문자 — 헷갈리는 0/O, 1/I를 뺀 대문자·숫자 8자리, 겹치면 다시 뽑습니다(#225 ⑦).
+# 재발급은 하지 않습니다(#225 B).
 _CENTER_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _CENTER_CODE_LENGTH = 8
 _CENTER_CODE_ATTEMPTS = 5
@@ -490,7 +490,7 @@ def create_center(
     교사 회원가입에서 auth가 부릅니다 — 교사 소속(`center_id`) 저장은 auth 몫이라, 같은
     트랜잭션으로 묶을 수 있게 커밋하지 않고 flush까지만 합니다. 계약 상태는 `trial`로 시작하고
     가입 흐름에서 올리지 않습니다 (organization/CLAUDE.md).
-    TODO(이한나): 같은 어린이집 중복 등록 검증(open-questions 78행)은 #158 3번과 함께 정합니다.
+    같은 이름·주소의 어린이집이 있어도 막지 않습니다 — 같은 원이라고 볼 수 없어서입니다(#225 B).
     """
     clean_name = name.strip()
     if not clean_name:
