@@ -28,6 +28,7 @@ from domains.media.service import PresignedUpload, SignedMediaUrl, StoredObject
 from domains.organization.models import Klass
 from main import app
 from scripts.seed_photo_demo import PARENT_EMAILS, TEACHER_EMAIL, seed
+from tests.agents.fixtures.native_agent import native_fixture
 
 DAY = date(2026, 10, 30)
 PASSWORD = "photo-test-password-only"
@@ -144,6 +145,9 @@ def flow(monkeypatch: pytest.MonkeyPatch) -> Iterator[Flow]:
 
     monkeypatch.setattr(service, "call_vision", vision)
     monkeypatch.setattr(service, "call_claude", llm)
+    monkeypatch.setattr(
+        service, "call_agent", native_fixture(lambda prompt: service.call_claude(prompt))
+    )
     try:
         with TestClient(app, base_url="https://testserver") as client:
             yield client, factory, klass, children, pending, calls

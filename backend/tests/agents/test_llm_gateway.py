@@ -101,15 +101,15 @@ def test_만료된_키는_인증_실패로_끝나고_자동_재시도하지_않�
 
 
 @pytest.mark.parametrize(
-    "call",
+    "call,limit",
     [
-        lambda: llm.call_claude("synthetic"),
-        lambda: llm.call_vision("synthetic", ["https://example.invalid/a.jpg"]),
+        (lambda: llm.call_claude("synthetic"), 2000),
+        (lambda: llm.call_vision("synthetic", ["https://example.invalid/a.jpg"]), 2048),
     ],
     ids=["텍스트", "사진_분석"],
 )
-def test_텍스트와_사진_분석_호출은_응답_상한을_2048로_보낸다(
-    monkeypatch: pytest.MonkeyPatch, call
+def test_텍스트와_사진_분석_호출의_응답_상한을_보낸다(
+    monkeypatch: pytest.MonkeyPatch, call, limit
 ) -> None:
     bodies = []
 
@@ -150,5 +150,75 @@ def test_텍스트와_사진_분석_호출은_응답_상한을_2048로_보낸다
         ),
     )
     assert call() == "OK"
-    # 1024로 보내면 긴 초안·Critic 응답이 중간에 잘려 JSON이 깨진다. 한쪽만 바뀌는 것도 막는다
-    assert bodies[0]["max_tokens"] == 2048
+    # 텍스트는 Claude 게이트웨이 상한 2000, 비전은 기존 2048을 유지한다.
+    assert bodies[0]["max_tokens"] == limit
+
+
+@pytest.mark.parametrize("full_url", [False, True])
+@pytest.mark.parametrize("finish_reason", ["tool_calls", "length"])
+def test_네이티브_도구_요청과_잘린응답_거절(monkeypatch, full_url, finish_reason):
+    endpoint = "https://gateway.invalid/v1" + ("/chat/completions" if full_url else "")
+    seen = []
+
+    def respond(request):
+        seen.append((str(request.url), json.loads(request.content)))
+        return httpx.Response(
+            200,
+            json={
+                "id": "synthetic",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "test",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": finish_reason,
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": "c1",
+                                    "type": "function",
+                                    "function": {"name": "child_roster", "arguments": "{}"},
+                                }
+                            ],
+                        },
+                    }
+                ],
+            },
+        )
+
+    real = llm.OpenAI
+    monkeypatch.setattr(
+        llm,
+        "OpenAI",
+        lambda **kw: real(**kw, http_client=httpx.Client(transport=httpx.MockTransport(respond))),
+    )
+    monkeypatch.setattr(
+        llm,
+        "get_settings",
+        lambda: SimpleNamespace(
+            anthropic_api_key=SecretStr("test-key"),
+            anthropic_model="anthropic/claude-sonnet-5",
+            llm_gateway_base_url=endpoint,
+        ),
+    )
+    tools = [
+        {"type": "function", "function": {"name": "child_roster", "parameters": {"type": "object"}}}
+    ]
+    if finish_reason == "length":
+        with pytest.raises(ValueError, match="AGENT_INCOMPLETE_RESPONSE"):
+            llm.call_agent([{"role": "user", "content": "synthetic"}], tools)
+    else:
+        assert (
+            llm.call_agent([{"role": "user", "content": "synthetic"}], tools)
+            .tool_calls[0]
+            .function.name
+            == "child_roster"
+        )
+    assert seen[0][0] == "https://gateway.invalid/v1/chat/completions"
+    assert seen[0][1]["tools"] == tools
+    assert seen[0][1]["tool_choice"] == "auto"
+    assert seen[0][1]["max_tokens"] == 2000
+    assert seen[0][1]["reasoning_effort"] == "low"
