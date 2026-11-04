@@ -109,7 +109,8 @@ function parentPhotos(
 }
 
 // 서버 _parent_note_media_ids와 같은 범위입니다: 사진을 함께 보내기로 게시한 알림장에서, 교사가 고른
-// 것 중 그 원아에게 귀속된 사진·영상. 함께 찍힌 아이의 ③ 동의와 llm_allowed는 보지 않습니다(FR-10).
+// 것 중 그 원아에게 귀속되고 LLM 경로에도 쓸 수 있는(llm_allowed) 사진·영상(FR-10). 서버는 귀속 원아
+// 전원의 ③ 동의도 보지만 목에는 동의 기록이 없어 llm_allowed로 대신합니다.
 function parentMedia(db: MockDb, draft: DraftRecord): MediaRecord[] {
   if (!draft.include_photos) return [];
   return draft.selected_media_ids
@@ -117,6 +118,7 @@ function parentMedia(db: MockDb, draft: DraftRecord): MediaRecord[] {
     .filter(
       (media): media is MediaRecord =>
         media !== undefined &&
+        media.llm_allowed &&
         (media.type === "photo" || media.type === "video") &&
         media.child_links.some((link) => link.child_id === draft.child_id),
     );

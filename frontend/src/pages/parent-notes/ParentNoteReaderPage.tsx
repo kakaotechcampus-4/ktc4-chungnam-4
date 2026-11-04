@@ -20,14 +20,27 @@ export function ParentNoteReaderPage() {
         <article className="flex flex-col gap-5 rounded-xl bg-paper p-6">
           <h1 className="text-h2 font-bold">{formatDate(note.data.record_date)} 알림장</h1>
           <p className="whitespace-pre-wrap text-body">{note.data.content}</p>
-          {note.data.photos.map((photo) => (
-            <img
-              key={photo.media_id}
-              src={photo.url}
-              alt="교사가 함께 게시한 활동 사진"
-              className="w-full rounded-xl"
-            />
-          ))}
+          {/* 필드 이름은 photos지만 교사가 고른 영상도 함께 옵니다 — 임시 결정(김동건), FR-10. */}
+          {note.data.photos.map((media) =>
+            media.type === "video" ? (
+              <video
+                key={media.media_id}
+                src={media.url}
+                controls
+                playsInline
+                preload="metadata"
+                aria-label="교사가 함께 게시한 활동 영상"
+                className="w-full rounded-xl"
+              />
+            ) : media.type === "photo" ? (
+              <img
+                key={media.media_id}
+                src={media.url}
+                alt="교사가 함께 게시한 활동 사진"
+                className="w-full rounded-xl"
+              />
+            ) : null,
+          )}
           {/* 서버가 교사 이름을 못 찾으면 빈 문자열을 줍니다. " 선생님"만 남기지 않습니다. */}
           {note.data.author_name ? (
             <p className="text-ink-muted">{note.data.author_name} 선생님</p>
