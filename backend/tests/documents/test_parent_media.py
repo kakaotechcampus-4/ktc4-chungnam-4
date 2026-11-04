@@ -22,7 +22,7 @@ from domains.auth.middleware import get_current_user
 from domains.auth.service import ParentProfile
 from domains.documents import service as documents_service
 from domains.documents.models import DocumentPublication, DraftDocument, DraftStatus
-from domains.media.service import MediaDownload, MediaMeta, SignedMediaUrl
+from domains.media.service import MediaDownload, MediaEvidence, MediaMeta, SignedMediaUrl
 from main import app
 
 PARENT_ID = uuid.uuid4()
@@ -53,8 +53,8 @@ def client(db: Session, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]
     taken = datetime(2026, 10, 20, 1, 0, tzinfo=UTC)
     expires = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 
-    def child_media(db, child_id, target_date, *, types):
-        return [MediaMeta(m, kind, taken) for m, kind in TYPE_BY_MEDIA.items() if kind in types]
+    def collect(db, child_id, target_date):
+        return [MediaEvidence(m, kind, taken, "s3://x") for m, kind in TYPE_BY_MEDIA.items()]
 
     def meta(db, media_ids):
         return {m: MediaMeta(m, TYPE_BY_MEDIA[m], taken) for m in media_ids}
@@ -68,7 +68,7 @@ def client(db: Session, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]
     media = documents_service.media_service
     organization = documents_service.organization_service
     monkeypatch.setattr(organization, "ensure_parent_child_access", ensure_parent_child_access)
-    monkeypatch.setattr(media, "list_child_media", child_media)
+    monkeypatch.setattr(media, "collect_media_for_llm", collect)
     monkeypatch.setattr(media, "get_media_meta", meta)
     monkeypatch.setattr(media, "get_signed_urls", sign)
     monkeypatch.setattr(media, "get_download_url", download)

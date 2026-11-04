@@ -31,7 +31,7 @@ from domains.documents.models import (
     DraftSentence,
     DraftStatus,
 )
-from domains.media.service import MediaMeta, SignedMediaUrl
+from domains.media.service import MediaEvidence, SignedMediaUrl
 from domains.organization.models import Center, Child, Klass, ParentChildRelation
 from main import app
 
@@ -69,13 +69,13 @@ def client(db: Session, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]
             for m in media_ids
         ]
 
-    def collect(db, child_id, target_date, *, types):
-        return [_meta(photo) for photo in PHOTOS]
+    def collect(db, child_id, target_date):
+        return [_evidence(photo) for photo in PHOTOS]
 
     organization = documents_service.organization_service
     monkeypatch.setattr(organization, "ensure_parent_child_access", ensure_parent_child_access)
     monkeypatch.setattr(documents_service.media_service, "get_signed_urls", sign)
-    monkeypatch.setattr(documents_service.media_service, "list_child_media", collect)
+    monkeypatch.setattr(documents_service.media_service, "collect_media_for_llm", collect)
     app.dependency_overrides[get_db] = lambda: db
     parent = ParentProfile(
         account_id=uuid.uuid4(), email="parent@example.com", name="학부모A", parent_id=PARENT_ID
@@ -130,9 +130,9 @@ def _note(
     return draft
 
 
-def _meta(media_id: UUID, kind: str = "photo") -> MediaMeta:
+def _evidence(media_id: UUID, kind: str = "photo") -> MediaEvidence:
     taken = datetime(2026, 10, 20, 1, 0, tzinfo=UTC)
-    return MediaMeta(media_id=media_id, type=kind, captured_at=taken)
+    return MediaEvidence(media_id=media_id, type=kind, captured_at=taken, storage_url="s3://x")
 
 
 def _logs(db: Session) -> list[tuple[str, UUID]]:
@@ -278,21 +278,25 @@ def test_게시_뒤_보여도_되는_범위에서_빠진_사진은_더_나가지
     note = _note(db, 20)
     calls = []
 
-    def collect(db, child_id, target_date, *, types):
-        calls.append((child_id, target_date, types))
-        # PHOTOS[0]은 게시 뒤 파기돼 빠졌다. PHOTOS[1]은 영상이라 함께 나간다(FR-10)
-        return [_meta(PHOTOS[1], "video"), _meta(PHOTOS[2]), _meta(PHOTOS[3])]
+    def collect(db, child_id, target_date):
+        calls.append((child_id, target_date))
+        # PHOTOS[0]은 게시 뒤 함께 찍힌 아이의 ③ 철회로 빠졌다. PHOTOS[1]은 영상이라 함께
+        # 나가고(FR-10), PHOTOS[2]는 음성메모라 학부모에게 가지 않는다
+        return [
+            _evidence(PHOTOS[1], "video"),
+            _evidence(PHOTOS[2], "voice_memo"),
+            _evidence(PHOTOS[3]),
+        ]
 
-    monkeypatch.setattr(documents_service.media_service, "list_child_media", collect)
+    monkeypatch.setattr(documents_service.media_service, "collect_media_for_llm", collect)
 
     body = client.get(f"/api/v1/parent-notes/{note.id}").json()
     listed = client.get(f"/api/v1/children/{MY_CHILD}/parent-notes").json()
 
-    expected = [str(PHOTOS[1]), str(PHOTOS[2]), str(PHOTOS[3])]
+    expected = [str(PHOTOS[1]), str(PHOTOS[3])]
     assert [photo["media_id"] for photo in body["photos"]] == expected
     assert [photo["media_id"] for photo in listed["items"][0]["photos"]] == expected
-    # 음성메모는 학부모에게 가지 않는다
-    assert calls == [(MY_CHILD, date(2026, 10, 20), frozenset({"photo", "video"}))] * 2
+    assert calls == [(MY_CHILD, date(2026, 10, 20))] * 2
 
 
 def test_진짜_보호자_확인으로_내_아이는_열리고_남의_아이와_기간_지난_아이는_막힌다(monkeypatch):
@@ -327,7 +331,7 @@ def test_진짜_보호자_확인으로_내_아이는_열리고_남의_아이와_
     db.add_all(ParentChildRelation(parent_id=PARENT_ID, child_id=c) for c in (mine, graduated))
     db.commit()
     note, others = _note(db, 20, child_id=mine), _note(db, 20, child_id=other)
-    monkeypatch.setattr(documents_service.media_service, "list_child_media", lambda *a, **k: [])
+    monkeypatch.setattr(documents_service.media_service, "collect_media_for_llm", lambda *a: [])
     monkeypatch.setattr(documents_service.media_service, "get_signed_urls", lambda db, ids: [])
     parent = ParentProfile(
         account_id=uuid.uuid4(), email="parent@example.com", name="학부모A", parent_id=PARENT_ID
