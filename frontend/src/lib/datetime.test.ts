@@ -1,4 +1,5 @@
 import {
+  captureInstant,
   firstDayOfMonth,
   formatDate,
   formatDateTime,
@@ -211,5 +212,29 @@ describe("바깥에서 온 날짜 거르기", () => {
   it("null·undefined도 거른다", () => {
     expect(isDateOnly(null)).toBe(false);
     expect(isDateOnly(undefined)).toBe(false);
+  });
+});
+
+// 하루치 파일을 모두 정오로 두면 순서가 섞이고, 날짜가 다른 파일을 그대로 두면 서버가
+// 그 날짜 범위로 걸러 409가 납니다(#232 리뷰).
+describe("업로드 파일의 촬영 시각", () => {
+  it("파일 시각이 활동 날짜(한국)와 같으면 그 시각을 쓴다", () => {
+    // 한국 2026-10-30 09:15
+    expect(captureInstant("2026-10-30", Date.parse("2026-10-30T00:15:00Z"))).toBe(
+      "2026-10-30T00:15:00.000Z",
+    );
+  });
+
+  it("UTC로는 전날이어도 한국 날짜가 같으면 그 시각을 쓴다", () => {
+    // 한국 2026-10-30 08:00 = UTC 10/29 23:00
+    expect(captureInstant("2026-10-30", Date.parse("2026-10-29T23:00:00Z"))).toBe(
+      "2026-10-29T23:00:00.000Z",
+    );
+  });
+
+  it("날짜가 다르면 활동 날짜 정오(한국)로 대신한다", () => {
+    expect(captureInstant("2026-10-30", Date.parse("2026-10-29T14:59:59Z"))).toBe(
+      "2026-10-30T03:00:00.000Z",
+    );
   });
 });

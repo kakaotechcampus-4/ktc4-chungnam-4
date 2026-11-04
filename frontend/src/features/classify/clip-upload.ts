@@ -1,4 +1,6 @@
 import { useEffect } from "react";
+import { CLIPS_ENABLED } from "@/features/upload-queue/media-capabilities";
+import { captureInstant } from "@/lib/datetime";
 
 import { completeUpload, requestUploadUrls, uploadContentType, uploadFile } from "@/api/media";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
@@ -14,11 +16,6 @@ import {
 // - 사진은 여기서 올리지 않습니다. 교사가 확정한 뒤 서버 전송 단계(SendStep)가 올립니다.
 // - 귀속 저장(child-links)은 하지 않습니다. 서버 전송 단계가 이미 올라간 파일을 registered 응답으로 알아보고 귀속만 저장합니다.
 // 처리 중 화면에서 분류 확인 화면으로 넘어가도 끊기지 않게 컴포넌트 밖에서 돌고, 진행은 업로드 큐에 남깁니다.
-
-// 가정: 촬영 시각은 EXIF에서 읽어야 하지만 지금은 파일 수정 시각을 씁니다(SendStep과 같음).
-function capturedAt(file: File) {
-  return new Date(file.lastModified).toISOString();
-}
 
 function clipsToUpload(): LocalClip[] {
   return useUploadQueue
@@ -42,6 +39,8 @@ function setIfStillQueued(clip: LocalClip, state: "확인됨" | "실패", mediaI
  * 여러 번 불러도 됩니다.
  */
 export async function startClipUploads(classId: string) {
+  if (!CLIPS_ENABLED) return;
+  const { recordDate } = useUploadQueue.getState();
   const clips = clipsToUpload();
   if (clips.length === 0) return;
   // 기다리기 전에 전송중으로 바꿔 두어 동시에 부른 쪽이 같은 파일을 또 올리지 않게 합니다.
@@ -72,7 +71,7 @@ export async function startClipUploads(classId: string) {
             client_photo_id: clip.client_id,
             class_id: classId,
             type: clip.kind,
-            captured_at: capturedAt(clip.file),
+            captured_at: captureInstant(recordDate, clip.file.lastModified),
             model_version: null,
           })
         ).media_id;

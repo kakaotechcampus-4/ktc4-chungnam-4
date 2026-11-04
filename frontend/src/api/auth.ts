@@ -40,3 +40,43 @@ export async function createSession(input: LoginInput) {
 export function deleteCurrentSession() {
   return api.delete("/sessions/current");
 }
+
+export type {
+  SignupInput,
+  SignupView,
+  InvitePreviewView,
+  InviteAcceptInput,
+  InviteAcceptedView,
+} from "./auth-view";
+import type { SignupInput, InviteAcceptInput } from "./auth-view";
+import type { AccountCreated, InvitePreview, InviteAccepted } from "@/types/api-draft/auth";
+import {
+  toSignupBody,
+  toSignupView,
+  toInvitePreviewView,
+  toInviteAcceptBody,
+  toInviteAcceptedView,
+} from "./auth-adapter";
+
+export async function createAccount(input: SignupInput) {
+  return toSignupView(await api.post<AccountCreated>("/accounts", toSignupBody(input)));
+}
+export function invitePreviewQueryOptions(token: string) {
+  return queryOptions({
+    queryKey: ["parent-invite", token],
+    retry: false,
+    gcTime: 0,
+    queryFn: async ({ signal }) =>
+      toInvitePreviewView(
+        await api.get<InvitePreview>(`/parent-invites/${encodeURIComponent(token)}`, { signal }),
+      ),
+  });
+}
+export async function acceptParentInvite(token: string, input: InviteAcceptInput) {
+  return toInviteAcceptedView(
+    await api.post<InviteAccepted>(
+      `/parent-invites/${encodeURIComponent(token)}/accept`,
+      toInviteAcceptBody(input),
+    ),
+  );
+}

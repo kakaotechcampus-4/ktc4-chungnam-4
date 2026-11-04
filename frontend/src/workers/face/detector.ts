@@ -196,12 +196,19 @@ export function resetFaceModels(): void {
  * `faceres`가 없을 때 `embedding`이 빈 배열로 나오는데 `match.similarity([], x)`가
  * **1(완전 일치)**을 돌려줘, 그대로 두면 원아 전원이 서로 같은 사람이 되기 때문입니다
  * (#121 리뷰 송유진 님 2번).
+ *
+ * 한 얼굴이라도 던지면 사진 전체가 실패합니다. 그 얼굴만 버리면 미식별 얼굴이 없는
+ * 사진처럼 외부 AI에 전달될 수 있습니다(H-2).
  */
 function toDetectedFace(face: FaceResult): DetectedFace {
   if (face.embedding?.length !== FACE_DESCRIPTOR_LENGTH) {
     throw new FaceModelError(
       `얼굴 벡터 길이가 ${FACE_DESCRIPTOR_LENGTH}가 아닙니다: ${face.embedding?.length ?? "없음"}`,
     );
+  }
+  // 길이가 맞아도 NaN·Infinity가 섞이면 유사도가 NaN이 되어 대조 결과를 믿을 수 없습니다.
+  if (!face.embedding.every(Number.isFinite)) {
+    throw new FaceModelError("얼굴 벡터에 유한하지 않은 값이 있습니다");
   }
   return {
     descriptor: face.embedding,

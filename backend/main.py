@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from core.access_logging import configure_access_logging
 from core.config import get_settings
 from core.database import engine, get_db
 from core.exceptions import AidamError, RequestValidationFailed
@@ -29,6 +30,7 @@ async def lifespan(app: FastAPI):
 # 운영에서는 API 목록·스키마를 공개하지 않습니다. Caddy가 경로 제한 없이
 # 프록시하므로 끄지 않으면 /docs·/redoc·/openapi.json이 그대로 외부에
 # 열립니다. 로컬·테스트에서는 프론트가 스키마를 봐야 하므로 켜둡니다.
+configure_access_logging()
 _docs_public = get_settings().app_env != "production"
 
 app = FastAPI(
@@ -99,10 +101,10 @@ def database_health(db: Annotated[Session, Depends(get_db)]):
     return {"status": "ok", "database": "ok"}
 
 
-# S3에 실제로 쓰고 지우므로 Docker healthcheck에 넣지 않고, deploy.sh가 배포 직후 한 번만
-# 부릅니다(#129). /api/v1 밖이라 CloudFront(/api/*)로는 닿지 않지만, Caddy는 경로 제한 없이
-# 프록시하므로 백엔드 도메인으로는 외부에서도 부를 수 있습니다.
-# TODO(donggeon): 외부 호출을 막을지(Caddyfile) 엄태은 님 확인 대기
+# S3에 실제로 쓰고 지우므로 Docker healthcheck에 넣지 않습니다. /api/v1 밖이라 CloudFront(/api/*)로
+# 닿지 않고, 백엔드 도메인으로 와도 Caddy가 404로 막습니다(Caddyfile). 서버 안에서 localhost로만
+# 부를 수 있습니다.
+# TODO(엄태은): deploy.sh가 배포 직후 한 번 부르고 200이 아니면 배포를 멈추게 한다(#129).
 @app.get("/health/storage", tags=["health"], response_model=None)
 def storage_health():
     failed_step = media_service.check_storage_access()

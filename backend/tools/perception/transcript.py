@@ -97,7 +97,7 @@ def _normalize_segment(
     """구간 하나를 근거로 바꾼다. 쓸 수 없으면 버림 사유를 돌려준다(위에서부터 먼저 걸린 것)."""
     if segment.excluded:
         return DropReason.EXCLUDED_BY_TEACHER
-    # 연결된 아이가 없는 발화는 미분류로 근거에 쓰지 않는다 (테크스펙 TranscriptChildLink).
+    # 연결된 아이가 없는 발화는 미분류로 근거에 쓰지 않는다 (테크스펙 MediaChildLink).
     if not segment.child_ids:
         return DropReason.NO_CHILD_LINK
     if target_child_id not in segment.child_ids:

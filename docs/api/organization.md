@@ -187,6 +187,7 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 }
 ```
 
+- 사진 통합 PR에서 명단의 `age_group`·동의 수·`face_feature_agreed`·`is_face_registered`·`parent_linked`를 실제 DB로 채웁니다. 등록 원본을 저장하지 않으므로 `face_photo_count`는 알 수 없어 `null`입니다. 명단에는 생년월일·얼굴 벡터를 넣지 않습니다.
 - 화면의 얼굴 상태는 FE가 만듭니다: `face_feature_agreed`가 false면 "등록 잠김", 아니면 `is_face_registered`로 "등록됨/미등록".
 - `?status=`는 아직 쓰는 화면이 없어 채우지 않았습니다(재원만 돌려줌).
 
@@ -278,7 +279,7 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 }
 ```
 
-- `recent_notes`는 `record_date` 최신순 최대 4개입니다. 필드 이름은 documents(`parent_note_id`, 게시 여부)와 맞췄습니다. `published`는 학부모에게 게시됐는지입니다.
+- `recent_notes`는 `record_date` 최신순 최대 10개입니다. `summary`는 다른 목록의 `preview`와 같은 규칙(100자, 문장 경계)입니다. 필드 이름은 documents(`parent_note_id`, 게시 여부)와 맞췄습니다. `published`는 학부모에게 게시됐는지입니다.
 - `domain_counts`의 키는 위 `EducationPlan.domains`와 같은 누리과정 5영역 코드입니다.
 - 임시 경로입니다. 알림장 목록은 documents의 `GET /children/{child_id}/drafts?doc_type=parent_note`로 옮기고, 5영역 수를 어느 도메인이 줄지는 위 체크리스트에 있습니다.
 
@@ -286,7 +287,6 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 
 | 요청 | 본문 | 응답 | 에러 |
 |---|---|---|---|
-| `GET /children/{child_id}/parent-invites` **(추가)** | — | `200 { "invite_url", "parent_linked" }`. 지금 쓸 수 있는 링크 | `CHILD_NOT_FOUND`(404) |
 | `POST /children/{child_id}/parent-invites` | 없음 | `201 { "invite_url", "parent_linked" }`. 이전 링크는 바로 무효 | `CHILD_NOT_FOUND`(404) |
 
 - `invite_url`은 `https://<서비스 도메인>/invite/<무작위 토큰>`입니다(목은 `aidam.test`). 토큰에 원아 이름·id를 넣지 않습니다(H-2, H-4). FE는 토큰을 가려서 보여 주고 복사할 때만 원문을 씁니다.
@@ -329,7 +329,15 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 | `GET /api/v1/education-plans/{plan_id}` | 교육 계획 하나(수정 화면) | 구현(추가, 임시 결정) | 이한나 |
 | `DELETE /api/v1/education-plans/{plan_id}` | 교육 계획 삭제 | 구현(추가, 임시 결정) | 이한나 |
 | `PATCH /api/v1/classes/{class_id}/favorite` | 반 즐겨찾기 | 추가(임시 결정) | 이한나 |
-| `GET /api/v1/children/{child_id}/parent-invites` | 지금 쓰는 초대 링크(복사용) | 추가(임시 결정) | 이한나·엄태은 |
 | `POST /api/v1/children/{child_id}/parent-invites` | 학부모 초대 링크 만들기 | 경로만 | 이한나·엄태은 |
 | `GET /api/v1/parent-invites/{token}` | 초대 링크 열기(아이·반·어린이집 정보) | 경로만 | 이한나·엄태은 |
 | `POST /api/v1/parent-invites/{token}/accept` | 초대를 받아 학부모 계정을 만들고 자녀와 잇기 | 경로만 | 이한나·엄태은 |
+
+#225 반영: 초대 토큰은 해시만 저장하므로 재조회 API를 제거합니다. 발급·수락 계약은 [auth](auth.md#학부모-초대-수락-fr-28-225)입니다. 원아 상세 GET·PATCH는 같은 어린이집 교사에게만 허용하고 동의는 학부모 초대 수락에서 기록합니다.
+
+### #231 통합 구현 보충 — 원아 상세·기록 요약
+
+- `GET /children/{child_id}`와 `PATCH /children/{child_id}`는 같은 어린이집 교사만 사용할 수 있습니다. 수정 본문은 원아 등록과 같은 `{class_id, name, birth_date}`입니다.
+- `GET /children/{child_id}/overview`: 최근 알림장 10건(`recent_notes`)과 `domain_counts`를 반환합니다. 목록은 documents의 실제 초안/게시 상태를 읽습니다. 아직 구현되지 않은 누리과정 통계는 `null`로 내려 화면에 준비 중이라고 표시합니다.
+- 상세의 `month_record_count`는 KST 이번 달 알림장 수, `today_note_sent`는 오늘 알림장의 활성 게시 여부입니다. 개인정보 열람은 교사 ID·원아 ID만 audit에 기록합니다.
+- 반 선택은 현재 작업할 반을 바꾸는 동작이며, 다른 교사를 담임에서 해제하지 않습니다. 서버에 없는 즐겨찾기 버튼은 온보딩에서 제공하지 않습니다.

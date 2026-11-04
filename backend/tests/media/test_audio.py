@@ -8,6 +8,7 @@ import math
 import random
 import wave
 from array import array
+from itertools import pairwise
 
 from domains.media import audio
 
@@ -41,6 +42,36 @@ def test_말소리가_없으면_조각이_없다() -> None:
     assert audio.split_speech(b"") == []
 
 
+def test_쉼이_20퍼센트보다_짧아도_발화를_버리지_않는다() -> None:
+    # 실제 짧은 합성 음성의 회귀 사례: 원본은 0조각, 무음을 덧붙인 사본만 1조각이 됐습니다.
+    # 대부분 말소리인 입력에서도 원본 시각과 전체 발화를 보존해야 합니다.
+    chunks = audio.split_speech(
+        _pcm(_quiet(0.05), _tone(1.5), _quiet(0.05), _tone(1.5), _quiet(0.05))
+    )
+
+    assert len(chunks) == 1
+    assert chunks[0].start == 0.0
+    assert abs(chunks[0].end - 3.15) < 0.01
+
+
+def test_큰_일정한_잡음은_기준을_다시_계산해도_발화로_보내지_않는다() -> None:
+    rng = random.Random(1)
+    noise = array("h", (rng.randint(-8000, 8000) for _ in range(5 * RATE)))
+
+    assert audio.split_speech(noise.tobytes()) == []
+    assert audio.split_speech(_tone(5).tobytes()) == []
+
+
+def test_쉼이_적은_긴_음성도_28초_상한과_원본_시각을_지킨다() -> None:
+    chunks = audio.split_speech(_pcm(_quiet(0.05), _tone(70), _quiet(0.05)))
+
+    assert len(chunks) >= 3
+    assert all(0 < chunk.end - chunk.start <= audio.MAX_CHUNK_SECONDS for chunk in chunks)
+    assert chunks[0].start == 0.0
+    assert abs(chunks[-1].end - 70.1) < 0.01
+    assert all(left.end == right.start for left, right in pairwise(chunks))
+
+
 def test_말소리_구간만_앞뒤_여유를_두고_원본_기준_시각으로_자른다() -> None:
     chunks = audio.split_speech(_pcm(_quiet(3), _tone(2), _quiet(3)))
 
@@ -70,7 +101,7 @@ def test_28초를_넘으면_조각을_나누고_조각_사이의_긴_쉼은_보�
 
 
 def test_28초를_넘는_한_구간은_28초_이하로_나눈다() -> None:
-    # 잡음 바닥은 하위 20% RMS라, 쉼이 그보다 적은 파일은 말소리를 잡지 못합니다
+    # 충분한 쉼이 있는 기존 경로도 같은 구간과 시각을 유지합니다.
     chunks = audio.split_speech(_pcm(_quiet(10), _tone(70), _quiet(10)))
 
     assert len(chunks) >= 3

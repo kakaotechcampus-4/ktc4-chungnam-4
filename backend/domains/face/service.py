@@ -333,3 +333,12 @@ def delete_child_embedding(db: Session, *, child_id: UUID, center_id: UUID | Non
     """
     ensure_child_access(db, child_id, center_id)
     delete_embedding(db, child_id, reason=DeletionReason.TEACHER_REMOVED)
+
+
+def registered_child_ids(db: Session, child_ids: Sequence[UUID]) -> set[UUID]:
+    """명단 표시용 등록 여부만 조회한다. 벡터를 복호화하지 않는다(FR-04)."""
+    if not child_ids:
+        return set()
+    return set(
+        db.scalars(select(FaceEmbedding.child_id).where(FaceEmbedding.child_id.in_(child_ids)))
+    )

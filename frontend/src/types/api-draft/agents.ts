@@ -12,7 +12,12 @@ export type JobStage = "transcribing" | "collecting_evidence" | "generating" | "
 /** succeeded일 때만. 미분류는 예외가 아니라 정상 종료입니다. */
 export type JobOutcome = "drafted" | "unclassified";
 
-export type UnclassifiedReason = "no_speech" | "verification_failed" | "insufficient_evidence";
+export type UnclassifiedReason =
+  | "no_speech"
+  | "verification_failed"
+  | "insufficient_evidence"
+  | "no_consent"
+  | "photo_analysis_failed";
 
 /** failed일 때만. 실명·발화 원문은 넣지 않습니다(H-4). */
 export type JobErrorCode = "STT_FAILED" | "LLM_TIMEOUT" | "LLM_CALL_FAILED" | "INTERNAL_ERROR";

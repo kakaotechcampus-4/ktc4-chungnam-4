@@ -2,6 +2,7 @@ import json
 import os
 import uuid
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Self
 
 import pytest
@@ -33,8 +34,9 @@ class FakeSession:
     def add(self, obj: object) -> None:
         self.added.append(obj)
 
-    def execute(self, statement: object) -> None:
+    def execute(self, statement: object) -> SimpleNamespace:
         self.executed.append(statement)
+        return SimpleNamespace(rowcount=1)
 
     def commit(self) -> None:
         self.committed = True
@@ -53,6 +55,7 @@ class FakeSession:
 def _generation_inputs(monkeypatch) -> None:
     """orchestrate_drafts가 루프 전에 부르는 입력 적재를 막는다. 필요한 테스트가 다시 덮어쓴다."""
     monkeypatch.setattr(service, "_load_generation_inputs", lambda bundle: object())
+    monkeypatch.setattr(service.organization_service, "has_consent", lambda *args: True)
 
 
 def _document(evidence_ids: tuple[str, ...] = ("ev_001",)) -> contracts.DraftDocument:
@@ -147,7 +150,7 @@ def test_verify_and_record_최종_판정을_draft_decision_log에_남긴다(monk
 
     decision_rows = [obj for obj in session.added if isinstance(obj, service.DraftDecisionLog)]
     assert len(decision_rows) == 1
-    assert decision_rows[0].draft_id == document.draft_id
+    assert str(decision_rows[0].draft_id) == document.draft_id
     assert decision_rows[0].doc_version == document.version
     assert decision_rows[0].decision == contracts.Decision.PASS.value
     assert decision_rows[0].regeneration_count == 1
@@ -287,7 +290,7 @@ def test_orchestrate_drafts_성공하면_초안을_저장하고_미분류함으�
     )
     monkeypatch.setattr(service, "_send_to_unclassified", _fail_if_called)
 
-    service.orchestrate_drafts(job_id="job-1", child_id="child-1")
+    service.orchestrate_drafts(job_id="job-1", child_id="00000000-0000-0000-0000-000000000001")
 
     assert len(saved) == 1
     assert job.status == JobStatus.SUCCEEDED.value
@@ -321,12 +324,12 @@ def test_orchestrate_drafts_교사_확인이_필요하면_미분류함으로_보
     monkeypatch.setattr(
         service,
         "_send_to_unclassified",
-        lambda session, job_id, child_id: unclassified_calls.append((job_id, child_id)),
+        lambda session, job_id, child_id, **kwargs: unclassified_calls.append((job_id, child_id)),
     )
 
-    service.orchestrate_drafts(job_id="job-1", child_id="child-1")
+    service.orchestrate_drafts(job_id="job-1", child_id="00000000-0000-0000-0000-000000000001")
 
-    assert unclassified_calls == [("job-1", "child-1")]
+    assert unclassified_calls == [("job-1", "00000000-0000-0000-0000-000000000001")]
     # 미분류도 예외가 아니라 정상 종료다 (docs/api/agents.md 상태값).
     assert job.status == JobStatus.SUCCEEDED.value
 
@@ -347,7 +350,7 @@ def test_orchestrate_drafts_중간에_실패하면_RUNNING으로_두고_예외�
     monkeypatch.setattr(service, "_generate_draft", _llm_down)
 
     with pytest.raises(RuntimeError):
-        service.orchestrate_drafts(job_id="job-1", child_id="child-1")
+        service.orchestrate_drafts(job_id="job-1", child_id="00000000-0000-0000-0000-000000000001")
 
     assert job.status == JobStatus.RUNNING.value
 
@@ -393,10 +396,10 @@ def _orchestrate_until(
         service, "_save_passed_draft", lambda session, *args: session.add("초안·근거")
     )
     monkeypatch.setattr(
-        service, "_send_to_unclassified", lambda session, *args: session.add("미분류")
+        service, "_send_to_unclassified", lambda session, *args, **kwargs: session.add("미분류")
     )
 
-    service.orchestrate_drafts(job_id="job-1", child_id="child-1")
+    service.orchestrate_drafts(job_id="job-1", child_id="00000000-0000-0000-0000-000000000001")
 
 
 @pytest.mark.parametrize(
@@ -478,7 +481,7 @@ def test_mark_job_failed_Job을_FAILED로_남기되_SUCCEEDED는_덮어쓰지_�
 
     [statement] = session.executed
     set_columns = {column.key: value.value for column, value in statement._values.items()}  # type: ignore[attr-defined]
-    assert set_columns == {"status": JobStatus.FAILED.value}
+    assert set_columns == {"status": JobStatus.FAILED.value, "error_code": "INTERNAL_ERROR"}
     compiled = statement.compile()
     assert "jobs.status !=" in str(compiled)
     assert JobStatus.SUCCEEDED.value in compiled.params.values()
@@ -531,7 +534,7 @@ def test_orchestrate_drafts_재생성은_같은_draft_id의_다음_버전이고_
         ),
     )
 
-    service.orchestrate_drafts(job_id="job-1", child_id="child-1")
+    service.orchestrate_drafts(job_id="job-1", child_id="00000000-0000-0000-0000-000000000001")
 
     assert generate_calls == [(1, None, []), (2, documents[0].draft_id, [issue])]
     assert documents[0].draft_id == documents[1].draft_id
@@ -593,10 +596,10 @@ def test_save_passed_draft_agents의_draft_id로_저장하고_근거를_남기�
 
     sentence_rows = [obj for obj in session.added if isinstance(obj, service.SentenceEvidenceRow)]
     assert len(sentence_rows) == 1
-    assert sentence_rows[0].draft_id == document.draft_id
+    assert str(sentence_rows[0].draft_id) == document.draft_id
     assert sentence_rows[0].sentence_id == "s1"
     assert sentence_rows[0].evidence_id == "ev_001"
-    assert sentence_rows[0].source_media_id == EVIDENCE_CHILD_A.media_id
+    assert str(sentence_rows[0].source_media_id) == EVIDENCE_CHILD_A.media_id
     assert sentence_rows[0].source_timestamp == EVIDENCE_CHILD_A.start_ms / 1000
     assert sentence_rows[0].source_text == EVIDENCE_CHILD_A.text
     # Job 성공 상태와 한 번에 커밋하도록 orchestrate_drafts에 맡긴다 (#102 리뷰).
@@ -724,7 +727,7 @@ def _draft_answer(refs: list[str]) -> str:
 def _generate(previous=None, issues=(), *, version: int = 1) -> service.GeneratedDraft:
     return service._generate_draft(
         service._load_generation_inputs(object()),
-        draft_id="draft-1",
+        draft_id="00000000-0000-4000-a000-000000000001",
         version=version,
         previous=previous,
         issues=list(issues),
@@ -785,7 +788,7 @@ def test_generate_draft_재생성은_받은_draft_id와_버전으로_만들고_�
 
     generated = _generate(_document(), [issue], version=2)
 
-    assert generated.document.draft_id == "draft-1"
+    assert generated.document.draft_id == "00000000-0000-4000-a000-000000000001"
     assert generated.document.version == 2
     assert "invalid_evidence_ref" in prompts[0]
     assert "블록 놀이를 했다" in prompts[0]
@@ -823,7 +826,7 @@ def _patch_orchestrate(monkeypatch, generate, unclassified_calls: list) -> None:
     monkeypatch.setattr(
         service,
         "_send_to_unclassified",
-        lambda session, job_id, child_id: unclassified_calls.append((job_id, child_id)),
+        lambda session, job_id, child_id, **kwargs: unclassified_calls.append((job_id, child_id)),
     )
 
 
@@ -835,9 +838,9 @@ def test_orchestrate_drafts_근거가_없으면_미분류함으로_보낸다(mon
 
     _patch_orchestrate(monkeypatch, _no_evidence, unclassified_calls)
 
-    service.orchestrate_drafts(job_id="job-1", child_id="child-1")
+    service.orchestrate_drafts(job_id="job-1", child_id="00000000-0000-0000-0000-000000000001")
 
-    assert unclassified_calls == [("job-1", "child-1")]
+    assert unclassified_calls == [("job-1", "00000000-0000-0000-0000-000000000001")]
 
 
 def test_orchestrate_drafts_생성_응답_형식_오류는_기록하고_재생성한다(monkeypatch) -> None:
@@ -863,7 +866,7 @@ def test_orchestrate_drafts_생성_응답_형식_오류는_기록하고_재생�
         service, "_save_passed_draft", lambda session, job, bundle, doc, ev: saved.append(doc)
     )
 
-    service.orchestrate_drafts(job_id="job-1", child_id="child-1")
+    service.orchestrate_drafts(job_id="job-1", child_id="00000000-0000-0000-0000-000000000001")
 
     assert [version for version, _ in calls] == [1, 2]
     assert calls[1][1][0].check_type == contracts.VerificationCheckType.DRAFT_RESPONSE_ERROR
@@ -889,11 +892,11 @@ def test_orchestrate_drafts_생성_응답_형식_오류가_상한을_넘으면_�
     _patch_orchestrate(monkeypatch, _always_broken, unclassified_calls)
     monkeypatch.setattr(service, "SessionLocal", lambda: session)
 
-    service.orchestrate_drafts(job_id="job-1", child_id="child-1")
+    service.orchestrate_drafts(job_id="job-1", child_id="00000000-0000-0000-0000-000000000001")
 
     logs = [row for row in session.added if isinstance(row, service.DraftDecisionLog)]
     assert [log.decision for log in logs] == ["regenerate", "regenerate", "needs_teacher_review"]
-    assert unclassified_calls == [("job-1", "child-1")]
+    assert unclassified_calls == [("job-1", "00000000-0000-0000-0000-000000000001")]
 
 
 def test_생성부터_Critic까지_실명이_LLM에_가지_않는다(monkeypatch) -> None:
@@ -995,6 +998,6 @@ def test_orchestrate_drafts_인식_결과는_재생성해도_한_번만_만든�
     )
     monkeypatch.setattr(service, "_save_passed_draft", lambda *args: None)
 
-    service.orchestrate_drafts(job_id="job-1", child_id="child-1")
+    service.orchestrate_drafts(job_id="job-1", child_id="00000000-0000-0000-0000-000000000001")
 
     assert len(loads) == 1
