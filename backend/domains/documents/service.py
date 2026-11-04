@@ -1384,7 +1384,7 @@ def get_media_download_for_parent(
     chosen_by = [
         (draft, publication)
         for draft, publication in notes
-        if media_id in {UUID(selected) for selected in draft.selected_media_ids}
+        if str(media_id) in draft.selected_media_ids
     ]
     note_media = _parent_note_media_ids(db, chosen_by)
     if not any(media_id in ids for ids in note_media.values()):
