@@ -1339,6 +1339,10 @@ def list_media_for_parent(
     )
     page_ids = list(dict.fromkeys(m for draft, _ in page for m in note_media[draft.id]))
     signed = {item.media_id: item for item in media_service.get_signed_urls(db, page_ids)}
+    # 서명은 파기된 미디어를 뺀다. 거른 뒤 서명 전에 파기된 것도 개수에서 빼 그리드와 맞춘다.
+    counted = [
+        item for item in meta.values() if item.media_id not in page_ids or item.media_id in signed
+    ]
     response = ParentMediaListResponse(
         days=[
             ParentMediaDay(
@@ -1359,8 +1363,8 @@ def list_media_for_parent(
             for draft, _ in page
         ],
         next_cursor=_encode_cursor(page[-1][0].record_date) if len(remaining) > limit else None,
-        photo_count=sum(item.type == "photo" for item in meta.values()),
-        video_count=sum(item.type == "video" for item in meta.values()),
+        photo_count=sum(item.type == "photo" for item in counted),
+        video_count=sum(item.type == "video" for item in counted),
     )
     _record_parent_views(db, parent_id, [publication.id for _, publication in page], "view_media")
     return response
@@ -1376,7 +1380,13 @@ def get_media_download_for_parent(
     - AccessLog(download, 대상 media_asset)를 커밋한 뒤에만 URL을 돌려준다 — 임시 결정(김동건).
     """
     notes = _parent_notes(db, parent_id=parent_id, child_id=child_id)
-    note_media = _parent_note_media_ids(db, notes)
+    # 그 미디어를 고른 알림장만 다시 거른다. 전부 거르면 알림장 수만큼 media를 조회한다(#242 리뷰).
+    chosen_by = [
+        (draft, publication)
+        for draft, publication in notes
+        if media_id in {UUID(selected) for selected in draft.selected_media_ids}
+    ]
+    note_media = _parent_note_media_ids(db, chosen_by)
     if not any(media_id in ids for ids in note_media.values()):
         raise MediaAssetNotFound("사진·영상을 찾을 수 없어요.")
     download = media_service.get_download_url(db, media_id)

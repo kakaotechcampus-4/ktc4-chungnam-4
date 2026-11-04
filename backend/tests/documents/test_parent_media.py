@@ -211,3 +211,42 @@ def test_H1_게이트_밖_미디어는_내려받을_수_없다(client, db, note_
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "MEDIA_ASSET_NOT_FOUND"
     assert _logs(db) == []
+
+
+def test_서명_전에_파기된_사진은_개수에서도_빠진다(client, db, monkeypatch):
+    _note(db, 20)
+    expires = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
+
+    def sign_without_photo(db, media_ids):
+        # 걸러 낸 뒤 서명 전에 PHOTO가 파기됐다. get_signed_urls는 파기된 것을 뺀다
+        return [
+            SignedMediaUrl(m, TYPE_BY_MEDIA[m], f"https://s3/{m}", expires)
+            for m in media_ids
+            if m != PHOTO
+        ]
+
+    monkeypatch.setattr(documents_service.media_service, "get_signed_urls", sign_without_photo)
+
+    body = client.get(_media_url()).json()
+
+    assert [i["media_id"] for i in body["days"][0]["items"]] == [str(VIDEO)]
+    assert (body["photo_count"], body["video_count"]) == (0, 1)
+
+
+def test_내려받기는_그_미디어를_고른_알림장만_다시_거른다(client, db, monkeypatch):
+    chosen = _note(db, 20)
+    for day in (19, 18, 17):
+        _note(db, day, selected=(VIDEO,))
+    collect = documents_service.media_service.collect_media_for_llm
+    calls = []
+
+    def counting(db, child_id, target_date):
+        calls.append(target_date)
+        return collect(db, child_id, target_date)
+
+    monkeypatch.setattr(documents_service.media_service, "collect_media_for_llm", counting)
+
+    response = client.get(f"{_media_url()}/{PHOTO}/download")
+
+    assert response.status_code == 200
+    assert calls == [chosen.record_date]
