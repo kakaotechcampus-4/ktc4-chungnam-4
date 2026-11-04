@@ -6,7 +6,13 @@ import { emailRule } from "@/lib/form-rules";
 export const signupSchema = z
   .object({
     email: emailRule,
-    password: z.string().min(1, "비밀번호를 입력해 주세요"),
+    password: z
+      .string()
+      .min(1, "비밀번호를 입력해 주세요")
+      .refine(
+        (value) => new TextEncoder().encode(value).length <= 72,
+        "비밀번호는 72바이트 이하여야 해요.",
+      ),
     passwordConfirm: z.string().min(1, "비밀번호를 한 번 더 입력해 주세요"),
   })
   .refine((values) => values.password === values.passwordConfirm, {

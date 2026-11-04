@@ -1,3 +1,4 @@
+import { captureInstant } from "@/lib/datetime";
 import { useQueries } from "@tanstack/react-query";
 
 import { transcriptQueryOptions, type TranscriptSegmentView } from "@/api/media";
@@ -26,7 +27,7 @@ export interface QueueSegment {
   clip: LocalClip;
   /** 전체 발화 중 순번(1부터). "발화 02"처럼 씁니다. */
   number: number;
-  /** 파일 촬영 시각 + 시작 초(UTC ISO). 촬영 시각은 파일 수정 시각으로 대신합니다(가정). */
+  /** 선택한 활동 날짜 + 시작 초(UTC ISO). */
   spokenAt: string;
 }
 
@@ -36,6 +37,7 @@ export interface QueueSegment {
  */
 export function useQueueTranscripts() {
   const { retry } = useClipUploads();
+  const recordDate = useUploadQueue((state) => state.recordDate);
   const items = useUploadQueue((state) => state.items);
   const clips = items.filter((item): item is LocalClip => !isPhoto(item));
   // 올라간 파일만 조회합니다. 올리기 전 파일끼리 같은 키로 겹치지 않게 합니다.
@@ -62,13 +64,18 @@ export function useQueueTranscripts() {
   // 순번은 파일 순서대로 이어 붙입니다("발화 01"부터).
   const segments: QueueSegment[] = clips
     .flatMap((clip, index) =>
-      (results[index]?.data?.items ?? []).map((segment) => ({ segment, clip })),
+      (results[index]?.data?.items ?? []).map((segment) => ({
+        segment: { ...segment, child_ids: results[index]?.data?.child_ids ?? [] },
+        clip,
+      })),
     )
     .map(({ segment, clip }, index) => ({
       segment,
       clip,
       number: index + 1,
-      spokenAt: new Date(clip.file.lastModified + segment.start_time * 1000).toISOString(),
+      spokenAt: new Date(
+        Date.parse(captureInstant(recordDate, clip.file.lastModified)) + segment.start_time * 1000,
+      ).toISOString(),
     }));
 
   return {
@@ -90,5 +97,5 @@ export function useQueueTranscripts() {
 
 /** 교사가 아직 연결하거나 빼지 않은 발화 */
 export function isPendingSegment(segment: TranscriptSegmentView) {
-  return !segment.excluded && segment.child_ids.length === 0;
+  return !segment.excluded && (segment.reviewed_at === null || segment.child_ids.length === 0);
 }

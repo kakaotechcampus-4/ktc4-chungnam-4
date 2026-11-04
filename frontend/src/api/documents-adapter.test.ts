@@ -148,6 +148,16 @@ describe("판정 함수", () => {
 });
 
 describe("사진", () => {
+  it("분석 실패 사진은 표시용으로 남기고 선택 사진에 자동 추가하지 않는다", () => {
+    const failed = { ...PHOTO, media_id: "failed-photo" };
+    const view = toDraftView(
+      detail({ failed_media_ids: [failed.media_id], media: [PHOTO, failed] }),
+    );
+    expect(view.failed_media_ids).toEqual([failed.media_id]);
+    expect(view.media).toContainEqual(failed);
+    expect(selectedPhotos(view)).toEqual([PHOTO]);
+    expect(toDraftView(detail()).failed_media_ids).toEqual([]);
+  });
   // 초안 검토 화면은 게시 전 초안을 다루므로 교사가 고른 사진을 그대로 봅니다.
   it("고른 사진은 게시 여부와 무관하게 나온다", () => {
     expect(selectedPhotos(toDraftView(detail()))).toEqual([PHOTO]);

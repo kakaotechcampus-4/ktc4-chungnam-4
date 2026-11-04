@@ -1,5 +1,10 @@
 import type {
   AccountType,
+  AccountCreateRequest,
+  AccountCreated,
+  InvitePreview,
+  InviteAcceptRequest,
+  InviteAccepted,
   Me,
   MeBase,
   SessionCreated,
@@ -71,3 +76,50 @@ export function isTeacher<T extends { account_type: MeAccountTypeView }>(
 ): value is T & { account_type: "teacher" } {
   return value?.account_type === "teacher";
 }
+
+export function toSignupBody(input: SignupInput): AccountCreateRequest {
+  return {
+    email: input.email,
+    password: input.password,
+    name: input.name,
+    center_code: input.center_code,
+    new_center: input.new_center
+      ? { name: input.new_center.name, address: input.new_center.address }
+      : undefined,
+  };
+}
+export function toSignupView(raw: AccountCreated): SignupView {
+  return { center_code: raw.center_code };
+}
+export function toInvitePreviewView(raw: InvitePreview): InvitePreviewView {
+  return {
+    child_name: raw.child_name,
+    class_name: raw.class_name,
+    center_name: raw.center_name,
+    expires_at: raw.expires_at,
+  };
+}
+export function toInviteAcceptBody(input: InviteAcceptInput): InviteAcceptRequest {
+  return {
+    email: input.email,
+    password: input.password,
+    name: input.name,
+    is_legal_guardian: input.is_legal_guardian,
+    consents: {
+      personal_info: input.consents.personal_info,
+      activity_media: input.consents.activity_media,
+      face_feature: input.consents.face_feature,
+    },
+  };
+}
+export function toInviteAcceptedView(raw: InviteAccepted): InviteAcceptedView {
+  return { child_id: raw.child_id };
+}
+
+import type {
+  SignupInput,
+  SignupView,
+  InvitePreviewView,
+  InviteAcceptInput,
+  InviteAcceptedView,
+} from "./auth-view";

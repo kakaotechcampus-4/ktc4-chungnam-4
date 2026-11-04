@@ -21,6 +21,8 @@ from core.database import get_db
 from domains.agents.service import SentenceEvidenceView
 from domains.audit.models import AccessLog
 from domains.auth.middleware import get_current_user
+from domains.auth.models import Account as LookupAccount
+from domains.auth.models import Teacher as LookupTeacher
 from domains.auth.service import ParentProfile, TeacherProfile
 from domains.documents import service as documents_service
 from domains.documents.models import (
@@ -31,6 +33,7 @@ from domains.documents.models import (
     DraftStatus,
     RevisionLog,
 )
+from domains.documents.models import UnclassifiedItem as FailureItem
 from domains.media.service import SignedMediaUrl
 from domains.organization.models import Center, Child, Klass
 from main import app
@@ -48,6 +51,9 @@ def db() -> Iterator[Session]:
     )
     tables = [Center, Klass, Child, DraftDocument, DraftSentence, DocumentPublication, RevisionLog]
     tables.append(AccessLog)
+    Base.metadata.create_all(
+        engine, tables=[LookupAccount.__table__, LookupTeacher.__table__, FailureItem.__table__]
+    )
     Base.metadata.create_all(engine, tables=[table.__table__ for table in tables])
     session = sessionmaker(bind=engine)()
     yield session

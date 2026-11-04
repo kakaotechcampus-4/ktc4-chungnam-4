@@ -70,6 +70,8 @@ export interface DraftDetail {
   sentences: Sentence[];
   /** 선택 사진의 순서 */
   selected_media_ids: string[];
+  /** 분석 실패로 근거에서 제외된 사진. 구버전 서버 응답에는 없을 수 있습니다. */
+  failed_media_ids?: string[];
   /** 선택 사진과 근거 미디어의 서명 URL */
   media: MediaUrl[];
   author_teacher_id: string;

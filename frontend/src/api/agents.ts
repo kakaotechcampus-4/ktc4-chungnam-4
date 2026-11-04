@@ -48,7 +48,8 @@ export function jobQueryOptions(jobId: string) {
     queryKey: agentsKeys.job(jobId),
     queryFn: async ({ signal }) =>
       toJobView(await api.get<Job>(`/jobs/${encodeURIComponent(jobId)}`, { signal })),
-    refetchInterval: (query) => (isJobFinished(query.state.data) ? false : JOB_POLL_INTERVAL_MS),
+    refetchInterval: (query) =>
+      query.state.error || isJobFinished(query.state.data) ? false : JOB_POLL_INTERVAL_MS,
   });
 }
 

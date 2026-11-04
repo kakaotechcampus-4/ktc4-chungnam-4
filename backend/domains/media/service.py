@@ -282,7 +282,9 @@ def collect_media_for_llm(db: Session, child_id: UUID, target_date: date) -> lis
         select(TranscriptSegment)
         .where(
             TranscriptSegment.media_id.in_(media_ids),
-            # 교사가 근거에서 뺀 발화 (FR-14, docs/api/agents.md 5단계)
+            # 교사가 근거에서 뺀 발화만 거릅니다 (FR-14, docs/api/agents.md 5단계).
+            # `reviewed_at`은 "마지막으로 손댄 시각"이지 검수 완료 표시가 아니라 조건에 쓰지
+            # 않습니다. 열어 보지 않은 발화까지 빼면 음성메모가 안내 없이 통째로 빠집니다.
             TranscriptSegment.excluded.is_(False),
         )
         # start_time이 nullable이라 NULL 위치가 DB마다 달라서(PostgreSQL은 뒤, SQLite는 앞) 고정합니다.
@@ -1251,7 +1253,11 @@ def transcribe_media(media_id: str) -> None:
     """
     with SessionLocal() as session:
         asset = session.get(MediaAsset, UUID(media_id))
-        if asset is None or asset.transcript_status != TRANSCRIPT_PENDING:
+        if asset is None:
+            return
+        expire_stale_transcription(session, asset)
+        session.commit()
+        if asset.transcript_status != TRANSCRIPT_PENDING:
             return
         storage_key, source = asset.storage_url, _TRANSCRIPT_SOURCE[asset.type]
 
@@ -1346,6 +1352,7 @@ class TranscriptView:
     asset: MediaAsset
     transcript_status: str
     segments: list[TranscriptSegment]
+    child_links: list[MediaChildLink]
 
 
 def list_transcript_segments(
@@ -1370,9 +1377,11 @@ def list_transcript_segments(
     if asset.type not in _TRANSCRIPT_SOURCE:
         raise MediaHasNoAudio("사진에는 발화가 없어요.")
 
+    expire_stale_transcription(db, asset)
     status = asset.transcript_status or TRANSCRIPT_FAILED
+    links = _child_links_of(db, media_id)
     if status != TRANSCRIPT_DONE:
-        return TranscriptView(asset=asset, transcript_status=status, segments=[])
+        return TranscriptView(asset=asset, transcript_status=status, segments=[], child_links=links)
     segments = list(
         db.scalars(
             select(TranscriptSegment)
@@ -1391,7 +1400,9 @@ def list_transcript_segments(
             action=_AUDIT_ACTION_VIEW_TRANSCRIPT,
         )
         db.flush()
-    return TranscriptView(asset=asset, transcript_status=status, segments=segments)
+    return TranscriptView(
+        asset=asset, transcript_status=status, segments=segments, child_links=links
+    )
 
 
 def update_transcript_segment(
@@ -1423,3 +1434,27 @@ def update_transcript_segment(
     segment.reviewed_at = datetime.now(UTC)
     db.flush()
     return segment
+
+
+# 큐 대기까지 합친 상한. 기존 생성 Job의 pending 상한과 맞춘 임시값(엄태은), 리뷰 대상입니다.
+_STALE_STT_AFTER = timedelta(hours=1)
+
+
+def expire_stale_transcription(db: Session, asset: MediaAsset) -> None:
+    """메시지 유실·worker 종료 뒤 pending이 영구히 남지 않게 합니다 (NFR-06)."""
+    if asset.transcript_status != TRANSCRIPT_PENDING:
+        return
+    verified_at = db.scalar(select(MediaUpload.verified_at).where(MediaUpload.media_id == asset.id))
+    if verified_at is None:
+        return  # 옛 자료의 접수 시각은 추측하지 않습니다.
+    if verified_at.tzinfo is None:
+        verified_at = verified_at.replace(tzinfo=UTC)
+    if datetime.now(UTC) - verified_at <= _STALE_STT_AFTER:
+        return
+    db.execute(
+        update(MediaAsset)
+        .where(MediaAsset.id == asset.id, MediaAsset.transcript_status == TRANSCRIPT_PENDING)
+        .values(transcript_status=TRANSCRIPT_FAILED)
+    )
+    db.flush()
+    db.refresh(asset)

@@ -11,7 +11,6 @@ import { confirmReview } from "@/features/classify/review-policy";
 import { useClassChildren } from "@/features/classify/use-class-children";
 import { useQueueTranscripts } from "@/features/classify/use-queue-transcripts";
 import { isPhoto, useUploadQueue } from "@/features/upload-queue/upload-queue-store";
-import { kstToday } from "@/lib/datetime";
 
 import { formatCounts, summarize } from "./classification-summary";
 import { EmptyQueueCard } from "./components/EmptyQueueCard";
@@ -38,9 +37,10 @@ export function ClassificationPage() {
   } = useClassChildren();
   // 로컬 상태는 업로드 큐(정은) 하나입니다. 분류는 처리 중 화면이 끝내고 이 화면으로 보냅니다.
   const items = useUploadQueue((state) => state.items);
+  const recordDate = useUploadQueue((state) => state.recordDate);
   const setReview = useUploadQueue((state) => state.setReview);
   const evidence = useQuery({
-    ...classEvidenceQueryOptions(currentClass?.class_id ?? "", kstToday()),
+    ...classEvidenceQueryOptions(currentClass?.class_id ?? "", recordDate),
     enabled: currentClass !== null,
   });
   const transcripts = useQueueTranscripts();

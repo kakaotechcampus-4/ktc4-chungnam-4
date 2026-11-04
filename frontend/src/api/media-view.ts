@@ -175,6 +175,9 @@ export interface TranscriptSegmentView {
 export interface TranscriptView {
   media_id: string;
   transcript_status: TranscriptStatusView;
+  child_ids: string[];
+  llm_allowed: boolean;
+  attributed_at: string | null;
   /** 시작 시각 순. pending·failed면 빈 배열입니다. */
   items: TranscriptSegmentView[];
 }

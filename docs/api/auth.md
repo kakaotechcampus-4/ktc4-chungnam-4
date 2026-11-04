@@ -64,7 +64,7 @@ auth의 상세 작성 엔드포인트는 3개입니다. 교사·학부모 공용
 
 - 응답 `201`:
   - 헤더 `Set-Cookie`로 로그인 쿠키를 내려 줍니다(위 '인증'). 본문에는 토큰을 넣지 않습니다.
-  - FE는 `account_type`으로 첫 화면을 고릅니다. 교사는 오늘의 기록, 학부모는 W3입니다.
+  - FE는 `account_type`으로 첫 화면을 고릅니다. 교사는 어린이집의 반 목록(반 고르기, `/onboarding/class`)이고, 반을 고르면 오늘의 기록으로 갑니다(회의 결정). 학부모는 W3입니다.
   - 헤더에 쓸 정보는 `GET /api/v1/me`로 따로 받습니다.
 
 ```json
@@ -176,3 +176,11 @@ auth의 상세 작성 엔드포인트는 3개입니다. 교사·학부모 공용
   - `CENTER_NOT_FOUND` (404) — 없는 가입 코드. 계정을 만들지 않습니다. 가입 코드는 계정 존재 여부가 아니라서 구분해도 됩니다(`auth/CLAUDE.md`). **이메일 중복보다 먼저 확인합니다** — 반대 순서면 없는 코드를 보내 409/404만으로 그 이메일의 가입 여부를 알 수 있습니다(#221 리뷰).
   - `VALIDATION_ERROR` (422) — 위 소속 조합, 빈 이름, 이메일 형식(`@` 앞뒤가 있는지만), 72바이트를 넘는 비밀번호(bcrypt가 조용히 자르지 않게). 칸 하나의 오류는 `detail.loc`가 그 칸을 가리킵니다(예: `["body", "password"]`). FE는 이것으로 1단계 칸 오류면 1단계로 돌려보냅니다.
 - 미정: 비밀번호 규칙(길이·조합)은 스펙에 없어 FE처럼 비었는지만 봅니다. 이메일 인증(가입 확인 메일)도 하지 않습니다.
+
+## 학부모 초대 수락 (FR-28, #225)
+
+- `POST /children/{child_id}/parent-invites`: 같은 어린이집 교사가 발급. `201 {invite_url, parent_linked}`. URL은 동일 서비스의 `/invite/<token>` 상대 경로이며 FE가 현재 origin을 붙입니다. 해시만 저장하므로 링크는 발급 직후에만 보여 줍니다. 7일·1회, 재발급은 이전 미사용 링크를 무효화합니다.
+- `GET /parent-invites/{token}`: `{child_name, class_name, center_name, expires_at}`. 생년월일·다른 보호자 정보는 제공하지 않습니다.
+- `POST /parent-invites/{token}/accept`: `{email?, password?, name?, is_legal_guardian:true, consents:{personal_info:true,activity_media:true,face_feature:boolean}}`. 비로그인 상태는 계정 3필드 필수, 기존 학부모는 로그인 상태로 계정 필드를 생략합니다. 교사 세션은 거절합니다. 성공 `201 {child_id}`와 로그인 쿠키. 계정·연결·동의·사용 처리 모두 원자적으로 커밋합니다.
+- 임시 결정(엄태은, 오류 코드): `INVITE_UNAVAILABLE`(410, 없거나 만료·사용·재발급), `ACCOUNT_ALREADY_EXISTS`(409, 기존 계정 로그인 안내). 필수 동의 누락은 422. 토큰·비밀번호는 로깅하지 않습니다.
+- 가입 코드는 기존 `find_center_by_code`의 공백 제거·대문자 규칙을 사용합니다. 이메일 자동 발송은 없으며 교사가 복사해 전달합니다.

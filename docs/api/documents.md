@@ -45,17 +45,15 @@
 - [x] **서버 `status`를 화면이 어떻게 읽을지** → 임시 결정(김진하), 이슈 #106 정은 님 지적 반영: `verified` → 검토 가능, `approved` → 검토 완료, **`draft`("생성 중")·`unclassified`("확인 필요")·모르는 값("확인 필요", 내부 상태는 `unknown`) → 잠금**. 반영: `frontend/src/api/documents-adapter.ts`의 `toDraftStatusView`. 처음에는 "`approved` 말고는 전부 검토 가능"으로 뒀는데, 그러면 아직 만드는 중인 `draft`도 승인 버튼이 열려 **미완성 글이 그대로 나갑니다.** 애매하면 잠그는 쪽이 H-1과 맞습니다. 셋을 한 상태로 묶지 않는 것은 교사가 할 일이 달라서입니다 — `draft`는 기다리면 되고, 나머지 둘은 확인해야 합니다. 모르는 값을 따로 두는 것은 `frontend/CLAUDE.md` §데이터 규칙입니다(#107 리뷰 송유진 님)
 - [x] 알림장 게시판을 날짜별 목록에서 **원아 명단**으로 바꿈 → 임시 결정(김진하): 게시판은 지난 기록 보관함이라 원아 → 날짜 순서로 들어갑니다(오늘 게시 상태는 초안 검토 레일이 이미 보여 줍니다). 반영: 이 문서 §`GET /classes/{class_id}/drafts`(쿼리 확장), §`GET /children/{child_id}/drafts`
 
-## develop 코드와 다른 점
+## 구현과 다른 점
 
-이 문서의 상세 작성 엔드포인트 10개는 모두 develop에 구현돼 있고, 요청·응답의 원본은 OpenAPI(로컬 서버의 `/docs`. `APP_ENV=production`이면 꺼짐)입니다([README](README.md) §이 문서를 읽는 법). 아래는 지금 코드가 이 문서와 **아직 다른 곳만** 남깁니다(10/29 기준). PR #14 골격 기준으로 적었던 게시 요청(`include_photos`)·게시 건별 결과·서명 URL·에러 코드 행은 구현하면서 이 문서대로 맞춰져 지웠습니다.
+이 문서의 상세 작성 엔드포인트 10개는 모두 develop에 구현돼 있고, 요청·응답의 원본은 OpenAPI(로컬 서버의 `/docs`. `APP_ENV=production`이면 꺼짐)입니다([README](README.md) §이 문서를 읽는 법). 아래는 사진 통합 PR의 코드가 이 문서와 **아직 다른 곳만** 남깁니다(11/02 기준). PR #14 골격 기준으로 적었던 게시 요청(`include_photos`)·게시 건별 결과·서명 URL·에러 코드 행은 구현하면서 이 문서대로 맞춰져 지웠습니다.
 
 | 항목 | 이 문서 | 지금 코드 |
 |---|---|---|
 | 알림장 이름 | `parent_note`, `parent_note_id` | 경로·스키마는 맞췄고, 함수·인자 이름과 OpenAPI 요약에 `letter`가 남아 있음(예: `router.revoke_letter` → 요약 "Revoke Letter", `service.get_letter_for_parent`의 `letter_id`). 용어표에서 쓰지 않는 말 |
-| 초안 `status` 값 | `draft`·`verified`·`approved`·`unclassified` | `draft`·`verified`·`approved`·`revoked`. `unclassified`를 상태값으로 둘지는 미정(#158 9번·#196) |
-| 미분류 | 반·날짜 목록의 `unclassified`에 원아별 사유, 직접 작성하면 그 원아·날짜의 미분류 해소 | `unclassified`는 항상 `null`이고 해소도 하지 않음. agents가 미분류를 기록하지 않고(`_send_to_unclassified`가 빈 함수), `UnclassifiedItem`에 원아·날짜가 없음(#196) |
-| 작성 교사 이름 `author_name` | 교사용·학부모용 응답에 작성 교사 이름 | 빈 문자열. auth 조회 함수(`get_teacher_names`, 엄태은)가 생기면 채움 |
-| 분석 못 한 사진 `failed_media_ids` | 교사 상세에 실음 | 응답에 없음. agents가 목록을 저장하면(사진 분석 연결 PR) 붙임 |
+
+사진 통합 PR에서 #196의 미분류 기록·자동 해소와 #228의 작성 교사 이름 조회를 연결했습니다. 초안 상태는 `draft`·`verified`·`approved`·`revoked`를 유지하며, 초안이 없는 실패는 별도 `UnclassifiedItem`에 원아·날짜·사유로 기록합니다. 알림장(parent_note)의 직접 작성 또는 AI 저장이 성공하면 같은 트랜잭션에서 해소합니다. 관찰일지 저장만으로 알림장 실패를 해소하지 않으며, 이미 알림장이 있으면 새 실패를 기록하거나 목록에 표시하지 않습니다. 과거 원아·날짜가 없는 기록은 보존하되 새 목록에 섞지 않습니다.
 
 - [ ] 남은 차이 정리(한상균). 기본 경로와 경로 이름은 이 문서에 맞췄습니다 — `main.py`가 `/api/v1`을 붙입니다(#136 리뷰 합의)
 
@@ -216,6 +214,7 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
       ]
     }
   ],
+  "failed_media_ids": [],
   "selected_media_ids": [
     "3ed1a000-0000-4000-8000-000000000041",
     "3ed1a000-0000-4000-8000-000000000042",
@@ -258,7 +257,7 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
   - `CHILD_ACCESS_DENIED` (403) — 다른 어린이집 원아의 초안일 때. 원아 기준으로 검사합니다 — 임시 결정(한상균), #156
   - `ACCESS_LOG_FAILED` (500) — 열람 기록에 실패했을 때(본문 없이)
 - 볼 때마다 `AccessLog`(actor_type=teacher, target_type=draft_document, action=view_detail)를 남기고 커밋한 뒤 돌려줍니다. 승인 전 본문과 근거 원문(실명)을 보는 열람이라 NFR-05(모든 열람 기록)를 따릅니다 — 임시 결정(한상균). 수정·승인·되돌리기 응답은 열람으로 보지 않아 남기지 않습니다.
-- 분석하지 못해 근거에서 뺀 사진(#155)은 `failed_media_ids`(media_id 배열)로 싣고, 썸네일은 `media[]`에 같은 모양으로 넣습니다 — 임시 결정(한상균). agents가 이 목록을 저장하면(사진 분석 연결 PR) 응답에 붙이고, 그전까지는 응답에 없습니다.
+- 분석하지 못해 근거에서 뺀 사진(#155)은 `failed_media_ids`(media_id 배열, 기본 `[]`)로 싣고, 썸네일은 `media[]`에 같은 모양으로 넣습니다. agents가 `EvidenceBundle.failed_photo_ids`에 저장한 값을 public service 함수로 받습니다. 교사는 초안 검토에서 제외된 사진과 안내를 볼 수 있으며, 문장 근거·선택 사진·학부모 응답에는 자동으로 추가하지 않습니다. 전부 실패해 초안이 없으면 `photo_analysis_failed` 미분류 사유로 안내합니다.
 - 본문은 문장 단위(`DraftSentence`)로 저장합니다 — 임시 결정(정은), 이슈 #75. `sentences[]` 한 항목은 문법상 문장이 아니라 근거를 함께 쓰는 표시 단위입니다. 화면에서 두 문장이 한 덩어리로 보여도 근거와 수정은 이 항목 단위로 움직입니다.
 - ~~[확인 필요: 정은] `SentenceEvidence`에는 `source_type`·`end_ms`·`captured_at`이 없어서 조인 경로를 정해야 합니다. `source_text`가 비식별 토큰(`CHILD_A`) 상태로 저장되는지, 그렇다면 교사 응답의 어디에서 실명을 되살릴지 정해야 합니다. `evidence_id`를 UUID로 바꿀지도 정해야 합니다.~~ → 임시 결정(정은): `evidences[]`는 agents `list_sentence_evidences(db, draft_id)`로 받습니다(문장 ID → 근거 목록, 위 응답 모양 그대로). `source_text`는 원문으로 저장돼 실명을 되살릴 필요가 없습니다. `end_ms`는 아직 저장하지 않아 `null`입니다. `evidence_id`는 불투명 문자열 그대로 둡니다. 자세한 규칙은 `docs/api/agents.md` 상단 목록.
 
@@ -288,7 +287,7 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 - 응답 `201`: 상세(`GET /api/v1/drafts/{draft_id}`)와 같은 교사용 스키마입니다. `status`는 `verified`(교사 검토 대기)라 바로 승인할 수 있고, `version`은 1입니다. `sentences[].evidences`, `selected_media_ids`, `media`는 모두 빈 배열입니다 — 사진·녹음이 없으니 근거 표시가 붙지 않습니다.
 - 문장은 보낸 순서대로 `t1`·`t2`…를 받고 `is_edited_by_teacher`는 `false`입니다. 수정이 아니라 생성이라 수정 이력(RevisionLog)은 남기지 않습니다(테크스펙 ④ DraftDocument, 임시 결정(정은), #139). 응답은 열람이 아니라 AccessLog도 남기지 않습니다(수정·승인 응답과 같음).
 - 없는 원아면 `404 CHILD_NOT_FOUND`입니다. 같은 요청이 동시에 두 번 와도 유일 제약(원아·종류·날짜)이 하나만 남기고, 나머지는 `409 DRAFT_ALREADY_EXISTS`입니다.
-- 만들고 나면 그 원아·날짜의 미분류 항목은 해소된 것으로 봅니다(레일에서 "확인 필요"가 사라집니다). **아직 하지 않습니다** — `UnclassifiedItem`에 원아·날짜가 없고 agents가 미분류를 기록하지 않습니다(#196).
+- 알림장을 직접 만들면 같은 원아·날짜의 미분류 항목을 해소하고 `resolved_by`에 작성 교사를 남깁니다. 문서 저장과 같은 트랜잭션이며, 관찰일지 작성은 알림장 실패를 해소하지 않습니다(#196).
 - 직접 쓴 문장은 `t1`·`t2`… ID를 받으므로, 같은 날 사진을 올려 다시 생성해도 AI 결과가 이 초안을 덮어쓰지 않습니다(테크스펙 ④ DraftDocument "교사가 손댄 문서" — 임시 결정(정은), #139 리뷰).
 - 에러: 같은 원아·날짜·`doc_type`의 초안이 이미 있으면 `409 DRAFT_ALREADY_EXISTS`, 다른 어린이집 원아이면 `403 CHILD_ACCESS_DENIED`입니다(원아 기준으로 검사 — 임시 결정(한상균), #156).
 
