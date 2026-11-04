@@ -22,7 +22,7 @@ from domains.auth.middleware import get_current_user
 from domains.auth.service import ParentProfile
 from domains.documents import service as documents_service
 from domains.documents.models import DocumentPublication, DraftDocument, DraftStatus
-from domains.media.service import MediaDownload, MediaEvidence, MediaMeta, SignedMediaUrl
+from domains.media.service import MediaDownload, MediaMeta, SignedMediaUrl
 from main import app
 
 PARENT_ID = uuid.uuid4()
@@ -53,8 +53,8 @@ def client(db: Session, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]
     taken = datetime(2026, 10, 20, 1, 0, tzinfo=UTC)
     expires = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 
-    def collect(db, child_id, target_date):
-        return [MediaEvidence(m, kind, taken, "s3://x") for m, kind in TYPE_BY_MEDIA.items()]
+    def child_media(db, child_id, target_date, *, types):
+        return [MediaMeta(m, kind, taken) for m, kind in TYPE_BY_MEDIA.items() if kind in types]
 
     def meta(db, media_ids):
         return {m: MediaMeta(m, TYPE_BY_MEDIA[m], taken) for m in media_ids}
@@ -68,7 +68,7 @@ def client(db: Session, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]
     media = documents_service.media_service
     organization = documents_service.organization_service
     monkeypatch.setattr(organization, "ensure_parent_child_access", ensure_parent_child_access)
-    monkeypatch.setattr(media, "collect_media_for_llm", collect)
+    monkeypatch.setattr(media, "list_child_media", child_media)
     monkeypatch.setattr(media, "get_media_meta", meta)
     monkeypatch.setattr(media, "get_signed_urls", sign)
     monkeypatch.setattr(media, "get_download_url", download)
@@ -237,14 +237,14 @@ def test_내려받기는_그_미디어를_고른_알림장만_다시_거른다(c
     chosen = _note(db, 20)
     for day in (19, 18, 17):
         _note(db, day, selected=(VIDEO,))
-    collect = documents_service.media_service.collect_media_for_llm
+    child_media = documents_service.media_service.list_child_media
     calls = []
 
-    def counting(db, child_id, target_date):
+    def counting(db, child_id, target_date, *, types):
         calls.append(target_date)
-        return collect(db, child_id, target_date)
+        return child_media(db, child_id, target_date, types=types)
 
-    monkeypatch.setattr(documents_service.media_service, "collect_media_for_llm", counting)
+    monkeypatch.setattr(documents_service.media_service, "list_child_media", counting)
 
     response = client.get(f"{_media_url()}/{PHOTO}/download")
 

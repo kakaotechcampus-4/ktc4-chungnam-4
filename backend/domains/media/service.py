@@ -686,6 +686,32 @@ def get_download_url(db: Session, media_id: UUID) -> MediaDownload:
     )
 
 
+def list_child_media(
+    db: Session, child_id: UUID, target_date: date, *, types: frozenset[str]
+) -> list[MediaMeta]:
+    """그 원아에게 귀속된 그 날짜(KST) 미디어 중 파기되지 않은 것. 촬영 순서입니다.
+
+    교사가 확정한 귀속(`MediaChildLink`)만 봅니다. `collect_media_for_llm`과 달리
+    `llm_allowed`와 ③ 동의는 보지 않습니다 — LLM 경로가 아니라 사람에게 보여 주는 경로라,
+    함께 찍힌 아이의 동의는 촬영·공유 범위(②)로 판단합니다. 누구에게 보여 줄지는 부르는 쪽이
+    정합니다(H-1).
+    """
+    start, end = _kst_day_range(target_date)
+    rows = db.execute(
+        select(MediaAsset.id, MediaAsset.type, MediaAsset.captured_at)
+        .join(MediaChildLink, MediaChildLink.media_id == MediaAsset.id)
+        .where(
+            MediaChildLink.child_id == child_id,
+            MediaAsset.type.in_(types),
+            MediaAsset.storage_tier != "deleted",
+            MediaAsset.captured_at >= start,
+            MediaAsset.captured_at < end,
+        )
+        .order_by(MediaAsset.captured_at)
+    ).all()
+    return [MediaMeta(media_id=row.id, type=row.type, captured_at=row.captured_at) for row in rows]
+
+
 # 감사 로그 코드. audit 담당과 코드 목록을 맞추는 중이라(#32, #74) 값은 여기 한곳에만 둡니다.
 # TODO(donggeon): target_type·action 값은 임시 결정(김동건). 한상균 님 확인 대기(media-face.md)
 AUDIT_TARGET_TYPE = "media_asset"

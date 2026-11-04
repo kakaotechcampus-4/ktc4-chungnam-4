@@ -713,17 +713,17 @@ def _ensure_selectable_photos(db: Session, draft: DraftDocument, media_ids: Sequ
 def _shareable_media_ids(db: Session, child_id: UUID, record_date: date) -> set[UUID]:
     """그 원아·그 날짜에 학부모에게 보여도 되는 사진·영상. 고를 때와 보여 줄 때 같은 범위를 쓴다.
 
-    media의 collect_media_for_llm 범위(llm_allowed, 귀속 원아 전원 ③ 동의)를 그대로 쓴다 —
-    다른 아이가 함께 찍힌 사진이 학부모에게 나가는 것을 줄이는 보수적인 범위다(임시 결정
-    (한상균), docs/api/documents.md "llm_allowed인 사진만 학부모에게" 제안). 그 함수는
-    음성메모도 돌려주므로 사진·영상만 남긴다(FR-10).
-    TODO(donggeon): 미동의 원아가 함께 찍힌 사진의 학부모 노출은 open-questions 57번·테크스펙
-      D-4에서 정한 뒤 바꾼다(#242 리뷰).
+    교사가 그 원아에게 귀속시킨 사진·영상이면 다른 아이가 함께 찍혀도 된다(FR-10). 함께 찍힌
+    아이의 촬영·공유는 필수 동의(②) 범위로 보고, ③(얼굴특징정보) 동의와 llm_allowed는 LLM
+    경로에서만 본다(H-2). 무엇을 보낼지는 교사가 고르고 승인한다(H-1). 음성메모는 보내지 않는다.
+    테크스펙 D-4(11/04 팀 승인, open-questions 57번). 이전 범위는 llm_allowed·귀속 원아 전원 ③
+    동의였다(임시 결정(한상균)).
     """
     return {
         media.media_id
-        for media in media_service.collect_media_for_llm(db, child_id, record_date)
-        if media.type in _PARENT_MEDIA_TYPES
+        for media in media_service.list_child_media(
+            db, child_id, record_date, types=_PARENT_MEDIA_TYPES
+        )
     }
 
 
@@ -1457,8 +1457,7 @@ def _parent_note_media_ids(
     """게이트(_parent_notes)를 통과한 알림장마다 학부모에게 보낼 미디어 id. 교사가 고른 순서다.
 
     사진을 함께 보내기로 게시한 알림장만 싣는다. 볼 때마다 고를 때와 같은 범위(_shareable_media_ids)로
-    다시 거른다. media는 동의 철회를 저장된 값을 고치지 않고 조회할 때 빼므로, 게시 뒤 함께 찍힌
-    아이가 ③을 철회하면 그 미디어는 더 나가지 않는다(#174 리뷰).
+    다시 거른다 — 게시 뒤 귀속이 바뀌거나 파기된 미디어는 더 나가지 않는다(#174 리뷰).
     """
     chosen: dict[UUID, list[UUID]] = {}
     for draft, publication in notes:

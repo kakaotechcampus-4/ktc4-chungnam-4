@@ -1,12 +1,12 @@
-"""학부모에게 보낼 원본 내려받기 URL (FR-10).
+"""학부모에게 보낼 미디어 조회와 원본 내려받기 URL (FR-10).
 
-누구에게 보여 줄지는 documents가 정합니다. 여기서는 파기 조건과
+누구에게 보여 줄지는 documents가 정합니다. 여기서는 귀속·종류·날짜·파기 조건과
 내려받기 서명(Content-Disposition)만 봅니다. 서명은 가짜 키로 검증합니다(test_signed_urls.py와 같은 방식).
 """
 
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -21,6 +21,8 @@ from domains.media.models import MediaAsset, MediaChildLink, MediaUpload
 
 BUCKET = "test-bucket"
 CHILD = uuid.uuid4()
+OTHER_CHILD = uuid.uuid4()
+PHOTO_AND_VIDEO = frozenset({"photo", "video"})
 
 
 def _clear_caches() -> None:
@@ -99,6 +101,30 @@ def _asset(
 
 def _query(url: str) -> dict[str, str]:
     return {name: values[0] for name, values in parse_qs(urlparse(url).query).items()}
+
+
+def test_그_원아에게_귀속된_그날_사진_영상만_촬영순으로_준다(db: Session) -> None:
+    late = _asset(db, captured_at=datetime(2026, 10, 20, 5, 0, tzinfo=UTC))
+    video = _asset(db, type="video")
+    _asset(db, type="voice_memo")
+    _asset(db, children=(OTHER_CHILD,))
+    _asset(db, captured_at=datetime(2026, 10, 20, 16, 0, tzinfo=UTC))  # KST 10/21 01시
+    _asset(db, storage_tier="deleted")
+
+    found = service.list_child_media(db, CHILD, date(2026, 10, 20), types=PHOTO_AND_VIDEO)
+
+    assert [(item.media_id, item.type) for item in found] == [
+        (video.id, "video"),
+        (late.id, "photo"),
+    ]
+
+
+def test_다른_아이가_함께_찍히고_LLM_제외된_단체사진도_준다(db: Session) -> None:
+    group = _asset(db, children=(CHILD, OTHER_CHILD), llm_allowed=False)
+
+    found = service.list_child_media(db, CHILD, date(2026, 10, 20), types=PHOTO_AND_VIDEO)
+
+    assert [item.media_id for item in found] == [group.id]
 
 
 def test_내려받기_URL은_원본에_attachment로_서명한다(db: Session) -> None:
