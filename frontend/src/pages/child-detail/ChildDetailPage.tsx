@@ -1,7 +1,7 @@
 // Figma: 1:703
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft } from "lucide-react";
-import { Link, useParams } from "react-router";
+import { Link, useLocation, useParams } from "react-router";
 
 import {
   childOverviewQueryOptions,
@@ -69,6 +69,8 @@ function BackButton() {
 
 export function ChildDetailPage() {
   const { childId = "" } = useParams();
+  // 동의 철회처럼 다른 화면에서 끝낸 일의 결과 안내입니다.
+  const notice = (useLocation().state as { notice?: string } | null)?.notice;
   const childQuery = useQuery(childQueryOptions(childId));
   const overviewQuery = useQuery(childOverviewQueryOptions(childId));
   const child = childQuery.data;
@@ -130,6 +132,11 @@ export function ChildDetailPage() {
         ].join(" · ")}
         actions={<BackButton />}
       />
+      {notice ? (
+        <p role="status" className="mb-5 text-body text-brand-ink">
+          {notice}
+        </p>
+      ) : null}
       <div className="flex flex-col gap-5">
         <div className="flex items-start gap-5">
           <section

@@ -3,6 +3,7 @@ import { ChildFormPage } from "@/pages/child-form/ChildFormPage";
 import { ChildInviteLinkPage } from "@/pages/child-invite-link/ChildInviteLinkPage";
 import { ChildrenSetupPage } from "@/pages/children-setup/ChildrenSetupPage";
 import { ChildrenPage } from "@/pages/children/ChildrenPage";
+import { FaceConsentRevokePage } from "@/pages/face-consent-revoke/FaceConsentRevokePage";
 import { EducationPlanFormPage } from "@/pages/education-plan-form/EducationPlanFormPage";
 import { EducationPlansPage } from "@/pages/education-plans/EducationPlansPage";
 import { OnboardingClassNewPage } from "@/pages/onboarding-class-new/OnboardingClassNewPage";
@@ -28,6 +29,8 @@ export const organizationRoutes: AreaRoutes = {
     { path: "children/:childId", Component: ChildDetailPage },
     { path: "children/:childId/edit", Component: ChildFormPage },
     { path: "children/:childId/invite", Component: ChildInviteLinkPage },
+    // ③ 동의 철회(FR-22). 얼굴 정보 삭제 화면에서 들어옵니다.
+    { path: "children/:childId/face/revoke", Component: FaceConsentRevokePage },
     { path: "plans", Component: EducationPlansPage },
     { path: "plans/new", Component: EducationPlanFormPage },
     { path: "plans/:planId/edit", Component: EducationPlanFormPage },
