@@ -2,6 +2,7 @@ import type {
   ChildDraftItem,
   ClassDraftItem,
   DraftDetail,
+  DraftRevokeResponse,
   DraftStatus,
   DraftSummary,
   Evidence,
@@ -20,6 +21,7 @@ import type {
   EvidenceView,
   PublicationResultView,
   PublicationStatusView,
+  RevokedPublicationView,
   RosterStatusView,
   SentenceView,
 } from "./documents-view";
@@ -151,6 +153,28 @@ function toPublicationStatusView(value: PublicationResult["status"]): Publicatio
   }
 }
 
+export function toRevokedPublicationView(raw: DraftRevokeResponse): RevokedPublicationView {
+  return { draft_id: raw.draft_id, revoked_at: raw.revoked_at };
+}
+
+/**
+ * 회수 기한. 서버 `_REVOKE_WINDOW`(24시간)를 옮긴 값입니다 — 게시가 **끝난** 시각부터입니다.
+ *
+ * 목 핸들러에도 같은 값이 따로 있습니다. 한 곳에서 가져다 쓰면 값이 틀려도 둘이 나란히
+ * 틀려서 테스트가 못 잡습니다.
+ *
+ * **이 값으로 버튼을 열고 닫을 뿐 회수 가능 여부를 판정하지는 않습니다.** 학부모가 열었는지는
+ * 반·날짜 목록에 실려 오지 않아 화면이 알 수 없고, 최종 판정은 서버가 합니다(409).
+ */
+export const REVOKE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** 게시한 알림장의 회수 기한. 게시 전이면 `null`입니다. */
+export function revokeDeadlineOf(publishedAt: string | null): Date | null {
+  if (publishedAt === null) return null;
+  const published = Date.parse(publishedAt);
+  return Number.isNaN(published) ? null : new Date(published + REVOKE_WINDOW_MS);
+}
+
 export function toPublicationResultView(raw: PublicationResult): PublicationResultView {
   return {
     draft_id: raw.draft_id,
@@ -202,10 +226,17 @@ export function canApprove(draft: { status: DraftStatusView } | null | undefined
   return draft?.status === "review";
 }
 
-/** 승인을 되돌릴 수 있는지. 게시한 뒤에는 회수가 따로 필요합니다(H-1). */
+/**
+ * 승인이나 회수를 되돌려 다시 검토할 수 있는지.
+ *
+ * `approved`는 **게시 전까지만** 됩니다 — 이미 나갔으면 회수가 먼저입니다(H-1).
+ * `revoked`는 회수로 학부모에게서 내려온 상태라 바로 되돌립니다. 서버 `reopen_draft`도
+ * 두 상태를 모두 받습니다("승인 또는 회수를 되돌려 다시 검토하게 한다").
+ */
 export function canReopen(
   draft: { status: DraftStatusView; published_at: string | null } | null | undefined,
 ): boolean {
+  if (draft?.status === "revoked") return true;
   return draft?.status === "approved" && draft.published_at === null;
 }
 

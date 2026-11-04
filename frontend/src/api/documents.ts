@@ -10,6 +10,8 @@ import type {
   DraftDetail,
   DraftPatchRequest,
   DraftReopenRequest,
+  DraftRevokeRequest,
+  DraftRevokeResponse,
   ParentNoteDetail,
   ParentNoteList,
   PublicationRequest,
@@ -21,6 +23,7 @@ import {
   toClassDraftView,
   toDraftView,
   toPublicationResultView,
+  toRevokedPublicationView,
 } from "./documents-adapter";
 import type { DocTypeView } from "./documents-view";
 
@@ -28,6 +31,7 @@ import type { DocTypeView } from "./documents-view";
 export {
   canApprove,
   canReopen,
+  revokeDeadlineOf,
   didSendPhotos,
   isNotReady,
   isPublished,
@@ -50,6 +54,7 @@ export type {
   EvidenceView,
   PublicationResultView,
   PublicationStatusView,
+  RevokedPublicationView,
   RosterStatusView,
   SentenceView,
 } from "./documents-view";
@@ -153,6 +158,18 @@ export async function approveDraft(draftId: string, body: DraftApproveRequest) {
 export async function reopenDraft(draftId: string, body: DraftReopenRequest) {
   return toDraftView(
     await api.post<DraftDetail>(`/drafts/${encodeURIComponent(draftId)}/reopen`, body),
+  );
+}
+
+/**
+ * 교사용: 게시한 알림장을 회수해 학부모에게서 내립니다(테크스펙 파이프라인 9단계).
+ *
+ * 회수할 수 있는지는 **서버가 판정합니다** — 기한(게시 후 24시간)을 넘겼거나 학부모가
+ * 이미 열었으면 409입니다. 화면은 버튼을 열고 닫을 뿐이고 그 판정을 대신하지 않습니다.
+ */
+export async function revokePublication(draftId: string, body: DraftRevokeRequest) {
+  return toRevokedPublicationView(
+    await api.post<DraftRevokeResponse>(`/drafts/${encodeURIComponent(draftId)}/revoke`, body),
   );
 }
 

@@ -133,14 +133,20 @@ describe("판정 함수", () => {
   });
 
   // 게시한 뒤에는 학부모가 이미 봤으므로 되돌릴 수 없고 회수가 따로 필요합니다(H-1).
-  it("승인했고 아직 게시하지 않은 초안만 되돌릴 수 있다", () => {
+  it("승인했고 아직 게시하지 않은 초안은 되돌릴 수 있다", () => {
     const approved = detail({ status: "approved" });
     expect(canReopen(toDraftView(approved))).toBe(true);
     expect(canReopen(toDraftView({ ...approved, published_at: "2026-10-06T08:40:00Z" }))).toBe(
       false,
     );
     expect(canReopen(toDraftView(detail({ status: "verified" })))).toBe(false);
-    expect(canReopen(toDraftView(detail({ status: "revoked" })))).toBe(false);
+  });
+
+  // 전에는 회수본도 잠갔습니다 — 다시 다루는 흐름이 없어서였습니다. 회수 화면이 생겨 흐름이
+  // 정해졌으므로 엽니다. 서버 reopen_draft도 "승인 또는 회수를 되돌려 다시 검토하게 한다"로
+  // 두 상태를 모두 받습니다. 잠가 두면 교사가 회수한 알림장을 영영 고칠 수 없습니다.
+  it("회수한 알림장도 되돌려 다시 검토할 수 있다", () => {
+    expect(canReopen(toDraftView(detail({ status: "revoked" })))).toBe(true);
   });
 });
 

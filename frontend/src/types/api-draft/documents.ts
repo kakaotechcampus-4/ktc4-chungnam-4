@@ -112,9 +112,22 @@ export interface DraftApproveRequest {
   reviewed: true;
 }
 
-/** POST /drafts/{draft_id}/reopen 요청. 승인을 되돌려 다시 검토합니다(게시 전까지만) */
+/** POST /drafts/{draft_id}/reopen 요청. 승인 또는 회수를 되돌려 다시 검토합니다 */
 export interface DraftReopenRequest {
   expected_version: number;
+}
+
+/** POST /drafts/{draft_id}/revoke 요청. 게시 후 24시간 이내이고 학부모가 열기 전에만 됩니다 */
+export interface DraftRevokeRequest {
+  expected_version: number;
+}
+
+/** POST /drafts/{draft_id}/revoke 응답. 본문은 돌려주지 않고 회수한 회차만 알려 줍니다 */
+export interface DraftRevokeResponse {
+  draft_id: string;
+  publication_id: string;
+  revoked_at: string;
+  version: number;
 }
 
 /** POST /publications 요청(일괄 게시, 건별 결과) */

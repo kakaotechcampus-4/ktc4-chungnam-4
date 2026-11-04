@@ -10,6 +10,8 @@ import type {
   DraftDetail,
   DraftPatchRequest,
   DraftReopenRequest,
+  DraftRevokeRequest,
+  DraftRevokeResponse,
   DraftSummary,
   ParentNoteDetail,
   ParentNoteList,
@@ -24,6 +26,7 @@ import { nextId, nowIso, readDb, toMediaUrl, updateDb } from "../db";
 import type { DraftRecord, MediaRecord, MockDb } from "../db";
 import { TEACHER_ME } from "../fixtures/auth";
 import { previewOf } from "../fixtures/documents";
+import { fixtureId } from "../fixtures/ids";
 import { PARENT_OF_CHILD, SUNSHINE_CHILDREN, SUNSHINE_CLASS } from "../fixtures/organization";
 import { MOCK_PARENT_ID, requireParent, requireTeacher, requireTeacherOfClass } from "../guards";
 import { apiPath, errorResponse, validationError } from "../http";
@@ -35,6 +38,14 @@ import { isMockScenario } from "../scenario";
 // 시나리오: documents.drafts-empty(반·날짜 초안 목록이 비어 있음)
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * 회수 기한. 서버 `_REVOKE_WINDOW`(24시간)를 옮긴 값입니다.
+ *
+ * 화면 쪽 `REVOKE_WINDOW_MS`(documents-adapter)와 **일부러 따로 둡니다.** 한 곳에서 가져다
+ * 쓰면 값이 틀려도 목과 화면이 나란히 틀려서 테스트가 못 잡습니다.
+ */
+const REVOKE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /** 교사가 쓴 문장(t1, t2…)의 다음 번호. 지운 문장 번호를 다시 쓰지 않게 최댓값 다음으로 둡니다 */
 function nextTeacherSentenceNo(sentences: readonly { sentence_id: string }[]) {
@@ -422,6 +433,62 @@ export const handlers = [
       draft.version += 1;
       draft.updated_at = now;
       return HttpResponse.json<DraftDetail>(detail(db, draft));
+    });
+  }),
+
+  // 게시 회수. 서버는 기한 이내·학부모 열람 전·활성 회차 있음을 모두 봅니다(파이프라인 9단계).
+  // 학부모가 열었는지는 목에서 readParentNotes로 흉내 냅니다.
+  http.post(apiPath("/drafts/:draftId/revoke"), async ({ request, params }) => {
+    const denied = requireTeacher();
+    if (denied) return denied;
+    const body = (await request.json()) as Partial<DraftRevokeRequest>;
+    if (typeof body.expected_version !== "number") {
+      return validationError("body.expected_version", "expected_version이 필요합니다");
+    }
+    return updateDb((db) => {
+      const draft = db.drafts[String(params.draftId)];
+      if (!draft) return errorResponse(404, "DRAFT_NOT_FOUND", "초안을 찾을 수 없어요.");
+      if (draft.class_id !== SUNSHINE_CLASS.class_id) {
+        return errorResponse(403, "CHILD_ACCESS_DENIED", "이 아이의 기록은 볼 수 없어요.");
+      }
+      if (draft.published_at === null) {
+        return errorResponse(409, "DRAFT_NOT_PUBLISHED", "게시 중인 알림장이 아닙니다.");
+      }
+      if (db.readParentNotes.includes(draft.draft_id)) {
+        return errorResponse(
+          409,
+          "DRAFT_ALREADY_VIEWED",
+          "학부모가 이미 열어 본 알림장은 회수할 수 없습니다.",
+        );
+      }
+      if (Date.parse(draft.published_at) + REVOKE_WINDOW_MS <= Date.now()) {
+        return errorResponse(
+          409,
+          "REVOKE_DEADLINE_PASSED",
+          "회수 기한(게시 후 24시간)이 지났습니다.",
+        );
+      }
+      // 버전은 마지막에 봅니다 — 서버도 회차 UPDATE가 먼저이고 상태 전이에서 버전을 봅니다.
+      if (draft.version !== body.expected_version) {
+        return errorResponse(
+          409,
+          "DRAFT_VERSION_CONFLICT",
+          "다른 곳에서 먼저 고쳤어요. 새로 불러와 주세요.",
+        );
+      }
+      const now = nowIso();
+      // published_at을 비우면 상세의 include_photos도 null로 따라갑니다(활성 회차 없음).
+      draft.status = "revoked";
+      draft.published_at = null;
+      draft.version += 1;
+      draft.updated_at = now;
+      return HttpResponse.json<DraftRevokeResponse>({
+        draft_id: draft.draft_id,
+        // 목은 회차를 따로 두지 않습니다. 화면이 쓰지 않는 값이라 초안마다 고정 id를 냅니다.
+        publication_id: fixtureId("publication", 1),
+        revoked_at: now,
+        version: draft.version,
+      });
     });
   }),
 
