@@ -2,6 +2,8 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http } from "msw";
 
+import { formatDate, kstToday, shiftDate } from "@/lib/datetime";
+import { updateDb } from "@/mocks/db";
 import { fixtureId } from "@/mocks/fixtures/ids";
 import { apiPath, errorResponse, listResponse } from "@/mocks/http";
 import { server } from "@/mocks/server";
@@ -18,6 +20,7 @@ function renderList(childId = DOYUN) {
     [
       { path: "/t/notes/children/:childId", element: <ParentNoteListPage /> },
       { path: "/t/notes/children/:childId/:draftId", element: <p>알림장 상세</p> },
+      { path: "/t/today/review/:childId", element: <p>초안 검토</p> },
     ],
     { initialEntry: `/t/notes/children/${childId}` },
   );
@@ -93,5 +96,38 @@ describe("ParentNoteListPage", () => {
     renderList();
 
     expect(await screen.findByText("서버에 문제가 생겼어요.")).toBeInTheDocument();
+  });
+
+  // 회수한 알림장은 게시된 것만 담는 이 목록에서 빠져, 떠나면 다시 찾아갈 길이 없었습니다.
+  // 회수함에서 날짜를 눌러 그 날짜의 초안 검토로 들어가 고칩니다.
+  it("회수함에서 회수한 알림장의 날짜를 눌러 초안 검토로 간다", async () => {
+    const user = userEvent.setup();
+    updateDb((db) => {
+      const draft = db.drafts[fixtureId("draft", 202)];
+      if (!draft) throw new Error("사흘 전 알림장이 시드에 없습니다.");
+      draft.status = "revoked";
+      draft.published_at = null;
+    });
+    const { router } = renderList();
+    await screen.findByText(/조개껍데기를 하나씩 모았어요/);
+
+    await user.click(screen.getByRole("button", { name: "회수함" }));
+
+    // 두 날의 회수본이 함께 있을 수 있어 날짜로 가립니다.
+    const day = shiftDate(kstToday(), -3);
+    await user.click(await screen.findByRole("button", { name: new RegExp(formatDate(day)) }));
+
+    expect(await screen.findByText("초안 검토")).toBeInTheDocument();
+    expect(router.state.location.search).toBe(`?record_date=${day}`);
+  });
+
+  it("회수한 알림장이 없으면 회수함이 비었다고 알린다", async () => {
+    const user = userEvent.setup();
+    renderList();
+    await screen.findByText(/조개껍데기를 하나씩 모았어요/);
+
+    await user.click(screen.getByRole("button", { name: "회수함" }));
+
+    expect(await screen.findByText("회수한 알림장이 없어요.")).toBeInTheDocument();
   });
 });

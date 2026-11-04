@@ -7,6 +7,7 @@ import { type ChildDraftView, childDraftsQueryOptions } from "@/api/documents";
 import { classChildrenQueryOptions } from "@/api/organization";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
+import { RevokedNotesDialog } from "@/features/documents/RevokedNotesDialog";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
 import { ApiError } from "@/lib/api-client";
 import { formatDate, formatYearMonth } from "@/lib/datetime";
@@ -36,6 +37,7 @@ function groupByMonth(items: ChildDraftView[]) {
 
 export function ParentNoteListPage() {
   const { childId = "" } = useParams<{ childId: string }>();
+  const [binOpen, setBinOpen] = useState(false);
   const navigate = useNavigate();
   const [shownMonths, setShownMonths] = useState(FIRST_MONTHS);
 
@@ -134,10 +136,24 @@ export function ParentNoteListPage() {
         ) : (
           <span />
         )}
-        <Button variant="outline" onClick={() => navigate("/t/notes")}>
-          목록으로
-        </Button>
+        <div className="flex items-center gap-3">
+          {/* 회수한 알림장은 게시된 것만 담는 이 목록에서 빠져, 그 자리를 떠나면 다시 찾아갈
+              길이 없었습니다. 화면을 옮기지 않고 그 자리에서 열어 보게 모달로 띄웁니다. */}
+          <Button variant="outline" onClick={() => setBinOpen(true)}>
+            회수함
+          </Button>
+          <Button variant="outline" onClick={() => navigate("/t/notes")}>
+            목록으로
+          </Button>
+        </div>
       </div>
+
+      <RevokedNotesDialog
+        open={binOpen}
+        onOpenChange={setBinOpen}
+        childId={childId}
+        childName={childName}
+      />
     </>
   );
 }
