@@ -28,6 +28,10 @@ _SDK_MAX_RETRIES = 0
 # (#179 리뷰, 유진). 과금은 실제 출력 토큰 기준이라 상한을 올려도 평소 비용은 같다.
 _VISION_MAX_TOKENS = 2048
 
+# 초안 생성·Critic 응답 상한. 1024에서 응답이 중간에 잘려 JSON이 깨진 사례가 있어(4명 중 2명 실패,
+# 11/2 로컬 실행) 사진 분석과 같은 2048로 맞춘다. 과금은 실제 출력 토큰 기준이라 평소 비용은 같다.
+_TEXT_MAX_TOKENS = 2048
+
 
 def _complete(*, endpoint: str, model: str, messages: list[dict], max_tokens: int) -> str | None:
     """설정된 API base URL 또는 완전한 chat/completions 주소를 사용한다(FR-05).
@@ -61,7 +65,7 @@ def call_claude(prompt: str) -> str | None:
     return _complete(
         endpoint=settings.llm_gateway_base_url,
         model=settings.anthropic_model,
-        max_tokens=1024,
+        max_tokens=_TEXT_MAX_TOKENS,
         messages=[{"role": "user", "content": prompt}],
     )
 
