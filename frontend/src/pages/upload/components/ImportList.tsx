@@ -16,10 +16,11 @@ const KIND_LABEL_MAP: Record<MediaKind, string> = {
 };
 
 // 1MB보다 작으면 KB로 씁니다. MB 소수 한 자리만 쓰면 51KB보다 작은 파일이 '0.0MB'로 보입니다.
+// KB는 올림이라 1MB 바로 아래 파일은 '1024KB'가 되므로, 그때부터 MB로 씁니다.
 function formatSize(bytes: number) {
-  const megabytes = bytes / 1024 / 1024;
-  if (megabytes >= 1) return `${megabytes.toFixed(1)}MB`;
-  return `${String(Math.ceil(bytes / 1024))}KB`;
+  const kilobytes = Math.ceil(bytes / 1024);
+  if (kilobytes < 1024) return `${String(kilobytes)}KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 }
 
 // 이 기기로 불러오는 파일 목록입니다. 값은 Figma 실측입니다(행 위아래 15 · 좌우 18, 막대 5).

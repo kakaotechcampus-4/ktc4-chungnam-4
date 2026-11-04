@@ -36,10 +36,6 @@ from domains.documents.schemas import (
 router = APIRouter(tags=["documents"])
 
 
-def get_current_teacher_id(teacher: CurrentTeacher) -> UUID:
-    return teacher.teacher_id
-
-
 def get_current_parent_id(parent: CurrentParent) -> UUID:
     return parent.parent_id
 
@@ -154,12 +150,13 @@ def revoke_letter(
     draft_id: UUID,
     body: RevokeRequest,
     db: Annotated[Session, Depends(get_db)],
-    teacher_id: Annotated[UUID, Depends(get_current_teacher_id)],
+    teacher: CurrentTeacher,
 ) -> RevokeResponse:
     return service.revoke_publication(
         db,
         draft_id=draft_id,
-        teacher_id=teacher_id,
+        teacher_id=teacher.teacher_id,
+        center_id=teacher.center_id,
         expected_version=body.expected_version,
     )
 

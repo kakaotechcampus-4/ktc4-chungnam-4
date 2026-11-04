@@ -119,6 +119,15 @@ class ChildCreateRequest(BaseModel):
     class_id: UUID
 
 
+class ConsentRevokeRequest(BaseModel):
+    """동의 철회 본문. 1단계는 ③ 얼굴 특징정보만 철회합니다(#225 ⑥). 다른 값은 422입니다.
+
+    종류를 본문으로 받아, 2단계에서 철회 대상이 늘어도 경로를 바꾸지 않게 합니다.
+    """
+
+    consent_type: Literal["face_feature"]
+
+
 class ConsentItem(BaseModel):
     consent_type: str
     agreed: bool

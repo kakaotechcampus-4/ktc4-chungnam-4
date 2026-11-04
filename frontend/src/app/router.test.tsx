@@ -104,6 +104,44 @@ describe("교사 영역 가드", () => {
   });
 });
 
+// 반 고르기는 교사가 로그인하면 처음 보는 화면입니다. 가입 화면은 계정이 생기기 전이라 가드 밖에 둡니다.
+describe("반 고르기 가드", () => {
+  it("교사는 반 고르기를 본다", async () => {
+    renderAt("/onboarding/class");
+
+    expect(
+      await screen.findByRole("heading", { name: "햇살어린이집 김하늘 선생님, 안녕하세요!" }),
+    ).toBeInTheDocument();
+  });
+
+  it("로그인이 안 됐으면 로그인 화면으로 보낸다", async () => {
+    window.history.replaceState(null, "", "/?mock=auth.signed-out");
+    const router = renderAt("/onboarding/class");
+
+    expect(await screen.findByRole("heading", { name: "다시 만나 반가워요" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("로그인이 필요해요.");
+    expect(router.state.location.pathname).toBe("/login");
+  });
+
+  it("학부모 계정이면 주소는 그대로 두고 접근 권한 없음을 보여 준다", async () => {
+    window.history.replaceState(null, "", "/?mock=auth.parent");
+    const router = renderAt("/onboarding/class/new");
+
+    expect(
+      await screen.findByRole("heading", { name: "이 화면을 볼 수 있는 권한이 없어요" }),
+    ).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/onboarding/class/new");
+  });
+
+  it("가입 화면은 로그인 전에도 열린다", async () => {
+    window.history.replaceState(null, "", "/?mock=auth.signed-out");
+    const router = renderAt("/signup");
+
+    expect(await screen.findByRole("heading", { name: "이메일로 가입하기" })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/signup");
+  });
+});
+
 // 실제 라우터 배선으로 확인합니다. 화면 요청은 계정 설정의 원아 명단(/classes/:id/children)을 씁니다.
 describe("요청 오류 처리", () => {
   const childrenPath = apiPath(`/classes/${fixtureId("class", 1)}/children`);

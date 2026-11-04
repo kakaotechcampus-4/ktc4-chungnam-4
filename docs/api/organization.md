@@ -292,6 +292,18 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 - `invite_url`은 `https://<서비스 도메인>/invite/<무작위 토큰>`입니다(목은 `aidam.test`). 토큰에 원아 이름·id를 넣지 않습니다(H-2, H-4). FE는 토큰을 가려서 보여 주고 복사할 때만 원문을 씁니다.
 - 만료 기한, 보호자 여러 명 사용 여부는 아직 정하지 않았습니다(위 체크리스트).
 
+### 동의 철회
+
+| 요청 | 본문 | 응답 | 에러 |
+|---|---|---|---|
+| `POST /children/{child_id}/consents/revoke` | `{ "consent_type": "face_feature" }` | `204` 본문 없음 | `CHILD_NOT_FOUND`(404), `CHILD_ACCESS_DENIED`(403), `VALIDATION_ERROR`(422) |
+
+- 구현(FR-22). 범위는 #225 ⑥ 합의대로 **1단계 교사 철회, 대상은 ③ 얼굴 특징정보만**입니다. 같은 어린이집 교사만 부를 수 있고, 학부모 계정은 403입니다. 학부모 본인 철회(2단계)는 같은 service 함수를 씁니다.
+- `consent_type`이 `face_feature`가 아니면 422입니다. 본문으로 종류를 받는 것은 2단계에서 대상이 늘어도 경로를 바꾸지 않기 위해서입니다 → 임시 결정(이한나).
+- 한 트랜잭션: 유효한 `face_feature` 동의 행 전부(보호자가 여럿이면 각자의 행)에 `revoked_at`을 채우고 `status`를 `revoked`로 바꾼 뒤, 같은 Session으로 face의 `delete_embedding(reason="consent_revoked")`를 불러 임베딩 물리 삭제·`EmbeddingLifecycleLog`·`DeletionLog`를 남기고 organization이 커밋합니다(#225 ⑥, #74). 하나라도 실패하면 전부 되돌립니다.
+- 응답은 `204`입니다. 바뀐 동의·얼굴 등록 상태는 FE가 원아 상세(`GET /children/{child_id}`)와 명단을 다시 불러 확인합니다 → 임시 결정(이한나). 이미 철회됐거나 동의가 없던 원아도 `204`입니다(다시 눌러도 결과가 같음).
+- 철회 뒤에는 얼굴 등록이 `FACE_CONSENT_REQUIRED`로 막히고, `collect_media_for_llm`이 근거를 모을 때 동의를 다시 확인하므로 이 원아가 귀속된 사진은 LLM 입력에서 빠집니다(H-2, `docs/api/media-face.md` §3).
+
 ### 교육 계획
 
 서버에 구현했습니다. 다른 어린이집 반의 계획은 403 `CLASS_ACCESS_DENIED`, 없는 반은 404 `CLASS_NOT_FOUND`입니다.
@@ -321,7 +333,7 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 | `GET /api/v1/children/{child_id}` | 원아 한 명 상세 | 구현(#232) | 이한나 |
 | `GET /api/v1/children/{child_id}/consents` | 원아의 동의 현황 | 만들지 않음. 원아 상세·명단의 `consent_agreed_count`·`face_feature_agreed`로 봅니다 | 이한나 |
 | `POST /api/v1/children/{child_id}/consents` | 동의 결과 기록 | 만들지 않음. 학부모 초대 수락(`POST /parent-invites/{token}/accept`)에서 기록합니다(#225) | 이한나 |
-| `POST /api/v1/children/{child_id}/consents/revoke` | 동의 철회 | 경로만 | 이한나(임베딩 삭제는 김동건) |
+| `POST /api/v1/children/{child_id}/consents/revoke` | 동의 철회(1단계: 교사, ③만) | 구현 | 이한나(임베딩 삭제는 김동건) |
 | `GET /api/v1/me/children` | 그대로 W5 자녀 전환에도 씁니다 | 구현(바꿀 것 없음) | 이한나 |
 | `GET /api/v1/classes/{class_id}/education-plans` | 반의 교육 계획 목록 | 구현 | 이한나 |
 | `POST /api/v1/classes/{class_id}/education-plans` | 교육 계획 만들기 | 구현 | 이한나 |

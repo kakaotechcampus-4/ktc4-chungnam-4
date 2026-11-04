@@ -189,6 +189,9 @@ class TranscriptSegmentItem(BaseModel):
     speaker: Speaker | None
     excluded: bool
     reviewed_at: datetime | None
+    # 항상 빈 배열. 귀속은 파일 단위(10/29 #163)지만 FE 어댑터가 아직 이 필드를 펼쳐 읽어서,
+    # 빼면 발화 화면이 멈춥니다. FE가 파일 단위로 바뀌면 지웁니다 (#230 리뷰 엄태은)
+    child_ids: list[UUID] = []
 
 
 class TranscriptSegmentsResponse(BaseModel):

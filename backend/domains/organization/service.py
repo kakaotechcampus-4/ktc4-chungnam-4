@@ -4,8 +4,9 @@ face·media·agents는 organization 테이블(Child·ConsentRecord 등)을 직�
 이 함수들을 부릅니다 (backend/CLAUDE.md 계층 규칙). 동의 규칙이 바뀌어도 이 파일
 한 곳만 고치면 되도록 판정을 여기로 모읍니다 (#105, FR-04, H-2, H-3).
 
-판정·조회 함수는 커밋·flush하지 않습니다. 커밋은 온보딩 쓰기 함수(반 만들기·원아 등록)와
-교육 계획 쓰기 함수만 합니다. 어린이집 만들기는 auth 가입 트랜잭션 안에서 불리므로 flush까지만 합니다.
+판정·조회 함수는 커밋·flush하지 않습니다. 커밋은 온보딩 쓰기 함수(반 만들기·원아 등록),
+교육 계획 쓰기 함수, 동의 철회(face 임베딩 삭제와 한 트랜잭션)만 합니다. 어린이집 만들기는
+auth 가입 트랜잭션 안에서 불리므로 flush까지만 합니다.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from __future__ import annotations
 import secrets
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -66,6 +67,9 @@ from domains.organization.schemas import (
 CHILD_STATUS_ENROLLED = "enrolled"
 # ConsentRecord.status 값. 철회는 같은 행의 revoked_at을 채우므로 둘 다 봅니다.
 CONSENT_STATUS_AGREED = "agreed"
+CONSENT_STATUS_REVOKED = "revoked"
+# 철회 1단계의 대상(#225 ⑥). ③ 얼굴 특징정보만 철회합니다.
+CONSENT_TYPE_FACE_FEATURE = "face_feature"
 # 학부모 열람 기간의 "오늘"은 KST 날짜로 봅니다 (graduated_at이 날짜라서).
 _KST = ZoneInfo("Asia/Seoul")
 
@@ -181,6 +185,51 @@ def has_consent(db: Session, child_id: UUID, consent_type: str) -> bool:
     `False`일 때 어떻게 거절할지는 호출하는 쪽이 정합니다(face: `FACE_CONSENT_REQUIRED`).
     """
     return bool(db.scalar(select(_valid_consent_exists(child_id, consent_type))))
+
+
+def revoke_face_consent(
+    db: Session, child_id: UUID, center_id: UUID | None, *, now: datetime | None = None
+) -> None:
+    """원아의 ③ 얼굴 특징정보 동의를 철회하고 얼굴 임베딩을 지웁니다 (FR-22, #225 ⑥).
+
+    1단계는 같은 어린이집 교사만 철회하고, 대상은 `face_feature`만입니다(#225 ⑥ 합의).
+    아래를 **한 트랜잭션**으로 묶어 이 함수가 커밋합니다 (backend/CLAUDE.md §DB):
+
+    1. 유효한 `face_feature` 동의 행 전부(보호자가 여럿이면 각자의 행)에 `revoked_at`을 채우고
+       `status`를 `revoked`로 바꿉니다. 행을 지우지 않아 철회 시점이 이력으로 남습니다.
+    2. 같은 Session으로 `face.service.delete_embedding(reason="consent_revoked")`를 불러
+       임베딩 물리 삭제·`EmbeddingLifecycleLog`·`DeletionLog`를 남깁니다(flush만 하는 함수).
+
+    중간에 실패하면 전부 롤백합니다 — 동의만 철회되고 임베딩이 남는 일이 없습니다.
+    이미 철회됐거나 동의가 없던 원아도 오류 없이 끝납니다(다시 불러도 결과가 같음).
+    `now`는 테스트용이며 기본은 현재 UTC입니다.
+
+    - 없는 원아 404 `CHILD_NOT_FOUND`, 다른 어린이집 원아 403 `CHILD_ACCESS_DENIED`
+    """
+    # face가 organization의 권한·동의 함수를 쓰므로 순환 import를 피해 함수 안에서 가져옵니다.
+    from domains.audit.models import DeletionReason
+    from domains.face.service import delete_embedding
+
+    ensure_child_access(db, child_id, center_id)
+    revoked_at = now or datetime.now(UTC)
+    try:
+        records = db.scalars(
+            select(ConsentRecord).where(
+                ConsentRecord.child_id == child_id,
+                ConsentRecord.consent_type == CONSENT_TYPE_FACE_FEATURE,
+                ConsentRecord.status == CONSENT_STATUS_AGREED,
+                ConsentRecord.revoked_at.is_(None),
+            )
+        ).all()
+        for record in records:
+            record.status = CONSENT_STATUS_REVOKED
+            record.revoked_at = revoked_at
+        db.flush()
+        delete_embedding(db, child_id, DeletionReason.CONSENT_REVOKED)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
 
 def ensure_parent_child_access(

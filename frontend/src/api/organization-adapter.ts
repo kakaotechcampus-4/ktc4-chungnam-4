@@ -106,6 +106,10 @@ function stringOrNull(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
+function booleanOrNull(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
 export function toClassChildView(raw: ClassChild): ClassChildView {
   return {
     child_id: raw.child_id,
@@ -115,9 +119,9 @@ export function toClassChildView(raw: ClassChild): ClassChildView {
     age_group: stringOrNull(raw.age_group),
     consent_agreed_count: numberOrNull(raw.consent_agreed_count),
     consent_total: numberOrNull(raw.consent_total),
-    is_face_registered: raw.is_face_registered,
-    face_feature_agreed: raw.face_feature_agreed,
-    face_photo_count: raw.face_photo_count,
+    is_face_registered: booleanOrNull(raw.is_face_registered),
+    face_feature_agreed: booleanOrNull(raw.face_feature_agreed),
+    face_photo_count: numberOrNull(raw.face_photo_count),
     parent_linked: raw.parent_linked,
   };
 }

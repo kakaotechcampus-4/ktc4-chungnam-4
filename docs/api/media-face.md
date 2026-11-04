@@ -383,7 +383,8 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
       "text": "내가 더 높이 쌓아 볼게!",
       "speaker": null,
       "excluded": false,
-      "reviewed_at": null
+      "reviewed_at": null,
+      "child_ids": []
     }
   ]
 }
@@ -392,6 +393,7 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 - `start_time`·`end_time`은 파일 처음부터의 초입니다. `raw_text`는 STT 원문이고 `text`는 교사가 고친 문장입니다(고치지 않았으면 같음).
 - `raw_text`·`text`에는 실명 호명이 그대로 있습니다. 교사에게만 보여 주고, LLM으로 보내기 전 비식별화(3단계)를 거칩니다(H-2). 로그에 남기지 않습니다(H-4).
 - 발화에는 아이를 붙이지 않습니다. 귀속은 파일 단위로, 교사가 그 영상·음성에 나오는 아이를 골라 `PUT /media/{media_id}/child-links`로 저장합니다(10/29 #163, 테크스펙 파이프라인 2단계). 호명은 귀속에 쓰지 않습니다.
+  - `child_ids`는 **항상 빈 배열**입니다. FE 어댑터가 아직 이 필드를 읽어서 호환용으로 남겨 둡니다. FE가 파일 단위로 바뀌면 뺍니다 → 임시 결정(김동건), #230 리뷰(엄태은).
 - 에러:
   - `MEDIA_ASSET_NOT_FOUND` (404) — 없는 미디어일 때
   - `CLASS_ACCESS_DENIED` (403) — 담당 반의 미디어가 아닐 때

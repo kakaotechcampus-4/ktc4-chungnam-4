@@ -26,6 +26,10 @@ const EMPTY_SLOTS: Slots = Array.from({ length: MAX_PHOTOS }, () => null);
 // TODO(송유진): 동의 상태·등록 여부는 원아 상세(GET /children/{child_id}, docs/api/screens.md)가 생기면
 // 부제와 "등록됨" 줄로 보여 줍니다. 그 전에는 서버 값이 없어 아무것도 보이지 않습니다. 고정 예시 값을 두면
 // 등록하지 않은 원아도 "등록됨"으로 보입니다(10/30 배포 점검). 동의가 없으면 등록을 막아야 합니다.
+// 그 전까지 동의 확인은 서버가 합니다. PUT /children/{child_id}/face-embedding이 ③ 동의가 없으면
+// 403(FACE_CONSENT_REQUIRED)으로 거절하고, 403이라 지금은 이 화면 대신 접근 권한 없음 화면이 뜹니다
+// (frontend/CLAUDE.md §데이터). 원아 등록 화면은 동의 여부를 몰라 이 화면으로 오는 '얼굴 정보 관리'를
+// 잠가 둡니다.
 export function FaceRegisterPage() {
   const route = useRouteChild();
   const location = useLocation();
