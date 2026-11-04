@@ -73,6 +73,15 @@ export const documentsKeys = {
   /** 반에서 게시된 알림장이 있는 원아(알림장 명단) */
   publishedNotes: (classId: string) => ["classes", classId, "drafts", "published"] as const,
   /**
+   * 한 원아의 문서 목록 전부(게시본 목록과 회수함). 게시·회수처럼 **게시 여부가 바뀌는**
+   * 요청 뒤에 비울 때 씁니다.
+   *
+   * 아래 `childDrafts`가 `published`를 키에 넣어 둘을 갈라 두기 때문에, 한쪽만 비우면
+   * 다른 쪽이 낡은 채로 남습니다 — 회수한 알림장이 회수함에 안 보였던 것이 이것입니다.
+   */
+  childDraftLists: (childId: string, docType: DocTypeView) =>
+    ["children", childId, "drafts", docType] as const,
+  /**
    * 한 원아의 문서 목록(알림장 상세의 날짜 이동).
    * `published`까지 넣습니다 — 빼면 "게시된 것만"과 "전부"가 같은 캐시를 써서,
    * 미게시 초안을 받아 온 화면을 본 뒤에는 게시본 목록에 그 초안이 섞입니다(H-1).

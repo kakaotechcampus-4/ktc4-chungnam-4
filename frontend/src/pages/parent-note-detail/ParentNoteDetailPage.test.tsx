@@ -1,9 +1,10 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 
 import { updateDb } from "@/mocks/db";
 import { kstToday, shiftDate } from "@/lib/datetime";
+import { documentsKeys } from "@/api/documents";
 import { fixtureId } from "@/mocks/fixtures/ids";
 import { apiPath } from "@/mocks/http";
 import { server } from "@/mocks/server";
@@ -147,6 +148,28 @@ describe("ParentNoteDetailPage", () => {
     // 화면으로 보냅니다.
     expect(await screen.findByText("초안 검토")).toBeInTheDocument();
     expect(router.state.location.search).toBe(`?record_date=${shiftDate(kstToday(), -2)}`);
+  });
+
+  // 회수하면 게시본 목록과 회수함이 둘 다 바뀝니다. `published`가 query key에 들어 있어
+  // 한쪽만 비우면 다른 쪽이 낡은 채로 남습니다 — 회수·게시·재회수를 거치면 회수함이 빈 채로
+  // 캐시돼 "회수했는데 회수함에 없다"가 됩니다(브라우저로 찾은 버그).
+  it("회수하면 게시본 목록과 회수함 캐시를 모두 비운다", async () => {
+    const user = userEvent.setup();
+    updateDb((db) => {
+      const draft = db.drafts[TWO_DAYS_AGO];
+      if (!draft) throw new Error("그제 알림장이 시드에 없습니다.");
+      draft.published_at = new Date().toISOString();
+    });
+    const { queryClient } = renderDetail();
+    await screen.findByText(/조개껍데기를 하나씩 모았어요/);
+    // 회수함을 한 번 열어 본 상태를 만듭니다(그때는 비어 있었습니다).
+    const bin = documentsKeys.childDrafts(DOYUN, "parent_note", false);
+    queryClient.setQueryData(bin, []);
+
+    await user.click(await screen.findByRole("button", { name: "회수" }));
+    await user.click(await screen.findByRole("button", { name: "회수하기" }));
+
+    await waitFor(() => expect(queryClient.getQueryState(bin)?.isInvalidated).toBe(true));
   });
 
   // 주소는 누구나 고칠 수 있습니다. 없는 알림장이어도 화면이 터지면 안 됩니다.

@@ -54,8 +54,10 @@ export function RevokeNoteButton({
               queryKey: documentsKeys.classDraftLists(currentClass.class_id),
             }),
         queryClient.invalidateQueries({ queryKey: documentsKeys.draft(draftId) }),
+        // 게시본 목록과 회수함 둘 다 비웁니다. `published`가 키에 있어 한쪽만 비우면 다른
+        // 쪽이 낡은 채로 남습니다 — 회수했는데 회수함에 안 보이던 것이 이것입니다.
         queryClient.invalidateQueries({
-          queryKey: documentsKeys.childDrafts(childId, "parent_note", true),
+          queryKey: documentsKeys.childDraftLists(childId, "parent_note"),
         }),
       ]);
       onRevoked?.();

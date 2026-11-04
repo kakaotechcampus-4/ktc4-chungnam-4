@@ -358,7 +358,7 @@ export function DraftReviewPage() {
         ),
         ...[...publishedChildIds].map((id) =>
           queryClient.invalidateQueries({
-            queryKey: documentsKeys.childDrafts(id, "parent_note", true),
+            queryKey: documentsKeys.childDraftLists(id, "parent_note"),
           }),
         ),
         // 날짜별 목록과 알림장 명단(publishedNotes)을 함께 비웁니다.
