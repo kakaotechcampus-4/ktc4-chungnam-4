@@ -2,6 +2,8 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 
+import { updateDb } from "@/mocks/db";
+import { kstToday, shiftDate } from "@/lib/datetime";
 import { fixtureId } from "@/mocks/fixtures/ids";
 import { apiPath } from "@/mocks/http";
 import { server } from "@/mocks/server";
@@ -20,6 +22,7 @@ function renderDetail(draftId = TWO_DAYS_AGO) {
     [
       { path: "/t/notes/children/:childId/:draftId", element: <ParentNoteDetailPage /> },
       { path: "/t/notes/children/:childId", element: <p>알림장 목록</p> },
+      { path: "/t/today/review/:childId", element: <p>초안 검토</p> },
     ],
     { initialEntry: `/t/notes/children/${DOYUN}/${draftId}` },
   );
@@ -104,6 +107,8 @@ describe("ParentNoteDetailPage", () => {
           author_name: "김하늘",
           approved_at: "2026-10-04T07:55:00Z",
           published_at: "2026-10-04T08:40:00Z",
+          revoke_deadline: null,
+          can_revoke: false,
           include_photos: null,
           updated_at: "2026-10-04T08:40:00Z",
         }),
@@ -113,6 +118,35 @@ describe("ParentNoteDetailPage", () => {
     await screen.findByText(/조개껍데기를 하나씩 모았어요/);
 
     expect(container.querySelectorAll("img")).toHaveLength(0);
+  });
+
+  // 시드의 게시본은 기한이 지나 can_revoke가 거짓입니다. 회수할 수 없는 알림장에 버튼이
+  // 보이면 교사가 눌러 보고 실패합니다 — 이 화면은 서버 판정을 그대로 따릅니다.
+  it("회수할 수 없는 알림장에는 회수 버튼을 보여 주지 않는다", async () => {
+    renderDetail();
+    await screen.findByText(/조개껍데기를 하나씩 모았어요/);
+
+    expect(screen.queryByRole("button", { name: "회수" })).not.toBeInTheDocument();
+  });
+
+  // 기한 이내이고 학부모가 열기 전이면 서버가 can_revoke를 참으로 줍니다. 그때만 엽니다.
+  it("서버가 회수할 수 있다고 하면 회수하고 목록으로 돌아간다", async () => {
+    const user = userEvent.setup();
+    updateDb((db) => {
+      const draft = db.drafts[TWO_DAYS_AGO];
+      if (!draft) throw new Error("그제 알림장이 시드에 없습니다.");
+      draft.published_at = new Date().toISOString();
+    });
+    const { router } = renderDetail();
+    await screen.findByText(/조개껍데기를 하나씩 모았어요/);
+
+    await user.click(await screen.findByRole("button", { name: "회수" }));
+    await user.click(await screen.findByRole("button", { name: "회수하기" }));
+
+    // 목록으로 보내면 회수본은 거기 없어 "사라졌다"로 보입니다. 고치러 온 교사를 고칠 수 있는
+    // 화면으로 보냅니다.
+    expect(await screen.findByText("초안 검토")).toBeInTheDocument();
+    expect(router.state.location.search).toBe(`?record_date=${shiftDate(kstToday(), -2)}`);
   });
 
   // 주소는 누구나 고칠 수 있습니다. 없는 알림장이어도 화면이 터지면 안 됩니다.
