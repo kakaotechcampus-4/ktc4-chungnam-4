@@ -63,7 +63,7 @@ frontend/src/
 ├── styles/tokens.css    # 디자인 토큰
 ├── mocks/               # browser·server, handlers/(자동 수집), fixtures/, http.ts, scenario.ts, session.ts(목 로그인), db.ts(흐름 상태), guards.ts(역할·반 검사)
 ├── test/                # setup.ts, render.tsx
-└── workers/face/        # 온디바이스 얼굴 인식. types.ts(결과 형식)만 있고 구현은 (예정)
+└── workers/face/        # HUMAN 모델 로드·Web Worker 검출/등록/대조, matcher(보수적 후보 판정)
 ```
 
 ## 화면 하나 시작하는 법
@@ -131,3 +131,10 @@ API 문서의 상세 작성 엔드포인트 20개에 목이 있습니다. 요청
 - lockfile이 충돌하면 `git checkout --theirs pnpm-lock.yaml && pnpm install`로 다시 만듭니다.
 - 브라우저 콘솔에 `[MSW] Mocking enabled.`가 없으면 목이 꺼진 상태입니다. 주소가 `localhost`인지, `VITE_USE_MSW=false`가 없는지 보세요.
 - 화면에 "로컬 백엔드(...)에 연결하지 못했어요"가 뜨면 요청이 목을 거치지 않고 백엔드로 간 것입니다. 강력 새로고침(Cmd+Shift+R)은 그 페이지의 목을 끄므로 일반 새로고침(Cmd+R)을 하세요.
+
+
+## 실제 사진 파이프라인 검증
+
+[백엔드 사진 시연 절](../backend/README.md#사진-시연-한-바퀴-통합-pr)의 전용 계정·데이터로 검증합니다. 로컬에서는 `VITE_USE_MSW=false pnpm dev`로 실제 API를 연결합니다. 얼굴 등록과 자동 분류는 목 API 사용 여부와 관계없이 실제 Web Worker에서 실행합니다. 모델 로드/분석 실패는 안내하고, 90초가 지나면 worker를 종료해 무한 대기를 막습니다.
+
+`pnpm dev` 후 `/dev-worker-check.html`에서 #226 합성 사진을 등록·대조할 수 있습니다. 등록용 01·02·03과 평가용 06·group·no-face를 나누며 벡터를 출력하지 않습니다. 이 페이지는 Vite 배포 빌드 진입점에 포함되지 않습니다. 단위·화면 테스트는 worker 경계만 고정하고, 브라우저 검증을 별도로 합니다.

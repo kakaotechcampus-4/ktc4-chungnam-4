@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from core.base import Base
 from core.exceptions import DraftVersionConflict
+from domains.auth.models import Account as LookupAccount
+from domains.auth.models import Teacher as LookupTeacher
 from domains.documents.models import (
     DocType,
     DraftDocument,
@@ -17,6 +19,7 @@ from domains.documents.models import (
     RevisionAction,
     RevisionLog,
 )
+from domains.documents.models import UnclassifiedItem as FailureItem
 from domains.documents.schemas import DraftSaveInput, DraftSentenceInput
 from domains.documents.service import save_draft
 
@@ -34,6 +37,10 @@ def _session() -> Session:
     @event.listens_for(engine, "begin")
     def _emit_begin(conn):
         conn.exec_driver_sql("BEGIN")
+
+    Base.metadata.create_all(
+        engine, tables=[LookupAccount.__table__, LookupTeacher.__table__, FailureItem.__table__]
+    )
 
     Base.metadata.create_all(
         engine,
@@ -473,3 +480,25 @@ def test_입력_검증_오류에_문장_본문이_실리지_않는다():
         )
 
     assert "가나다" not in str(error.value)
+
+
+@pytest.mark.parametrize("doc_type", [DocType.PARENT_NOTE, DocType.OBSERVATION_LOG])
+def test_AI_저장은_알림장일_때만_생성_실패를_해소한다(doc_type):
+    from domains.documents.service import record_unclassified
+
+    with _session() as db:
+        data = _input(doc_type=doc_type)
+        record_unclassified(
+            db,
+            child_id=data.child_id,
+            record_date=data.record_date,
+            reason="verification_failed",
+            job_id=uuid4(),
+        )
+        db.commit()
+        save_draft(db, data, expected_version=None)
+        db.commit()
+        row = db.scalar(select(FailureItem))
+        assert row.status == ("resolved" if doc_type == DocType.PARENT_NOTE else "open")
+        assert (row.resolved_at is not None) == (doc_type == DocType.PARENT_NOTE)
+        assert row.resolved_by is None

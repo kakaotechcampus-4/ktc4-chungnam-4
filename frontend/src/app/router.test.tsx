@@ -55,18 +55,15 @@ describe("routes", () => {
     expect(screen.getByRole("link", { name: "처음으로 돌아가기" })).toHaveAttribute("href", "/t");
   });
 
-  it.each(["/nope", "/p", "/p/children/child-1/notes"])(
-    "%s 는 공개 틀 안에서 404를 보여 준다",
-    async (path) => {
-      renderAt(path);
+  it.each(["/nope"])("%s 는 공개 틀 안에서 404를 보여 준다", async (path) => {
+    renderAt(path);
 
-      expect(
-        await screen.findByRole("heading", { name: "페이지를 찾을 수 없어요" }),
-      ).toBeInTheDocument();
-      expect(screen.getByText("아이의 하루를 담는 기록")).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "처음으로 돌아가기" })).toHaveAttribute("href", "/");
-    },
-  );
+    expect(
+      await screen.findByRole("heading", { name: "페이지를 찾을 수 없어요" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("아이의 하루를 담는 기록")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "처음으로 돌아가기" })).toHaveAttribute("href", "/");
+  });
 });
 
 // 목 로그인 상태는 주소의 ?mock=로 바꿉니다(mocks/session.ts). 주소는 test/setup.ts가 테스트마다 되돌립니다.

@@ -38,3 +38,28 @@ export interface ParentMe extends MeBase {
 }
 
 export type Me = TeacherMe | ParentMe;
+
+export interface AccountCreateRequest extends SessionRequest {
+  name: string;
+  center_code?: string;
+  new_center?: { name: string; address: string };
+}
+export interface AccountCreated extends TeacherMe {
+  center_code: string | null;
+}
+export interface InvitePreview {
+  child_name: string;
+  class_name: string;
+  center_name: string;
+  expires_at: string;
+}
+export interface InviteAcceptRequest {
+  email?: string;
+  password?: string;
+  name?: string;
+  is_legal_guardian: boolean;
+  consents: { personal_info: boolean; activity_media: boolean; face_feature: boolean };
+}
+export interface InviteAccepted {
+  child_id: string;
+}

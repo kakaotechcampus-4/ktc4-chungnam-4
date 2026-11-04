@@ -12,7 +12,12 @@ export type JobStageView = "transcribing" | "collecting_evidence" | "generating"
 /** succeeded일 때만. 미분류는 예외가 아니라 정상 종료입니다. */
 export type JobOutcomeView = "drafted" | "unclassified";
 
-export type UnclassifiedReasonView = "no_speech" | "verification_failed" | "insufficient_evidence";
+export type UnclassifiedReasonView =
+  | "no_speech"
+  | "verification_failed"
+  | "insufficient_evidence"
+  | "no_consent"
+  | "photo_analysis_failed";
 
 /** failed일 때만. 화면 문구는 코드를 보고 만듭니다. */
 export type JobErrorCodeView = "STT_FAILED" | "LLM_TIMEOUT" | "LLM_CALL_FAILED" | "INTERNAL_ERROR";

@@ -69,7 +69,9 @@ const areaRoutes: RouteObject[] = [
       },
     ],
   },
-  ...(parentChildren.length > 0 ? [{ path: "p", children: parentChildren }] : []),
+  ...(parentChildren.length > 0
+    ? [{ path: "p", element: <RequireRole role="parent" />, children: parentChildren }]
+    : []),
 ];
 
 // 맨 바깥 경계: 어느 영역에서든 받지 못한 오류를 여기서 받습니다. 401은 로그인, 403은 내비 없이 접근 권한 없음,

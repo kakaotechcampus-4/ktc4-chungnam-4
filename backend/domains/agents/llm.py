@@ -2,6 +2,7 @@ from collections.abc import Sequence
 
 import openai
 from openai import OpenAI
+from openai.types.chat import ChatCompletion
 
 from core.config import get_settings
 
@@ -13,10 +14,6 @@ RETRYABLE_LLM_ERRORS: tuple[type[Exception], ...] = (
     openai.RateLimitError,
     openai.InternalServerError,
 )
-
-# 테크스펙엔 "Claude Sonnet 계열"이라고만 되어 있고, 나중에 모델명이 바뀔 수 있음
-# 게이트웨이의 모델 ID 형식(제공자/모델명)을 그대로 사용
-_MODEL = get_settings().anthropic_model
 
 # SDK 기본값(10분)이면 Celery soft_time_limit(180초)이 먼저 끊어 버림
 # 1회 호출 상한을 둬서 느린 호출은 SDK가 끊고 오류로 올림 (테크스펙 파이프라인 4단계)
@@ -32,20 +29,41 @@ _SDK_MAX_RETRIES = 0
 _VISION_MAX_TOKENS = 2048
 
 
-def call_claude(prompt: str) -> str:
+def _complete(*, endpoint: str, model: str, messages: list[dict], max_tokens: int) -> str | None:
+    """설정된 API base URL 또는 완전한 chat/completions 주소를 사용한다(FR-05).
+
+    필요한 API 버전 경로(/v1 등)는 환경설정에 포함한다. 호스트별로 추정하지 않는다.
+    SDK의 인증·시간 초과·재시도 예외 계약은 유지한다.
+    """
     settings = get_settings()
-    client = OpenAI(
+    endpoint = endpoint.rstrip("/")
+    is_complete_url = endpoint.endswith("/chat/completions")
+    with OpenAI(
         api_key=settings.anthropic_api_key.get_secret_value(),
-        base_url=settings.llm_gateway_base_url,
+        base_url=endpoint,
         timeout=_TIMEOUT_SECONDS,
         max_retries=_SDK_MAX_RETRIES,
-    )
-    response = client.chat.completions.create(
-        model=_MODEL,
+    ) as client:
+        body = {"model": model, "max_tokens": max_tokens, "messages": messages}
+        # 이 모델은 추론 끄기를 지원하지 않는다. 공식 모델 정보의 low를 사용해
+        # 추론만 하다 출력 한도·30초 제한을 소진하는 일을 줄인다.
+        if model == "zai-org/GLM-5.3-Flash":
+            body["reasoning_effort"] = "low"
+        if is_complete_url:
+            response = client.post(endpoint, cast_to=ChatCompletion, body=body)
+        else:
+            response = client.chat.completions.create(**body)
+        return response.choices[0].message.content if response.choices else None
+
+
+def call_claude(prompt: str) -> str | None:
+    settings = get_settings()
+    return _complete(
+        endpoint=settings.llm_gateway_base_url,
+        model=settings.anthropic_model,
         max_tokens=1024,
         messages=[{"role": "user", "content": prompt}],
     )
-    return response.choices[0].message.content
 
 
 def call_vision(instructions: str, image_urls: Sequence[str]) -> str | None:
@@ -60,20 +78,14 @@ def call_vision(instructions: str, image_urls: Sequence[str]) -> str | None:
     data URL로 바꾼다. HEIC는 모델이 읽지 못할 수 있어 JPEG 변환이 필요하다(Pillow, 팀 확인).
     """
     settings = get_settings()
-    client = OpenAI(
-        api_key=settings.anthropic_api_key.get_secret_value(),
-        base_url=settings.vision_gateway_base_url,
-        timeout=_TIMEOUT_SECONDS,
-        max_retries=_SDK_MAX_RETRIES,
-    )
     content: list[dict] = [{"type": "text", "text": instructions}]
     content += [{"type": "image_url", "image_url": {"url": url}} for url in image_urls]
-    response = client.chat.completions.create(
+    return _complete(
+        endpoint=settings.vision_gateway_base_url,
         model=settings.vision_model,
         max_tokens=_VISION_MAX_TOKENS,
         messages=[{"role": "user", "content": content}],
     )
-    return response.choices[0].message.content
 
 
 if __name__ == "__main__":

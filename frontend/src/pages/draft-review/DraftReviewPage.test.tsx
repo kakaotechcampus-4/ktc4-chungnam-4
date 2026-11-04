@@ -51,6 +51,40 @@ function editDoyunNoteElsewhere() {
 }
 
 describe("DraftReviewPage", () => {
+  it("분석 실패 사진은 선택 사진과 구분해 초안 검토에 보여 준다", async () => {
+    const { queryClient } = renderPage();
+    await screen.findByRole("heading", { name: /작은 블록/ });
+    const entries = queryClient.getQueriesData<import("@/api/documents").DraftView>({
+      queryKey: ["drafts"],
+    });
+    const entry = entries.find(([, value]) => value?.child_id === DOYUN);
+    expect(entry).toBeDefined();
+    const [key, draft] = entry!;
+    act(() =>
+      queryClient.setQueryData(key, {
+        ...draft!,
+        // media에 없는 id는 그릴 수 없으니 장수에서도 빠져야 합니다.
+        failed_media_ids: ["failed-photo", "missing-photo"],
+        media: [
+          ...draft!.media,
+          {
+            media_id: "failed-photo",
+            type: "photo",
+            url: "https://example.invalid/failed.png",
+            url_expires_at: "2099-01-01T00:00:00Z",
+          },
+        ],
+      }),
+    );
+    const region = await screen.findByRole("region", { name: "분석하지 못한 사진" });
+    expect(region).toHaveTextContent("문장 근거에서 빠졌어요");
+    expect(region).toHaveTextContent("AI가 분석하지 못한 사진 1장");
+    expect(screen.getByAltText("분석하지 못한 사진 1")).toHaveAttribute(
+      "src",
+      "https://example.invalid/failed.png",
+    );
+  });
+
   it("원아 레일에 목의 검토 상태가 보인다", async () => {
     await renderAndWait();
 

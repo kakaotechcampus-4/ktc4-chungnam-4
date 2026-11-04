@@ -5,6 +5,8 @@ import type {
   DraftStatus,
   DraftSummary,
   Evidence,
+  ParentNoteDetail,
+  ParentNoteList,
   PublicationResult,
   Sentence,
 } from "@/types/api-draft/documents";
@@ -18,6 +20,8 @@ import type {
   DraftSummaryView,
   DraftView,
   EvidenceView,
+  ParentNoteDetailView,
+  ParentNoteListView,
   PublicationResultView,
   PublicationStatusView,
   RosterStatusView,
@@ -125,6 +129,7 @@ export function toDraftView(raw: DraftDetail): DraftView {
     title: raw.title,
     sentences: raw.sentences.map(toSentenceView),
     selected_media_ids: raw.selected_media_ids,
+    failed_media_ids: raw.failed_media_ids ?? [],
     media: raw.media.map(toDraftMediaView),
     published_at: raw.published_at,
     include_photos: raw.include_photos,
@@ -261,4 +266,40 @@ export function isNotReady(row: PublishRow): boolean {
  */
 export function isUnpublishedDraft(row: PublishRow): boolean {
   return row.note !== null && row.note.published_at === null;
+}
+
+export function toParentNoteListView(raw: ParentNoteList): ParentNoteListView {
+  return {
+    items: raw.items.map((item) => ({
+      parent_note_id: item.parent_note_id,
+      record_date: item.record_date,
+      preview: item.preview,
+      is_read: item.is_read,
+      photos: item.photos.map((photo) => ({
+        media_id: photo.media_id,
+        type: photo.type,
+        url: photo.url,
+        url_expires_at: photo.url_expires_at,
+      })),
+    })),
+    next_cursor: raw.next_cursor,
+    unread_count: raw.unread_count,
+    this_month_count: raw.this_month_count,
+  };
+}
+
+export function toParentNoteDetailView(raw: ParentNoteDetail): ParentNoteDetailView {
+  return {
+    parent_note_id: raw.parent_note_id,
+    child_id: raw.child_id,
+    record_date: raw.record_date,
+    content: raw.content,
+    author_name: raw.author_name,
+    photos: raw.photos.map((photo) => ({
+      media_id: photo.media_id,
+      type: photo.type,
+      url: photo.url,
+      url_expires_at: photo.url_expires_at,
+    })),
+  };
 }

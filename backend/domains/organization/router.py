@@ -18,6 +18,7 @@ from domains.organization import service
 from domains.organization.schemas import (
     ChildCreateRequest,
     ChildDetail,
+    ChildOverview,
     ClassChildListResponse,
     ClassCreateRequest,
     ClassListResponse,
@@ -168,3 +169,27 @@ def delete_education_plan(
     """교육 계획 삭제."""
     service.delete_education_plan(db, plan_id, teacher.center_id)
     return Response(status_code=204)
+
+
+@router.get("/children/{child_id}", response_model=ChildDetail)
+def get_child_detail(
+    child_id: UUID, teacher: CurrentTeacher, db: Annotated[Session, Depends(get_db)]
+) -> ChildDetail:
+    return service.get_child_detail(db, child_id, teacher.center_id, actor_id=teacher.teacher_id)
+
+
+@router.patch("/children/{child_id}", response_model=ChildDetail)
+def update_child(
+    child_id: UUID,
+    body: ChildCreateRequest,
+    teacher: CurrentTeacher,
+    db: Annotated[Session, Depends(get_db)],
+) -> ChildDetail:
+    return service.update_child(db, child_id, teacher.center_id, body)
+
+
+@router.get("/children/{child_id}/overview", response_model=ChildOverview)
+def child_overview(
+    child_id: UUID, teacher: CurrentTeacher, db: Annotated[Session, Depends(get_db)]
+) -> ChildOverview:
+    return service.get_child_overview(db, child_id, teacher.center_id, teacher.teacher_id)

@@ -13,8 +13,11 @@ from sqlalchemy.pool import StaticPool
 
 from core.base import Base
 from core.database import get_db
+from core.exceptions import StorageNotConfigured
 from domains.agents.models import SentenceEvidence
 from domains.auth.middleware import get_current_user
+from domains.auth.models import Account as LookupAccount
+from domains.auth.models import Teacher as LookupTeacher
 from domains.auth.service import TeacherProfile
 from domains.documents import service as documents_service
 from domains.documents.models import (
@@ -25,6 +28,7 @@ from domains.documents.models import (
     DraftStatus,
     RevisionLog,
 )
+from domains.documents.models import UnclassifiedItem as FailureItem
 from domains.documents.service import get_draft_version
 from domains.media.service import MediaEvidence, SignedMediaUrl
 from domains.organization.models import Center, Child, Klass
@@ -44,8 +48,13 @@ def db() -> Iterator[Session]:
     )
     tables = [Center, Klass, Child, DraftDocument, DraftSentence, DocumentPublication, RevisionLog]
     tables.append(SentenceEvidence)  # 상세 응답이 문장별 근거를 읽는다(agents)
+    Base.metadata.create_all(
+        engine, tables=[LookupAccount.__table__, LookupTeacher.__table__, FailureItem.__table__]
+    )
     Base.metadata.create_all(engine, tables=[table.__table__ for table in tables])
-    session = sessionmaker(bind=engine)()
+    # 서버 세션(core/database.py SessionLocal)처럼 autoflush를 끕니다 — 켜 두면 커밋 전 조회가
+    # 새 문장을 알아서 보여 줘서, 응답에서 새 문장이 빠지는 버그를 못 잡습니다(#206 멘토 리뷰)
+    session = sessionmaker(bind=engine, autoflush=False)()
     yield session
     session.close()
 
@@ -160,6 +169,8 @@ def test_새_문장은_맨_뒤에_t_번호_최댓값_다음부터_붙는다(clie
 
     assert response.status_code == 200
     assert _stored(db, draft)[2:] == [("t2", "첫 새 문장", False), ("t3", "둘째 새 문장", False)]
+    # 커밋 전에 만드는 응답에도 새 문장이 담긴다(#206 멘토 리뷰 — autoflush가 꺼진 세션)
+    assert [s["sentence_id"] for s in response.json()["sentences"]][2:] == ["t2", "t3"]
     assert _logs(db, draft) == [
         ("t2", None, "첫 새 문장", "manual"),
         ("t3", None, "둘째 새 문장", "manual"),
@@ -336,6 +347,26 @@ def test_고른_사진을_그_순서로_저장하고_서명_URL을_돌려준다(
     assert draft.selected_media_ids == [str(PHOTO_B), str(PHOTO_A)]
     # 그 원아·그 날짜의 고를 수 있는 사진 범위로 확인한다
     assert photos == [(draft.child_id, draft.record_date)]
+
+
+def test_응답을_만들다_실패하면_고친_문장도_이력도_남지_않는다(client, db, photos, monkeypatch):
+    draft = _draft(db)
+    draft.selected_media_ids = [str(PHOTO_A)]  # 응답에 서명 URL이 필요하다
+    db.commit()
+
+    def broken(db, media_ids):
+        raise StorageNotConfigured("파일 저장소에 접근할 수 없어요.")
+
+    monkeypatch.setattr(documents_service.media_service, "get_signed_urls", broken)
+
+    response = _patch(client, draft, sentences=[{"sentence_id": "s1", "text": "고친 문장"}])
+
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "STORAGE_NOT_CONFIGURED"
+    assert _stored(db, draft)[0] == ("s1", "s1 원래 문장", False)
+    assert _logs(db, draft) == []
+    db.refresh(draft)
+    assert draft.version == 3
 
 
 def test_빈_배열이면_사진을_모두_뺀다(client, db, photos):

@@ -177,7 +177,7 @@ export function ChildDetailPage() {
             <p className="mt-0.5 text-caption text-ink-muted">
               이번 달 기록이 어느 영역에 담겼는지 보여줘요
             </p>
-            {overview ? (
+            {overview?.domain_counts ? (
               <>
                 <div className="mt-2 flex justify-center">
                   <NuriRadarChart counts={overview.domain_counts} />
@@ -192,12 +192,15 @@ export function ChildDetailPage() {
                         {NURI_DOMAIN_LABEL_MAP[domain]}
                       </dt>
                       <dd className="text-nav font-bold text-ink">
-                        {overview.domain_counts[domain]}
+                        {overview.domain_counts?.[domain]}
                       </dd>
                     </div>
                   ))}
                 </dl>
               </>
+            ) : null}
+            {overview && !overview.domain_counts ? (
+              <p className="text-caption text-ink-muted">영역별 집계는 준비 중이에요.</p>
             ) : null}
           </section>
         </div>

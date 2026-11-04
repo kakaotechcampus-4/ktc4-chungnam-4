@@ -20,6 +20,8 @@ from core.database import get_db
 from domains.agents.models import SentenceEvidence
 from domains.audit.models import AccessLog
 from domains.auth.middleware import get_current_user
+from domains.auth.models import Account as LookupAccount
+from domains.auth.models import Teacher as LookupTeacher
 from domains.auth.service import ParentProfile, TeacherProfile
 from domains.documents.models import (
     DocType,
@@ -55,6 +57,8 @@ def db() -> Iterator[Session]:
         SentenceEvidence,
         AccessLog,
     ]
+    # 상세·학부모 응답이 작성 교사 이름을 auth에서 읽는다(#228)
+    Base.metadata.create_all(engine, tables=[LookupAccount.__table__, LookupTeacher.__table__])
     Base.metadata.create_all(engine, tables=[table.__table__ for table in tables])
     session = sessionmaker(bind=engine, autoflush=False)()
     yield session

@@ -44,7 +44,9 @@ def _run_failing_task(monkeypatch, error: Exception) -> tuple[object, list[str],
     retried: list[str] = []
     failed: list[str] = []
     monkeypatch.setattr(tasks.service, "record_job_retry", retried.append)
-    monkeypatch.setattr(tasks.service, "mark_job_failed", failed.append)
+    monkeypatch.setattr(
+        tasks.service, "mark_job_failed", lambda job_id, **kwargs: failed.append(job_id)
+    )
 
     def _orchestrate(job_id: str, child_id: str) -> None:
         raise error
@@ -124,7 +126,9 @@ def test_재시도하면_횟수를_남기고_최종_실패하면_FAILED로_남�
     retried: list[str] = []
     failed: list[str] = []
     monkeypatch.setattr(tasks.service, "record_job_retry", retried.append)
-    monkeypatch.setattr(tasks.service, "mark_job_failed", failed.append)
+    monkeypatch.setattr(
+        tasks.service, "mark_job_failed", lambda job_id, **kwargs: failed.append(job_id)
+    )
 
     tasks.generate_drafts.on_retry(None, "task-1", ("job-1", "child-1"), {}, None)
     tasks.generate_drafts.on_failure(None, "task-2", (), {"job_id": "job-2", "child_id": "c"}, None)
@@ -146,7 +150,9 @@ def test_큐_넣기가_실패하면_못_넣은_Job을_failed로_바꾸고_예외
         sent.append(job_id)
 
     monkeypatch.setattr(tasks.generate_drafts, "delay", fake_delay)
-    monkeypatch.setattr(tasks.service, "mark_job_failed", failed.append)
+    monkeypatch.setattr(
+        tasks.service, "mark_job_failed", lambda job_id, **kwargs: failed.append(job_id)
+    )
 
     with pytest.raises(ConnectionError):
         tasks.enqueue_generate_drafts(child_jobs)

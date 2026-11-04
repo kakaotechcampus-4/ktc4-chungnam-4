@@ -58,8 +58,8 @@ export function summarize(
       const childPhotos = photos.filter(
         (photo) => !manualPending.includes(photo) && childIdsOf(photo).includes(child.child_id),
       );
-      const speech = keptSegments.filter(({ segment }) =>
-        segment.child_ids.includes(child.child_id),
+      const speech = keptSegments.filter(
+        ({ segment }) => !isPendingSegment(segment) && segment.child_ids.includes(child.child_id),
       ).length;
       return {
         child,

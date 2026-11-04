@@ -15,6 +15,8 @@ from core.base import Base
 from core.database import get_db
 from domains.agents.models import SentenceEvidence
 from domains.auth.middleware import get_current_user
+from domains.auth.models import Account as LookupAccount
+from domains.auth.models import Teacher as LookupTeacher
 from domains.auth.service import ParentProfile, TeacherProfile
 from domains.documents.models import (
     DocType,
@@ -24,6 +26,7 @@ from domains.documents.models import (
     DraftStatus,
     RevisionLog,
 )
+from domains.documents.models import UnclassifiedItem as FailureItem
 from domains.documents.service import get_draft_version
 from domains.organization.models import Center, Child, Klass
 from main import app
@@ -39,8 +42,13 @@ def db() -> Iterator[Session]:
     )
     tables = [Center, Klass, Child, DraftDocument, DraftSentence, DocumentPublication, RevisionLog]
     tables.append(SentenceEvidence)  # 상세 응답이 문장별 근거를 읽는다(agents)
+    Base.metadata.create_all(
+        engine, tables=[LookupAccount.__table__, LookupTeacher.__table__, FailureItem.__table__]
+    )
     Base.metadata.create_all(engine, tables=[table.__table__ for table in tables])
-    session = sessionmaker(bind=engine)()
+    # 서버 세션(core/database.py SessionLocal)처럼 autoflush를 끕니다 — 켜 두면 커밋 전 조회가
+    # 새 문장을 알아서 보여 줘서, 응답에서 새 문장이 빠지는 버그를 못 잡습니다(#206 멘토 리뷰)
+    session = sessionmaker(bind=engine, autoflush=False)()
     yield session
     session.close()
 
