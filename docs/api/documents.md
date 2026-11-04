@@ -332,7 +332,7 @@ documents의 상세 작성 엔드포인트는 12개(교사용 8, 학부모용 4)
   - `DRAFT_ALREADY_APPROVED` (409) — 이미 승인됐을 때(게시된 것 포함). 승인을 되돌리는 것은 `reopen`에서 다룹니다.
   - `DRAFT_REVOKED` (409) — 회수한 알림장일 때. `reopen`으로 검토 대기로 돌린 뒤 고칩니다.
   - `INVALID_SENTENCE_ID` (400) — 그 초안에 없는 `sentence_id`일 때
-  - `MEDIA_NOT_LINKED_TO_CHILD` (400) — 고를 수 있는 사진이 아닐 때(영상·음성메모 포함). 고를 수 있는 사진은 그 원아·그 날짜에 LLM 근거로 쓸 수 있는 **사진**(`type == photo`, `llm_allowed`, 귀속 원아 전원 ③ 동의, media `collect_media_for_llm`)입니다 — 다른 아이가 함께 찍힌 사진이 학부모에게 나가지 않게 보수적으로 둡니다. 임시 결정(한상균)
+  - `MEDIA_NOT_LINKED_TO_CHILD` (400) — 고를 수 있는 미디어가 아닐 때(음성메모 포함). 고를 수 있는 것은 그 원아에게 귀속되고 파기되지 않은 그 날짜의 **사진·영상**(media `list_child_media`)입니다. 다른 아이·미동의 원아가 함께 찍혀도 고를 수 있고, `llm_allowed`와 ③ 동의는 LLM 경로에서만 봅니다 — 테크스펙 D-4(11/04 팀 승인). 학부모가 볼 때도 같은 범위로 한 번 더 거릅니다(§`POST /api/v1/publications`)
   - `DRAFT_NOT_FOUND` (404) — 없는 초안일 때
   - `CHILD_ACCESS_DENIED` (403) — 다른 어린이집 원아의 초안일 때. 원아 기준으로 검사합니다 — 임시 결정(한상균), #156
   - `VALIDATION_ERROR` (422) — 바꿀 것이 없거나, 같은 `sentence_id`·`media_id`가 두 번 오거나, 앞뒤 공백을 지운 `text`가 비었을 때(고친 문장·새 문장 모두)
@@ -434,7 +434,7 @@ documents의 상세 작성 엔드포인트는 12개(교사용 8, 학부모용 4)
   - `NO_LINKED_PARENT` (건별) — 연결된 보호자가 없을 때(매칭 실패 시 자동 취소). organization `has_linked_parent`(#188)로 확인하고, 관찰일지 검사와 같은 요청 재전송 확인 다음, 버전·승인 검사 전에 봅니다. 회차가 생기지 않고 버전도 그대로입니다
 - 게시하면 `version`이 1 오르고 `DocumentPublication` 회차가 생깁니다(회수 기한 = 게시 시각 + 24시간). 최초 게시는 회차가 기록이라 `RevisionLog`를 따로 남기지 않고, 회수 뒤 다시 게시하면 `RevisionLog`(action=resend)를 남깁니다.
 - 승인과 게시를 나누고 일괄 게시로 합니다. `include_photos`는 게시 회차(`DocumentPublication`)에 저장합니다 — 임시 결정(한상균), 팀 확인 대기(#158 6번).
-- 학부모에게 보일 사진의 범위는 **고르는 단계에서** 위 제안(`llm_allowed`)과 같은 범위로 제한합니다(§PATCH `MEDIA_NOT_LINKED_TO_CHILD`) — 임시 결정(한상균). [확인 필요: 김동건] 이 범위를 media `collect_media_for_llm`에 맡기는 것
+- 학부모에게 보일 사진·영상의 범위는 **고르는 단계에서** 위 `include_photos`와 같은 범위로 제한합니다(§PATCH `MEDIA_NOT_LINKED_TO_CHILD`). 범위는 media `list_child_media`(귀속·파기·종류)에 맡깁니다 — 테크스펙 D-4(11/04 팀 승인)
 
 ### `POST /api/v1/drafts/{draft_id}/revoke` — 교사용: 게시한 알림장 회수
 
