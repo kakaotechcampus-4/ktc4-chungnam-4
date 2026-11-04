@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal, Self
 from uuid import UUID
 
@@ -145,3 +146,42 @@ def to_me_response(profile: TeacherProfile | ParentProfile) -> MeResponse:
         name=profile.name,
         parent_id=profile.parent_id,
     )
+
+
+class InviteCreateResponse(BaseModel):
+    invite_url: str
+    parent_linked: bool
+
+
+class InvitePreviewResponse(BaseModel):
+    child_name: str
+    class_name: str
+    center_name: str
+    expires_at: datetime
+
+
+class InviteConsents(BaseModel):
+    personal_info: Literal[True]
+    activity_media: Literal[True]
+    face_feature: bool
+
+
+class InviteAcceptRequest(BaseModel):
+    email: str | None = Field(
+        default=None, min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+$"
+    )
+    password: str | None = Field(default=None, min_length=1, max_length=1024)
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    is_legal_guardian: Literal[True]
+    consents: InviteConsents
+
+    @field_validator("password")
+    @classmethod
+    def password_size(cls, value: str | None) -> str | None:
+        if value is not None and len(value.encode("utf-8")) > MAX_PASSWORD_BYTES:
+            raise ValueError("비밀번호는 72바이트 이하여야 합니다.")
+        return value
+
+
+class InviteAcceptedResponse(BaseModel):
+    child_id: UUID

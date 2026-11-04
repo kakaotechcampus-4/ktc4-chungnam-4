@@ -31,8 +31,6 @@ export function ProcessingPage() {
   const [step, setStep] = useState<Step>(searchParams.get("step") === "send" ? "send" : "model");
   // 떠나면서 큐를 비울 때 아래의 "자료 올리기로 보내기"가 먼저 걸리지 않게 합니다.
   const [leaving, setLeaving] = useState(false);
-  // 작업이 실패해 초안이 하나도 없을 때의 안내. 이때는 큐를 비우지 않고 이 화면에 머뭅니다.
-  const [failedNotice, setFailedNotice] = useState<string | null>(null);
   const hasItems = useUploadQueue((state) => state.items.length > 0);
   const reset = useUploadQueue((state) => state.reset);
 
@@ -42,16 +40,15 @@ export function ProcessingPage() {
   const toDraftReview = useCallback(
     (job: JobView) => {
       // 원아 순서는 서버 응답 그대로입니다. 이름순 정렬은 초안 검토 화면(⑤)이 명단과 합쳐서 합니다.
-      const firstDrafted = job.children.find((child) => child.drafts.length > 0);
-      // 작업이 실패해 초안이 없으면 대시보드는 아무것도 안 올린 날과 똑같이 '기록 전'으로 보입니다.
-      // 이동하지 않고 알립니다. 큐도 남겨 두어 취소하고 돌아가면 그때 비웁니다.
-      if (!firstDrafted && job.status === "failed") {
-        setFailedNotice("초안을 만들지 못했어요. 잠시 후 다시 시도해 주세요.");
-        return;
-      }
+      // 초안이 하나도 없으면(전원 미분류·실패) 첫 원아의 초안 검토로 갑니다. 대시보드는 오늘 날짜로
+      // 고정이라 지난 날짜의 결과를 볼 수 없습니다(#231 리뷰). 초안 검토는 초안 없는 원아도 보여 줍니다.
+      const target = job.children.find((child) => child.drafts.length > 0) ?? job.children[0];
       setLeaving(true);
-      // 작업은 끝났지만 초안이 없으면(전원 미분류) 대시보드(1:2886)로 갑니다. 실패·미분류 구분은 처리 실패 화면과 #196 이후에 합니다.
-      navigate(firstDrafted ? `/t/today/review/${firstDrafted.child_id}` : "/t/dashboard");
+      navigate(
+        target
+          ? `/t/today/review/${target.child_id}?record_date=${job.record_date}`
+          : "/t/dashboard",
+      );
       // ack를 받은 뒤라 로컬 원본을 지웁니다.
       reset();
     },
@@ -79,11 +76,6 @@ export function ProcessingPage() {
       {step === "classify" ? <ClassifyStep onDone={toReview} onCancel={cancel} /> : null}
       {step === "send" ? <SendStep onDone={toDraft} onCancel={cancel} /> : null}
       {step === "draft" ? <DraftStep onDone={toDraftReview} onCancel={cancel} /> : null}
-      {failedNotice ? (
-        <p role="alert" className="mt-4 text-body text-coral-ink">
-          {failedNotice}
-        </p>
-      ) : null}
     </>
   );
 }

@@ -86,7 +86,14 @@ class ChildJobResponse(BaseModel):
     stage: JobStage | None = None
     outcome: Literal["drafted", "unclassified"] | None = None
     unclassified_reason: (
-        Literal["no_speech", "verification_failed", "insufficient_evidence"] | None
+        Literal[
+            "no_speech",
+            "verification_failed",
+            "insufficient_evidence",
+            "no_consent",
+            "photo_analysis_failed",
+        ]
+        | None
     ) = None
     failed_stage: JobStage | None = None
     error_code: str | None = None

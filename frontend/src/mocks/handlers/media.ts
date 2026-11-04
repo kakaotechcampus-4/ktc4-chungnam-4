@@ -351,6 +351,9 @@ export const handlers = [
     return HttpResponse.json<TranscriptSegmentsResponse>({
       media_id: media.media_id,
       transcript_status: status,
+      child_links: media.child_links,
+      llm_allowed: media.llm_allowed,
+      attributed_at: media.attributed_at,
       items: status === "done" ? record.segments : [],
     });
   }),
@@ -369,21 +372,13 @@ export const handlers = [
     if (body.text !== undefined && !body.text.trim()) {
       return validationError("body.text", "문장을 비울 수 없습니다");
     }
-    if (body.speaker !== undefined && !SPEAKERS.includes(body.speaker)) {
+    // null은 서버와 같이 "화자 지우기"로 받습니다(backend media/schemas.py).
+    if (body.speaker != null && !SPEAKERS.includes(body.speaker)) {
       return validationError("body.speaker", "child, teacher_observation, together 중 하나입니다");
-    }
-    if (body.child_ids !== undefined) {
-      if (new Set(body.child_ids).size !== body.child_ids.length) {
-        return errorResponse(400, "DUPLICATE_CHILD_LINK", "같은 원아가 두 번 들어 있어요.");
-      }
-      if (!body.child_ids.every((childId) => CLASS_CHILD_IDS.has(childId))) {
-        return errorResponse(400, "CHILD_NOT_IN_CLASS", "이 반의 원아가 아니에요.");
-      }
     }
     const { segment } = found;
     if (body.text !== undefined) segment.text = body.text.trim();
     if (body.speaker !== undefined) segment.speaker = body.speaker;
-    if (body.child_ids !== undefined) segment.child_ids = body.child_ids;
     if (body.excluded !== undefined) segment.excluded = body.excluded;
     segment.reviewed_at = nowIso();
     return HttpResponse.json(segment);

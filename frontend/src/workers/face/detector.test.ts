@@ -194,6 +194,16 @@ describe("얼굴 검출", () => {
     await expect(detectFaces(photo())).rejects.toThrow(FaceModelError);
   });
 
+  // 길이가 맞아도 NaN이 섞이면 유사도를 믿을 수 없습니다. 이 얼굴만 버리면 미식별 얼굴이
+  // 없는 사진처럼 외부 AI에 갈 수 있어 사진 전체를 실패시킵니다(H-2).
+  it("유한하지 않은 값이 섞인 벡터는 던진다", async () => {
+    const broken = faceResult(FACE_DESCRIPTOR_LENGTH);
+    broken.embedding![0] = Number.NaN;
+    detectMock.mockResolvedValue({ face: [broken, faceResult(FACE_DESCRIPTOR_LENGTH)] });
+
+    await expect(detectFaces(photo())).rejects.toThrow(FaceModelError);
+  });
+
   // HUMAN facemesh가 얼굴 박스를 모듈 전역에 두고 await 사이에 다시 읽어서, 동시에 부르면
   // 남의 박스로 사진을 자릅니다. 개수·길이·신뢰도가 정상이라 걸러지지 않습니다
   // (#226 리뷰 송유진 님).

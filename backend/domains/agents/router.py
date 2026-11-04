@@ -46,6 +46,8 @@ def _to_response(status: service.GenerationJobStatus) -> GenerationJobResponse:
                 child_id=child.child_id,
                 status=child.status.value,
                 outcome=child.outcome,
+                unclassified_reason=child.unclassified_reason,
+                error_code=child.error_code,
                 drafts=[
                     JobDraftResponse(draft_id=draft.draft_id, doc_type=draft.doc_type)
                     for draft in child.drafts

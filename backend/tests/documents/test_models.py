@@ -7,6 +7,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.base import Base
+from domains.auth.models import Account as LookupAccount
+from domains.auth.models import Teacher as LookupTeacher
 from domains.documents.models import (
     DocType,
     DocumentPublication,
@@ -19,6 +21,7 @@ from domains.documents.models import (
     RevisionLog,
     UnclassifiedItem,
 )
+from domains.documents.models import UnclassifiedItem as FailureItem
 
 _TABLES = [
     DraftDocument.__table__,
@@ -32,6 +35,9 @@ _TABLES = [
 
 def _session() -> Session:
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(
+        engine, tables=[LookupAccount.__table__, LookupTeacher.__table__, FailureItem.__table__]
+    )
     Base.metadata.create_all(engine, tables=_TABLES)
     return Session(engine)
 
@@ -271,7 +277,7 @@ def test_unclassified_item은_폴리모픽_참조로_저장된다():
     db.flush()
 
     row = db.query(UnclassifiedItem).one()
-    assert row.status == "pending"
+    assert row.status == "open"
     assert row.resolved_at is None
     assert row.resolved_by is None
 
