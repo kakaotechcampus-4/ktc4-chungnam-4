@@ -1156,9 +1156,14 @@ describe("DraftReviewPage", () => {
     await user.click(await screen.findByRole("button", { name: "회수하기" }));
 
     expect(await screen.findByRole("heading", { name: /기록을 완성해요/ })).toBeInTheDocument();
-    // 회수본은 승인 상태가 아니므로 "다시 검토하기"로 되돌린 뒤에 고칩니다. 이게 안 열리면
-    // 교사는 회수만 하고 아무것도 못 합니다.
-    expect(await screen.findByRole("button", { name: "다시 검토하기" })).toBeInTheDocument();
+
+    // 회수본은 승인 상태가 아니므로 "다시 검토하기"로 되돌린 뒤에 고칩니다. **버튼이 보이는
+    // 것만으로는 부족합니다** — 처음에 여기까지만 보다가, 눌렀을 때 목이 "승인한 초안만
+    // 되돌릴 수 있어요"로 막는 것을 놓쳤습니다(브라우저로 확인하다 발견).
+    await user.click(await screen.findByRole("button", { name: "다시 검토하기" }));
+
+    expect(await screen.findByRole("button", { name: "직접 수정" })).toBeInTheDocument();
+    expect(screen.queryByText(/되돌릴 수 있습니다/)).not.toBeInTheDocument();
   });
 
   // 학부모가 이미 열어 본 알림장은 서버가 막습니다. 화면은 기한만 보고 버튼을 열기 때문에
@@ -1267,5 +1272,40 @@ describe("DraftReviewPage", () => {
     renderPage();
 
     expect(await screen.findByText("담당 반이 아니에요.")).toBeInTheDocument();
+  });
+
+  // 회수해 놓고 고치지 않은 채 나가면 그 알림장은 보호자에게 보이지 않는 채로 묻힙니다.
+  // 자동으로 다시 게시하지는 않고(H-1: 승인을 코드가 대신하게 됨), 어디서 찾는지 알립니다.
+  it("회수본을 고치지 않고 나가려 하면 회수함에 들어간다고 알린다", async () => {
+    const user = userEvent.setup();
+    updateDb((db) => {
+      const draft = db.drafts[fixtureId("draft", 12)];
+      if (!draft) throw new Error("김도윤 알림장이 시드에 없습니다.");
+      draft.status = "revoked";
+      draft.published_at = null;
+    });
+    const { router } = renderPage();
+    await screen.findByRole("heading", { name: /작은 블록/ });
+
+    await act(() => router.navigate("/t/notes"));
+
+    expect(await screen.findByText("고치지 않고 나가시겠어요?")).toBeInTheDocument();
+    expect(screen.getByText(/회수함/)).toBeInTheDocument();
+    // 아직 못 나갑니다 — 교사가 고를 때까지 막습니다.
+    expect(router.state.location.pathname).toBe(`/t/today/review/${DOYUN}`);
+
+    await user.click(screen.getByRole("button", { name: "계속 고치기" }));
+
+    expect(screen.queryByText("고치지 않고 나가시겠어요?")).not.toBeInTheDocument();
+  });
+
+  it("회수본이 없으면 나갈 때 막지 않는다", async () => {
+    const { router } = renderPage();
+    await screen.findByRole("heading", { name: /작은 블록/ });
+
+    await act(() => router.navigate("/t/notes"));
+
+    expect(screen.queryByText("고치지 않고 나가시겠어요?")).not.toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/t/notes");
   });
 });
