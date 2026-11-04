@@ -609,8 +609,20 @@ describe("문장 ID", () => {
       sentences: [{ text: "첫 문장" }, { text: "둘째 문장" }],
     });
     expect(created.sentences).toEqual([
-      { sentence_id: "t1", text: "첫 문장", is_edited_by_teacher: false, evidences: [] },
-      { sentence_id: "t2", text: "둘째 문장", is_edited_by_teacher: false, evidences: [] },
+      {
+        section: null,
+        sentence_id: "t1",
+        text: "첫 문장",
+        is_edited_by_teacher: false,
+        evidences: [],
+      },
+      {
+        section: null,
+        sentence_id: "t2",
+        text: "둘째 문장",
+        is_edited_by_teacher: false,
+        evidences: [],
+      },
     ]);
   });
 });

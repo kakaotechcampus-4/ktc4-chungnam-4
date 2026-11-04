@@ -97,6 +97,7 @@ export function toChildDraftView(raw: ChildDraftItem): ChildDraftView {
 // 서버 객체를 그대로 넘기면 서버가 필드를 바꿀 때 근거 패널까지 함께 바뀝니다.
 function toEvidenceView(raw: Evidence): EvidenceView {
   return {
+    source_document_id: raw.source_document_id ?? null,
     evidence_id: raw.evidence_id,
     source_type: raw.source_type,
     text: raw.text,
@@ -109,6 +110,7 @@ function toEvidenceView(raw: Evidence): EvidenceView {
 
 function toSentenceView(raw: Sentence): SentenceView {
   return {
+    section: raw.section ?? null,
     sentence_id: raw.sentence_id,
     text: raw.text,
     is_edited_by_teacher: raw.is_edited_by_teacher,
@@ -135,6 +137,7 @@ export function toDraftView(raw: DraftDetail): DraftView {
     version: raw.version,
     title: raw.title,
     sentences: raw.sentences.map(toSentenceView),
+    daily_routine: raw.daily_routine ?? [],
     selected_media_ids: raw.selected_media_ids,
     failed_media_ids: raw.failed_media_ids ?? [],
     media: raw.media.map(toDraftMediaView),

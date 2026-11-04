@@ -213,11 +213,13 @@ describe("문장과 근거", () => {
 
     expect(view.sentences).toEqual([
       {
+        section: null,
         sentence_id: "s1",
         text: "블록을 쌓았어요.",
         is_edited_by_teacher: true,
         evidences: [
           {
+            source_document_id: null,
             evidence_id: "ev-0",
             source_type: "video_speech",
             text: "블록 탑을 높이 쌓았어요.",

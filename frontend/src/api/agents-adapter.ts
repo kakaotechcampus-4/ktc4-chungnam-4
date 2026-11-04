@@ -1,5 +1,6 @@
 import type {
   Job,
+  ObservationJobCreateRequest,
   JobChild,
   JobCreateRequest,
   JobDraftRef,
@@ -10,6 +11,7 @@ import type {
 
 import type {
   JobChildView,
+  ObservationJobInput,
   JobCreateInput,
   JobDraftRefView,
   JobStatusView,
@@ -111,4 +113,8 @@ export function toTeacherEvidenceView(raw: TeacherEvidence): TeacherEvidenceView
 
 export function toTeacherEvidenceBody(input: TeacherEvidenceInput): TeacherEvidenceUpsertRequest {
   return { activity_time: input.activity_time, text: input.text };
+}
+
+export function toObservationJobBody(input: ObservationJobInput): ObservationJobCreateRequest {
+  return { request_id: input.request_id, month: input.month };
 }

@@ -9,6 +9,7 @@ const SOURCE_LABEL_MAP: Record<EvidenceSourceTypeView, string> = {
   video_scene: "영상 장면",
   teacher_voice_memo: "교사 음성 메모",
   activity_plan: "활동 계획",
+  parent_note: "게시된 알림장",
 };
 
 function EvidenceCard({ evidence }: { evidence: EvidenceView }) {

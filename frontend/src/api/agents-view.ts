@@ -20,7 +20,20 @@ export type UnclassifiedReasonView =
   | "photo_analysis_failed";
 
 /** failed일 때만. 화면 문구는 코드를 보고 만듭니다. */
-export type JobErrorCodeView = "STT_FAILED" | "LLM_TIMEOUT" | "LLM_CALL_FAILED" | "INTERNAL_ERROR";
+export type JobErrorCodeView =
+  | "STT_FAILED"
+  | "LLM_TIMEOUT"
+  | "LLM_CALL_FAILED"
+  | "INTERNAL_ERROR"
+  | "AGENT_INPUT_TOO_LARGE"
+  | "AGENT_RESPONSE_INVALID"
+  | "AGENT_TOOL_NOT_ALLOWED"
+  | "AGENT_TOOL_LIMIT"
+  | "AGENT_TOOL_ARGUMENTS_INVALID"
+  | "AGENT_STEP_LIMIT"
+  | "AGENT_ROUTINE_INVALID"
+  | "AGENT_ROUTINE_MISSING"
+  | "AGENT_SOURCE_CHANGED";
 
 export type DraftDocTypeView = "observation_log" | "parent_note";
 
@@ -95,4 +108,9 @@ export interface TeacherEvidenceView {
 export interface TeacherEvidenceInput {
   activity_time: string;
   text: string;
+}
+
+export interface ObservationJobInput {
+  request_id: string;
+  month: string;
 }

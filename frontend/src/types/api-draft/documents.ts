@@ -10,7 +10,12 @@ export type DocType = "observation_log" | "parent_note";
 export type DraftStatus = "draft" | "verified" | "approved" | "revoked";
 
 export type EvidenceSourceType =
-  "photo_observation" | "video_speech" | "video_scene" | "teacher_voice_memo" | "activity_plan";
+  | "photo_observation"
+  | "video_speech"
+  | "video_scene"
+  | "teacher_voice_memo"
+  | "activity_plan"
+  | "parent_note";
 
 /** GET /classes/{class_id}/drafts 한 칸(원아의 문서 하나) */
 export interface DraftSummary {
@@ -39,6 +44,7 @@ export interface ChildDraftItem extends DraftSummary {
 /** 문장 하나의 근거 */
 export interface Evidence {
   /** 초안 안에서만 유일한 불투명 문자열(UUID 규약의 예외) */
+  source_document_id?: string | null;
   evidence_id: string;
   source_type: EvidenceSourceType;
   text: string;
@@ -51,6 +57,7 @@ export interface Evidence {
 
 export interface Sentence {
   /** 초안 안에서만 유일한 문자열(AI 문장 `s1`…, 교사가 쓴 문장 `t1`…). FE는 모양을 해석하지 않습니다 */
+  section?: string | null;
   sentence_id: string;
   text: string;
   /** 교사가 고친 문장. true면 evidences는 빈 배열입니다 */
@@ -60,6 +67,7 @@ export interface Sentence {
 
 /** GET /drafts/{draft_id} 응답(교사용). PATCH·approve 응답도 같은 모양입니다. */
 export interface DraftDetail {
+  daily_routine?: string[];
   draft_id: string;
   child_id: string;
   doc_type: DocType;

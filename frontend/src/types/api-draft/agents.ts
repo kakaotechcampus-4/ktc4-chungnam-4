@@ -20,7 +20,20 @@ export type UnclassifiedReason =
   | "photo_analysis_failed";
 
 /** failed일 때만. 실명·발화 원문은 넣지 않습니다(H-4). */
-export type JobErrorCode = "STT_FAILED" | "LLM_TIMEOUT" | "LLM_CALL_FAILED" | "INTERNAL_ERROR";
+export type JobErrorCode =
+  | "STT_FAILED"
+  | "LLM_TIMEOUT"
+  | "LLM_CALL_FAILED"
+  | "INTERNAL_ERROR"
+  | "AGENT_INPUT_TOO_LARGE"
+  | "AGENT_RESPONSE_INVALID"
+  | "AGENT_TOOL_NOT_ALLOWED"
+  | "AGENT_TOOL_LIMIT"
+  | "AGENT_TOOL_ARGUMENTS_INVALID"
+  | "AGENT_STEP_LIMIT"
+  | "AGENT_ROUTINE_INVALID"
+  | "AGENT_ROUTINE_MISSING"
+  | "AGENT_SOURCE_CHANGED";
 
 /** POST /classes/{class_id}/jobs 요청 */
 export interface JobCreateRequest {
@@ -98,4 +111,10 @@ export interface TeacherEvidence {
   text: string;
   source: "teacher_note";
   created_at: string;
+}
+
+/** POST /children/{child_id}/observation-jobs (FR-06, #225). */
+export interface ObservationJobCreateRequest {
+  request_id: string;
+  month: string;
 }

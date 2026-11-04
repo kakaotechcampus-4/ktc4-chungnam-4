@@ -105,6 +105,7 @@ function toSentences(text: string) {
 export function DraftReviewPage() {
   const { childId } = useParams<{ childId: string }>();
   const [searchParams] = useSearchParams();
+  const isObservation = searchParams.get("doc_type") === "observation_log";
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -168,7 +169,12 @@ export function DraftReviewPage() {
   const draftItems = draftsQuery.data ?? [];
   const rows: RosterRow[] = children.map((child) => {
     const item = draftItems.find((draft) => draft.child_id === child.child_id);
-    return { child, note: item?.parent_note ?? null, status: pickRosterStatus(item) };
+    const note = (isObservation ? item?.observation_log : item?.parent_note) ?? null;
+    return {
+      child,
+      note,
+      status: pickRosterStatus(isObservation && item ? { ...item, parent_note: note } : item),
+    };
   });
 
   const selectedChildId = childId ?? rows[0]?.child.child_id ?? "";
@@ -242,7 +248,7 @@ export function DraftReviewPage() {
     mutationFn: (input: { childId: string; recordDate: string; text: string }) =>
       createDraft(input.childId, {
         record_date: input.recordDate,
-        doc_type: "parent_note",
+        doc_type: isObservation ? "observation_log" : "parent_note",
         title: null,
         sentences: toSentences(input.text),
       }),
@@ -456,7 +462,8 @@ export function DraftReviewPage() {
   const notReadyCount = rows.filter(isNotReady).length;
   // 수정 중에도 게시를 잠급니다. 고치던 초안이 그 사이 다른 곳에서 승인되면 화면에는 저장하지 않은
   // 글이 남는데 승인본이 나갑니다. 승인을 잠그는 것과 같은 이유입니다(H-1).
-  const canPublish = publishTargets.length > 0 && !hasUnreviewedDraft && !isEditing;
+  const canPublish =
+    !isObservation && publishTargets.length > 0 && !hasUnreviewedDraft && !isEditing;
 
   function selectChild(id: string) {
     // 지금 원아를 다시 누르면 아무것도 하지 않습니다. 고치던 문장을 지우거나 같은 주소를 이력에 또 쌓지
@@ -642,12 +649,27 @@ export function DraftReviewPage() {
               <div className="flex flex-col gap-3.5 rounded-xl bg-paper p-7">
                 <div className="flex items-center justify-between">
                   <span className="rounded-md bg-brand px-6 py-1.5 text-body font-bold text-brand-ink">
-                    알림장
+                    {isObservation ? "월별 관찰일지" : "알림장"}
                   </span>
                   <span className="text-caption text-ink-muted">
                     {editing !== null ? "수정 중" : `버전 ${draft.version}`}
                   </span>
                 </div>
+                {(draft.daily_routine?.length ?? 0) > 0 && (
+                  <details className="rounded-md border border-line p-3">
+                    <summary className="cursor-pointer text-label font-bold">
+                      {isObservation ? "기간별 관찰 요약" : "AI 하루 일과 요약"}
+                    </summary>
+                    <p className="text-caption text-ink-muted">
+                      AI가 정리한 검토용 요약이에요. 아래 문장의 원본 근거도 함께 확인해 주세요.
+                    </p>
+                    <ul className="list-disc pl-5 text-body">
+                      {draft.daily_routine?.map((fact, index) => (
+                        <li key={index}>{fact}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
                 {draft.title ? <h3 className="text-h3 font-bold text-ink">{draft.title}</h3> : null}
 
                 {editing !== null ? (
@@ -707,6 +729,7 @@ export function DraftReviewPage() {
                         key={sentence.sentence_id}
                         className="text-lead whitespace-pre-line text-ink"
                       >
+                        {sentence.section ? `[${sentence.section}] ` : ""}
                         {sentence.text}
                       </p>
                     ) : (
@@ -724,6 +747,7 @@ export function DraftReviewPage() {
                           sentence.sentence_id === selectedSentenceId && "underline",
                         )}
                       >
+                        {sentence.section ? `[${sentence.section}] ` : ""}
                         {sentence.text}
                       </button>
                     ),
@@ -842,12 +866,14 @@ export function DraftReviewPage() {
           >
             검토 완료하고 승인하기
           </Button>
-          <Button
-            onClick={() => setPublishOpen(true)}
-            disabled={!canPublish || publishMutation.isPending}
-          >
-            게시하기
-          </Button>
+          {!isObservation && (
+            <Button
+              onClick={() => setPublishOpen(true)}
+              disabled={!canPublish || publishMutation.isPending}
+            >
+              게시하기
+            </Button>
+          )}
         </div>
       </div>
 
