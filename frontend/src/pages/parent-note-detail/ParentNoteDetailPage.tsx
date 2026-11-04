@@ -163,6 +163,8 @@ export function ParentNoteDetailPage() {
               이미 열었으면 거짓이고, 그건 화면이 알 수 없는 값입니다. */}
           {draft?.can_revoke === true ? (
             <RevokeNoteButton
+              // 옆의 "목록으로"와 같은 크기여야 버튼 줄이 고르게 보입니다.
+              size="default"
               childId={childId}
               childName={childName}
               draftId={draft.draft_id}

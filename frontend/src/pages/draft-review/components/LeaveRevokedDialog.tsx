@@ -35,11 +35,15 @@ export function LeaveRevokedDialog({ blocker, childName }: LeaveRevokedDialogPro
         <AlertDialogHeader>
           <AlertDialogTitle>보내지 않고 나가시겠어요?</AlertDialogTitle>
           <AlertDialogDescription>
-            {childName} 알림장이 아직 보호자에게 가지 않았어요. 지금 나가면{" "}
-            <strong>알림장 → 그 아이의 알림장 → 회수함</strong>에 남아 있고, 거기서 다시 열어 보낼
-            수 있어요.
+            {childName} 알림장이 아직 보호자에게 가지 않았어요.
           </AlertDialogDescription>
         </AlertDialogHeader>
+        {/* 찾아가는 길은 문장에 섞으면 줄 끝에서 "그 아이 / 의 알림장"처럼 끊겨 읽기 어렵습니다.
+            한 줄로 떼어 내고 상자로 감쌉니다(게시 확인 모달과 같은 모양). */}
+        <div className="flex flex-col gap-1 rounded-md bg-canvas px-3.5 py-3">
+          <p className="text-caption text-ink-muted">나중에 여기서 다시 열어 보낼 수 있어요</p>
+          <p className="text-body font-bold text-ink">알림장 → {childName}의 알림장 → 회수함</p>
+        </div>
         <AlertDialogFooter>
           <AlertDialogCancel onClick={() => blocker.reset?.()}>계속 고치기</AlertDialogCancel>
           <AlertDialogAction onClick={() => blocker.proceed?.()}>나가기</AlertDialogAction>

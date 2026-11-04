@@ -22,6 +22,11 @@ interface RevokeNoteButtonProps {
   version: number;
   /** 회수 성공 뒤에 할 일. 화면마다 다릅니다(목록으로 돌아가기 등). 없으면 그 자리에 머뭅니다. */
   onRevoked?: () => void;
+  /**
+   * 버튼 크기. 목록 한 줄 안에서는 `sm`, 화면 아래 버튼 줄에서는 옆 버튼과 맞춰 `default`.
+   * 섞이면 "회수"만 작아 보입니다.
+   */
+  size?: "sm" | "default";
 }
 
 // 게시한 알림장을 회수합니다. 게시 완료 화면과 알림장 상세가 함께 씁니다.
@@ -36,6 +41,7 @@ export function RevokeNoteButton({
   draftId,
   version,
   onRevoked,
+  size = "sm",
 }: RevokeNoteButtonProps) {
   const queryClient = useQueryClient();
   const { currentClass } = useCurrentClass();
@@ -72,7 +78,7 @@ export function RevokeNoteButton({
         if (!open) revocation.reset();
       }}
     >
-      <Button variant="outline" size="sm" onClick={() => setConfirmOpen(true)}>
+      <Button variant="outline" size={size} onClick={() => setConfirmOpen(true)}>
         회수
       </Button>
       <AlertDialogContent>
