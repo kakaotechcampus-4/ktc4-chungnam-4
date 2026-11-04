@@ -72,6 +72,8 @@ function detail(over: Partial<DraftDetail> = {}): DraftDetail {
     author_name: "김하늘",
     approved_at: null,
     published_at: null,
+    revoke_deadline: null,
+    can_revoke: false,
     include_photos: null,
     updated_at: "2026-10-06T06:40:00Z",
     ...over,

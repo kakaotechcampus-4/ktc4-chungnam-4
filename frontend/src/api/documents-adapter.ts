@@ -129,6 +129,8 @@ export function toDraftView(raw: DraftDetail): DraftView {
     selected_media_ids: raw.selected_media_ids,
     media: raw.media.map(toDraftMediaView),
     published_at: raw.published_at,
+    revoke_deadline: raw.revoke_deadline,
+    can_revoke: raw.can_revoke,
     include_photos: raw.include_photos,
   };
 }

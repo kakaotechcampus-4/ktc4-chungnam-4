@@ -121,6 +121,12 @@ export interface DraftView {
   /** 선택 미디어와 근거 미디어 전부. 근거 패널이 씁니다. */
   media: DraftMediaView[];
   published_at: string | null;
+  /**
+   * 회수 기한(게시 + 24시간)과 지금 회수할 수 있는지. **둘 다 서버가 판정한 값입니다** —
+   * 학부모가 본문을 열었는지는 화면이 알 수 없어 직접 계산하지 않습니다.
+   */
+  revoke_deadline: string | null;
+  can_revoke: boolean;
   /** 게시할 때 사진을 함께 보냈는지. 게시 전에는 `null`입니다. */
   include_photos: boolean | null;
 }

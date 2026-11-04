@@ -76,6 +76,10 @@ export interface DraftDetail {
   author_name: string;
   approved_at: string | null;
   published_at: string | null;
+  /** 활성 게시 회차의 회수 기한(게시 + 24시간). 활성 회차가 없으면 `null` */
+  revoke_deadline: string | null;
+  /** 지금 회수할 수 있는가. 기한 이내이고 학부모가 본문을 열기 전이면 참 */
+  can_revoke: boolean;
   /**
    * 게시할 때 사진을 함께 보냈는지. **게시 전에는 `null`** 입니다 — 임시 결정(김진하).
    * `false`면 학부모에게 글만 갔으므로 교사 화면도 사진을 보여 주지 않습니다.

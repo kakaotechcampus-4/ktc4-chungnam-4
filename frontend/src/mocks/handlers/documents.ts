@@ -36,6 +36,7 @@ import { isMockScenario } from "../scenario";
 // develop의 documents 라우터와 같고, 필드가 다른 곳은 API 문서를 따릅니다. 게시 여부는 status가 아니라
 // published_at으로 나타냅니다.
 // 시나리오: documents.drafts-empty(반·날짜 초안 목록이 비어 있음)
+//          documents.just-published(게시분을 방금 게시한 것으로 — 회수 화면 확인용)
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -46,6 +47,21 @@ const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
  * 쓰면 값이 틀려도 목과 화면이 나란히 틀려서 테스트가 못 잡습니다.
  */
 const REVOKE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** 시나리오가 쓰는 "방금". 부를 때마다 새로 읽으면 목록·상세·회수가 서로 다른 값을 봅니다. */
+const MOCK_STARTED_AT = new Date().toISOString();
+
+/**
+ * 게시 시각. `documents.just-published` 시나리오면 "방금"으로 당깁니다 — 시드의 게시분은
+ * 그제 것이라 회수 기한(24시간)이 늘 지나 있어 회수 화면을 볼 수 없습니다.
+ *
+ * **목록·상세·회수 처리가 모두 이 함수를 지나야 합니다.** 한쪽만 당기면 버튼은 보이는데
+ * 누르면 "기한이 지났습니다"로 거절합니다(실제로 그렇게 만들었다가 고쳤습니다).
+ */
+function publishedAtOf(draft: DraftRecord): string | null {
+  if (draft.published_at === null) return null;
+  return isMockScenario("documents.just-published") ? MOCK_STARTED_AT : draft.published_at;
+}
 
 /** 교사가 쓴 문장(t1, t2…)의 다음 번호. 지운 문장 번호를 다시 쓰지 않게 최댓값 다음으로 둡니다 */
 function nextTeacherSentenceNo(sentences: readonly { sentence_id: string }[]) {
@@ -58,7 +74,7 @@ function summary(draft: DraftRecord): DraftSummary {
     draft_id: draft.draft_id,
     status: draft.status,
     version: draft.version,
-    published_at: draft.published_at,
+    published_at: publishedAtOf(draft),
     preview: previewOf(draft.sentences),
   };
 }
@@ -73,6 +89,8 @@ function detail(db: MockDb, draft: DraftRecord): DraftDetail {
     .map((id) => db.media[id])
     .filter((record): record is MediaRecord => record !== undefined)
     .map(toMediaUrl);
+  const published = publishedAtOf(draft);
+  const publishedAt = published === null ? null : Date.parse(published);
   return {
     draft_id: draft.draft_id,
     child_id: draft.child_id,
@@ -89,7 +107,15 @@ function detail(db: MockDb, draft: DraftRecord): DraftDetail {
     author_teacher_id: draft.author_teacher_id,
     author_name: draft.author_name,
     approved_at: draft.approved_at,
-    published_at: draft.published_at,
+    published_at: published,
+    // 서버는 회차의 revoke_deadline을 그대로 싣고, can_revoke는 기한 이내 + 학부모 미열람으로
+    // 판정합니다(_can_revoke). 목은 열람을 readParentNotes로 흉내 냅니다.
+    revoke_deadline:
+      publishedAt === null ? null : new Date(publishedAt + REVOKE_WINDOW_MS).toISOString(),
+    can_revoke:
+      publishedAt !== null &&
+      publishedAt + REVOKE_WINDOW_MS > Date.now() &&
+      !db.readParentNotes.includes(draft.draft_id),
     updated_at: draft.updated_at,
   };
 }
@@ -417,14 +443,20 @@ export const handlers = [
           "다른 곳에서 먼저 고쳤어요. 새로 불러와 주세요.",
         );
       }
-      if (draft.status !== "approved") {
-        return errorResponse(409, "DRAFT_NOT_APPROVED", "승인한 초안만 되돌릴 수 있어요.");
+      // 서버 reopen_draft는 승인본과 회수본을 모두 받습니다. 회수본을 막으면 교사가 회수만
+      // 하고 아무것도 못 합니다. 문구도 서버와 맞춥니다.
+      if (draft.status !== "approved" && draft.status !== "revoked") {
+        return errorResponse(
+          409,
+          "DRAFT_NOT_APPROVED",
+          "승인했거나 회수한 초안만 되돌릴 수 있습니다.",
+        );
       }
       if (draft.published_at !== null) {
         return errorResponse(
           409,
           "DRAFT_ALREADY_PUBLISHED",
-          "이미 게시한 알림장은 되돌릴 수 없어요.",
+          "게시한 알림장은 회수한 뒤에 고칠 수 있습니다.",
         );
       }
       const now = nowIso();
@@ -461,7 +493,7 @@ export const handlers = [
           "학부모가 이미 열어 본 알림장은 회수할 수 없습니다.",
         );
       }
-      if (Date.parse(draft.published_at) + REVOKE_WINDOW_MS <= Date.now()) {
+      if (Date.parse(publishedAtOf(draft) ?? draft.published_at) + REVOKE_WINDOW_MS <= Date.now()) {
         return errorResponse(
           409,
           "REVOKE_DEADLINE_PASSED",
