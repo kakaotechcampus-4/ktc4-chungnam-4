@@ -31,7 +31,9 @@ class _DraftTask(Task):
         service.mark_job_failed(
             _job_id(args, kwargs),
             error_code=(
-                "LLM_TIMEOUT"
+                str(exc)
+                if isinstance(exc, service.AgentExecutionError)
+                else "LLM_TIMEOUT"
                 if isinstance(exc, (SoftTimeLimitExceeded, openai.APITimeoutError))
                 else "LLM_CALL_FAILED"
                 if isinstance(exc, openai.APIError)

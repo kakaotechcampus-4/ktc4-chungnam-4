@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class EvidenceBundleResponse(BaseModel):
@@ -112,3 +112,30 @@ class GenerationJobResponse(BaseModel):
     children: list[ChildJobResponse]
     created_at: datetime
     updated_at: datetime
+
+
+class ObservationJobCreateRequest(BaseModel):
+    request_id: UUID
+    month: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+
+    @field_validator("month")
+    @classmethod
+    def valid_month(cls, value: str) -> str:
+        date.fromisoformat(value + "-01")
+        return value
+
+
+class AgentTraceEvent(BaseModel):
+    agent: str
+    outcome: str
+    tool: str | None
+
+
+class ChildAgentTrace(BaseModel):
+    child_id: UUID
+    events: list[AgentTraceEvent]
+
+
+class JobTraceResponse(BaseModel):
+    job_id: UUID
+    children: list[ChildAgentTrace]

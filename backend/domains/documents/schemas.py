@@ -24,6 +24,7 @@ class DraftSentenceInput(BaseModel):
     model_config = ConfigDict(hide_input_in_errors=True)
 
     sentence_id: str = Field(min_length=1)
+    section: str | None = None
     text: str = Field(min_length=1)
 
 
@@ -131,6 +132,7 @@ class EvidenceView(BaseModel):
     """문장 하나를 뒷받침하는 근거. 사진·계획 근거는 start_ms·end_ms가 없다."""
 
     evidence_id: str
+    source_document_id: UUID | None = None
     source_type: str
     text: str
     media_id: UUID | None
@@ -140,6 +142,7 @@ class EvidenceView(BaseModel):
 
 
 class DraftSentenceView(BaseModel):
+    section: str | None = None
     sentence_id: str
     text: str
     is_edited_by_teacher: bool
@@ -171,6 +174,7 @@ class DraftDetailResponse(BaseModel):
     version: int
     # AI가 제목을 만들지 않아 지금은 늘 null이다.
     title: str | None
+    daily_routine: list[str] = Field(default_factory=list)
     sentences: list[DraftSentenceView]
     selected_media_ids: list[UUID]
     failed_media_ids: list[UUID] = Field(default_factory=list)

@@ -30,6 +30,7 @@ class DraftResponseError(ValueError):
 
 
 class _AnswerSentence(ContractModel):
+    section: NonEmpty | None = None
     text: NonEmpty
     evidence_refs: list[NonEmpty] = Field(default_factory=list)
 
@@ -71,9 +72,17 @@ def parse_draft_response(
             raise DraftResponseError("초안 생성 응답이 주지 않은 근거 참조를 썼습니다.")
         if len(sentence.evidence_refs) != len(set(sentence.evidence_refs)):
             raise DraftResponseError("한 문장에 같은 근거 참조가 중복됐습니다.")
+        if doc_type == DocType.OBSERVATION_LOG:
+            from tools.generation.agent_tools import SECTIONS
+
+            if sentence.section not in SECTIONS:
+                raise DraftResponseError("관찰일지 영역이 올바르지 않습니다.")
+        elif sentence.section is not None:
+            raise DraftResponseError("알림장에는 관찰일지 영역을 지정할 수 없습니다.")
         sentences.append(
             DraftSentence(
                 sentence_id=f"s{index}",
+                section=sentence.section,
                 text=sentence.text,
                 evidence_ids=[evidence_id_by_ref[ref] for ref in sentence.evidence_refs],
             )

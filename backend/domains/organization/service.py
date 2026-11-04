@@ -1023,3 +1023,8 @@ def get_child_overview(db: Session, child_id: UUID, center_id: UUID | None, acto
         ],
         domain_counts=None,
     )
+
+
+def get_class_age_band(db: Session, class_id: UUID) -> str:
+    """LLM 도구에는 생년월일 대신 반의 연령대만 제공한다(H-2)."""
+    return db.scalar(select(Klass.age_band).where(Klass.id == class_id)) or "unknown"

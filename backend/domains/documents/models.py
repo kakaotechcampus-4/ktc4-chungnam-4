@@ -134,6 +134,7 @@ class DraftSentence(Base):
     sentence_id = Column(String, nullable=False)
     # 표시 순서. 0부터 센다.
     position = Column(Integer, nullable=False)
+    section = Column(String, nullable=True)
     text = Column(Text, nullable=False)
     # 교사가 직접 고친 문장("수정됨" 표시). 고친 문장의 근거 행은 지우지 않고 교사 응답에서만
     # 비운다 — 나중에 재검증할 때 대조할 원래 근거가 있어야 한다 (#75).

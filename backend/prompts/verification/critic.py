@@ -18,7 +18,7 @@ from pathlib import Path
 
 from tools.contracts import DraftDocument, EvidenceItem
 
-PROMPT_VERSION = "critic.v1"
+PROMPT_VERSION = "critic.v3"
 
 _TEMPLATE_PATH = Path(__file__).with_name("critic.md")
 _DOCUMENT_SLOT = "{{DOCUMENT}}"
@@ -47,6 +47,7 @@ def build_critic_prompt(document: DraftDocument, evidence_by_id: dict[str, Evide
         ]
         sentence_payload.append(
             {
+                "section": sentence.section,
                 "sentence_id": sentence.sentence_id,
                 "text": sentence.text,
                 "evidences": evidences,

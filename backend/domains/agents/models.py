@@ -49,6 +49,7 @@ class GenerationJob(Base):
     class_id = Column(UUID(as_uuid=True), nullable=False)
     record_date = Column(Date, nullable=False)
     # 같은 값으로 다시 보내면 기존 레코드를 돌려준다 (docs/api/agents.md)
+    doc_type = Column(String, nullable=False, default="parent_note", server_default="parent_note")
     request_id = Column(String, nullable=False)
     # 비동기 task가 초안의 author_teacher_id를 채우는 데 쓴다 (FR-26)
     requested_by_teacher_id = Column(UUID(as_uuid=True), nullable=False)
@@ -78,6 +79,8 @@ class Job(Base):
     child_id = Column(UUID(as_uuid=True), nullable=False)
     target_date = Column(DateTime(timezone=True), nullable=False)
     status = Column(String, nullable=False, default=JobStatus.PENDING.value)
+    stage = Column(String, nullable=True)
+    agent_trace = Column(JSON, nullable=False, default=list, server_default="[]")
     retry_count = Column(Integer, nullable=False, default=0)
     error_code = Column(String, nullable=True)
     unclassified_reason = Column(String, nullable=True)
@@ -96,6 +99,7 @@ class EvidenceBundle(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     child_id = Column(UUID(as_uuid=True), nullable=False)
     date = Column(DateTime(timezone=True), nullable=False)
+    daily_routine = Column(JSON, nullable=True)
     media_refs = Column(JSON, nullable=False)
     transcript_refs = Column(JSON, nullable=False)
     # 분석 응답 오류로 근거에서 제외된 사진. 교사 안내용이며 생성 입력에는 넣지 않는다.
@@ -134,6 +138,7 @@ class SentenceEvidence(Base):
     evidence_id = Column(String, nullable=False)
     # 활동계획 근거는 media가 없다 — source_activity_plan_id는 EvidenceBundle이
     # 이미 갖고 있어(테크스펙 데이터 모델 ④) 여기 중복으로 안 둔다.
+    source_document_id = Column(UUID(as_uuid=True), nullable=True)
     source_media_id = Column(UUID(as_uuid=True), nullable=True)
     source_timestamp = Column(
         Float, nullable=True

@@ -29,8 +29,8 @@ _SDK_MAX_RETRIES = 0
 _VISION_MAX_TOKENS = 2048
 
 # 초안 생성·Critic 응답 상한. 1024에서 응답이 중간에 잘려 JSON이 깨진 사례가 있어(4명 중 2명 실패,
-# 11/2 로컬 실행) 사진 분석과 같은 2048로 맞춘다. 과금은 실제 출력 토큰 기준이라 평소 비용은 같다.
-_TEXT_MAX_TOKENS = 2048
+# 11/2 로컬 실행) 상한을 늘렸다. Claude 게이트웨이의 2000 상한에도 맞춘다(#258).
+_TEXT_MAX_TOKENS = 2000
 
 
 def _complete(*, endpoint: str, model: str, messages: list[dict], max_tokens: int) -> str | None:
@@ -51,7 +51,7 @@ def _complete(*, endpoint: str, model: str, messages: list[dict], max_tokens: in
         body = {"model": model, "max_tokens": max_tokens, "messages": messages}
         # 이 모델은 추론 끄기를 지원하지 않는다. 공식 모델 정보의 low를 사용해
         # 추론만 하다 출력 한도·30초 제한을 소진하는 일을 줄인다.
-        if model == "zai-org/GLM-5.3-Flash":
+        if model == "zai-org/GLM-5.3-Flash" or model.startswith("anthropic/claude-"):
             body["reasoning_effort"] = "low"
         if is_complete_url:
             response = client.post(endpoint, cast_to=ChatCompletion, body=body)
@@ -96,3 +96,36 @@ if __name__ == "__main__":
     # 연결 확인용 1회성 스크립트 — pytest에 포함하지 않음 (CLAUDE.md §11: LLM 실제 호출 금지)
     # H-2: 실제 아동 정보 대신 더미 텍스트만 사용
     print(call_claude("CHILD_A가 오늘 블록 놀이를 했다는 내용으로 한 문장만 만들어줘."))
+
+
+def call_agent(messages: list[dict], tools: list[dict]) -> openai.types.chat.ChatCompletionMessage:
+    """역할별 독립 대화의 네이티브 도구 호출. 도구 실행 권한은 service가 검사한다(FR-05)."""
+    settings = get_settings()
+    endpoint = settings.llm_gateway_base_url.rstrip("/")
+    with OpenAI(
+        api_key=settings.anthropic_api_key.get_secret_value(),
+        base_url=endpoint,
+        timeout=_TIMEOUT_SECONDS,
+        max_retries=0,
+    ) as client:
+        body = {
+            "model": settings.anthropic_model,
+            "messages": messages,
+            "max_tokens": _TEXT_MAX_TOKENS,
+            "tools": tools,
+            "tool_choice": "auto",
+        }
+        if (
+            settings.anthropic_model == "zai-org/GLM-5.3-Flash"
+            or settings.anthropic_model.startswith("anthropic/claude-")
+        ):
+            body["reasoning_effort"] = "low"
+        response = (
+            client.post(endpoint, cast_to=ChatCompletion, body=body)
+            if endpoint.endswith("/chat/completions")
+            else client.chat.completions.create(**body)
+        )
+        if not response.choices or response.choices[0].finish_reason not in {"stop", "tool_calls"}:
+            # 본문·키·공급자 오류 원문은 로그에 남기지 않는다.
+            raise ValueError("AGENT_INCOMPLETE_RESPONSE")
+        return response.choices[0].message
