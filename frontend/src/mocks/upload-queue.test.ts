@@ -1,3 +1,6 @@
+// 영상·음성 기능이 켜진 큐의 공통 규칙도 유지합니다. 차단 정책은 photo-only.test.ts에서 확인합니다.
+vi.mock("@/features/upload-queue/media-capabilities", () => ({ CLIPS_ENABLED: true }));
+
 import { isPhoto, uploadTargets, useUploadQueue } from "@/features/upload-queue/upload-queue-store";
 
 import { isMockScenario } from "./scenario";

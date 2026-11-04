@@ -5,7 +5,10 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from core.base import Base
+from domains.face.models import FaceEmbedding
 from domains.organization.models import Center, Child, ConsentRecord, Klass, ParentChildRelation
+from domains.organization.models import ConsentRecord as RosterConsent
+from domains.organization.models import ParentChildRelation as RosterParent
 from domains.organization.service import get_consented_children, list_class_children
 from scripts.seed_demo_organization import (
     CONSENT_TYPES,
@@ -19,6 +22,9 @@ NOW = datetime(2026, 10, 28, 9, 0, tzinfo=UTC)
 
 def _session() -> Session:
     engine = create_engine("sqlite://")
+    Base.metadata.create_all(
+        engine, tables=[FaceEmbedding.__table__, RosterConsent.__table__, RosterParent.__table__]
+    )
     Base.metadata.create_all(
         engine,
         tables=[

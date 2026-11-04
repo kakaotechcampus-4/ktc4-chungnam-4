@@ -126,7 +126,7 @@ export interface ChildNoteSummary {
  */
 export interface ChildOverview {
   recent_notes: ChildNoteSummary[];
-  domain_counts: Record<NuriDomain, number>;
+  domain_counts: Record<NuriDomain, number> | null;
 }
 
 /**

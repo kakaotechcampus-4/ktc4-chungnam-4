@@ -18,7 +18,7 @@ function renderPage() {
 describe("OnboardingClassSelectPage", () => {
   afterEach(() => useCurrentClassStore.setState({ selectedClassId: null }));
 
-  it("즐겨찾기한 반을 먼저 보여 주고 끝에 반 추가하기를 둔다", async () => {
+  it("같은 어린이집 반 목록과 반 추가하기를 보여 준다", async () => {
     renderPage();
 
     expect(
@@ -26,16 +26,6 @@ describe("OnboardingClassSelectPage", () => {
     ).toBeInTheDocument();
     // 제목은 담당 반에서, 카드는 어린이집 반 목록에서 옵니다. 카드가 그려질 때까지 기다립니다.
     const cards = within(await screen.findByRole("list")).getAllByRole("listitem");
-    const favorites = cards.map(
-      (card) =>
-        within(card)
-          .queryByRole("button", { name: /즐겨찾기/ })
-          ?.getAttribute("aria-pressed") ?? null,
-    );
-    // 즐겨찾기(true) 뒤에 나머지(false), 마지막은 반 추가하기(버튼 없음)
-    const firstOff = favorites.indexOf("false");
-    expect(favorites.slice(0, firstOff).every((value) => value === "true")).toBe(true);
-    expect(favorites.slice(firstOff, -1).every((value) => value === "false")).toBe(true);
     expect(within(cards.at(-1)!).getByRole("link", { name: /반 추가하기/ })).toHaveAttribute(
       "href",
       "/onboarding/class/new",
@@ -43,7 +33,7 @@ describe("OnboardingClassSelectPage", () => {
     expect(screen.getByRole("link", { name: "햇살반" })).toHaveAttribute("href", "/t/today");
   });
 
-  it("반을 고르면 담임으로 배정하고 오늘의 기록으로 간다", async () => {
+  it("반을 고르면 담당 교사를 바꾸지 않고 현재 반으로 들어간다", async () => {
     const assigned: string[] = [];
     server.use(
       http.post(apiPath("/classes/:classId/assign"), ({ params }) => {
@@ -56,7 +46,7 @@ describe("OnboardingClassSelectPage", () => {
     await userEvent.click(await screen.findByRole("link", { name: "새싹반" }));
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/t/today"));
-    expect(assigned).toEqual([fixtureId("class", 3)]);
+    expect(assigned).toEqual([]);
     // 고른 반이 현재 반이 됩니다(#85).
     expect(useCurrentClassStore.getState().selectedClassId).toBe(fixtureId("class", 3));
   });

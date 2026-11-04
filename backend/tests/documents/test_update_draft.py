@@ -13,8 +13,11 @@ from sqlalchemy.pool import StaticPool
 
 from core.base import Base
 from core.database import get_db
+from core.exceptions import StorageNotConfigured
 from domains.agents.models import SentenceEvidence
 from domains.auth.middleware import get_current_user
+from domains.auth.models import Account as LookupAccount
+from domains.auth.models import Teacher as LookupTeacher
 from domains.auth.service import TeacherProfile
 from domains.documents import service as documents_service
 from domains.documents.models import (
@@ -25,8 +28,9 @@ from domains.documents.models import (
     DraftStatus,
     RevisionLog,
 )
+from domains.documents.models import UnclassifiedItem as FailureItem
 from domains.documents.service import get_draft_version
-from domains.media.service import MediaEvidence, SignedMediaUrl
+from domains.media.service import MediaMeta, SignedMediaUrl
 from domains.organization.models import Center, Child, Klass
 from main import app
 
@@ -44,8 +48,13 @@ def db() -> Iterator[Session]:
     )
     tables = [Center, Klass, Child, DraftDocument, DraftSentence, DocumentPublication, RevisionLog]
     tables.append(SentenceEvidence)  # 상세 응답이 문장별 근거를 읽는다(agents)
+    Base.metadata.create_all(
+        engine, tables=[LookupAccount.__table__, LookupTeacher.__table__, FailureItem.__table__]
+    )
     Base.metadata.create_all(engine, tables=[table.__table__ for table in tables])
-    session = sessionmaker(bind=engine)()
+    # 서버 세션(core/database.py SessionLocal)처럼 autoflush를 끕니다 — 켜 두면 커밋 전 조회가
+    # 새 문장을 알아서 보여 줘서, 응답에서 새 문장이 빠지는 버그를 못 잡습니다(#206 멘토 리뷰)
+    session = sessionmaker(bind=engine, autoflush=False)()
     yield session
     session.close()
 
@@ -160,6 +169,8 @@ def test_새_문장은_맨_뒤에_t_번호_최댓값_다음부터_붙는다(clie
 
     assert response.status_code == 200
     assert _stored(db, draft)[2:] == [("t2", "첫 새 문장", False), ("t3", "둘째 새 문장", False)]
+    # 커밋 전에 만드는 응답에도 새 문장이 담긴다(#206 멘토 리뷰 — autoflush가 꺼진 세션)
+    assert [s["sentence_id"] for s in response.json()["sentences"]][2:] == ["t2", "t3"]
     assert _logs(db, draft) == [
         ("t2", None, "첫 새 문장", "manual"),
         ("t3", None, "둘째 새 문장", "manual"),
@@ -291,23 +302,24 @@ def test_다른_어린이집_교사는_고칠_수_없다(client, db):
 
 @pytest.fixture
 def photos(monkeypatch: pytest.MonkeyPatch) -> list[tuple]:
-    """그 원아·그 날짜에 고를 수 있는 사진은 PHOTO_A·PHOTO_B다. 서명 URL은 S3 없이 만든다.
+    """그 원아·그 날짜에 귀속된 미디어는 PHOTO_A·VIDEO·PHOTO_B·VOICE다. 서명 URL은 S3 없이 만든다.
 
-    collect_media_for_llm은 영상·음성메모도 돌려주므로 VIDEO·VOICE도 함께 싣는다.
+    list_child_media처럼 요청한 종류만 돌려준다 — 학부모에게는 사진·영상만 간다(FR-10).
     """
     calls: list[tuple] = []
     taken = datetime(2026, 10, 27, 1, 0, tzinfo=UTC)
 
-    def collect(db, child_id, target_date):
+    def collect(db, child_id, target_date, *, types):
         calls.append((child_id, target_date))
         return [
-            MediaEvidence(media_id=media_id, type=kind, captured_at=taken, storage_url="s3://x")
+            MediaMeta(media_id=media_id, type=kind, captured_at=taken)
             for media_id, kind in (
                 (PHOTO_A, "photo"),
                 (VIDEO, "video"),
                 (PHOTO_B, "photo"),
                 (VOICE, "voice_memo"),
             )
+            if kind in types
         ]
 
     def sign(db, media_ids):
@@ -317,7 +329,7 @@ def photos(monkeypatch: pytest.MonkeyPatch) -> list[tuple]:
             for m in media_ids
         ]
 
-    monkeypatch.setattr(documents_service.media_service, "collect_media_for_llm", collect)
+    monkeypatch.setattr(documents_service.media_service, "list_child_media", collect)
     monkeypatch.setattr(documents_service.media_service, "get_signed_urls", sign)
     return calls
 
@@ -338,6 +350,26 @@ def test_고른_사진을_그_순서로_저장하고_서명_URL을_돌려준다(
     assert photos == [(draft.child_id, draft.record_date)]
 
 
+def test_응답을_만들다_실패하면_고친_문장도_이력도_남지_않는다(client, db, photos, monkeypatch):
+    draft = _draft(db)
+    draft.selected_media_ids = [str(PHOTO_A)]  # 응답에 서명 URL이 필요하다
+    db.commit()
+
+    def broken(db, media_ids):
+        raise StorageNotConfigured("파일 저장소에 접근할 수 없어요.")
+
+    monkeypatch.setattr(documents_service.media_service, "get_signed_urls", broken)
+
+    response = _patch(client, draft, sentences=[{"sentence_id": "s1", "text": "고친 문장"}])
+
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "STORAGE_NOT_CONFIGURED"
+    assert _stored(db, draft)[0] == ("s1", "s1 원래 문장", False)
+    assert _logs(db, draft) == []
+    db.refresh(draft)
+    assert draft.version == 3
+
+
 def test_빈_배열이면_사진을_모두_뺀다(client, db, photos):
     draft = _draft(db)
     _patch(client, draft, selected_media_ids=[str(PHOTO_A)])
@@ -348,9 +380,16 @@ def test_빈_배열이면_사진을_모두_뺀다(client, db, photos):
     assert response.json()["media"] == []
 
 
-@pytest.mark.parametrize(
-    "media_id", [uuid.uuid4(), VIDEO, VOICE], ids=["범위_밖", "영상", "음성메모"]
-)
+def test_영상도_고를_수_있다(client, db, photos):
+    draft = _draft(db)
+
+    response = _patch(client, draft, selected_media_ids=[str(VIDEO), str(PHOTO_A)])
+
+    assert response.status_code == 200
+    assert response.json()["selected_media_ids"] == [str(VIDEO), str(PHOTO_A)]
+
+
+@pytest.mark.parametrize("media_id", [uuid.uuid4(), VOICE], ids=["범위_밖", "음성메모"])
 def test_고를_수_없는_사진이면_400이고_아무것도_바꾸지_않는다(client, db, photos, media_id):
     draft = _draft(db)
 

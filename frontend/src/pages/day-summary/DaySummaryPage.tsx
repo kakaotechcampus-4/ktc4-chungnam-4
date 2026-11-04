@@ -35,7 +35,7 @@ import { nickname } from "./nickname";
 
 // 아이별 하루 확인(FR-27). 서버 전송 전, 분류 결과의 아이 카드에서 들어옵니다(#83 리뷰, 송유진 님 흐름).
 // 서버가 만든 하루 일과가 아니라 이 기기의 자료(사진)와 서버 STT 발화, 추가 근거로 그립니다.
-// 여기서 뺀 사진은 업로드 큐에서, 뺀 발화는 서버에서 이 아이와의 연결만 끊습니다. 전송은 분류 결과 화면에서 합니다.
+// 여기서 뺀 사진은 업로드 큐에서, 뺀 발화는 서버에서 모든 원아의 생성 근거에서 제외합니다. 전송은 분류 결과 화면에서 합니다.
 
 const CLASSIFICATION = "/t/today/classification";
 
@@ -63,7 +63,10 @@ function childPhotos(items: readonly LocalMedia[], childId: string): LocalPhoto[
 }
 
 function childSegments(segments: readonly QueueSegment[], childId: string) {
-  return segments.filter(({ segment }) => !segment.excluded && segment.child_ids.includes(childId));
+  return segments.filter(
+    ({ segment }) =>
+      !segment.excluded && segment.reviewed_at !== null && segment.child_ids.includes(childId),
+  );
 }
 
 function reviewOf(photo: LocalPhoto): ReviewResult {
@@ -113,7 +116,7 @@ export function DaySummaryPage() {
       media: null,
       tag: segment.speaker ? SPEAKER_LABEL_MAP[segment.speaker] : "발화",
       text: `“${segment.text}”`,
-      meta: `${speechLabel(number)} · ${clip.file.name}`,
+      meta: `${speechLabel(number)} · ${clip.file.name} · 빼면 이 발화가 모든 아이의 근거에서 제외돼요`,
       removed: false,
     })),
   ];
@@ -147,11 +150,11 @@ export function DaySummaryPage() {
     const found = speech.find((item) => item.segment.segment_id === row.id);
     if (!found) return;
     const before = found.segment.child_ids;
-    // 아무도 남지 않은 발화는 미분류로 돌아가 수동 분류에 다시 모입니다.
+    // 파일 귀속은 유지하고 이 발화만 모든 원아의 생성 근거에서 제외합니다.
     update.mutate(
       {
         segmentId: row.id,
-        body: { child_ids: before.filter((id) => id !== child.child_id) },
+        body: { excluded: true },
       },
       {
         onSuccess: () =>
@@ -183,10 +186,7 @@ export function DaySummaryPage() {
       forget();
       return;
     }
-    update.mutate(
-      { segmentId: entry.segmentId, body: { child_ids: entry.before, excluded: false } },
-      { onSuccess: forget },
-    );
+    update.mutate({ segmentId: entry.segmentId, body: { excluded: false } }, { onSuccess: forget });
   }
 
   // 자료가 있는 아이 사이를 오갑니다. Figma의 "2 / 5명 확인" 자리입니다(아이마다 확인 표시를 남기는 API는 두지 않음).

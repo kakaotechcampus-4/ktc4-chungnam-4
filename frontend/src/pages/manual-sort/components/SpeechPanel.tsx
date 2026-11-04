@@ -18,7 +18,8 @@ interface SpeechPanelProps {
   entry: QueueSegment;
   text: string;
   onTextChange: (text: string) => void;
-  speaker: TranscriptSpeakerView;
+  /** 교사가 아직 고르지 않았으면 null입니다. 어느 칸도 선택된 상태로 보이지 않습니다. */
+  speaker: TranscriptSpeakerView | null;
   onSpeakerChange: (speaker: TranscriptSpeakerView) => void;
 }
 

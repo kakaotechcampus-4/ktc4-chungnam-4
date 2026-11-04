@@ -69,7 +69,18 @@ const areaRoutes: RouteObject[] = [
       },
     ],
   },
-  ...(parentChildren.length > 0 ? [{ path: "p", children: parentChildren }] : []),
+  // /p 아래 없는 주소는 공개 틀의 404로 받습니다. 없으면 /p 묶음이 빈 화면을 그립니다.
+  ...(parentChildren.length > 0
+    ? [
+        {
+          path: "p",
+          children: [
+            { element: <RequireRole role="parent" />, children: parentChildren },
+            { Component: PublicLayout, children: [{ path: "*", Component: NotFoundPage }] },
+          ],
+        },
+      ]
+    : []),
 ];
 
 // 맨 바깥 경계: 어느 영역에서든 받지 못한 오류를 여기서 받습니다. 401은 로그인, 403은 내비 없이 접근 권한 없음,

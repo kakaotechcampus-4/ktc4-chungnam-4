@@ -4,6 +4,7 @@ import type {
   DraftStatus,
   DraftSummary,
   Evidence,
+  ParentMediaList,
   PublicationResult,
   Sentence,
 } from "@/types/api-draft/documents";
@@ -12,6 +13,8 @@ import type { MediaUrl } from "@/types/api-draft/media";
 import {
   canApprove,
   canReopen,
+  canSaveParentMedia,
+  toParentMediaListView,
   didSendPhotos,
   isNotReady,
   isPublishTarget,
@@ -145,6 +148,16 @@ describe("판정 함수", () => {
 });
 
 describe("사진", () => {
+  it("분석 실패 사진은 표시용으로 남기고 선택 사진에 자동 추가하지 않는다", () => {
+    const failed = { ...PHOTO, media_id: "failed-photo" };
+    const view = toDraftView(
+      detail({ failed_media_ids: [failed.media_id], media: [PHOTO, failed] }),
+    );
+    expect(view.failed_media_ids).toEqual([failed.media_id]);
+    expect(view.media).toContainEqual(failed);
+    expect(selectedPhotos(view)).toEqual([PHOTO]);
+    expect(toDraftView(detail()).failed_media_ids).toEqual([]);
+  });
   // 초안 검토 화면은 게시 전 초안을 다루므로 교사가 고른 사진을 그대로 봅니다.
   it("고른 사진은 게시 여부와 무관하게 나온다", () => {
     expect(selectedPhotos(toDraftView(detail()))).toEqual([PHOTO]);
@@ -361,5 +374,39 @@ describe("사진을 보냈는지", () => {
     // 게시 전에는 아직 모릅니다. 모르면 "보냈다"고 하지 않습니다(#89 리뷰).
     expect(didSendPhotos(toDraftView(detail({ include_photos: null })))).toBe(false);
     expect(didSendPhotos(undefined)).toBe(false);
+  });
+});
+
+describe("toParentMediaListView", () => {
+  it("모르는 미디어 종류는 unknown으로 두고 저장을 잠근다", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const raw = {
+      days: [
+        {
+          parent_note_id: fixtureId("draft", 1),
+          record_date: "2026-10-20",
+          items: [
+            {
+              media_id: fixtureId("media", 1),
+              type: "voice_memo",
+              captured_at: "2026-10-20T01:00:00Z",
+              url: "https://s3.example.com/a",
+              url_expires_at: "2026-10-20T02:00:00Z",
+            },
+          ],
+        },
+      ],
+      next_cursor: null,
+      photo_count: 0,
+      video_count: 0,
+    } as unknown as ParentMediaList;
+
+    const item = toParentMediaListView(raw).days[0]?.items[0];
+    if (item === undefined) throw new Error("변환 결과에 항목이 없습니다");
+
+    expect(item.type).toBe("unknown");
+    expect(canSaveParentMedia(item)).toBe(false);
+    expect(warn).toHaveBeenCalledWith("모르는 미디어 종류", "voice_memo");
+    warn.mockRestore();
   });
 });

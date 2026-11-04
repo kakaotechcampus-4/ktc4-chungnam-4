@@ -1,4 +1,4 @@
-import { queryOptions } from "@tanstack/react-query";
+import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
 import { api } from "@/lib/api-client";
 import type { ListResponse } from "@/types/api-draft/common";
@@ -10,6 +10,8 @@ import type {
   DraftDetail,
   DraftPatchRequest,
   DraftReopenRequest,
+  ParentMediaDownload,
+  ParentMediaList,
   ParentNoteDetail,
   ParentNoteList,
   PublicationRequest,
@@ -20,6 +22,10 @@ import {
   toChildDraftView,
   toClassDraftView,
   toDraftView,
+  toParentMediaDownloadView,
+  toParentMediaListView,
+  toParentNoteDetailView,
+  toParentNoteListView,
   toPublicationResultView,
 } from "./documents-adapter";
 import type { DocTypeView } from "./documents-view";
@@ -28,6 +34,7 @@ import type { DocTypeView } from "./documents-view";
 export {
   canApprove,
   canReopen,
+  canSaveParentMedia,
   didSendPhotos,
   isNotReady,
   isPublished,
@@ -48,6 +55,11 @@ export type {
   DraftView,
   EvidenceSourceTypeView,
   EvidenceView,
+  ParentMediaDayView,
+  ParentMediaDownloadView,
+  ParentMediaItemView,
+  ParentMediaListView,
+  ParentMediaTypeView,
   PublicationResultView,
   PublicationStatusView,
   RosterStatusView,
@@ -75,8 +87,11 @@ export const documentsKeys = {
   childDrafts: (childId: string, docType: DocTypeView, published: boolean) =>
     ["children", childId, "drafts", docType, published] as const,
   draft: (draftId: string) => ["drafts", draftId] as const,
-  parentNotes: (childId: string) => ["children", childId, "parent-notes"] as const,
+  /** 커서도 키에 넣습니다. 페이지마다 캐시가 따로여야 다음 페이지가 첫 페이지를 덮지 않습니다. */
+  parentNotes: (childId: string, cursor: string | null = null) =>
+    ["children", childId, "parent-notes", cursor] as const,
   parentNote: (parentNoteId: string) => ["parent-notes", parentNoteId] as const,
+  parentMedia: (childId: string) => ["children", childId, "parent-media"] as const,
 };
 
 /** 교사용: 반·날짜별 원아 초안 상태(레일, 게시 대상 고르기). "자료 없음" 행은 명단과 비교해 만듭니다. */
@@ -162,22 +177,58 @@ export async function publishParentNotes(body: PublicationRequest) {
   return results.map(toPublicationResultView);
 }
 
-/** 학부모용: 자녀의 게시된 알림장 목록(최신순, 첫 페이지) */
-export function parentNotesQueryOptions(childId: string) {
+/** 학부모용: 게시된 글만 서버 권한 게이트를 거쳐 조회합니다. */
+export function parentNotesQueryOptions(childId: string, cursor?: string) {
   return queryOptions({
-    queryKey: documentsKeys.parentNotes(childId),
-    queryFn: ({ signal }) =>
-      api.get<ParentNoteList>(`/children/${encodeURIComponent(childId)}/parent-notes`, {
-        signal,
-      }),
+    queryKey: documentsKeys.parentNotes(childId, cursor ?? null),
+    queryFn: async ({ signal }) =>
+      toParentNoteListView(
+        await api.get<ParentNoteList>(`/children/${encodeURIComponent(childId)}/parent-notes`, {
+          signal,
+          query: cursor ? { cursor } : undefined,
+        }),
+      ),
   });
 }
-
-/** 학부모용: 알림장 본문. 열 때마다 열람 기록이 남습니다(H-4 AccessLog). */
 export function parentNoteQueryOptions(parentNoteId: string) {
   return queryOptions({
     queryKey: documentsKeys.parentNote(parentNoteId),
-    queryFn: ({ signal }) =>
-      api.get<ParentNoteDetail>(`/parent-notes/${encodeURIComponent(parentNoteId)}`, { signal }),
+    staleTime: 0,
+    queryFn: async ({ signal }) =>
+      toParentNoteDetailView(
+        await api.get<ParentNoteDetail>(`/parent-notes/${encodeURIComponent(parentNoteId)}`, {
+          signal,
+        }),
+      ),
   });
+}
+
+/**
+ * 학부모용: 자녀가 받은 사진·영상(FR-10). 알림장 날짜 최신순으로 몇 건씩 이어 받습니다.
+ * 승인·게시된 알림장에 교사가 고른 것만 옵니다(H-1). 받을 때마다 열람 기록이 남습니다(NFR-05).
+ */
+export function parentMediaInfiniteQueryOptions(childId: string) {
+  return infiniteQueryOptions({
+    queryKey: documentsKeys.parentMedia(childId),
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam, signal }) =>
+      toParentMediaListView(
+        await api.get<ParentMediaList>(`/children/${encodeURIComponent(childId)}/parent-media`, {
+          signal,
+          query: { cursor: pageParam },
+        }),
+      ),
+    getNextPageParam: (lastPage) => lastPage.next_cursor,
+    // 표시용 서명 URL은 15분 뒤 만료됩니다. 그 전에 새로 받게 합니다.
+    staleTime: 10 * 60_000,
+  });
+}
+
+/** 학부모용: 원본을 파일로 받는 URL. 부를 때마다 내려받기 기록이 남습니다(NFR-05). */
+export async function requestParentMediaDownload(childId: string, mediaId: string) {
+  return toParentMediaDownloadView(
+    await api.get<ParentMediaDownload>(
+      `/children/${encodeURIComponent(childId)}/parent-media/${encodeURIComponent(mediaId)}/download`,
+    ),
+  );
 }

@@ -70,6 +70,8 @@ WHERE에 넣는다 — rowcount가 곧 판단 결과다.
 - 열람: first_viewed_at 갱신과 audit.record_access() 호출을 같은 트랜잭션에서
   커밋한 뒤에 본문을 응답한다. audit 기록이 실패하면 응답도 실패해야 한다
   (audit/CLAUDE.md — "기록 실패가 본 작업을 조용히 통과시키면 안 된다").
+- 교사 쓰기(직접 작성·수정·승인·되돌리기): 응답을 다 만든 뒤에 커밋하고, 응답 준비가
+  실패하면 쓰기도 롤백한다(_commit_with_detail).
 
 권한 검사는 이 UPDATE들과 별개다: 위 rowcount 조건은 "게시 상태가 유효한가"만
 확인하고, "이 교사가 이 초안의 검수 권한이 있는가"·"이 학부모가 이 원아에 대한
@@ -84,6 +86,7 @@ import base64
 import re
 import uuid
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -110,6 +113,7 @@ from core.exceptions import (
     DraftVersionConflict,
     InvalidCursor,
     InvalidSentenceId,
+    MediaAssetNotFound,
     MediaNotLinkedToChild,
     NoLinkedParent,
     NotParentNote,
@@ -122,6 +126,7 @@ from core.exceptions import (
 # import하면 import 순서에 따라 깨진다. import-linter를 도입하면 이 순환을 예외로 적는다.
 from domains.agents import service as agents_service
 from domains.audit import service as audit_service
+from domains.auth.service import get_teacher_names
 from domains.documents.models import (
     DocType,
     DocumentPublication,
@@ -131,6 +136,7 @@ from domains.documents.models import (
     EditMethod,
     RevisionAction,
     RevisionLog,
+    UnclassifiedItem,
 )
 from domains.documents.schemas import (
     ChildDraftItem,
@@ -146,6 +152,10 @@ from domains.documents.schemas import (
     DraftVersionInfo,
     EvidenceView,
     MediaUrl,
+    ParentMediaDay,
+    ParentMediaDownloadResponse,
+    ParentMediaItem,
+    ParentMediaListResponse,
     ParentNoteDetailResponse,
     ParentNoteLink,
     ParentNoteListResponse,
@@ -155,6 +165,7 @@ from domains.documents.schemas import (
     PublishRequest,
     PublishResponse,
     RevokeResponse,
+    UnclassifiedSummary,
 )
 from domains.media import service as media_service
 from domains.organization import service as organization_service
@@ -170,6 +181,10 @@ _REVOKE_WINDOW = timedelta(hours=24)
 
 # 학부모 목록에 싣는 알림장당 사진 수 (docs/api/documents.md "앞 3장").
 _LIST_PHOTOS_PER_NOTE = 3
+# 학부모에게 보내는 미디어 종류 (FR-10). 음성메모는 보내지 않는다.
+_PARENT_MEDIA_TYPES = frozenset({"photo", "video"})
+# 학부모 사진·영상 모아 보기의 한 쪽 알림장 수 (임시 결정(김동건)).
+MEDIA_NOTES_PER_PAGE_MAX = 30
 _KST = ZoneInfo("Asia/Seoul")
 
 # 반·날짜 목록의 미리보기 길이 (docs/api/documents.md §GET /classes/{class_id}/drafts, 제안).
@@ -230,9 +245,13 @@ def save_draft(db: Session, data: DraftSaveInput, *, expected_version: int | Non
     커밋하지 않고 flush만 한다. 근거(SentenceEvidence) 저장과 최종 커밋은 호출한 쪽
     트랜잭션에서 처리한다 — 담당 분담은 정은님 확인 전이다 (#35).
     """
-    if expected_version is None:
-        return _insert_draft(db, data)
-    return _update_generated_draft(db, data, expected_version=expected_version)
+    draft = (
+        _insert_draft(db, data)
+        if expected_version is None
+        else _update_generated_draft(db, data, expected_version=expected_version)
+    )
+    resolve_unclassified(db, draft.child_id, draft.record_date, doc_type=data.doc_type)
+    return draft
 
 
 def _insert_draft(db: Session, data: DraftSaveInput) -> DraftDocument:
@@ -362,7 +381,8 @@ def list_class_drafts(
 
     - 접근 검사와 재원 원아 명단은 organization이 맡는다. 같은 어린이집 교사면 모든 반을
       본다 (FR-25). 검수 권한이 있는 교사라 승인 전 초안의 미리보기도 싣는다 (H-1).
-    - 그날 초안이 있는 원아만 명단 순서대로 담는다. "자료 없음" 행은 FE가 명단과 비교해 만든다.
+    - 그날 초안 또는 열린 알림장 실패가 있는 원아를 명단 순서대로 담는다.
+      "자료 없음" 행은 FE가 명단과 비교해 만든다.
     - published=True면 활성 게시 회차가 있는 문서만 담는다. 이때 record_date가 없으면
       원아·문서 종류마다 가장 최근 게시본 1건만 담는다 (임시 결정(김진하)).
     """
@@ -403,11 +423,36 @@ def list_class_drafts(
             published_at=published_at,
             preview=previews.get(draft.id, ""),
         )
+    failures = (
+        {}
+        if published
+        else {
+            row.child_id: UnclassifiedSummary(reason=row.reason)
+            for row in db.scalars(
+                select(UnclassifiedItem).where(
+                    UnclassifiedItem.child_id.in_(child_ids),
+                    UnclassifiedItem.record_date == record_date,
+                    UnclassifiedItem.status == "open",
+                    ~select(DraftDocument.id)
+                    .where(
+                        DraftDocument.child_id == UnclassifiedItem.child_id,
+                        DraftDocument.record_date == UnclassifiedItem.record_date,
+                        DraftDocument.doc_type == DocType.PARENT_NOTE.value,
+                    )
+                    .exists(),
+                )
+            )
+        }
+    )
     return ClassDraftListResponse(
         items=[
-            ClassDraftItem(child_id=child_id, **documents_by_child[child_id])
+            ClassDraftItem(
+                child_id=child_id,
+                unclassified=failures.get(child_id),
+                **documents_by_child.get(child_id, {}),
+            )
             for child_id in child_ids
-            if child_id in documents_by_child
+            if child_id in documents_by_child or child_id in failures
         ]
     )
 
@@ -548,8 +593,7 @@ def create_draft(
     - 같은 원아·문서 종류·날짜의 초안이 이미 있으면 DRAFT_ALREADY_EXISTS다. 동시에 두 번 와도
       유일 제약(uq_draft_child_type_date)이 하나만 남긴다.
 
-    TODO(한상균): "만들면 그 원아·날짜의 미분류 항목을 해소한다"(API 문서)는 UnclassifiedItem에
-      원아·날짜가 생긴 뒤에 붙인다 (#196).
+    - 알림장을 직접 쓰면 같은 원아·날짜의 실패도 해소하고 처리 교사를 남긴다 (#196).
     """
     organization_service.ensure_child_access(db, child_id, center_id)
     draft = DraftDocument(
@@ -584,8 +628,10 @@ def create_draft(
         )
         for position, sentence in enumerate(request.sentences)
     )
-    db.commit()
-    return _teacher_detail(db, draft.id)
+    resolve_unclassified(
+        db, child_id, request.record_date, doc_type=request.doc_type, resolved_by=teacher_id
+    )
+    return _commit_with_detail(db, draft.id)
 
 
 def update_draft(
@@ -655,28 +701,29 @@ def update_draft(
         )
         logs.append(_edit_log(draft_id, teacher_id, sentence_id, None, added.text))
     db.add_all(logs)
-    db.commit()
-    return _teacher_detail(db, draft_id)
+    return _commit_with_detail(db, draft_id)
 
 
 def _ensure_selectable_photos(db: Session, draft: DraftDocument, media_ids: Sequence[UUID]) -> None:
-    """알림장 사진은 그 원아·그 날짜에 학부모에게 보여도 되는 사진 중에서만 고른다."""
-    if not set(media_ids) <= _shareable_photo_ids(db, draft.child_id, draft.record_date):
-        raise MediaNotLinkedToChild("이 원아의 그날 사진만 고를 수 있습니다.")
+    """알림장 사진·영상은 그 원아·그 날짜에 학부모에게 보여도 되는 것 중에서만 고른다."""
+    if not set(media_ids) <= _shareable_media_ids(db, draft.child_id, draft.record_date):
+        raise MediaNotLinkedToChild("이 원아의 그날 사진·영상만 고를 수 있습니다.")
 
 
-def _shareable_photo_ids(db: Session, child_id: UUID, record_date: date) -> set[UUID]:
-    """그 원아·그 날짜에 학부모에게 보여도 되는 사진. 고를 때와 보여 줄 때 같은 범위를 쓴다.
+def _shareable_media_ids(db: Session, child_id: UUID, record_date: date) -> set[UUID]:
+    """그 원아·그 날짜에 학부모에게 보여도 되는 사진·영상. 고를 때와 보여 줄 때 같은 범위를 쓴다.
 
-    media의 collect_media_for_llm 범위(llm_allowed, 귀속 원아 전원 ③ 동의)를 그대로 쓴다 —
-    다른 아이가 함께 찍힌 사진이 학부모에게 나가는 것을 줄이는 보수적인 범위다(임시 결정
-    (한상균), docs/api/documents.md "llm_allowed인 사진만 학부모에게" 제안). 그 함수는
-    영상·음성메모도 돌려주므로 사진만 남긴다.
+    교사가 그 원아에게 귀속시킨 사진·영상이면 다른 아이가 함께 찍혀도 된다(FR-10). 함께 찍힌
+    아이의 촬영·공유는 필수 동의(②) 범위로 보고, ③(얼굴특징정보) 동의와 llm_allowed는 LLM
+    경로에서만 본다(H-2). 무엇을 보낼지는 교사가 고르고 승인한다(H-1). 음성메모는 보내지 않는다.
+    테크스펙 D-4(11/04 팀 승인, open-questions 57번). 이전 범위는 llm_allowed·귀속 원아 전원 ③
+    동의였다(임시 결정(한상균)).
     """
     return {
         media.media_id
-        for media in media_service.collect_media_for_llm(db, child_id, record_date)
-        if media.type == "photo"
+        for media in media_service.list_child_media(
+            db, child_id, record_date, types=_PARENT_MEDIA_TYPES
+        )
     }
 
 
@@ -738,7 +785,7 @@ def approve_draft(
         action=RevisionAction.APPROVE,
         wrong_status=lambda _: DraftNotApprovable("검토 대기 중인 초안만 승인할 수 있습니다."),
     )
-    return _teacher_detail(db, draft_id)
+    return _commit_with_detail(db, draft_id)
 
 
 def reopen_draft(
@@ -770,7 +817,7 @@ def reopen_draft(
             DraftAlreadyPublished("게시한 알림장은 회수한 뒤에 고칠 수 있습니다."),
         ),
     )
-    return _teacher_detail(db, draft_id)
+    return _commit_with_detail(db, draft_id)
 
 
 def _draft_for_teacher(db: Session, draft_id: UUID, center_id: UUID | None) -> DraftDocument:
@@ -800,8 +847,9 @@ def _change_status(
     """초안 상태를 바꾸는 유일한 곳 (documents/CLAUDE.md "상태 전이는 한 함수에서만").
 
     버전 검사와 상태 갱신을 _claim_version의 UPDATE 한 문장으로 하고, 같은 트랜잭션에서
-    RevisionLog를 남긴 뒤 커밋한다. 둘이 함께여야 재생성 거부·get_draft_version이 교사가
-    손댄 문서를 알아본다(_has_teacher_edits).
+    RevisionLog를 남긴다. 둘이 함께여야 재생성 거부·get_draft_version이 교사가 손댄 문서를
+    알아본다(_has_teacher_edits). 커밋하지 않는다 — 부르는 쪽이 _commit_with_detail로
+    응답까지 만든 뒤에 커밋한다.
     """
     approved_at = datetime.now(UTC) if to_status == DraftStatus.APPROVED else None
     _claim_version(
@@ -814,7 +862,6 @@ def _change_status(
         unless_exists=unless_exists,
     )
     db.add(RevisionLog(draft_id=draft_id, editor_id=teacher_id, action=action.value))
-    db.commit()
 
 
 def _claim_version(
@@ -872,6 +919,24 @@ def _signed_media(db: Session, media_ids: Sequence[UUID]) -> list[MediaUrl]:
     ]
 
 
+def _commit_with_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
+    """교사용 상세 응답을 다 만든 뒤에 커밋한다 — 직접 작성·수정·승인·되돌리기가 함께 쓴다.
+
+    응답을 만들다(서명 URL 등) 실패하면 롤백해 상태·버전·이력도 그대로 둔다. 먼저 커밋하면
+    반영은 됐는데 화면에는 실패로 보이고, 다시 누르면 버전이 이미 올라 있어 409가 난다
+    (#206 멘토 리뷰). 커밋 전이라도 같은 트랜잭션이라 방금 쓴 값을 읽는다 — 단 세션이
+    autoflush를 끄고 있어(core/database.py) 조회 전에 직접 flush해야 새로 add한 문장이 보인다.
+    """
+    try:
+        db.flush()
+        detail = _teacher_detail(db, draft_id)
+    except Exception:
+        db.rollback()
+        raise
+    db.commit()
+    return detail
+
+
 def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
     """교사용 상세 응답 (docs/api/documents.md §GET /drafts/{draft_id}).
 
@@ -880,8 +945,7 @@ def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
     - media에는 선택 사진, 그다음 보여 주는 근거의 미디어 서명 URL을 겹치지 않게 싣는다.
     - include_photos는 게시할 때 정해져 게시 전에는 null이다.
 
-    TODO(한상균): 작성 교사 이름은 auth 조회 함수(get_teacher_names)가 생기면 채운다. 그전까지
-      빈 문자열이다 — FE 타입이 문자열이라 null을 보내지 않는다.
+    - 작성 교사 이름은 auth.get_teacher_names로 조회한다. LLM 입력에는 넣지 않는다.
     """
     draft = db.get(DraftDocument, draft_id, populate_existing=True)
     sentences = db.scalars(
@@ -897,6 +961,7 @@ def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
         .limit(1)
     )
     selected_media_ids = [UUID(media_id) for media_id in draft.selected_media_ids]
+    failed_media_ids = agents_service.list_failed_photo_ids(db, draft.evidence_bundle_id)
     evidences_by_sentence = agents_service.list_sentence_evidences(db, draft_id)
     views = [
         DraftSentenceView(
@@ -928,9 +993,14 @@ def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
         title=None,
         sentences=views,
         selected_media_ids=selected_media_ids,
-        media=_signed_media(db, list(dict.fromkeys(selected_media_ids + evidence_media_ids))),
+        failed_media_ids=failed_media_ids,
+        media=_signed_media(
+            db, list(dict.fromkeys(selected_media_ids + evidence_media_ids + failed_media_ids))
+        ),
         author_teacher_id=draft.author_teacher_id,
-        author_name="",
+        author_name=get_teacher_names(db, [draft.author_teacher_id]).get(
+            draft.author_teacher_id, ""
+        ),
         approved_at=draft.approved_at,
         published_at=publication.published_at if publication else None,
         include_photos=publication.include_photos if publication else None,
@@ -1233,8 +1303,9 @@ def get_letter_for_parent(
         record_date=draft.record_date,
         content=content,
         photos=photos,
-        # TODO(한상균): 작성 교사 이름은 auth 조회 함수가 생기면 채운다(FR-26). FE 타입이 문자열이다.
-        author_name="",
+        author_name=get_teacher_names(db, [draft.author_teacher_id]).get(
+            draft.author_teacher_id, ""
+        ),
         published_at=publication.published_at,
         prev=ParentNoteLink(parent_note_id=older.id, record_date=older.record_date)
         if older
@@ -1242,6 +1313,92 @@ def get_letter_for_parent(
         next=ParentNoteLink(parent_note_id=newer.id, record_date=newer.record_date)
         if newer
         else None,
+    )
+
+
+def list_media_for_parent(
+    db: Session, *, child_id: UUID, parent_id: UUID, limit: int, cursor: str | None
+) -> ParentMediaListResponse:
+    """학부모가 자녀의 사진·영상을 알림장 날짜별로 모아 본다 (FR-10, H-1).
+
+    - 알림장 게이트(_parent_notes)를 통과한 게시본 중 사진을 함께 보내기로 한 것에서, 교사가
+      고른 사진·영상만 싣는다(_parent_note_media_ids). 교사가 승인하지 않은 것은 나가지 않는다.
+    - 보낼 것이 없는 알림장은 건너뛰고, 기록 날짜 최신순으로 limit개 알림장씩 나눈다.
+    - 화면에 실린 알림장마다 AccessLog(view_media)를 커밋한 뒤 돌려준다 — 임시 결정(김동건).
+      목록과 같이 first_viewed_at은 건드리지 않는다(회수 판단은 본문 열람 기준).
+    """
+    notes = _parent_notes(db, parent_id=parent_id, child_id=child_id)
+    note_media = _parent_note_media_ids(db, notes)
+    with_media = [(draft, publication) for draft, publication in notes if note_media[draft.id]]
+    after = _decode_cursor(cursor)
+    remaining = [note for note in with_media if after is None or note[0].record_date < after]
+    page = remaining[:limit]
+
+    meta = media_service.get_media_meta(
+        db, list(dict.fromkeys(m for ids in note_media.values() for m in ids))
+    )
+    page_ids = list(dict.fromkeys(m for draft, _ in page for m in note_media[draft.id]))
+    signed = {item.media_id: item for item in media_service.get_signed_urls(db, page_ids)}
+    # 서명은 파기된 미디어를 뺀다. 거른 뒤 서명 전에 파기된 것도 개수에서 빼 그리드와 맞춘다.
+    counted = [
+        item for item in meta.values() if item.media_id not in page_ids or item.media_id in signed
+    ]
+    response = ParentMediaListResponse(
+        days=[
+            ParentMediaDay(
+                parent_note_id=draft.id,
+                record_date=draft.record_date,
+                items=[
+                    ParentMediaItem(
+                        media_id=media_id,
+                        type=meta[media_id].type,
+                        captured_at=meta[media_id].captured_at,
+                        url=signed[media_id].url,
+                        url_expires_at=signed[media_id].url_expires_at,
+                    )
+                    for media_id in note_media[draft.id]
+                    if media_id in signed
+                ],
+            )
+            for draft, _ in page
+        ],
+        next_cursor=_encode_cursor(page[-1][0].record_date) if len(remaining) > limit else None,
+        photo_count=sum(item.type == "photo" for item in counted),
+        video_count=sum(item.type == "video" for item in counted),
+    )
+    _record_parent_views(db, parent_id, [publication.id for _, publication in page], "view_media")
+    return response
+
+
+def get_media_download_for_parent(
+    db: Session, *, child_id: UUID, media_id: UUID, parent_id: UUID
+) -> ParentMediaDownloadResponse:
+    """학부모가 자녀의 사진·영상 원본을 내려받는 URL을 받는다 (FR-10, H-1, NFR-05).
+
+    - 모아 보기와 같은 게이트를 지난 것만 준다. 미게시·미선택·남의 자녀 것을 구분하지 않고
+      404(MEDIA_ASSET_NOT_FOUND)다. 학부모–원아 관계가 없거나 열람 기간이 지났으면 403이다.
+    - AccessLog(download, 대상 media_asset)를 커밋한 뒤에만 URL을 돌려준다 — 임시 결정(김동건).
+    """
+    notes = _parent_notes(db, parent_id=parent_id, child_id=child_id)
+    # 그 미디어를 고른 알림장만 다시 거른다. 전부 거르면 알림장 수만큼 media를 조회한다(#242 리뷰).
+    chosen_by = [
+        (draft, publication)
+        for draft, publication in notes
+        if str(media_id) in draft.selected_media_ids
+    ]
+    note_media = _parent_note_media_ids(db, chosen_by)
+    if not any(media_id in ids for ids in note_media.values()):
+        raise MediaAssetNotFound("사진·영상을 찾을 수 없어요.")
+    download = media_service.get_download_url(db, media_id)
+    _record_parent_views(
+        db, parent_id, [media_id], "download", target_type=media_service.AUDIT_TARGET_TYPE
+    )
+    return ParentMediaDownloadResponse(
+        media_id=download.media_id,
+        type=download.type,
+        url=download.url,
+        url_expires_at=download.url_expires_at,
+        filename=download.filename,
     )
 
 
@@ -1277,19 +1434,11 @@ def _parent_photos(
     *,
     max_per_note: int | None,
 ) -> dict[UUID, list[MediaUrl]]:
-    """게시 때 사진을 함께 보내기로 한 알림장만 선택 사진의 서명 URL을 싣는다. 한 번에 서명한다.
-
-    볼 때마다 고를 때와 같은 범위로 다시 거른다. media는 동의 철회를 저장된 값을 고치지 않고
-    조회할 때 빼므로, 게시 뒤 함께 찍힌 아이가 ③을 철회하면 그 사진은 더 나가지 않는다(#174 리뷰).
-    """
-    chosen: dict[UUID, list[UUID]] = {}
-    for draft, publication in notes:
-        if not publication.include_photos:
-            chosen[draft.id] = []
-            continue
-        shareable = _shareable_photo_ids(db, draft.child_id, draft.record_date)
-        selected = [UUID(media_id) for media_id in draft.selected_media_ids]
-        chosen[draft.id] = [m for m in selected if m in shareable][:max_per_note]
+    """게시 때 사진을 함께 보내기로 한 알림장만 선택 사진의 서명 URL을 싣는다. 한 번에 서명한다."""
+    chosen = {
+        draft_id: media_ids[:max_per_note]
+        for draft_id, media_ids in _parent_note_media_ids(db, notes).items()
+    }
     signed = {
         photo.media_id: photo
         for photo in _signed_media(
@@ -1302,21 +1451,46 @@ def _parent_photos(
     }
 
 
+def _parent_note_media_ids(
+    db: Session, notes: Sequence[tuple[DraftDocument, DocumentPublication]]
+) -> dict[UUID, list[UUID]]:
+    """게이트(_parent_notes)를 통과한 알림장마다 학부모에게 보낼 미디어 id. 교사가 고른 순서다.
+
+    사진을 함께 보내기로 게시한 알림장만 싣는다. 볼 때마다 고를 때와 같은 범위(_shareable_media_ids)로
+    다시 거른다 — 게시 뒤 귀속이 바뀌거나 파기된 미디어는 더 나가지 않는다(#174 리뷰).
+    """
+    chosen: dict[UUID, list[UUID]] = {}
+    for draft, publication in notes:
+        if not publication.include_photos:
+            chosen[draft.id] = []
+            continue
+        shareable = _shareable_media_ids(db, draft.child_id, draft.record_date)
+        selected = [UUID(media_id) for media_id in draft.selected_media_ids]
+        chosen[draft.id] = [m for m in dict.fromkeys(selected) if m in shareable]
+    return chosen
+
+
 def _record_parent_views(
-    db: Session, parent_id: UUID, publication_ids: Sequence[UUID], action: str
+    db: Session,
+    parent_id: UUID,
+    target_ids: Sequence[UUID],
+    action: str,
+    *,
+    target_type: str = "document_publication",
 ) -> None:
     """학부모 열람을 남기고 커밋한다. 실패하면 응답하지 않도록 드러낸다 (NFR-05, audit/CLAUDE.md).
 
-    로그에는 ID만 남긴다 (H-4). target은 게시 회차다 — 임시 결정(한상균).
+    로그에는 ID만 남긴다 (H-4). target은 게시 회차다 — 임시 결정(한상균). 원본 내려받기만
+    미디어(media_asset)를 target으로 남긴다 — 임시 결정(김동건).
     """
     try:
-        for publication_id in publication_ids:
+        for target_id in target_ids:
             audit_service.record_access(
                 db,
                 actor_type="parent",
                 actor_id=parent_id,
-                target_type="document_publication",
-                target_id=publication_id,
+                target_type=target_type,
+                target_id=target_id,
                 action=action,
             )
         db.commit()
@@ -1337,3 +1511,170 @@ def _decode_cursor(cursor: str | None) -> date | None:
         return date.fromisoformat(base64.urlsafe_b64decode(cursor.encode()).decode())
     except ValueError:
         raise InvalidCursor("목록 위치를 읽을 수 없습니다.") from None
+
+
+def record_unclassified(
+    db: Session, *, child_id: UUID, record_date: date, reason: str, job_id: UUID
+) -> None:
+    """원아·날짜의 열린 실패를 갱신한다. 커밋은 작업 호출자가 한다(#196)."""
+    if reason not in {
+        "insufficient_evidence",
+        "verification_failed",
+        "photo_analysis_failed",
+        "no_consent",
+    }:
+        raise ValueError("Unknown generation failure reason")
+
+    # FR-06 / #196: 이미 검토할 알림장이 있으면 재생성 실패로 확인 필요를 만들지 않는다.
+    # 과거에 함께 남은 실패도 이 트랜잭션에서 해소하고 기존 문서는 보존한다.
+    existing = db.scalar(
+        select(DraftDocument.id).where(
+            DraftDocument.child_id == child_id,
+            DraftDocument.record_date == record_date,
+            DraftDocument.doc_type == DocType.PARENT_NOTE.value,
+        )
+    )
+    if existing is not None:
+        resolve_unclassified(db, child_id, record_date, doc_type=DocType.PARENT_NOTE)
+        return
+
+    def current() -> UnclassifiedItem | None:
+        return db.scalar(
+            select(UnclassifiedItem).where(
+                UnclassifiedItem.child_id == child_id,
+                UnclassifiedItem.record_date == record_date,
+                UnclassifiedItem.status == "open",
+            )
+        )
+
+    row = current()
+    if row is None:
+        try:
+            with db.begin_nested():
+                row = UnclassifiedItem(
+                    child_id=child_id,
+                    record_date=record_date,
+                    reason=reason,
+                    ref_type="job",
+                    ref_id=job_id,
+                    status="open",
+                )
+                db.add(row)
+                db.flush()
+        except IntegrityError:
+            row = current()
+            if row is None:
+                raise
+    row.reason = reason
+    row.ref_type = "job"
+    row.ref_id = job_id
+    db.flush()
+
+
+def resolve_unclassified(
+    db: Session,
+    child_id: UUID,
+    record_date: date,
+    *,
+    doc_type: DocType,
+    resolved_by: UUID | None = None,
+) -> None:
+    """알림장 저장과 실패 해소를 같은 트랜잭션으로 묶는다(FR-06, #196)."""
+    if doc_type != DocType.PARENT_NOTE:
+        return
+    db.execute(
+        update(UnclassifiedItem)
+        .where(
+            UnclassifiedItem.child_id == child_id,
+            UnclassifiedItem.record_date == record_date,
+            UnclassifiedItem.status == "open",
+        )
+        .values(status="resolved", resolved_at=datetime.now(UTC), resolved_by=resolved_by)
+    )
+
+
+@dataclass(frozen=True)
+class ChildNoteRecord:
+    """원아 상세의 최근 알림장 한 건."""
+
+    parent_note_id: UUID
+    record_date: date
+    published: bool
+    summary: str
+
+
+@dataclass(frozen=True)
+class ChildRecordSummary:
+    """organization 원아 상세·개요에 싣는 documents 집계. 도메인 사이 계약이라 타입으로 둡니다."""
+
+    month_record_count: int
+    today_note_sent: bool
+    recent_notes: tuple[ChildNoteRecord, ...]
+
+
+_RECENT_NOTE_LIMIT = 10
+_EMPTY_NOTE_SUMMARY = "작성 중인 알림장입니다."
+
+
+def child_record_summary(db: Session, child_id: UUID, today: date) -> ChildRecordSummary:
+    """organization 상세용 내부 조회. 호출자는 먼저 원아 접근 권한을 검사합니다 (#231).
+
+    원아·동의 모델을 직접 읽지 않고 documents 소유 기록만 집계합니다. 커밋하지 않습니다.
+    `month_record_count`는 이번 달(1일~오늘)의 알림장 수이고, 승인 전·회수한 초안도 셉니다.
+    """
+    base = select(DraftDocument).where(
+        DraftDocument.child_id == child_id,
+        DraftDocument.doc_type == DocType.PARENT_NOTE.value,
+    )
+    month_count = (
+        db.scalar(
+            select(func.count()).select_from(
+                base.where(
+                    DraftDocument.record_date >= today.replace(day=1),
+                    DraftDocument.record_date <= today,
+                ).subquery()
+            )
+        )
+        or 0
+    )
+    today_sent = (
+        db.scalar(
+            base.where(
+                DraftDocument.record_date == today,
+                DraftDocument.status == DraftStatus.APPROVED.value,
+                _active_publication_exists(),
+            ).limit(1)
+        )
+        is not None
+    )
+    rows = db.scalars(
+        base.order_by(DraftDocument.record_date.desc()).limit(_RECENT_NOTE_LIMIT)
+    ).all()
+    draft_ids = [row.id for row in rows]
+    # 미리보기는 다른 목록과 같은 규칙(100자, 문장 경계)으로 한 번에 읽습니다.
+    previews = _previews(db, draft_ids)
+    published_ids = (
+        set(
+            db.scalars(
+                select(DocumentPublication.draft_id).where(
+                    DocumentPublication.draft_id.in_(draft_ids), _is_active_publication()
+                )
+            )
+        )
+        if draft_ids
+        else set()
+    )
+    recent = tuple(
+        ChildNoteRecord(
+            parent_note_id=row.id,
+            record_date=row.record_date,
+            published=row.status == DraftStatus.APPROVED.value and row.id in published_ids,
+            summary=previews.get(row.id) or _EMPTY_NOTE_SUMMARY,
+        )
+        for row in rows
+    )
+    return ChildRecordSummary(
+        month_record_count=month_count,
+        today_note_sent=today_sent,
+        recent_notes=recent,
+    )

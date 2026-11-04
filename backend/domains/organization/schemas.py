@@ -36,6 +36,13 @@ class ClassChildItem(BaseModel):
     child_id: UUID
     class_id: UUID
     name: str
+    age_group: str | None = None
+    consent_agreed_count: int = 0
+    consent_total: int = 3
+    is_face_registered: bool = False
+    face_feature_agreed: bool = False
+    face_photo_count: int | None = None
+    parent_linked: bool = False
 
 
 class ClassChildListResponse(BaseModel):
@@ -112,6 +119,15 @@ class ChildCreateRequest(BaseModel):
     class_id: UUID
 
 
+class ConsentRevokeRequest(BaseModel):
+    """동의 철회 본문. 1단계는 ③ 얼굴 특징정보만 철회합니다(#225 ⑥). 다른 값은 422입니다.
+
+    종류를 본문으로 받아, 2단계에서 철회 대상이 늘어도 경로를 바꾸지 않게 합니다.
+    """
+
+    consent_type: Literal["face_feature"]
+
+
 class ConsentItem(BaseModel):
     consent_type: str
     agreed: bool
@@ -129,7 +145,7 @@ class ChildDetail(BaseModel):
     consent_total: int
     is_face_registered: bool
     face_feature_agreed: bool
-    face_photo_count: int
+    face_photo_count: int | None
     parent_linked: bool
     class_name: str
     consents: list[ConsentItem]
@@ -205,3 +221,15 @@ class EducationPlanUpdateRequest(BaseModel):
     goal: PlanGoal | None = None
     daily_activities: dict[Weekday, DailyActivity] | None = None
     domains: list[NuriDomain] | None = None
+
+
+class ChildNoteSummary(BaseModel):
+    parent_note_id: UUID
+    record_date: date
+    published: bool
+    summary: str
+
+
+class ChildOverview(BaseModel):
+    recent_notes: list[ChildNoteSummary]
+    domain_counts: dict[str, int] | None = None

@@ -5,6 +5,11 @@ import type {
   DraftStatus,
   DraftSummary,
   Evidence,
+  ParentMediaDownload,
+  ParentMediaItem,
+  ParentMediaList,
+  ParentNoteDetail,
+  ParentNoteList,
   PublicationResult,
   Sentence,
 } from "@/types/api-draft/documents";
@@ -18,6 +23,12 @@ import type {
   DraftSummaryView,
   DraftView,
   EvidenceView,
+  ParentMediaDownloadView,
+  ParentMediaItemView,
+  ParentMediaListView,
+  ParentMediaTypeView,
+  ParentNoteDetailView,
+  ParentNoteListView,
   PublicationResultView,
   PublicationStatusView,
   RosterStatusView,
@@ -125,6 +136,7 @@ export function toDraftView(raw: DraftDetail): DraftView {
     title: raw.title,
     sentences: raw.sentences.map(toSentenceView),
     selected_media_ids: raw.selected_media_ids,
+    failed_media_ids: raw.failed_media_ids ?? [],
     media: raw.media.map(toDraftMediaView),
     published_at: raw.published_at,
     include_photos: raw.include_photos,
@@ -159,6 +171,51 @@ export function toPublicationResultView(raw: PublicationResult): PublicationResu
     parent_note_id: raw.parent_note_id,
     error_code: raw.error_code,
   };
+}
+
+function toParentMediaTypeView(value: ParentMediaItem["type"]): ParentMediaTypeView {
+  switch (value) {
+    case "photo":
+      return "photo";
+    case "video":
+      return "video";
+    default: {
+      const unexpected: never = value;
+      return warnUnknownStatus("모르는 미디어 종류", unexpected);
+    }
+  }
+}
+
+function toParentMediaItemView(raw: ParentMediaItem): ParentMediaItemView {
+  return {
+    media_id: raw.media_id,
+    type: toParentMediaTypeView(raw.type),
+    captured_at: raw.captured_at,
+    url: raw.url,
+    url_expires_at: raw.url_expires_at,
+  };
+}
+
+export function toParentMediaListView(raw: ParentMediaList): ParentMediaListView {
+  return {
+    days: raw.days.map((day) => ({
+      parent_note_id: day.parent_note_id,
+      record_date: day.record_date,
+      items: day.items.map(toParentMediaItemView),
+    })),
+    next_cursor: raw.next_cursor,
+    photo_count: raw.photo_count,
+    video_count: raw.video_count,
+  };
+}
+
+export function toParentMediaDownloadView(raw: ParentMediaDownload): ParentMediaDownloadView {
+  return { media_id: raw.media_id, url: raw.url, filename: raw.filename };
+}
+
+/** 학부모가 저장할 수 있는 미디어인지. 모르는 종류는 잠급니다. */
+export function canSaveParentMedia(item: ParentMediaItemView): boolean {
+  return item.type !== "unknown";
 }
 
 /**
@@ -261,4 +318,40 @@ export function isNotReady(row: PublishRow): boolean {
  */
 export function isUnpublishedDraft(row: PublishRow): boolean {
   return row.note !== null && row.note.published_at === null;
+}
+
+export function toParentNoteListView(raw: ParentNoteList): ParentNoteListView {
+  return {
+    items: raw.items.map((item) => ({
+      parent_note_id: item.parent_note_id,
+      record_date: item.record_date,
+      preview: item.preview,
+      is_read: item.is_read,
+      photos: item.photos.map((photo) => ({
+        media_id: photo.media_id,
+        type: photo.type,
+        url: photo.url,
+        url_expires_at: photo.url_expires_at,
+      })),
+    })),
+    next_cursor: raw.next_cursor,
+    unread_count: raw.unread_count,
+    this_month_count: raw.this_month_count,
+  };
+}
+
+export function toParentNoteDetailView(raw: ParentNoteDetail): ParentNoteDetailView {
+  return {
+    parent_note_id: raw.parent_note_id,
+    child_id: raw.child_id,
+    record_date: raw.record_date,
+    content: raw.content,
+    author_name: raw.author_name,
+    photos: raw.photos.map((photo) => ({
+      media_id: photo.media_id,
+      type: photo.type,
+      url: photo.url,
+      url_expires_at: photo.url_expires_at,
+    })),
+  };
 }

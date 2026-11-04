@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from uuid import UUID
 
+import openai
 from celery import Task
 from celery.exceptions import SoftTimeLimitExceeded
 
@@ -27,7 +28,16 @@ class _DraftTask(Task):
         service.record_job_retry(_job_id(args, kwargs))
 
     def on_failure(self, exc, task_id, args, kwargs, einfo) -> None:
-        service.mark_job_failed(_job_id(args, kwargs))
+        service.mark_job_failed(
+            _job_id(args, kwargs),
+            error_code=(
+                "LLM_TIMEOUT"
+                if isinstance(exc, (SoftTimeLimitExceeded, openai.APITimeoutError))
+                else "LLM_CALL_FAILED"
+                if isinstance(exc, openai.APIError)
+                else "INTERNAL_ERROR"
+            ),
+        )
 
 
 # 재시도 상한 2회·타임아웃 180초 — LLM을 최대 약 10회 부르는 경로 기준 (테크스펙 파이프라인 4단계).

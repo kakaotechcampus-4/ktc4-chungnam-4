@@ -199,6 +199,9 @@ class TranscriptSegmentsResponse(BaseModel):
 
     media_id: UUID
     transcript_status: Literal["pending", "done", "failed"]
+    child_links: list[ChildLinkBody] = Field(default_factory=list)
+    llm_allowed: bool = False
+    attributed_at: datetime | None = None
     items: list[TranscriptSegmentItem]
 
 
