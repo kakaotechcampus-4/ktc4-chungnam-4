@@ -100,7 +100,17 @@ def test_만료된_키는_인증_실패로_끝나고_자동_재시도하지_않�
     assert len(calls) == 1
 
 
-def test_초안_생성_호출은_응답_상한을_2048로_보낸다(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: llm.call_claude("synthetic"),
+        lambda: llm.call_vision("synthetic", ["https://example.invalid/a.jpg"]),
+    ],
+    ids=["텍스트", "사진_분석"],
+)
+def test_텍스트와_사진_분석_호출은_응답_상한을_2048로_보낸다(
+    monkeypatch: pytest.MonkeyPatch, call
+) -> None:
     bodies = []
 
     def respond(request: httpx.Request) -> httpx.Response:
@@ -135,8 +145,10 @@ def test_초안_생성_호출은_응답_상한을_2048로_보낸다(monkeypatch:
             anthropic_api_key=SecretStr("test-key"),
             anthropic_model="test",
             llm_gateway_base_url="https://gateway.invalid/test/v1",
+            vision_model="test",
+            vision_gateway_base_url="https://gateway.invalid/vision/v1",
         ),
     )
-    assert llm.call_claude("synthetic") == "OK"
-    # 1024로 보내면 긴 초안·Critic 응답이 중간에 잘려 JSON이 깨진다
+    assert call() == "OK"
+    # 1024로 보내면 긴 초안·Critic 응답이 중간에 잘려 JSON이 깨진다. 한쪽만 바뀌는 것도 막는다
     assert bodies[0]["max_tokens"] == 2048
