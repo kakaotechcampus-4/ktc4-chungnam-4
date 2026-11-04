@@ -4,8 +4,9 @@ face·media·agents는 organization 테이블(Child·ConsentRecord 등)을 직�
 이 함수들을 부릅니다 (backend/CLAUDE.md 계층 규칙). 동의 규칙이 바뀌어도 이 파일
 한 곳만 고치면 되도록 판정을 여기로 모읍니다 (#105, FR-04, H-2, H-3).
 
-판정·조회 함수는 커밋·flush하지 않습니다. 커밋은 온보딩 쓰기 함수(반 만들기·원아 등록)와
-교육 계획 쓰기 함수만 합니다. 어린이집 만들기는 auth 가입 트랜잭션 안에서 불리므로 flush까지만 합니다.
+판정·조회 함수는 커밋·flush하지 않습니다. 커밋은 온보딩 쓰기 함수(반 만들기·원아 등록),
+교육 계획 쓰기 함수, 동의 철회(face 임베딩 삭제와 한 트랜잭션)만 합니다. 어린이집 만들기는
+auth 가입 트랜잭션 안에서 불리므로 flush까지만 합니다.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from __future__ import annotations
 import secrets
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -66,6 +67,9 @@ from domains.organization.schemas import (
 CHILD_STATUS_ENROLLED = "enrolled"
 # ConsentRecord.status 값. 철회는 같은 행의 revoked_at을 채우므로 둘 다 봅니다.
 CONSENT_STATUS_AGREED = "agreed"
+CONSENT_STATUS_REVOKED = "revoked"
+# 철회 1단계의 대상(#225 ⑥). ③ 얼굴 특징정보만 철회합니다.
+CONSENT_TYPE_FACE_FEATURE = "face_feature"
 # 학부모 열람 기간의 "오늘"은 KST 날짜로 봅니다 (graduated_at이 날짜라서).
 _KST = ZoneInfo("Asia/Seoul")
 
@@ -183,6 +187,51 @@ def has_consent(db: Session, child_id: UUID, consent_type: str) -> bool:
     return bool(db.scalar(select(_valid_consent_exists(child_id, consent_type))))
 
 
+def revoke_face_consent(
+    db: Session, child_id: UUID, center_id: UUID | None, *, now: datetime | None = None
+) -> None:
+    """원아의 ③ 얼굴 특징정보 동의를 철회하고 얼굴 임베딩을 지웁니다 (FR-22, #225 ⑥).
+
+    1단계는 같은 어린이집 교사만 철회하고, 대상은 `face_feature`만입니다(#225 ⑥ 합의).
+    아래를 **한 트랜잭션**으로 묶어 이 함수가 커밋합니다 (backend/CLAUDE.md §DB):
+
+    1. 유효한 `face_feature` 동의 행 전부(보호자가 여럿이면 각자의 행)에 `revoked_at`을 채우고
+       `status`를 `revoked`로 바꿉니다. 행을 지우지 않아 철회 시점이 이력으로 남습니다.
+    2. 같은 Session으로 `face.service.delete_embedding(reason="consent_revoked")`를 불러
+       임베딩 물리 삭제·`EmbeddingLifecycleLog`·`DeletionLog`를 남깁니다(flush만 하는 함수).
+
+    중간에 실패하면 전부 롤백합니다 — 동의만 철회되고 임베딩이 남는 일이 없습니다.
+    이미 철회됐거나 동의가 없던 원아도 오류 없이 끝납니다(다시 불러도 결과가 같음).
+    `now`는 테스트용이며 기본은 현재 UTC입니다.
+
+    - 없는 원아 404 `CHILD_NOT_FOUND`, 다른 어린이집 원아 403 `CHILD_ACCESS_DENIED`
+    """
+    # face가 organization의 권한·동의 함수를 쓰므로 순환 import를 피해 함수 안에서 가져옵니다.
+    from domains.audit.models import DeletionReason
+    from domains.face.service import delete_embedding
+
+    ensure_child_access(db, child_id, center_id)
+    revoked_at = now or datetime.now(UTC)
+    try:
+        records = db.scalars(
+            select(ConsentRecord).where(
+                ConsentRecord.child_id == child_id,
+                ConsentRecord.consent_type == CONSENT_TYPE_FACE_FEATURE,
+                ConsentRecord.status == CONSENT_STATUS_AGREED,
+                ConsentRecord.revoked_at.is_(None),
+            )
+        ).all()
+        for record in records:
+            record.status = CONSENT_STATUS_REVOKED
+            record.revoked_at = revoked_at
+        db.flush()
+        delete_embedding(db, child_id, DeletionReason.CONSENT_REVOKED)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+
 def ensure_parent_child_access(
     db: Session, parent_id: UUID, child_id: UUID, *, today: date | None = None
 ) -> None:
@@ -279,15 +328,32 @@ def list_class_children(
     제외는 `get_consented_children`이 따로 판정합니다 (H-3). 졸업·퇴소 원아는 뺍니다.
     """
     ensure_class_access(db, class_id, center_id)
-    rows = db.execute(
-        select(Child.id, Child.name)
+    # face가 organization의 권한 함수를 사용하므로 표시 조회는 함수 안에서 가져온다.
+    from domains.face.service import registered_child_ids
+
+    rows = db.scalars(
+        select(Child)
         .where(Child.class_id == class_id, Child.status == CHILD_STATUS_ENROLLED)
         .order_by(Child.name, Child.id)
-    )
+    ).all()
+    registered = registered_child_ids(db, [child.id for child in rows])
+    klass = db.get(Klass, class_id)
     return ClassChildListResponse(
         items=[
-            ClassChildItem(child_id=child_id, class_id=class_id, name=name)
-            for child_id, name in rows
+            ClassChildItem(
+                child_id=child.id,
+                class_id=class_id,
+                name=child.name,
+                age_group=klass.age_group,
+                consent_agreed_count=sum(
+                    has_consent(db, child.id, kind)
+                    for kind in ("personal_info", "activity_media", "face_feature")
+                ),
+                face_feature_agreed=has_consent(db, child.id, "face_feature"),
+                is_face_registered=child.id in registered,
+                parent_linked=has_linked_parent(db, child.id),
+            )
+            for child in rows
         ]
     )
 
@@ -390,8 +456,8 @@ CONSENT_TYPES = ("personal_info", "activity_media", "face_feature")
 CONTRACT_STATUS_TRIAL = "trial"
 # 반 만들기 화면의 2택 문구를 표시용 age_group으로 씁니다 (FE types/api-draft/organization.ts AgeBand).
 _AGE_GROUP_LABELS = {AgeBand.INFANT: "만 0~2세", AgeBand.PRESCHOOL: "만 3~5세"}
-# 가입 코드 문자 — 헷갈리는 0/O, 1/I를 뺀 대문자·숫자. TODO(이한나): 임시 결정, #158 3번에서
-#   길이·문자셋·재발급 여부가 정해지면 _new_center_code만 고칩니다.
+# 가입 코드 문자 — 헷갈리는 0/O, 1/I를 뺀 대문자·숫자 8자리, 겹치면 다시 뽑습니다(#225 ⑦).
+# 재발급은 하지 않습니다(#225 B).
 _CENTER_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _CENTER_CODE_LENGTH = 8
 _CENTER_CODE_ATTEMPTS = 5
@@ -424,7 +490,7 @@ def create_center(
     교사 회원가입에서 auth가 부릅니다 — 교사 소속(`center_id`) 저장은 auth 몫이라, 같은
     트랜잭션으로 묶을 수 있게 커밋하지 않고 flush까지만 합니다. 계약 상태는 `trial`로 시작하고
     가입 흐름에서 올리지 않습니다 (organization/CLAUDE.md).
-    TODO(이한나): 같은 어린이집 중복 등록 검증(open-questions 78행)은 #158 3번과 함께 정합니다.
+    같은 이름·주소의 어린이집이 있어도 막지 않습니다 — 같은 원이라고 볼 수 없어서입니다(#225 B).
     """
     clean_name = name.strip()
     if not clean_name:
@@ -787,3 +853,173 @@ def delete_education_plan(db: Session, plan_id: UUID, center_id: UUID | None) ->
     plan = _plan_for_teacher(db, plan_id, center_id)
     db.delete(plan)
     db.commit()
+
+
+def get_child_class_id(db: Session, child_id: UUID) -> UUID:
+    """worker가 대상 원아의 반을 찾는다. 외부 접근은 호출 API에서 검사한다(FR-05)."""
+    child = db.get(Child, child_id)
+    if child is None:
+        raise ChildNotFound("원아를 찾을 수 없습니다.")
+    return child.class_id
+
+
+@dataclass(frozen=True)
+class InviteChild:
+    child_name: str
+    class_name: str
+    center_name: str
+
+
+def get_invite_child(db: Session, child_id: UUID, *, lock: bool = False) -> InviteChild:
+    """초대에는 재원 원아의 표시 정보만 제공합니다 (FR-28)."""
+    stmt = select(Child).where(Child.id == child_id, Child.status == CHILD_STATUS_ENROLLED)
+    if lock:
+        stmt = stmt.with_for_update()
+    child = db.scalar(stmt)
+    if child is None:
+        raise ChildNotFound("재원 원아를 찾을 수 없습니다.")
+    klass = db.get(Klass, child.class_id)
+    center = db.get(Center, klass.center_id)
+    return InviteChild(child.name, klass.name, center.name)
+
+
+def link_parent_with_consents(
+    db: Session, *, child_id: UUID, parent_id: UUID, face_feature: bool
+) -> None:
+    """자녀 연결·동의를 함께 준비합니다. 커밋은 auth의 초대 수락에서 합니다 (#225)."""
+    get_invite_child(db, child_id, lock=True)
+    relation = db.scalar(
+        select(ParentChildRelation).where(
+            ParentChildRelation.child_id == child_id, ParentChildRelation.parent_id == parent_id
+        )
+    )
+    if relation is None:
+        db.add(ParentChildRelation(child_id=child_id, parent_id=parent_id, is_legal_guardian=True))
+    else:
+        relation.is_legal_guardian = True
+    now = datetime.now(_KST)
+    for kind in CONSENT_TYPES:
+        if kind == "face_feature" and not face_feature:
+            continue
+        existing = db.scalar(
+            select(ConsentRecord.id).where(
+                ConsentRecord.child_id == child_id,
+                ConsentRecord.parent_id == parent_id,
+                ConsentRecord.consent_type == kind,
+                ConsentRecord.status == "agreed",
+                ConsentRecord.revoked_at.is_(None),
+            )
+        )
+        if existing is None:
+            db.add(
+                ConsentRecord(
+                    child_id=child_id,
+                    parent_id=parent_id,
+                    consent_type=kind,
+                    status="agreed",
+                    agreed_at=now,
+                )
+            )
+    db.flush()
+
+
+def get_child_detail(
+    db: Session, child_id: UUID, center_id: UUID | None, *, actor_id: UUID | None = None
+) -> ChildDetail:
+    """등록·초대·얼굴 화면에서 실제 동의 상태를 읽습니다 (FR-28)."""
+    ensure_child_access(db, child_id, center_id)
+    child = db.get(Child, child_id)
+    klass = db.get(Klass, child.class_id)
+    from domains.face.service import registered_child_ids
+
+    consents = [
+        ConsentItem(consent_type=kind, agreed=has_consent(db, child_id, kind))
+        for kind in CONSENT_TYPES
+    ]
+    checked = db.scalar(
+        select(func.max(ConsentRecord.agreed_at)).where(
+            ConsentRecord.child_id == child_id,
+            ConsentRecord.status == "agreed",
+            ConsentRecord.revoked_at.is_(None),
+        )
+    )
+    from domains.documents.service import child_record_summary
+
+    summary = child_record_summary(db, child_id, datetime.now(_KST).date())
+    if actor_id is not None:
+        _record_child_view(db, child_id, actor_id)
+    return ChildDetail(
+        child_id=child.id,
+        class_id=child.class_id,
+        name=child.name,
+        birth_date=child.birth_date,
+        age_group=klass.age_group,
+        consent_agreed_count=sum(c.agreed for c in consents),
+        consent_total=len(CONSENT_TYPES),
+        is_face_registered=child_id in registered_child_ids(db, [child_id]),
+        face_feature_agreed=has_consent(db, child_id, "face_feature"),
+        face_photo_count=None,
+        parent_linked=has_linked_parent(db, child_id),
+        class_name=klass.name,
+        consents=consents,
+        consent_checked_at=(
+            checked.replace(tzinfo=_KST) if checked.tzinfo is None else checked.astimezone(_KST)
+        ).date()
+        if checked
+        else None,
+        consent_checked_by=None,
+        month_record_count=summary.month_record_count,
+        today_note_sent=summary.today_note_sent,
+    )
+
+
+def update_child(
+    db: Session, child_id: UUID, center_id: UUID | None, request: ChildCreateRequest
+) -> ChildDetail:
+    ensure_child_access(db, child_id, center_id)
+    ensure_class_access(db, request.class_id, center_id)
+    if request.birth_date > datetime.now(_KST).date():
+        raise RequestValidationFailed("생년월일이 오늘 이후입니다.")
+    child = db.get(Child, child_id)
+    child.name, child.birth_date, child.class_id = (
+        request.name,
+        request.birth_date,
+        request.class_id,
+    )
+    db.commit()
+    return get_child_detail(db, child_id, center_id)
+
+
+def _record_child_view(db: Session, child_id: UUID, actor_id: UUID) -> None:
+    from domains.audit.service import record_access
+
+    record_access(
+        db,
+        actor_type="teacher",
+        actor_id=actor_id,
+        target_type="child",
+        target_id=child_id,
+        action="view_detail",
+    )
+    db.commit()
+
+
+def get_child_overview(db: Session, child_id: UUID, center_id: UUID | None, actor_id: UUID):
+    from domains.documents.service import child_record_summary
+    from domains.organization.schemas import ChildNoteSummary, ChildOverview
+
+    ensure_child_access(db, child_id, center_id)
+    summary = child_record_summary(db, child_id, datetime.now(_KST).date())
+    _record_child_view(db, child_id, actor_id)
+    return ChildOverview(
+        recent_notes=[
+            ChildNoteSummary(
+                parent_note_id=note.parent_note_id,
+                record_date=note.record_date,
+                published=note.published,
+                summary=note.summary,
+            )
+            for note in summary.recent_notes
+        ],
+        domain_counts=None,
+    )

@@ -155,9 +155,15 @@ def test_영상_음성은_STT_구간을_시간순으로_함께_싣는다(db: Ses
     db.add_all(
         [
             TranscriptSegment(
-                media_id=voice.id, start_time=5.0, end_time=7.5, raw_text="둘", source="voice_memo"
+                reviewed_at=MORNING,
+                media_id=voice.id,
+                start_time=5.0,
+                end_time=7.5,
+                raw_text="둘",
+                source="voice_memo",
             ),
             TranscriptSegment(
+                reviewed_at=MORNING,
                 media_id=voice.id,
                 start_time=0.0,
                 end_time=2.0,
@@ -180,9 +186,15 @@ def test_구간_시작_시각이_없으면_맨_뒤로_보낸다(db: Session) -> 
     db.add_all(
         [
             TranscriptSegment(
-                media_id=voice.id, start_time=5.0, end_time=7.5, raw_text="둘", source="voice_memo"
+                reviewed_at=MORNING,
+                media_id=voice.id,
+                start_time=5.0,
+                end_time=7.5,
+                raw_text="둘",
+                source="voice_memo",
             ),
             TranscriptSegment(
+                reviewed_at=MORNING,
                 media_id=voice.id,
                 start_time=None,
                 end_time=None,
@@ -190,6 +202,7 @@ def test_구간_시작_시각이_없으면_맨_뒤로_보낸다(db: Session) -> 
                 source="voice_memo",
             ),
             TranscriptSegment(
+                reviewed_at=MORNING,
                 media_id=voice.id,
                 start_time=0.0,
                 end_time=2.0,
@@ -211,9 +224,14 @@ def test_교사가_뺀_발화는_싣지_않는다(db: Session) -> None:
     db.add_all(
         [
             TranscriptSegment(
-                media_id=voice.id, start_time=0.0, raw_text="남김", source="voice_memo"
+                reviewed_at=MORNING,
+                media_id=voice.id,
+                start_time=0.0,
+                raw_text="남김",
+                source="voice_memo",
             ),
             TranscriptSegment(
+                reviewed_at=MORNING,
                 media_id=voice.id,
                 start_time=3.0,
                 raw_text="뺌",
@@ -233,6 +251,7 @@ def test_발화는_교사가_고친_문장과_화자를_함께_싣는다(db: Ses
     """perception 입력(segment_id·text·speaker·source)을 만들 수 있게 그대로 넘깁니다."""
     video = add_media(db, [DOYUN], type="video")
     edited = TranscriptSegment(
+        reviewed_at=MORNING,
         media_id=video.id,
         start_time=0.0,
         raw_text="노픈 타블 만드러써요",
@@ -241,7 +260,11 @@ def test_발화는_교사가_고친_문장과_화자를_함께_싣는다(db: Ses
         source="video_audio",
     )
     untouched = TranscriptSegment(
-        media_id=video.id, start_time=4.0, raw_text="그대로", source="video_audio"
+        reviewed_at=MORNING,
+        media_id=video.id,
+        start_time=4.0,
+        raw_text="그대로",
+        source="video_audio",
     )
     db.add_all([edited, untouched])
     db.flush()
@@ -300,3 +323,17 @@ def test_귀속된_원아_전원과_귀속_방법을_함께_싣는다(db: Sessio
             key=lambda link: link.child_id,
         )
     )
+
+
+# 스펙은 교사가 뺀 것만 빼는 구조입니다. reviewed_at은 "마지막으로 손댄 시각"이라
+# 열어 보지 않은 발화도 그대로 넘기고, 화자 판정은 perception이 합니다(#232 리뷰).
+def test_교사가_손대지_않은_발화도_생성에_넘긴다(db: Session) -> None:
+    voice = add_media(db, [DOYUN], type="voice_memo")
+    db.add(
+        TranscriptSegment(
+            media_id=voice.id, start_time=0, end_time=1, raw_text="미검수", source="voice_memo"
+        )
+    )
+    db.flush()
+    [item] = service.collect_media_for_llm(db, DOYUN, DAY)
+    assert [part.text for part in item.transcript] == ["미검수"]

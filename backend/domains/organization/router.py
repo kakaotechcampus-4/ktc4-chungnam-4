@@ -18,11 +18,13 @@ from domains.organization import service
 from domains.organization.schemas import (
     ChildCreateRequest,
     ChildDetail,
+    ChildOverview,
     ClassChildListResponse,
     ClassCreateRequest,
     ClassListResponse,
     ClassSummary,
     ClassSummaryListResponse,
+    ConsentRevokeRequest,
     EducationPlanCreateRequest,
     EducationPlanItem,
     EducationPlanListResponse,
@@ -61,6 +63,21 @@ def list_my_children(
 ) -> MyChildListResponse:
     """학부모와 연결된 자녀 목록 (FR-09). 열람 기간이 지난 자녀는 `access_expired`로 표시합니다."""
     return service.list_my_children(db, parent.parent_id)
+
+
+@router.post("/children/{child_id}/consents/revoke", status_code=204)
+def revoke_consent(
+    child_id: UUID,
+    body: ConsentRevokeRequest,
+    teacher: CurrentTeacher,
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    """동의 철회 (FR-22). ③ 철회와 얼굴 임베딩 삭제를 한 트랜잭션으로 합니다.
+
+    바뀐 동의·등록 상태는 원아 상세를 다시 불러 확인합니다. 이미 철회됐어도 204입니다.
+    """
+    service.revoke_face_consent(db, child_id, teacher.center_id)
+    return Response(status_code=204)
 
 
 @router.get("/centers/{center_id}/classes", response_model=ClassSummaryListResponse)
@@ -152,3 +169,27 @@ def delete_education_plan(
     """교육 계획 삭제."""
     service.delete_education_plan(db, plan_id, teacher.center_id)
     return Response(status_code=204)
+
+
+@router.get("/children/{child_id}", response_model=ChildDetail)
+def get_child_detail(
+    child_id: UUID, teacher: CurrentTeacher, db: Annotated[Session, Depends(get_db)]
+) -> ChildDetail:
+    return service.get_child_detail(db, child_id, teacher.center_id, actor_id=teacher.teacher_id)
+
+
+@router.patch("/children/{child_id}", response_model=ChildDetail)
+def update_child(
+    child_id: UUID,
+    body: ChildCreateRequest,
+    teacher: CurrentTeacher,
+    db: Annotated[Session, Depends(get_db)],
+) -> ChildDetail:
+    return service.update_child(db, child_id, teacher.center_id, body)
+
+
+@router.get("/children/{child_id}/overview", response_model=ChildOverview)
+def child_overview(
+    child_id: UUID, teacher: CurrentTeacher, db: Annotated[Session, Depends(get_db)]
+) -> ChildOverview:
+    return service.get_child_overview(db, child_id, teacher.center_id, teacher.teacher_id)

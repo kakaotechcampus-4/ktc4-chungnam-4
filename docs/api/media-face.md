@@ -127,7 +127,7 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 - 권한: 교사 — 담당 반만. `teacher_id`는 세션에서 채웁니다.
 - 요청: 파일 하나당 한 번 부릅니다.
   - `client_photo_id`·`class_id`·`type`은 URL 발급 때와 같은 값입니다.
-  - `captured_at`은 촬영 시각(UTC)으로, EXIF나 파일 메타데이터에서 읽습니다.
+  - `captured_at`은 촬영 시각(UTC)입니다. 지금 FE는 EXIF를 읽지 않고, 파일 수정 시각의 KST 날짜가 교사가 고른 활동 날짜와 같으면 그 시각을, 다르면 활동 날짜 정오(KST)를 보냅니다(임시 결정(엄태은), 테크스펙 §사진 통합 임시 구현).
   - `model_version`은 사진만 채우고 영상·음성은 null입니다.
   - **귀속은 종류에 따라 다릅니다**(임시 결정(김동건)).
     - **사진**: `child_links`·`llm_allowed`가 **필수**입니다. 사진은 교사 확정 뒤에만 올라오므로(H-3) 완료 통지와 귀속을 한 번에 저장합니다. 규칙은 아래 `PUT child-links` 절과 같습니다(전체 교체, 빈 배열이면 미분류).
@@ -356,11 +356,22 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 - 권한: 교사 — 담당 반의 미디어만
 - 요청: 경로 `media_id`(영상·음성메모). STT가 끝날 때까지 2초마다 부릅니다(제안).
 - 응답 `200`: `transcript_status`가 `pending`이면 아직 STT 중, `failed`면 발화 없음(교사는 발화 없이 넘어갈 수 있음)입니다. `items`는 `done`일 때만 채우고 시작 시각 순입니다.
+  - 업로드 확인(`MediaUpload.verified_at`) 1시간 뒤에도 `pending`이면 이 조회나 worker 시작 때 `failed`로 닫습니다. 큐 대기를 포함한 상한이고, 접수 시각이 없는 과거 자료는 추측하지 않습니다. 늦게 끝난 worker는 `failed`를 `done`으로 되살리지 않습니다(임시 결정(엄태은)).
+  - `child_links`·`llm_allowed`·`attributed_at`은 그 파일의 현재 귀속입니다. 저장은 `PUT /media/{media_id}/child-links`가 하고, 모양은 그 절과 같습니다. 귀속 전에는 `[]`·`false`·`null`입니다.
 
 ```json
 {
   "media_id": "3ed1a000-0000-4000-8000-000000000046",
   "transcript_status": "done",
+  "child_links": [
+    {
+      "child_id": "c1d00000-0000-4000-8000-000000000001",
+      "method": "manual",
+      "confidence_score": null
+    }
+  ],
+  "llm_allowed": true,
+  "attributed_at": "2026-10-30T03:10:00Z",
   "items": [
     {
       "segment_id": "5e900000-0000-4000-8000-000000000001",
@@ -390,7 +401,7 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 
 ### `PATCH /api/v1/transcript-segments/{segment_id}` — 발화의 화자·문장 수정·제외
 
-> 임시 결정(김동건): 위와 같습니다. 10/29(#163) 파일 단위 귀속으로 `child_ids`를 뺐습니다. 지금 FE 수동 분류 · 발화 탭은 아직 `child_ids`를 보내므로, 화면을 파일 단위로 바꿀 때(정은) 함께 맞춥니다.
+> 임시 결정(김동건): 위와 같습니다. 10/29(#163) 파일 단위 귀속으로 `child_ids`를 뺐습니다.
 
 - 쓰는 화면: 수동 분류 — 발화 탭의 화자·문장 저장·"이 자료 제외", 아이별 하루 확인의 "빼기"·"되돌리기"
 - 요구사항: FR-14, FR-27
@@ -406,7 +417,7 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 ```
 
 - 응답 `200`: 바뀐 발화 하나(위 `items[]`와 같은 모양). `reviewed_at`을 지금으로 바꿉니다.
-- 뺀 발화(`excluded: true`)와 화자가 없는 영상 발화는 초안 근거에서 빠집니다. 파일 귀속이 없는 영상·음성은 발화 전체가 빠집니다.
+- 뺀 발화(`excluded: true`)와 화자가 없는 영상 발화는 초안 근거에서 빠집니다. 파일 귀속이 없는 영상·음성은 발화 전체가 빠집니다. 교사가 손대지 않은 발화(`reviewed_at: null`)는 빼지 않습니다 — `reviewed_at`은 마지막으로 손댄 시각이지 검수 완료 표시가 아닙니다.
 - 에러:
   - `TRANSCRIPT_SEGMENT_NOT_FOUND` (404) — 없는 발화일 때
   - `CLASS_ACCESS_DENIED` (403) — 담당 반의 미디어가 아닐 때
@@ -477,4 +488,3 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
   - `frontend/CLAUDE.md` §온디바이스(영상·음성은 검수 없이 업로드 큐만) — 로컬 검수는 여전히 사진만이라 문구는 그대로 둘 수 있습니다
   - `docs/open-questions.md` §C "STT·사진 분류 UI를 프론트 어느 화면에 둘지"
   - agents.md §상의 필요 1(하루 정리 확인을 전송 전으로)
-

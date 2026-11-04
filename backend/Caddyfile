@@ -11,6 +11,11 @@
 # 도메인은 .env의 PUBLIC_HOST에서 옵니다. compose가 이 컨테이너에 넣어주고,
 # 배포 스크립트도 같은 값을 읽습니다 — 두 곳에 적어두면 한 곳이 낡습니다.
 {$PUBLIC_HOST} {
+	# S3 권한 점검(/health/storage)은 부를 때마다 S3에 쓰고 지웁니다. 밖에서 부를 이유가 없어
+	# 프록시에서 막습니다 — 서버 안에서는 localhost:${API_PORT}로 직접 부릅니다(#129, 멘토 리뷰).
+	@internal_only path /health/storage /health/storage/*
+	respond @internal_only 404
+
 	# api는 compose 내부 네트워크에서만 보입니다. 호스트 포트를 거치지 않습니다.
 	reverse_proxy api:8000
 }

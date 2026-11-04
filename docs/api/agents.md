@@ -47,7 +47,7 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 | `status`(반 전체) | 같은 4값 | 아직 안 끝난 원아가 있으면 `running`. 모두 끝났는데 실패가 1명 이상이면 `failed`이고, 나머지 원아의 초안은 검토할 수 있음 |
 | `stage` | `transcribing` / `collecting_evidence` / `generating` / `verifying` | 차례로 STT 대기, 파이프라인 3~5단계, 6단계, 7-A·7-B단계. 반 전체 값은 안 끝난 원아 중 가장 앞 단계이고, 모두 끝나면 `null` |
 | `outcome` | `drafted` / `unclassified` | `succeeded`일 때만. 미분류는 예외가 아니라 정상 종료 |
-| `unclassified_reason` | `no_speech` / `verification_failed` / `insufficient_evidence` | `UnclassifiedItem.reason`의 발화없음·검증실패·근거부족에 대응 |
+| `unclassified_reason` | `no_speech` / `verification_failed` / `insufficient_evidence` / `no_consent` / `photo_analysis_failed` | 발화없음·검증실패·근거부족·동의없음·사진 분석 형식 오류. 뒤 두 값은 사진 통합 PR의 임시 결정(엄태은), 담당자 리뷰 대상 |
 | `error_code` | `STT_FAILED` / `LLM_TIMEOUT` / `LLM_CALL_FAILED` / `INTERNAL_ERROR` | `failed`일 때만. 실명·발화 원문은 넣지 않음(H-4) |
 
 ## 상세 작성 엔드포인트
@@ -107,7 +107,7 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
   - 근거 범위: 그 날짜 전체로 할지, `media_ids`로 한정할지
   - STT가 안 끝났을 때: 409로 막을지, `transcribing` 단계에서 기다릴지 → 임시 결정(김동건): 409(`MEDIA_NOT_READY`)로 막습니다. FE는 STT가 끝나지 않은 파일이 있으면 분류 확인을 끝낼 수 없어 평소에는 여기까지 오지 않고, 서버는 그 확인을 거친 마지막 방어선입니다(#219 리뷰)
 
-> **구현 상태** (임시 결정(정은)): 두 엔드포인트 모두 구현됐습니다. 원아별 `outcome`·`drafts`는 `succeeded`인 원아만 그날 초안(원아·종류·날짜당 하나)이 있는지로 채웁니다 — 있으면 `drafted`와 그 초안, 없으면 `unclassified`와 빈 배열입니다. Job에 저장할 컬럼이 없어 원아별 `stage`·`unclassified_reason`·`failed_stage`·`error_code`는 항상 `null`이고, 반 전체 `stage`·`failed_stage`·`error_code`도 `null`입니다. 컬럼이 생기면 채웁니다(`mark_job_failed` TODO). 같은 `request_id`로 거의 동시에 두 번 와도 작업은 하나만 만들고 둘 다 그 작업을 돌려줍니다.
+> **구현 상태** (사진 통합 PR, 엄태은): 두 엔드포인트 모두 구현됐습니다. 원아별 `outcome`·`drafts`는 `succeeded`인 원아만 그날 초안(원아·종류·날짜당 하나)이 있는지로 채웁니다 — 있으면 `drafted`와 그 초안, 없으면 `unclassified`와 빈 배열입니다. Job에 `unclassified_reason`·`error_code`를 저장해 원아별 응답으로 전달합니다. `stage`·`failed_stage`와 반 전체 `error_code`는 아직 `null`이며, 화면은 원아별 실패 코드를 사용합니다. 폴링 시에도 멈춘 작업의 제한 시간(running 10분, pending 1시간)을 확인해 `failed / LLM_TIMEOUT`으로 종료합니다. 같은 `request_id`로 거의 동시에 두 번 와도 작업은 하나만 만들고 둘 다 그 작업을 돌려줍니다.
 
 ### `GET /api/v1/jobs/{job_id}` — 초안 생성 작업의 진행 상태와 원아별 결과 조회(폴링)
 

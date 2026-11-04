@@ -102,8 +102,7 @@ class ClassDraftItem(BaseModel):
     child_id: UUID
     observation_log: DraftSummary | None = None
     parent_note: DraftSummary | None = None
-    # TODO(한상균): 초안 없이 미분류로 끝난 원아의 사유. agents가 미분류를 기록하고
-    #   (_send_to_unclassified) 원아·날짜로 찾을 길이 생기면 채운다. 그전까지 항상 null.
+    # 해당 원아·날짜에 알림장이 없고 열린 생성 실패가 있을 때 사유를 담는다 (#196).
     unclassified: UnclassifiedSummary | None = None
 
 
@@ -174,6 +173,7 @@ class DraftDetailResponse(BaseModel):
     title: str | None
     sentences: list[DraftSentenceView]
     selected_media_ids: list[UUID]
+    failed_media_ids: list[UUID] = Field(default_factory=list)
     media: list[MediaUrl]
     author_teacher_id: UUID
     author_name: str
@@ -367,3 +367,41 @@ class ParentNoteDetailResponse(BaseModel):
     # 같은 자녀의 이전(더 오래된)·다음(더 최근) 게시본 (제안)
     prev: ParentNoteLink | None
     next: ParentNoteLink | None
+
+
+class ParentMediaItem(BaseModel):
+    """학부모가 보는 사진·영상 한 건. 서명 URL은 화면 표시용(재생)이다."""
+
+    media_id: UUID
+    type: Literal["photo", "video"]
+    captured_at: datetime
+    url: str
+    url_expires_at: datetime
+
+
+class ParentMediaDay(BaseModel):
+    """알림장 한 건에 함께 보낸 사진·영상. 교사가 고른 순서다."""
+
+    parent_note_id: UUID
+    record_date: date
+    items: list[ParentMediaItem]
+
+
+class ParentMediaListResponse(BaseModel):
+    """학부모 사진·영상 모아 보기 (FR-10). 승인·게시된 알림장에 교사가 고른 것만 싣는다 (H-1)."""
+
+    days: list[ParentMediaDay]
+    next_cursor: str | None
+    # 게이트를 통과한 전체 개수(쪽 나누기와 무관)
+    photo_count: int
+    video_count: int
+
+
+class ParentMediaDownloadResponse(BaseModel):
+    """원본을 파일로 내려받는 서명 URL. 열면 브라우저가 저장한다 (Content-Disposition)."""
+
+    media_id: UUID
+    type: Literal["photo", "video"]
+    url: str
+    url_expires_at: datetime
+    filename: str

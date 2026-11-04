@@ -186,6 +186,9 @@ def list_transcript_segments(
     return TranscriptSegmentsResponse(
         media_id=view.asset.id,
         transcript_status=view.transcript_status,
+        child_links=_links(view.child_links),
+        llm_allowed=view.asset.llm_allowed,
+        attributed_at=view.asset.attributed_at,
         items=[_segment_item(segment) for segment in view.segments],
     )
 

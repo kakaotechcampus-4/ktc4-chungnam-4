@@ -439,3 +439,9 @@ class RequestValidationFailed(AidamError):
 
     code = "VALIDATION_ERROR"
     status_code = 422
+
+
+class InviteUnavailable(AidamError):
+    code = "INVITE_UNAVAILABLE"
+    status_code = 410
+    message = "사용할 수 없는 초대 링크입니다. 선생님께 새 링크를 요청해 주세요."

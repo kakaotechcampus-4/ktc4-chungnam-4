@@ -1,4 +1,5 @@
 // Figma: 1:1895 (오늘의 기록 · 빈 상태), 후보 A 1:1913
+import { UPLOAD_GUIDE } from "@/features/upload-queue/media-capabilities";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
@@ -176,6 +177,7 @@ export function TodayPage() {
   if (importStage && rejected.length > 0 && !importing) {
     return withDropZone(
       <>
+        <p className="text-body text-ink-muted">{UPLOAD_GUIDE}</p>
         <TodayUploadFailed
           total={items.length + rejected.length}
           failures={rejected.map((fileName) => ({ fileName, reason: "unsupported" }))}

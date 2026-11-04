@@ -1,7 +1,7 @@
 """add media transcript status
 
 Revision ID: 2c91ef713e6d
-Revises: 7b2d5e8c1a64
+Revises: a6d3b920e105
 Create Date: 2026-10-30 18:00:00.000000
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "2c91ef713e6d"
-down_revision: str | Sequence[str] | None = "7b2d5e8c1a64"
+down_revision: str | Sequence[str] | None = "a6d3b920e105"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

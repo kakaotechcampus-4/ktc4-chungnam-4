@@ -14,6 +14,8 @@ from sqlalchemy.pool import StaticPool
 from core.base import Base
 from core.database import get_db
 from domains.auth.middleware import get_current_user
+from domains.auth.models import Account as LookupAccount
+from domains.auth.models import Teacher as LookupTeacher
 from domains.auth.service import ParentProfile, TeacherProfile
 from domains.documents.models import (
     DocType,
@@ -23,6 +25,7 @@ from domains.documents.models import (
     DraftStatus,
     RevisionLog,
 )
+from domains.documents.models import UnclassifiedItem as FailureItem
 from domains.organization.models import Center, Child, Klass, ParentChildRelation
 from main import app
 
@@ -34,6 +37,9 @@ def db() -> Iterator[Session]:
     )
     tables = [Center, Klass, Child, ParentChildRelation, DraftDocument, DraftSentence]
     tables += [DocumentPublication, RevisionLog]
+    Base.metadata.create_all(
+        engine, tables=[LookupAccount.__table__, LookupTeacher.__table__, FailureItem.__table__]
+    )
     Base.metadata.create_all(engine, tables=[table.__table__ for table in tables])
     session = sessionmaker(bind=engine)()
     yield session

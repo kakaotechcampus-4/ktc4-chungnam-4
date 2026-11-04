@@ -14,7 +14,7 @@ import { objectUrlFor, useReleaseObjectUrls } from "@/features/classify/object-u
 import { RouteChildFallback } from "@/features/classify/RouteChildFallback";
 import { useRouteChild } from "@/features/classify/use-route-child";
 
-import { extractMockEmbedding } from "./mock-embedding";
+import { extractEmbedding } from "@/workers/face/client";
 
 /** 임시 결정(김동건): 1~3장이면 등록할 수 있습니다. 많을수록 정확하지만 3장을 강제하지 않습니다. */
 const MAX_PHOTOS = 3;
@@ -47,9 +47,19 @@ export function FaceRegisterPage() {
   const photos = slots.filter((file): file is File => file !== null);
 
   const registration = useMutation({
+    // classId는 캐시를 비울 때 씁니다 — 응답을 기다리는 사이 화면이 바뀌어도 요청한 반을 비웁니다.
     mutationFn: async ({ childId, files }: { childId: string; classId: string; files: File[] }) => {
-      const extracted = await extractMockEmbedding(files);
-      return registerFaceEmbedding(childId, extracted);
+      const extracted = await extractEmbedding(files);
+      if (extracted.extract_state !== "extracted") {
+        throw new Error(
+          extracted.extract_state === "multiple_faces"
+            ? "한 명만 나온 사진을 골라 주세요."
+            : extracted.extract_state === "no_face"
+              ? "얼굴을 찾지 못했어요. 정면 사진을 골라 주세요."
+              : "얼굴 분석에 실패했어요. 다시 시도해 주세요.",
+        );
+      }
+      return registerFaceEmbedding(childId, extracted.embedding);
     },
     onSuccess: async (_result, variables) => {
       // 벡터를 보냈으면 사진은 더 들고 있지 않습니다.

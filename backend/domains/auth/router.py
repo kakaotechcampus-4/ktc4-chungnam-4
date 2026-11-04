@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from http import HTTPStatus
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy.orm import Session
@@ -15,13 +16,19 @@ from sqlalchemy.orm import Session
 from core.database import get_db
 from domains.auth import service
 from domains.auth.middleware import (
+    CurrentTeacher,
     CurrentUser,
+    OptionalUser,
     clear_session_cookie,
     set_session_cookie,
 )
 from domains.auth.schemas import (
     AccountCreateRequest,
     AccountCreateResponse,
+    InviteAcceptedResponse,
+    InviteAcceptRequest,
+    InviteCreateResponse,
+    InvitePreviewResponse,
     MeResponse,
     SessionCreateRequest,
     SessionResponse,
@@ -75,3 +82,55 @@ def delete_current_session() -> Response:
 def read_me(user: CurrentUser) -> MeResponse:
     """로그인한 계정 정보와 역할 (FR-13). 반·자녀 목록은 organization이 줍니다."""
     return to_me_response(user)
+
+
+@router.post(
+    "/children/{child_id}/parent-invites", status_code=201, response_model=InviteCreateResponse
+)
+def issue_invite(
+    child_id: UUID,
+    teacher: CurrentTeacher,
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+) -> InviteCreateResponse:
+    url, linked = service.issue_parent_invite(db, child_id, teacher)
+    response.headers["Cache-Control"] = "no-store"
+    return InviteCreateResponse(invite_url=url, parent_linked=linked)
+
+
+@router.get("/parent-invites/{token}", response_model=InvitePreviewResponse)
+def preview_invite(
+    token: str, response: Response, db: Annotated[Session, Depends(get_db)]
+) -> InvitePreviewResponse:
+    child, expiry = service.preview_parent_invite(db, token)
+    response.headers["Cache-Control"] = "no-store"
+    return InvitePreviewResponse(
+        child_name=child.child_name,
+        class_name=child.class_name,
+        center_name=child.center_name,
+        expires_at=expiry,
+    )
+
+
+@router.post(
+    "/parent-invites/{token}/accept", status_code=201, response_model=InviteAcceptedResponse
+)
+def accept_invite(
+    token: str,
+    body: InviteAcceptRequest,
+    user: OptionalUser,
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+) -> InviteAcceptedResponse:
+    account, child_id = service.accept_parent_invite(
+        db,
+        token,
+        user,
+        email=body.email,
+        password=body.password,
+        name=body.name,
+        face_feature=body.consents.face_feature,
+    )
+    set_session_cookie(response, service.create_access_token(account))
+    response.headers["Cache-Control"] = "no-store"
+    return InviteAcceptedResponse(child_id=child_id)

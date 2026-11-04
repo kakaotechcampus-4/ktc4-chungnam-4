@@ -6,6 +6,8 @@
 로그·예외 메시지에 비밀번호·토큰·이메일을 남기지 않습니다 (H-4).
 """
 
+import hashlib
+import secrets
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -14,7 +16,7 @@ from typing import TypedDict
 
 import bcrypt
 import jwt
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -23,10 +25,13 @@ from core.exceptions import (
     AccountAlreadyExists,
     InvalidCredentials,
     InvalidToken,
+    InviteUnavailable,
     JwtSecretNotConfigured,
+    RequestValidationFailed,
+    RoleNotAllowed,
     Unauthenticated,
 )
-from domains.auth.models import Account, AccountType, Parent, Teacher
+from domains.auth.models import Account, AccountType, Parent, ParentInvite, Teacher
 from domains.organization import service as organization_service
 
 _ALGORITHM = "HS256"
@@ -318,7 +323,7 @@ def sign_up_teacher(
 def create_parent_account(db: Session, *, email: str, password: str, name: str) -> Parent:
     """학부모 계정과 프로필을 함께 만듭니다. 커밋은 호출하는 쪽이 합니다.
 
-    TODO(엄태은): 초대 링크로 가입하며 동의하는 흐름(FR-28)이 정해지면 그 경로에서만 부릅니다.
+    FR-28 초대 수락에서 연결·동의와 함께 커밋합니다. 일반 공개 가입 API에는 노출하지 않습니다.
     """
     account = _new_account(db, email=email, password=password, account_type=AccountType.PARENT)
     parent = Parent(account_id=account.id, name=name)
@@ -336,3 +341,120 @@ def _new_account(db: Session, *, email: str, password: str, account_type: Accoun
     db.add(account)
     db.flush()
     return account
+
+
+def _invite_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def issue_parent_invite(
+    db: Session, child_id: uuid.UUID, teacher: TeacherProfile
+) -> tuple[str, bool]:
+    """원문은 발급 때만 반환하고 재발급·수락을 원아 잠금으로 직렬화합니다."""
+    organization_service.ensure_child_access(db, child_id, teacher.center_id)
+    organization_service.get_invite_child(db, child_id, lock=True)
+    now = datetime.now(UTC)
+    db.execute(
+        update(ParentInvite)
+        .where(
+            ParentInvite.child_id == child_id,
+            ParentInvite.consumed_at.is_(None),
+            ParentInvite.revoked_at.is_(None),
+        )
+        .values(revoked_at=now)
+    )
+    token = secrets.token_urlsafe(32)
+    db.add(
+        ParentInvite(
+            child_id=child_id,
+            created_by_teacher_id=teacher.teacher_id,
+            token_hash=_invite_hash(token),
+            expires_at=now + timedelta(days=7),
+        )
+    )
+    linked = organization_service.has_linked_parent(db, child_id)
+    db.commit()
+    return f"/invite/{token}", linked
+
+
+def _valid_invite(db: Session, token: str) -> ParentInvite:
+    invite = db.scalar(
+        select(ParentInvite).where(
+            ParentInvite.token_hash == _invite_hash(token),
+            ParentInvite.expires_at > datetime.now(UTC),
+            ParentInvite.consumed_at.is_(None),
+            ParentInvite.revoked_at.is_(None),
+        )
+    )
+    if invite is None:
+        raise InviteUnavailable("사용할 수 없는 초대 링크입니다. 선생님께 새 링크를 요청해 주세요.")
+    return invite
+
+
+def preview_parent_invite(
+    db: Session, token: str
+) -> tuple[organization_service.InviteChild, datetime]:
+    invite = _valid_invite(db, token)
+    return organization_service.get_invite_child(db, invite.child_id), invite.expires_at
+
+
+def accept_parent_invite(
+    db: Session,
+    token: str,
+    user: TeacherProfile | ParentProfile | None,
+    *,
+    email: str | None,
+    password: str | None,
+    name: str | None,
+    face_feature: bool,
+) -> tuple[Account, uuid.UUID]:
+    """계정·연결·동의·토큰 소비를 한 번에 커밋합니다 (FR-28)."""
+    if isinstance(user, TeacherProfile):
+        raise RoleNotAllowed("교사 계정에서는 수락할 수 없습니다. 학부모 계정으로 로그인해 주세요.")
+    if user is None and (not email or not password or not name or not name.strip()):
+        raise RequestValidationFailed("학부모 이메일·비밀번호·이름을 입력해 주세요.")
+    try:
+        invite = _valid_invite(db, token)
+        # 발급도 같은 원아를 잠그므로 재발급/수락 경쟁에서 오래된 토큰이 살아나지 않습니다.
+        organization_service.get_invite_child(db, invite.child_id, lock=True)
+        result = db.execute(
+            update(ParentInvite)
+            .where(
+                ParentInvite.id == invite.id,
+                ParentInvite.consumed_at.is_(None),
+                ParentInvite.revoked_at.is_(None),
+                ParentInvite.expires_at > datetime.now(UTC),
+            )
+            .values(consumed_at=datetime.now(UTC))
+            .execution_options(synchronize_session="fetch")
+        )
+        if result.rowcount != 1:
+            raise InviteUnavailable(
+                "사용할 수 없는 초대 링크입니다. 선생님께 새 링크를 요청해 주세요."
+            )
+        if user is None:
+            if account_exists(db, email):
+                raise AccountAlreadyExists(
+                    "이미 가입된 이메일입니다. 로그인 후 초대를 수락해 주세요."
+                )
+            parent = create_parent_account(db, email=email, password=password, name=name.strip())
+            account = db.get(Account, parent.account_id)
+            parent_id = parent.id
+        else:
+            account = db.get(Account, user.account_id)
+            parent_id = user.parent_id
+        organization_service.link_parent_with_consents(
+            db, child_id=invite.child_id, parent_id=parent_id, face_feature=face_feature
+        )
+        # 쿠키 발급 설정 오류로 계정만 생기는 일을 막습니다.
+        _secret()
+        db.commit()
+        return account, invite.child_id
+    except IntegrityError:
+        db.rollback()
+        raise AccountAlreadyExists(
+            "이미 가입된 이메일입니다. 로그인 후 초대를 수락해 주세요."
+        ) from None
+    except Exception:
+        db.rollback()
+        raise
