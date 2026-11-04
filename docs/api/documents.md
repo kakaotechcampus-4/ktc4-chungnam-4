@@ -48,7 +48,7 @@
 
 ## 구현과 다른 점
 
-이 문서의 상세 작성 엔드포인트 10개는 모두 develop에 구현돼 있고, 요청·응답의 원본은 OpenAPI(로컬 서버의 `/docs`. `APP_ENV=production`이면 꺼짐)입니다([README](README.md) §이 문서를 읽는 법). 아래는 사진 통합 PR의 코드가 이 문서와 **아직 다른 곳만** 남깁니다(11/02 기준). PR #14 골격 기준으로 적었던 게시 요청(`include_photos`)·게시 건별 결과·서명 URL·에러 코드 행은 구현하면서 이 문서대로 맞춰져 지웠습니다.
+이 문서의 상세 작성 엔드포인트 12개는 모두 구현돼 있고(학부모 사진·영상 2개는 #242), 요청·응답의 원본은 OpenAPI(로컬 서버의 `/docs`. `APP_ENV=production`이면 꺼짐)입니다([README](README.md) §이 문서를 읽는 법). 아래는 사진 통합 PR의 코드가 이 문서와 **아직 다른 곳만** 남깁니다(11/02 기준). PR #14 골격 기준으로 적었던 게시 요청(`include_photos`)·게시 건별 결과·서명 URL·에러 코드 행은 구현하면서 이 문서대로 맞춰져 지웠습니다.
 
 | 항목 | 이 문서 | 지금 코드 |
 |---|---|---|
@@ -60,7 +60,7 @@
 
 ## 이 도메인의 규칙
 
-documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)입니다.
+documents의 상세 작성 엔드포인트는 12개(교사용 8, 학부모용 4)입니다.
 
 - 교사: 반·날짜별 초안을 검토·수정·승인하고, 알림장을 학부모에게 게시합니다.
 - 학부모: 게시된 알림장의 목록과 본문을 봅니다. 볼 때마다 열람 기록이 남습니다.
@@ -548,6 +548,71 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
   - `ACCESS_LOG_FAILED` (500) — 열람 기록에 실패했을 때
 - AccessLog의 target은 게시 회차(`document_publication`)입니다 — 회수 뒤 다시 게시하면 어느 회차를 봤는지 남아야 해서입니다. 임시 결정(한상균).
 - 같은 학부모가 다시 열어도 매번 기록하지만, 회수 판단용 `first_viewed_at`은 처음 연 시각 그대로입니다.
+
+### `GET /api/v1/children/{child_id}/parent-media` — 학부모용: 자녀가 받은 사진·영상 모아 보기
+
+- 쓰는 화면: 학부모 사진·영상 모아 보기(`/p/children/:childId/media`)
+- 요구사항: FR-10, 테크스펙 D-4
+- 권한: 학부모 — 자기 자녀만
+- 요청: 경로 `child_id`, 쿼리 `limit`(알림장 수, 기본 10, 최대 30 — 임시 결정(김동건)), `cursor`
+- 응답 `200` (`Cache-Control: no-store`):
+
+```json
+{
+  "days": [
+    {
+      "parent_note_id": "d7af0000-0000-4000-8000-000000000012",
+      "record_date": "2026-09-15",
+      "items": [
+        { "media_id": "3ed1a000-0000-4000-8000-000000000041", "type": "photo", "captured_at": "2026-09-15T01:10:00Z", "url": "https://<bucket>.s3.amazonaws.com/<key>?X-Amz-Signature=…", "url_expires_at": "2026-09-15T12:06:00Z" },
+        { "media_id": "3ed1a000-0000-4000-8000-000000000042", "type": "video", "captured_at": "2026-09-15T02:30:00Z", "url": "https://<bucket>.s3.amazonaws.com/<key>?X-Amz-Signature=…", "url_expires_at": "2026-09-15T12:06:00Z" }
+      ]
+    }
+  ],
+  "next_cursor": "2026-09-15",
+  "photo_count": 24,
+  "video_count": 3
+}
+```
+
+- 알림장 게이트(§`GET /parent-notes/{parent_note_id}`와 같은 단일 게이트, H-1)를 지난 게시본 가운데, 사진을 함께 보내기로 게시한 알림장에서 교사가 고른 사진·영상만 싣습니다. 범위는 §publications와 같습니다(귀속·파기 안 됨·음성메모 제외, 테크스펙 D-4).
+- 알림장 단위로 기록 날짜 최신순으로 나눕니다. 보낼 것이 없는 알림장은 건너뜁니다. `items`는 교사가 고른 순서입니다.
+- `url`은 화면 표시·재생용 서명 URL입니다. 파일로 저장할 때는 아래 내려받기를 따로 부릅니다.
+- `photo_count`·`video_count`는 쪽과 무관한 전체 개수입니다. 서명 전에 파기된 것은 세지 않습니다.
+- 응답 전에 화면에 실린 알림장마다 AccessLog를 커밋합니다(actor_type=parent, target_type=document_publication, action=view_media — 임시 결정(김동건)). `first_viewed_at`은 바꾸지 않습니다(회수 판단은 본문 열람 기준).
+- 에러:
+  - `CHILD_ACCESS_DENIED` (403) — 자기 자녀가 아님
+  - `CHILD_ACCESS_EXPIRED` (403) — NFR-03 열람 기간이 지났을 때
+  - `INVALID_CURSOR` (400) — 커서가 깨졌을 때
+  - `ACCESS_LOG_FAILED` (500) — 열람 기록에 실패했을 때
+
+### `GET /api/v1/children/{child_id}/parent-media/{media_id}/download` — 학부모용: 사진·영상 원본 내려받기
+
+- 쓰는 화면: 학부모 사진·영상 모아 보기의 저장, "모두 저장"
+- 요구사항: FR-10, NFR-05, 테크스펙 D-4
+- 권한: 학부모 — 자기 자녀만
+- 요청: 경로 `child_id`, `media_id`
+- 응답 `200` (`Cache-Control: no-store`):
+
+```json
+{
+  "media_id": "3ed1a000-0000-4000-8000-000000000041",
+  "type": "photo",
+  "url": "https://<bucket>.s3.amazonaws.com/<key>?response-content-disposition=attachment…&X-Amz-Signature=…",
+  "url_expires_at": "2026-09-15T12:06:00Z",
+  "filename": "aidam_20260915_101000_3ed1a0.jpg"
+}
+```
+
+- 모아 보기와 같은 게이트를 지난 것만 줍니다. 그 `media_id`를 고른 알림장만 다시 거릅니다.
+- `url`은 원본(파생본 아님)에 `Content-Disposition: attachment`를 넣어 서명한 주소라, 열면 브라우저가 파일로 저장합니다. `filename`은 `aidam_촬영시각(KST)_id앞6자리.확장자`이고 원아 이름을 넣지 않습니다(URL이 S3 접근 로그에 남음, H-4).
+- URL을 돌려주기 전에 AccessLog를 커밋합니다(actor_type=parent, target_type=media_asset, action=download — 임시 결정(김동건)). 기록에 실패하면 URL 없이 500입니다.
+- 에러:
+  - `MEDIA_ASSET_NOT_FOUND` (404) — 없음, 미게시, 교사가 고르지 않음, 남의 자녀 것을 구분하지 않고 모두 404
+  - `CHILD_ACCESS_DENIED` (403) — 자기 자녀가 아님
+  - `CHILD_ACCESS_EXPIRED` (403) — NFR-03 열람 기간이 지났을 때
+  - `MEDIA_DELETED` (409) — 게이트를 지난 직후 파기된 경우
+  - `ACCESS_LOG_FAILED` (500) — 열람 기록에 실패했을 때
 
 ## 경로만 정한 엔드포인트
 
