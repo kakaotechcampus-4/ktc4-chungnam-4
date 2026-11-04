@@ -35,6 +35,7 @@ import { formatDate, isDateOnly, kstToday } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 
 import { EvidencePanel } from "./components/EvidencePanel";
+import { PublishedNoteRow } from "./components/PublishedNoteRow";
 import { PublishConfirmDialog } from "./components/PublishConfirmDialog";
 import { RosterList, type RosterRow } from "./components/RosterList";
 
@@ -512,9 +513,11 @@ export function DraftReviewPage() {
   // 게시를 마친 날짜는 다시 열어도 고칠 수 없습니다. 검토 화면을 그대로 보여 주면
   // 교사가 고칠 수 있다고 착각하므로, 화면 전체를 끝난 상태로 바꿉니다.
   if (isDayClosed) {
-    const publishedNames = rows
-      .filter((row) => row.note?.published_at != null)
-      .map((row) => row.child.name);
+    const published = rows.flatMap((row) =>
+      row.note !== null && row.note.published_at !== null
+        ? [{ child: row.child, note: row.note, publishedAt: row.note.published_at }]
+        : [],
+    );
     return (
       <>
         <PageHeader
@@ -524,12 +527,26 @@ export function DraftReviewPage() {
         />
         <div className="flex flex-col gap-4 rounded-xl bg-paper p-7">
           <p className="text-lead text-ink">
-            이 날짜의 알림장 {publishedNames.length}건을 학부모님께 게시했어요.
+            이 날짜의 알림장 {published.length}건을 학부모님께 게시했어요.
           </p>
-          <p className="text-body text-ink-muted">{publishedNames.join(" · ")}</p>
-          {/* TODO(김진하): 게시본을 고치려면 회수(POST /drafts/{draft_id}/revoke)가 필요합니다.
-              명세가 `경로만`이라 이번 범위에서는 안내만 합니다(docs/api/documents.md). */}
-          <p className="text-caption text-ink-muted">게시한 알림장은 이 화면에서 고칠 수 없어요.</p>
+          {/* 게시본은 바로 고칠 수 없고 회수를 거칩니다(H-1). 회수하면 그 원아의 초안이
+              "안 나간 초안"이 되어 이 날짜가 다시 열리고, 평소처럼 고쳐 승인·게시합니다. */}
+          <ul className="flex flex-col">
+            {published.map(({ child, note, publishedAt }) => (
+              <PublishedNoteRow
+                key={child.child_id}
+                classId={classId}
+                childId={child.child_id}
+                childName={child.name}
+                draftId={note.draft_id}
+                version={note.version}
+                publishedAt={publishedAt}
+              />
+            ))}
+          </ul>
+          <p className="text-caption text-ink-muted">
+            게시한 알림장은 회수해야 고칠 수 있어요. 보호자가 열어 보기 전까지만 됩니다.
+          </p>
         </div>
       </>
     );
