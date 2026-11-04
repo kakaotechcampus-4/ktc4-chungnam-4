@@ -14,7 +14,7 @@
 
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -70,11 +70,26 @@ async function hashModelFiles(modelsDir, names) {
   return digest.digest("hex").slice(0, HASH_LENGTH);
 }
 
+/**
+ * 복사하는 파일 전부의 바이트 합. 교사가 실제로 내려받는 양이라 진행률 화면이 이 값을 씁니다.
+ *
+ * 손으로 적지 않는 것은 Figma 문구("136 / 200 MB")를 그대로 박아 둔 값이 iris를 뺀 뒤에도
+ * 남아 있었기 때문입니다 — 9MB를 받으면서 200MB짜리 눈금을 보여 줬습니다.
+ */
+async function totalBytes(modelsDir, names) {
+  let bytes = 0;
+  for (const name of names) {
+    bytes += (await stat(join(modelsDir, name))).size;
+  }
+  return bytes;
+}
+
 async function main() {
   const modelsDir = findModelsDir();
 
   const fileNames = FACE_MODELS.flatMap((model) => EXTENSIONS.map((ext) => `${model}${ext}`));
   const hash = await hashModelFiles(modelsDir, fileNames);
+  const bytes = await totalBytes(modelsDir, fileNames);
 
   const outDir = join(frontendDir, "public", "models", hash);
   // 해시가 바뀌면 옛 폴더가 남습니다. public을 통째로 지우면 favicon·목 워커까지 날아가므로
@@ -86,10 +101,11 @@ async function main() {
     await cp(join(modelsDir, name), join(outDir, name));
   }
 
-  await writeManifest(hash);
+  await writeManifest(hash, bytes);
 
   const where = relative(frontendDir, outDir).replaceAll("\\", "/");
-  console.log(`얼굴 모델 ${FACE_MODELS.length}개를 ${where}에 두었습니다.`);
+  const mb = (bytes / 1024 / 1024).toFixed(1);
+  console.log(`얼굴 모델 ${FACE_MODELS.length}개(${mb}MB)를 ${where}에 두었습니다.`);
 }
 
 /**
@@ -99,7 +115,7 @@ async function main() {
  * 생성 파일을 git에 넣는 것은 받은 직후에 타입 검사와 테스트가 돌아야 하기 때문입니다.
  * 대신 `model-manifest.test.ts`가 이 값과 실제 파일을 대조해, 둘이 어긋나면 실패합니다.
  */
-async function writeManifest(hash) {
+async function writeManifest(hash, bytes) {
   const target = join(frontendDir, "src", "workers", "face", "model-manifest.ts");
   const body = `// 이 파일은 \`pnpm models:copy\`가 만듭니다. 직접 고치지 마세요.
 // 값을 바꾸려면 모델 파일을 바꾸고 스크립트를 다시 돌립니다(scripts/copy-face-models.mjs).
@@ -116,6 +132,14 @@ export const FACE_MODEL_BASE_PATH = "/models/${hash}/";
  * 그대로면 옛 벡터와 새 벡터를 같은 것으로 보고 비교합니다.
  */
 export const FACE_MODEL_VERSION = "human-face-${hash}";
+
+/**
+ * 위 파일 전부의 바이트 합. 모델 준비 화면의 눈금에 씁니다.
+ *
+ * 화면이 숫자를 직접 들고 있으면 모델을 바꿀 때 같이 안 고쳐집니다 — 실제로 Figma 문구
+ * "200 MB"가 iris를 뺀 뒤에도 남아 9MB를 받으면서 200MB 눈금을 보여 줬습니다.
+ */
+export const FACE_MODEL_BYTES = ${String(bytes)};
 `;
   await writeFile(target, body, "utf8");
 }

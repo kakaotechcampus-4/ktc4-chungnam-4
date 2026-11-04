@@ -1,8 +1,10 @@
 // Figma: 추출본 Untitled 1:1895 (확정 파일 노드는 classify.ts 목록에 없음)
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router";
 
 import { deleteFaceEmbedding } from "@/api/face";
+import { mediaKeys } from "@/api/media";
+import { organizationKeys } from "@/api/organization";
 
 import { FocusCard } from "@/components/common/FocusCard";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -20,6 +22,7 @@ export function FaceDeletePage() {
   const route = useRouteChild();
   const { currentClass } = useCurrentClass();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const removal = useMutation({ mutationFn: deleteFaceEmbedding });
 
   if (route.status !== "ready") return <RouteChildFallback state={route} />;
@@ -30,7 +33,17 @@ export function FaceDeletePage() {
   function remove() {
     removal.mutate(child.child_id, {
       // 파기 기록(DeletionLog)은 서버가 남깁니다(H-4). 화면은 결과만 알려 줍니다.
-      onSuccess: () => navigate(faceHome, { state: { notice: "얼굴 정보를 삭제했어요." } }),
+      onSuccess: async () => {
+        // 지운 벡터를 캐시가 들고 있으면 교사가 삭제를 누른 뒤에도 그 얼굴로 분류가 돕니다.
+        // 기본 staleTime이 30초인데(app/query-client.ts) 처리 화면은 창을 다시 띄워도 새로
+        // 받지 않게 꺼 두어서(ClassifyStep), 비우지 않으면 지운 정보가 그대로 쓰입니다.
+        // 명단도 함께 비웁니다 — 안 그러면 원아 등록 화면이 "얼굴 정보 등록됨"으로 남습니다.
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: mediaKeys.faceEmbeddings(child.class_id) }),
+          queryClient.invalidateQueries({ queryKey: organizationKeys.children(child.class_id) }),
+        ]);
+        navigate(faceHome, { state: { notice: "얼굴 정보를 삭제했어요." } });
+      },
     });
   }
 
