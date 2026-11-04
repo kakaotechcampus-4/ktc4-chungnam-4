@@ -421,7 +421,7 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 
 - 건마다 따로 처리하므로 하나가 실패해도 나머지는 게시됩니다.
 - `parent_note_id`는 `draft_id`와 같은 값입니다(PR #14 재사용안). 다시 게시해도 링크가 유지됩니다.
-- `include_photos`가 true이면 선택 사진 가운데 **학부모가 볼 때 기준으로** 보여도 되는 사진(media `collect_media_for_llm` 범위, 사진만)만 보입니다. 다른 아이가 함께 찍힌 사진이 나가는 것을 줄이는 보수적인 안입니다. 고를 때 한 번 거르고, 볼 때마다 한 번 더 거릅니다 — media는 동의 철회를 조회할 때 빼므로, 게시 뒤 함께 찍힌 아이가 ③을 철회하면 그 사진은 빠집니다. 임시 결정(한상균), #174 리뷰.
+- `include_photos`가 true이면 선택 사진 가운데 **학부모가 볼 때 기준으로** 보여도 되는 사진·영상(media `collect_media_for_llm` 범위, 음성메모 제외)만 보입니다. 영상도 함께 보내는 것은 임시 결정(김동건), FR-10 — 필드 이름은 `photos` 그대로 두고 항목의 `type`으로 구분합니다. 다른 아이가 함께 찍힌 사진이 나가는 것을 줄이는 보수적인 안입니다. 고를 때 한 번 거르고, 볼 때마다 한 번 더 거릅니다 — media는 동의 철회를 조회할 때 빼므로, 게시 뒤 함께 찍힌 아이가 ③을 철회하면 그 사진은 빠집니다. 임시 결정(한상균), #174 리뷰.
 - "학부모 알림 발송" 체크박스는 FR과 데이터 모델이 없어 받지 않습니다. 상세 작성 범위에서는 UI를 숨깁니다.
 - 에러: 요청 전체에는 공통 에러만 있습니다(`items`가 비면 422). 건별 오류는 응답 200 안의 `error_code`로 옵니다.
   - `DRAFT_NOT_FOUND` (건별) — 없는 초안일 때. `child_id`·`version`은 `null`입니다.
@@ -498,7 +498,7 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 ```
 
 - 게이트를 통과한 게시본만 담습니다.
-- `photos`는 지금 보여도 되는 선택 사진(§publications) 가운데 앞 3장의 서명 URL입니다. `include_photos=false`로 게시했으면 빈 배열입니다.
+- `photos`는 지금 보여도 되는 선택 사진·영상(§publications) 가운데 앞 3장의 서명 URL입니다. 영상이 섞일 수 있으니 `type`을 보고 그립니다. `include_photos=false`로 게시했으면 빈 배열입니다.
 - `is_read`·`unread_count`는 이 학부모의 본문 열람 기록을 기준으로 합니다. `unread_count`는 전체 안 읽음 수이고, W3의 두 곳에 같은 값을 씁니다.
 - `this_month_count`(제안)는 기록 날짜가 KST 기준 이번 달인 게시본 수("이번 달 12")입니다. `unread_count`와 함께 목록 응답 봉투를 확장한 필드입니다.
 - 목록에도 발췌와 사진이 보이므로 AccessLog(action=view_list, target_type=document_publication)를 남깁니다. 회수 판단용 `first_viewed_at`은 건드리지 않습니다.
@@ -538,7 +538,7 @@ documents의 상세 작성 엔드포인트는 10개(교사용 8, 학부모용 2)
 - 학부모 전용 스키마입니다. 근거, 상태, 버전이 없습니다.
 - 본문을 돌려주기 전에 같은 트랜잭션에서 AccessLog를 커밋합니다(actor_type=parent, target_type=document_publication, action=view_detail). 로그에는 ID만 남깁니다(H-4). 기록에 실패하면 본문 없이 500을 돌려줍니다.
 - `content`는 문장 단위로 줄을 바꿉니다(`\n`).
-- `photos`는 사진을 함께 보낸 경우 지금 보여도 되는 선택 사진(§publications) 전부입니다.
+- `photos`는 사진을 함께 보낸 경우 지금 보여도 되는 선택 사진·영상(§publications) 전부입니다. 영상이 섞일 수 있으니 `type`을 보고 그립니다.
 - `author_name`은 작성 교사 이름입니다(FR-26).
 - `prev`·`next`(제안)는 같은 자녀의 이전·다음 게시본입니다.
 - 에러:
