@@ -232,3 +232,23 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 
 - media-face.md §상의 필요 1(완료 통지에 귀속을 합침)은 **사진만** 합치는 것으로 반영했습니다(임시 결정(김동건)). 영상·음성은 그대로 `PUT child-links`로 귀속하므로, 흐름 표 C의 "마지막 귀속 저장이 끝나면"은 바꾸지 않습니다.
 - `MEDIA_NOT_READY`는 보낸 `media_ids`만 봅니다. 업로드에 실패해 아예 안 보낸 파일은 서버가 알 수 없으므로, 업로드 큐에 `확인됨`이 아닌 항목이 남아 있으면 FE가 작업 시작 전에 막거나 경고합니다(#60 김동건 [must]).
+
+
+## 월별 관찰일지 생성 (FR-06, #225)
+
+임시 결정(엄태은), 이번 멀티에이전트 PR의 리뷰 대상입니다.
+`POST /children/{child_id}/observation-jobs` — 교사 전용. 본문은
+`{"request_id":"UUID","month":"YYYY-MM"}`. 해당 원아의 반 접근 권한을 확인하고,
+그 달의 게시 중인 알림장이 없으면 `NO_TARGET_CHILDREN`으로 거절합니다.
+202 응답·Location·폴링은 기존 `GenerationJobResponse`, `GET /jobs/{job_id}`를 재사용합니다.
+`record_date`는 월 1일, 성공한 `drafts[].doc_type`은 `observation_log`입니다.
+같은 request_id는 다시 실행하지 않습니다. 새 요청도 기존 교사 수정·승인 문서를 덮지 않습니다.
+
+원아별 `stage`는 collecting_evidence/generating/verifying를 채웁니다.
+`GET /jobs/{job_id}/trace`는 같은 반 접근 권한이 있는 교사에게 원아별 역할·도구명·결과만 제공합니다.
+프롬프트·모델 원문·개인정보는 반환하지 않습니다.
+
+추가 실패 코드는 `AGENT_INPUT_TOO_LARGE`, `AGENT_RESPONSE_INVALID`, `AGENT_TOOL_NOT_ALLOWED`,
+`AGENT_TOOL_ARGUMENTS_INVALID`, `AGENT_TOOL_LIMIT`, `AGENT_STEP_LIMIT`, `AGENT_ROUTINE_MISSING`,
+`AGENT_SOURCE_CHANGED`입니다. 상한 초과·잘못된 도구 요청은 작업을 failed로 끝냅니다.
+요약 JSON/근거 참조 오류는 2회 재시도 후 `verification_failed` 확인 필요로 끝냅니다.
