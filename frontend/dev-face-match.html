@@ -24,8 +24,64 @@
         margin: 0 0 4px;
       }
       h2 {
-        font-size: 16px;
-        margin: 28px 0 8px;
+        font-size: 15px;
+        margin: 0 0 12px;
+      }
+      /* 구역 하나를 칸 하나로 담습니다. 표와 판정이 쭉 이어지면 어디서부터 다음
+         이야기인지 눈으로 끊기지 않습니다. */
+      .card {
+        border: 1px solid rgba(128, 128, 128, 0.3);
+        border-radius: 10px;
+        padding: 16px 18px;
+        margin: 16px 0;
+        background: rgba(128, 128, 128, 0.04);
+      }
+      .card > *:last-child {
+        margin-bottom: 0;
+      }
+      /* 그 칸에서 가장 중요한 숫자. 표 안에 있으면 찾아 읽어야 해서 위로 올립니다. */
+      .tiles {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin: 0 0 14px;
+      }
+      .tile {
+        flex: 1 1 150px;
+        min-width: 150px;
+        padding: 10px 12px;
+        border: 1px solid rgba(128, 128, 128, 0.3);
+        border-left-width: 3px;
+        border-radius: 8px;
+        background: rgba(128, 128, 128, 0.06);
+      }
+      .tile .v {
+        font-size: 24px;
+        font-weight: 650;
+        line-height: 1.2;
+        font-variant-numeric: tabular-nums;
+      }
+      .tile .l {
+        font-size: 12px;
+        opacity: 0.85;
+      }
+      .tile .n {
+        font-size: 11px;
+        opacity: 0.6;
+        margin-top: 4px;
+      }
+      /* 색만으로 알리지 않습니다 — 이름(.l)과 꼬리말(.n)이 같은 것을 말합니다. */
+      .tile.good {
+        border-left-color: #1a7f37;
+      }
+      .tile.good .v {
+        color: #1a7f37;
+      }
+      .tile.bad {
+        border-left-color: #c1121f;
+      }
+      .tile.bad .v {
+        color: #c1121f;
       }
       p.lead {
         margin: 0 0 20px;
@@ -49,29 +105,64 @@
         opacity: 0.75;
         margin-left: 8px;
       }
+      /* 숫자를 이름 옆으로 당깁니다. width:100% + 오른쪽 정렬이면 숫자가 칸 끝으로 밀려
+         어느 줄 값인지 눈으로 따라가야 했습니다. 첫 칸이 남는 폭을 다 먹고 숫자 칸은
+         내용만큼만 차지하게 둡니다. */
       table {
         border-collapse: collapse;
-        width: 100%;
+        width: auto;
+        min-width: min(100%, 520px);
+        max-width: 100%;
         font-size: 13px;
-        margin-bottom: 8px;
+        margin: 0 0 12px;
       }
       th,
       td {
-        border-bottom: 1px solid rgba(128, 128, 128, 0.35);
-        padding: 6px 8px;
+        border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+        padding: 7px 10px;
         text-align: left;
       }
+      th {
+        font-size: 12px;
+        opacity: 0.7;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      /* 이름 칸이 남는 폭을 먹습니다. 나머지는 숫자 길이만큼만. */
+      th:first-child,
+      td:first-child {
+        width: 100%;
+      }
+      tbody tr:nth-child(odd) {
+        background: rgba(128, 128, 128, 0.07);
+      }
+      tbody tr:last-child td {
+        border-bottom: none;
+      }
+      /* 머리글도 숫자와 같은 쪽으로 — 어긋나면 어느 열인지 헷갈립니다. */
+      th.num,
       td.num {
         text-align: right;
+        white-space: nowrap;
         font-variant-numeric: tabular-nums;
+      }
+      /* 판정 한 줄. 떠 있는 색 글씨보다 띠가 눈에 먼저 들어옵니다. */
+      .ok,
+      .bad {
+        margin: 10px 0 16px;
+        padding: 10px 12px;
+        border-left: 3px solid currentColor;
+        border-radius: 0 6px 6px 0;
+        font-weight: 600;
+        font-size: 13px;
       }
       .ok {
         color: #1a7f37;
-        font-weight: 600;
+        background: rgba(26, 127, 55, 0.1);
       }
       .bad {
         color: #c1121f;
-        font-weight: 600;
+        background: rgba(193, 18, 31, 0.1);
       }
       textarea {
         width: 100%;
@@ -228,9 +319,12 @@
       function table(headers, rows) {
         const el = document.createElement("table");
         const thead = el.createTHead().insertRow();
-        headers.forEach((h) => {
+        headers.forEach((h, i) => {
           const th = document.createElement("th");
           th.textContent = h;
+          // 첫 칸은 이름, 나머지는 숫자입니다. 머리글을 숫자와 같은 쪽으로 붙여야
+          // 어느 열의 값인지 바로 읽힙니다.
+          if (i > 0) th.className = "num";
           thead.append(th);
         });
         const body = el.createTBody();
@@ -250,6 +344,52 @@
         const h = document.createElement("h2");
         h.textContent = text;
         return h;
+      }
+
+      /**
+       * 큰 숫자 한 줄. `state`는 "good" / "bad" / 없음(색 없이)입니다.
+       * 색은 거드는 것뿐이라 이름과 꼬리말이 같은 내용을 글로 말합니다.
+       */
+      function tiles(items) {
+        const wrap = document.createElement("div");
+        wrap.className = "tiles";
+        for (const item of items) {
+          const tile = document.createElement("div");
+          tile.className = item.state ? `tile ${item.state}` : "tile";
+          const value = document.createElement("div");
+          value.className = "v";
+          value.textContent = String(item.value);
+          const label = document.createElement("div");
+          label.className = "l";
+          label.textContent = item.label;
+          tile.append(value, label);
+          if (item.note) {
+            const note = document.createElement("div");
+            note.className = "n";
+            note.textContent = item.note;
+            tile.append(note);
+          }
+          wrap.append(tile);
+        }
+        return wrap;
+      }
+
+      /**
+       * h2가 나올 때마다 거기서부터 다음 h2 전까지를 칸 하나로 묶습니다.
+       *
+       * 붙이는 자리마다 칸을 들고 다니는 대신 **다 그린 뒤 한 번에** 묶습니다 — 표·판정이
+       * 조건에 따라 중간에 끼어들어서, 자리마다 컨테이너를 넘기면 하나 빠뜨리기 쉽습니다.
+       */
+      function groupIntoCards(root) {
+        let card = null;
+        for (const node of [...root.children]) {
+          if (node.tagName === "H2") {
+            card = document.createElement("section");
+            card.className = "card";
+            root.append(card);
+          }
+          if (card) card.append(node);
+        }
       }
 
       function verdict(text, good) {
@@ -315,6 +455,24 @@
           const leaked = sideFaces.filter((f) => f.usable);
           outEl.append(
             heading(`1. usable 판정 — 기준 ${MIN_MESH_SCORE} (정렬 점수)`),
+            tiles([
+              {
+                value: `${leaked.length} / ${sideFaces.length}`,
+                label: "usable로 샌 옆모습",
+                note: leaked.length === 0 ? "하나도 안 샜습니다" : "기준값을 올려야 합니다",
+                state: leaked.length === 0 ? "good" : "bad",
+              },
+              {
+                value: `${frontFaces.filter((f) => f.usable).length} / ${frontFaces.length}`,
+                label: "usable로 남은 정면",
+                note: "등록에 쓸 수 있는 얼굴",
+              },
+              {
+                value: fmt(MIN_MESH_SCORE),
+                label: "지금 기준(MIN_MESH_SCORE)",
+                note: "정렬 점수가 이보다 낮으면 뺍니다",
+              },
+            ]),
             table(
               ["묶음", "얼굴", "usable=true", "점수 최저", "평균", "최고"],
               [
@@ -325,8 +483,8 @@
             ),
             verdict(
               leaked.length === 0
-                ? `옆모습 ${sideFaces.length}개가 모두 걸러졌습니다. 기준 ${MIN_MESH_SCORE}가 맞습니다.`
-                : `옆모습 ${leaked.length}/${sideFaces.length}개가 usable로 샙니다. 기준을 올리거나 yaw가 필요합니다.`,
+                ? `옆모습 0 / ${sideFaces.length} 샘 — 기준 ${MIN_MESH_SCORE}가 맞습니다.`
+                : `옆모습 ${leaked.length} / ${sideFaces.length} 샘 — 기준을 올리거나 yaw가 필요합니다.`,
               leaked.length === 0,
             ),
           );
@@ -339,9 +497,13 @@
                   .map((f) => [f.name, fmt(f.meshScore)]),
               ),
               verdict(
-                `정면 최저 ${fmt(stats(frontFaces.map((f) => f.meshScore)).min)} · 샌 옆모습 최고 ` +
-                  `${fmt(Math.max(...leaked.map((f) => f.meshScore)))} — 이 둘 사이에 선이 있으면 ` +
-                  "기준값만 올려도 되고, 없으면 yaw 기준이 필요합니다.",
+                (() => {
+                  const frontMin = stats(frontFaces.map((f) => f.meshScore)).min;
+                  const sideMax = Math.max(...leaked.map((f) => f.meshScore));
+                  return frontMin > sideMax
+                    ? `정면 최저 ${fmt(frontMin)} > 샌 옆모습 최고 ${fmt(sideMax)} — 겹치지 않습니다. 그 사이로 기준값만 올리면 됩니다(yaw 불필요).`
+                    : `정면 최저 ${fmt(frontMin)} ≤ 샌 옆모습 최고 ${fmt(sideMax)} — 겹칩니다. 점수만으로는 못 가르므로 yaw 기준이 필요합니다.`;
+                })(),
                 stats(frontFaces.map((f) => f.meshScore)).min >
                   Math.max(...leaked.map((f) => f.meshScore)),
               ),
@@ -383,12 +545,27 @@
           ];
 
           const children = [...new Set(solo.map((s) => s.child))].sort();
-          for (const { key, result } of views) {
+          for (const [viewIndex, { key, result }] of views.entries()) {
             const { sameStats: s, diffStats: d, separated, gap } = result;
             outEl.append(
               heading(
-                `1. 초상 비교 — ${key} (${result.photos.length}장 · 아이 ${children.length}명)`,
+                `2-${viewIndex + 1}. 초상 비교 — ${key} (${result.photos.length}장 · 아이 ${children.length}명)`,
               ),
+              tiles([
+                {
+                  value: separated ? "갈라짐" : "겹침",
+                  label: "같은 아이 / 다른 아이",
+                  note: separated ? `사이가 ${fmt(gap)}` : "기준값을 그을 자리가 없습니다",
+                  state: separated ? "good" : "bad",
+                },
+                { value: fmt(s.min), label: "같은 아이 최저", note: "이 밑으로는 못 내려갑니다" },
+                { value: fmt(d.max), label: "다른 아이 최고", note: "이 위로는 못 올라갑니다" },
+                {
+                  value: separated ? fmt((s.min + d.max) / 2) : "—",
+                  label: "기준값 후보",
+                  note: separated ? "두 값의 한가운데" : "겹쳐서 못 정합니다",
+                },
+              ]),
               table(
                 ["묶음", "쌍", "가장 낮음", "5%", "평균", "95%", "가장 높음"],
                 [
@@ -463,6 +640,21 @@
           const groupHits = groupRows.filter((r) => r.correct).length;
           outEl.append(
             heading(`3. 활동 사진 대조 — 얼굴 ${group.length}개`),
+            tiles([
+              {
+                value: `${groupHits} / ${group.length}`,
+                label: "정답 안에 든 얼굴",
+                note: groupHits === group.length ? "전부 맞혔습니다" : "틀린 얼굴이 있습니다",
+                state: groupHits === group.length ? "good" : "bad",
+              },
+              {
+                // 활동 사진이 하나도 없으면 stats가 null입니다.
+                value:
+                  groupRows.length === 0 ? "—" : fmt(stats(groupRows.map((r) => r.margin)).min),
+                label: "2등과 차이, 가장 작은 값",
+                note: "작을수록 아슬아슬하게 맞힌 것입니다",
+              },
+            ]),
             table(
               ["얼굴", "정답", "고른 아이", "점수", "2등과 차이", "맞음"],
               groupRows.map((r) => [
@@ -532,8 +724,18 @@
             };
           });
 
+          // 맞힌 수가 같으면 2등과의 차이가 큰 쪽이 낫습니다 — 타일에도 그 기준으로 고릅니다.
+          const bestSet = [...setRows].sort((a, b) => b.hits - a.hits || b.margin - a.margin)[0];
           outEl.append(
             heading(`4. 등록 장수 비교 — 활동 사진 얼굴 ${group.length}개로 채점`),
+            tiles([
+              { value: bestSet.key.split(" · ")[0], label: "가장 나은 구성", note: bestSet.key },
+              {
+                value: `${bestSet.hits} / ${group.length}`,
+                label: "그 구성이 맞힌 수",
+                note: `2등과 평균 차이 ${fmt(bestSet.margin)}`,
+              },
+            ]),
             table(
               ["등록 구성", "실제 사용 장수", "맞힘", "1등 평균 점수", "2등과 평균 차이"],
               setRows.map((r) => [
@@ -611,6 +813,8 @@
 
           statusEl.textContent = "끝났습니다. 아래에서 실제 사람 사진으로 기준값을 재 보세요.";
         } finally {
+          // 중간에 멈춰도 거기까지 그린 것은 칸으로 묶어 둡니다.
+          groupIntoCards(outEl);
           runEl.disabled = false;
         }
       });
@@ -714,6 +918,29 @@
           const sideUsable = sidePortraits.filter((p) => p.usable).length;
           mineOutEl.append(
             heading("1. usable 판정 — 옆모습이 걸러지는가"),
+            tiles([
+              {
+                value: `${sideUsable} / ${sidePortraits.length}`,
+                label: "usable로 샌 옆모습",
+                note:
+                  sidePortraits.length === 0
+                    ? "옆모습이 없습니다"
+                    : sideUsable === 0
+                      ? "실사진에서도 안 샜습니다"
+                      : "기준값을 올려야 합니다",
+                state: sidePortraits.length === 0 ? undefined : sideUsable === 0 ? "good" : "bad",
+              },
+              {
+                value: `${frontPortraits.filter((p) => p.usable).length} / ${frontPortraits.length}`,
+                label: "usable로 남은 초상",
+                note: "등록에 쓸 수 있는 사진",
+              },
+              {
+                value: `${activity.filter((f) => f.usable).length} / ${activity.length}`,
+                label: "usable로 남은 활동 얼굴",
+                note: "대조에 넣을 얼굴",
+              },
+            ]),
             table(
               ["묶음", "장수", "usable=true", "usable=false"],
               [
@@ -739,10 +966,10 @@
             ),
             verdict(
               sidePortraits.length === 0
-                ? "옆모습 사진이 없어 기준값을 확인하지 못했습니다. 이름에 '옆'을 넣어 몇 장 넣어 주세요."
+                ? "옆모습이 없어 기준값을 확인하지 못했습니다 — 이름에 '옆'을 넣어 몇 장 더 넣어 주세요."
                 : sideUsable === 0
-                  ? `옆모습 ${sidePortraits.length}장이 모두 걸러졌습니다. MIN_MESH_SCORE가 실사진에서도 맞습니다.`
-                  : `옆모습 ${sideUsable}/${sidePortraits.length}장이 usable로 통과했습니다. 기준값을 올리거나 yaw 기준이 필요합니다.`,
+                  ? `옆모습 0 / ${sidePortraits.length} 샘 — 실사진에서도 기준 ${MIN_MESH_SCORE}가 맞습니다.`
+                  : `옆모습 ${sideUsable} / ${sidePortraits.length} 샘 — 기준값을 올리거나 yaw 기준이 필요합니다.`,
               sidePortraits.length > 0 && sideUsable === 0,
             ),
           );
@@ -761,6 +988,19 @@
           }
           mineOutEl.append(
             heading(`2. 등록 벡터 — ${people.length}명`),
+            tiles([
+              {
+                value: people.length,
+                label: "등록된 사람",
+                note: people.length >= 3 ? "3명 이상 — 충분합니다" : "3명은 되어야 합니다",
+                state: people.length >= 3 ? "good" : "bad",
+              },
+              {
+                value: frontPortraits.filter((p) => p.usable).length,
+                label: "등록에 쓴 사진",
+                note: "사람마다 평균을 냅니다",
+              },
+            ]),
             table(
               ["사람", "등록에 쓴 장수"],
               people.map((person) => [person, registered.get(person).count]),
@@ -800,6 +1040,24 @@
             heading(
               `3. 활동 사진 대조 — 얼굴 ${rows.length}개 (기준 ${MATCH_MIN_SCORE} / 차이 ${MATCH_MIN_MARGIN})`,
             ),
+            tiles([
+              {
+                value: wrongAuto.length,
+                label: "틀린 자동 분류",
+                note: wrongAuto.length === 0 ? "0이어야 하고, 0입니다" : "0이어야 합니다",
+                state: wrongAuto.length === 0 ? "good" : "bad",
+              },
+              {
+                value: `${autoRows.length} / ${rows.length}`,
+                label: "자동으로 분류된 얼굴",
+                note: "나머지는 교사가 손으로 고릅니다",
+              },
+              {
+                value: `${rows.filter((r) => r.correct === true).length} / ${rows.filter((r) => r.correct !== null).length}`,
+                label: "정답을 아는 얼굴 중 맞힘",
+                note: "파일 이름에 정답을 적은 것만",
+              },
+            ]),
             table(
               ["얼굴", "1위", "점수", "2위와 차이", "자동 분류", "정답"],
               rows.map((r) => [
@@ -812,8 +1070,8 @@
               ]),
             ),
             verdict(
-              `${rows.length}개 중 ${autoRows.length}개가 자동 분류됐고, 그중 ${wrongAuto.length}개가 틀렸습니다.` +
-                (wrongAuto.length === 0 ? "" : " 틀린 자동 분류는 0이어야 합니다."),
+              `틀린 자동 분류 ${wrongAuto.length}개 · 자동 ${autoRows.length} / ${rows.length}개` +
+                (wrongAuto.length === 0 ? "" : " — 틀린 자동 분류는 0이어야 합니다."),
               wrongAuto.length === 0,
             ),
           );
@@ -830,7 +1088,7 @@
                 ],
               ),
               verdict(
-                `기준값을 정할 때 이 분포를 보세요. 지금 기준(${MATCH_MIN_SCORE} / ${MATCH_MIN_MARGIN})에서 ${autoRows.length}/${rows.length}개가 자동입니다.`,
+                `지금 기준 ${MATCH_MIN_SCORE} / 차이 ${MATCH_MIN_MARGIN}에서 ${autoRows.length} / ${rows.length}개가 자동입니다. 기준값은 위 분포를 보고 정합니다.`,
                 true,
               ),
             );
@@ -854,6 +1112,24 @@
             const os = stats(other.map((p) => p.score));
             mineOutEl.append(
               heading("4. 사람끼리 — 갈라지는가"),
+              tiles([
+                {
+                  value: ss.min > os.max ? "갈라짐" : "겹침",
+                  label: "같은 사람 / 다른 사람",
+                  note:
+                    ss.min > os.max
+                      ? `사이가 ${fmt(ss.min - os.max)}`
+                      : "기준값을 그을 자리가 없습니다",
+                  state: ss.min > os.max ? "good" : "bad",
+                },
+                { value: fmt(ss.min), label: "같은 사람 최저" },
+                { value: fmt(os.max), label: "다른 사람 최고" },
+                {
+                  value: ss.min > os.max ? fmt((ss.min + os.max) / 2) : "—",
+                  label: "기준값 후보",
+                  note: ss.min > os.max ? "두 값의 한가운데" : "겹쳐서 못 정합니다",
+                },
+              ]),
               table(
                 ["묶음", "쌍", "가장 낮음", "평균", "가장 높음"],
                 [
@@ -892,6 +1168,7 @@
           );
           console.error(error);
         } finally {
+          groupIntoCards(mineOutEl);
           mineEl.disabled = false;
         }
       });
