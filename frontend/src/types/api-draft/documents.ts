@@ -176,3 +176,37 @@ export interface ParentNoteDetail {
   prev: { parent_note_id: string; record_date: string } | null;
   next: { parent_note_id: string; record_date: string } | null;
 }
+
+/** GET /children/{child_id}/parent-media 항목(학부모용). 음성메모는 오지 않습니다. */
+export interface ParentMediaItem {
+  media_id: string;
+  type: "photo" | "video";
+  captured_at: string;
+  url: string;
+  url_expires_at: string;
+}
+
+/** 알림장 한 건에 함께 보낸 사진·영상. 교사가 고른 순서입니다. */
+export interface ParentMediaDay {
+  parent_note_id: string;
+  record_date: string;
+  items: ParentMediaItem[];
+}
+
+/** GET /children/{child_id}/parent-media 응답(학부모용, FR-10). 승인·게시된 알림장에 교사가 고른 것만 옵니다. */
+export interface ParentMediaList {
+  days: ParentMediaDay[];
+  next_cursor: string | null;
+  /** 쪽 나누기와 무관한 전체 개수 */
+  photo_count: number;
+  video_count: number;
+}
+
+/** GET /children/{child_id}/parent-media/{media_id}/download 응답. 열면 브라우저가 파일로 저장합니다. */
+export interface ParentMediaDownload {
+  media_id: string;
+  type: "photo" | "video";
+  url: string;
+  url_expires_at: string;
+  filename: string;
+}

@@ -69,8 +69,17 @@ const areaRoutes: RouteObject[] = [
       },
     ],
   },
+  // /p 아래 없는 주소는 공개 틀의 404로 받습니다. 없으면 /p 묶음이 빈 화면을 그립니다.
   ...(parentChildren.length > 0
-    ? [{ path: "p", element: <RequireRole role="parent" />, children: parentChildren }]
+    ? [
+        {
+          path: "p",
+          children: [
+            { element: <RequireRole role="parent" />, children: parentChildren },
+            { Component: PublicLayout, children: [{ path: "*", Component: NotFoundPage }] },
+          ],
+        },
+      ]
     : []),
 ];
 

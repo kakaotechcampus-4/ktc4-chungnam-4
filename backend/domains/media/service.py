@@ -612,9 +612,109 @@ def get_signed_urls(db: Session, media_ids: Sequence[UUID]) -> list[SignedMediaU
     return signed
 
 
+# 내려받을 파일의 확장자. 업로드 때 허용한 형식(`_ALLOWED_CONTENT_TYPES`)과 같은 목록입니다.
+_EXTENSION_BY_CONTENT_TYPE = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/heic": "heic",
+    "video/mp4": "mp4",
+    "video/quicktime": "mov",
+}
+# 업로드 기록이 없는 옛 미디어는 종류로 확장자를 정합니다.
+_FALLBACK_EXTENSION_BY_TYPE = {"photo": "jpg", "video": "mp4"}
+
+
+@dataclass(frozen=True)
+class MediaDownload:
+    """원본을 내려받는 서명 URL. 브라우저가 열면 재생하지 않고 파일로 저장합니다."""
+
+    media_id: UUID
+    type: str
+    url: str
+    url_expires_at: datetime
+    filename: str
+
+
+def get_download_url(db: Session, media_id: UUID) -> MediaDownload:
+    """원본 파일을 내려받는 서명 URL을 만듭니다 (FR-10, 비공개 S3).
+
+    `get_signed_urls`와 같이 **노출 판정과 열람 기록은 부르는 쪽이 합니다**(H-1, H-4).
+    재생 URL과 다른 점은 둘입니다.
+    - 파생본이 아니라 원본(`storage_url`)에 서명합니다. 저장하는 사람은 원래 화질을 받습니다.
+    - `Content-Disposition: attachment`를 서명에 넣어 브라우저가 파일로 저장하게 합니다.
+      파일 이름은 촬영 시각(KST)과 id 앞자리입니다. 원아 이름은 넣지 않습니다 — URL에 실려
+      S3 접근 로그에 남습니다(H-4).
+
+    - 없는 미디어: `MediaAssetNotFound`
+    - 파기된 미디어: `MediaDeleted`
+    """
+    asset = db.get(MediaAsset, media_id)
+    if asset is None:
+        raise MediaAssetNotFound("파일을 찾을 수 없어요.")
+    if asset.storage_tier == "deleted":
+        raise MediaDeleted("보관 기간이 끝나 삭제된 파일이에요.")
+    content_type = db.scalar(
+        select(MediaUpload.content_type).where(MediaUpload.media_id == media_id)
+    )
+    extension = _EXTENSION_BY_CONTENT_TYPE.get(content_type or "") or (
+        _FALLBACK_EXTENSION_BY_TYPE.get(asset.type, "bin")
+    )
+    taken = asset.captured_at
+    if taken.tzinfo is None:
+        taken = taken.replace(tzinfo=UTC)
+    filename = f"aidam_{taken.astimezone(_KST):%Y%m%d_%H%M%S}_{media_id.hex[:6]}.{extension}"
+
+    settings = get_settings()
+    expires_in = _clamp_expires_in(
+        settings.s3_playback_url_expires_seconds, _credential_seconds_left(settings.s3_region)
+    )
+    url = _s3_client(settings.s3_region).generate_presigned_url(
+        "get_object",
+        Params={
+            "Bucket": _bucket(),
+            "Key": asset.storage_url,
+            "ResponseContentDisposition": f'attachment; filename="{filename}"',
+        },
+        ExpiresIn=expires_in,
+    )
+    return MediaDownload(
+        media_id=media_id,
+        type=asset.type,
+        url=url,
+        url_expires_at=datetime.now(UTC) + timedelta(seconds=expires_in),
+        filename=filename,
+    )
+
+
+def list_child_media(
+    db: Session, child_id: UUID, target_date: date, *, types: frozenset[str]
+) -> list[MediaMeta]:
+    """그 원아에게 귀속된 그 날짜(KST) 미디어 중 파기되지 않은 것. 촬영 순서입니다.
+
+    교사가 확정한 귀속(`MediaChildLink`)만 봅니다. `collect_media_for_llm`과 달리
+    `llm_allowed`와 ③ 동의는 보지 않습니다 — LLM 경로가 아니라 사람에게 보여 주는 경로라,
+    함께 찍힌 아이의 동의는 촬영·공유 범위(②)로 판단합니다. 누구에게 보여 줄지는 부르는 쪽이
+    정합니다(H-1).
+    """
+    start, end = _kst_day_range(target_date)
+    rows = db.execute(
+        select(MediaAsset.id, MediaAsset.type, MediaAsset.captured_at)
+        .join(MediaChildLink, MediaChildLink.media_id == MediaAsset.id)
+        .where(
+            MediaChildLink.child_id == child_id,
+            MediaAsset.type.in_(types),
+            MediaAsset.storage_tier != "deleted",
+            MediaAsset.captured_at >= start,
+            MediaAsset.captured_at < end,
+        )
+        .order_by(MediaAsset.captured_at)
+    ).all()
+    return [MediaMeta(media_id=row.id, type=row.type, captured_at=row.captured_at) for row in rows]
+
+
 # 감사 로그 코드. audit 담당과 코드 목록을 맞추는 중이라(#32, #74) 값은 여기 한곳에만 둡니다.
 # TODO(donggeon): target_type·action 값은 임시 결정(김동건). 한상균 님 확인 대기(media-face.md)
-_AUDIT_TARGET_TYPE = "media_asset"
+AUDIT_TARGET_TYPE = "media_asset"
 _AUDIT_ACTION_REISSUE_URL = "reissue_playback_url"
 _AUDIT_ACTION_VIEW_TRANSCRIPT = "view_transcript"
 
@@ -643,7 +743,7 @@ def reissue_signed_url(
         db,
         actor_type="teacher",
         actor_id=teacher_id,
-        target_type=_AUDIT_TARGET_TYPE,
+        target_type=AUDIT_TARGET_TYPE,
         target_id=media_id,
         action=_AUDIT_ACTION_REISSUE_URL,
     )
@@ -1321,7 +1421,7 @@ def list_transcript_segments(
             db,
             actor_type="teacher",
             actor_id=teacher_id,
-            target_type=_AUDIT_TARGET_TYPE,
+            target_type=AUDIT_TARGET_TYPE,
             target_id=media_id,
             action=_AUDIT_ACTION_VIEW_TRANSCRIPT,
         )
