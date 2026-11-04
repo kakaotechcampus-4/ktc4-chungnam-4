@@ -1274,38 +1274,55 @@ describe("DraftReviewPage", () => {
     expect(await screen.findByText("담당 반이 아니에요.")).toBeInTheDocument();
   });
 
-  // 회수해 놓고 고치지 않은 채 나가면 그 알림장은 보호자에게 보이지 않는 채로 묻힙니다.
+  // 회수해 놓고 보내지 않은 채 나가면 그 알림장은 보호자에게 보이지 않는 채로 묻힙니다.
   // 자동으로 다시 게시하지는 않고(H-1: 승인을 코드가 대신하게 됨), 어디서 찾는지 알립니다.
-  it("회수본을 고치지 않고 나가려 하면 회수함에 들어간다고 알린다", async () => {
+  it("회수본을 보내지 않고 나가려 하면 회수함에 남는다고 알린다", async () => {
     const user = userEvent.setup();
-    updateDb((db) => {
-      const draft = db.drafts[fixtureId("draft", 12)];
-      if (!draft) throw new Error("김도윤 알림장이 시드에 없습니다.");
-      draft.status = "revoked";
-      draft.published_at = null;
-    });
-    const { router } = renderPage();
-    await screen.findByRole("heading", { name: /작은 블록/ });
+    publishedJustNow();
+    const { router } = renderClosedDay();
+
+    await user.click((await screen.findAllByRole("button", { name: "회수" }))[0]!);
+    await user.click(await screen.findByRole("button", { name: "회수하기" }));
+    await screen.findByRole("heading", { name: /기록을 완성해요/ });
 
     await act(() => router.navigate("/t/notes"));
 
-    expect(await screen.findByText("고치지 않고 나가시겠어요?")).toBeInTheDocument();
+    expect(await screen.findByText("보내지 않고 나가시겠어요?")).toBeInTheDocument();
     expect(screen.getByText(/회수함/)).toBeInTheDocument();
-    // 아직 못 나갑니다 — 교사가 고를 때까지 막습니다.
     expect(router.state.location.pathname).toBe(`/t/today/review/${DOYUN}`);
 
     await user.click(screen.getByRole("button", { name: "계속 고치기" }));
 
-    expect(screen.queryByText("고치지 않고 나가시겠어요?")).not.toBeInTheDocument();
+    expect(screen.queryByText("보내지 않고 나가시겠어요?")).not.toBeInTheDocument();
   });
 
-  it("회수본이 없으면 나갈 때 막지 않는다", async () => {
+  // 되돌려 승인하면 status가 approved가 되는데 보호자에게는 여전히 안 나간 상태입니다.
+  // 상태만 보던 때는 승인하는 순간 경고가 사라졌습니다(브라우저로 찾은 구멍).
+  it("회수한 뒤 승인만 하고 나가도 아직 안 보냈다고 알린다", async () => {
+    const user = userEvent.setup();
+    publishedJustNow();
+    const { router } = renderClosedDay();
+
+    await user.click((await screen.findAllByRole("button", { name: "회수" }))[0]!);
+    await user.click(await screen.findByRole("button", { name: "회수하기" }));
+    await user.click(await screen.findByRole("button", { name: "다시 검토하기" }));
+    await user.click(await screen.findByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await screen.findByRole("button", { name: "다시 검토하기" });
+
+    await act(() => router.navigate("/t/notes"));
+
+    expect(await screen.findByText("보내지 않고 나가시겠어요?")).toBeInTheDocument();
+  });
+
+  // 평범한 날에는 그날 초안이 전부 미게시라, 상태만 보고 막으면 잠깐 나갈 때마다 경고가 뜹니다.
+  it("회수한 적이 없으면 나갈 때 막지 않는다", async () => {
     const { router } = renderPage();
     await screen.findByRole("heading", { name: /작은 블록/ });
 
     await act(() => router.navigate("/t/notes"));
 
-    expect(screen.queryByText("고치지 않고 나가시겠어요?")).not.toBeInTheDocument();
+    expect(screen.queryByText("보내지 않고 나가시겠어요?")).not.toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/t/notes");
   });
 });

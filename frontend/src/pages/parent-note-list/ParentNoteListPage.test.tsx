@@ -121,13 +121,31 @@ describe("ParentNoteListPage", () => {
     expect(router.state.location.search).toBe(`?record_date=${day}`);
   });
 
-  it("회수한 알림장이 없으면 회수함이 비었다고 알린다", async () => {
+  it("안 보낸 알림장이 없으면 회수함이 비었다고 알린다", async () => {
     const user = userEvent.setup();
     renderList();
     await screen.findByText(/조개껍데기를 하나씩 모았어요/);
 
     await user.click(screen.getByRole("button", { name: "회수함" }));
 
-    expect(await screen.findByText("회수한 알림장이 없어요.")).toBeInTheDocument();
+    expect(await screen.findByText("안 보낸 알림장이 없어요.")).toBeInTheDocument();
+  });
+
+  // 회수한 뒤 되돌려 승인하면 status가 approved가 되는데 보호자에게는 안 나간 상태입니다.
+  // 회수본만 담던 때는 승인하는 순간 회수함에서 사라졌습니다(브라우저로 찾은 구멍).
+  it("승인했지만 안 보낸 알림장도 회수함에 남는다", async () => {
+    const user = userEvent.setup();
+    updateDb((db) => {
+      const draft = db.drafts[fixtureId("draft", 202)];
+      if (!draft) throw new Error("사흘 전 알림장이 시드에 없습니다.");
+      draft.status = "approved";
+      draft.published_at = null;
+    });
+    renderList();
+    await screen.findByText(/조개껍데기를 하나씩 모았어요/);
+
+    await user.click(screen.getByRole("button", { name: "회수함" }));
+
+    expect(await screen.findByText("승인했지만 아직 안 보냄")).toBeInTheDocument();
   });
 });

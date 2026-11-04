@@ -39,7 +39,17 @@ export function RevokedNotesDialog({
     ...childDraftsQueryOptions(childId, "parent_note", false),
     enabled: open && childId !== "",
   });
-  const revoked = (notesQuery.data ?? []).filter((note) => note.status === "revoked");
+  // **"회수된 것"이 아니라 "보호자에게 안 나간 것"으로 봅니다.** 회수한 뒤 되돌려 승인하면
+  // 상태가 approved로 바뀌는데, 목록에는 "한 번 게시됐다 회수됐다"는 표시가 없어 평범한
+  // 미게시 초안과 구분되지 않습니다. 회수본만 담으면 승인하는 순간 여기서 사라져, 교사가
+  // 고치다 나간 알림장을 다시 못 찾습니다(브라우저로 찾은 구멍).
+  //
+  // 검토 대기(`verified`)는 넣지 않습니다 — 평범한 날에는 그날 초안이 전부 그 상태라
+  // 회수함이 오늘 작업 목록이 되어 버립니다.
+  const unsent = (notesQuery.data ?? []).filter(
+    (note) =>
+      note.published_at === null && (note.status === "revoked" || note.status === "approved"),
+  );
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -47,7 +57,7 @@ export function RevokedNotesDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>{childName} 회수함</AlertDialogTitle>
           <AlertDialogDescription>
-            회수한 알림장은 보호자에게 보이지 않아요. 날짜를 눌러 고친 뒤 다시 게시해 주세요.
+            보호자에게 아직 가지 않은 알림장이에요. 날짜를 눌러 고친 뒤 보내 주세요.
           </AlertDialogDescription>
         </AlertDialogHeader>
 
@@ -59,11 +69,11 @@ export function RevokedNotesDialog({
               ? notesQuery.error.message
               : "잠시 후 다시 시도해 주세요."}
           </p>
-        ) : revoked.length === 0 ? (
-          <p className="text-body text-ink-muted">회수한 알림장이 없어요.</p>
+        ) : unsent.length === 0 ? (
+          <p className="text-body text-ink-muted">안 보낸 알림장이 없어요.</p>
         ) : (
           <ul className="flex max-h-72 flex-col gap-2 overflow-y-auto">
-            {revoked.map((note) => (
+            {unsent.map((note) => (
               <li key={note.draft_id}>
                 <button
                   type="button"
@@ -77,6 +87,10 @@ export function RevokedNotesDialog({
                   {/* 두 날의 회수본이 함께 있을 수 있어 날짜가 첫 줄입니다. */}
                   <span className="text-body font-bold text-ink">
                     {formatDate(note.record_date)}
+                  </span>
+                  {/* 회수한 것과 승인만 한 것이 섞여서, 왜 여기 있는지 한 줄로 밝힙니다. */}
+                  <span className="text-caption text-ink-muted">
+                    {note.status === "revoked" ? "회수함" : "승인했지만 아직 안 보냄"}
                   </span>
                   <span className="line-clamp-2 text-caption text-ink-muted">{note.preview}</span>
                 </button>

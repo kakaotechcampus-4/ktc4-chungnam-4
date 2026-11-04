@@ -12,6 +12,8 @@ interface PublishedNoteRowProps {
   version: number;
   /** 활성 게시 회차의 게시 시각. 이 줄은 게시된 알림장만 그립니다. */
   publishedAt: string;
+  /** 회수한 뒤. 화면이 "이번에 회수한 초안"을 기억해 나갈 때 경고합니다. */
+  onRevoked: () => void;
 }
 
 // 게시를 마친 날짜 화면의 한 줄입니다. 게시한 원아와, 아직 회수할 수 있으면 회수 버튼을 보여 줍니다.
@@ -22,6 +24,7 @@ export function PublishedNoteRow({
   draftId,
   version,
   publishedAt,
+  onRevoked,
 }: PublishedNoteRowProps) {
   // 기한은 보고 있는 사이에도 지납니다. 1분마다 지금 시각을 다시 읽어 버튼이 제때 사라지게
   // 합니다(그리는 중에는 Date.now를 부르지 않습니다 — react-hooks/purity).
@@ -53,6 +56,7 @@ export function PublishedNoteRow({
             childName={childName}
             draftId={draftId}
             version={version}
+            onRevoked={onRevoked}
           />
         ) : null}
       </div>

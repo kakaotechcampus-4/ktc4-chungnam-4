@@ -2,7 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { useState } from "react";
-import { useBlocker, useNavigate, useParams, useSearchParams } from "react-router";
+import { useBlocker, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 
 import {
   approveDraft,
@@ -108,6 +108,7 @@ export function DraftReviewPage() {
   const { childId } = useParams<{ childId: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
 
   // 기본은 오늘입니다. 지난 날짜는 ?record_date=YYYY-MM-DD로 봅니다(목 데이터 확인용).
@@ -180,10 +181,22 @@ export function DraftReviewPage() {
   // 그냥 나가면 그대로 묻히므로, 나가기 전에 어디서 다시 찾는지 알려 줍니다.
   // **자동으로 다시 게시하지는 않습니다** — 승인을 코드가 대신하게 되고(H-1), 틀려서 내린 글이
   // 교사 뜻과 무관하게 올라갑니다. 알리기만 하고 판단은 교사가 합니다.
-  const revokedRow = rows.find((row) => row.note?.status === "revoked");
+  // **이번에 회수한 초안**을 따로 기억합니다. 상태만 보면 안 됩니다 — 되돌려 승인하면
+  // approved가 되는데, 그건 "오늘 승인만 하고 아직 안 보낸 평범한 초안"과 구분되지 않습니다.
+  // 상태로만 경고하면 평범한 날에도 매번 뜨고, 게시 직후 발행 완료로 가는 길까지 막습니다.
+  // 알림장 상세에서 회수하고 넘어온 경우는 그쪽이 state로 알려 줍니다.
+  const [revokedDraftId, setRevokedDraftId] = useState<string | null>(
+    () => (location.state as { revokedDraftId?: string } | null)?.revokedDraftId ?? null,
+  );
+  // 회수한 그 초안이 아직 안 나갔으면 경고합니다. 고쳐서 게시하면 published_at이 차서 풀립니다.
+  const unsentRow = rows.find(
+    (row) => row.note?.draft_id === revokedDraftId && row.note.published_at === null,
+  );
+  // 레일에서 원아를 바꾸는 것도 주소가 바뀌지만 **이 화면 안**입니다. 경로만 비교하면
+  // 아이를 옮길 때마다 경고가 떠서 아무것도 못 합니다. 검토 화면을 아주 떠날 때만 막습니다.
   const blocker = useBlocker(
-    ({ currentLocation, nextLocation }) =>
-      revokedRow !== undefined && currentLocation.pathname !== nextLocation.pathname,
+    ({ nextLocation }) =>
+      unsentRow !== undefined && !nextLocation.pathname.startsWith("/t/today/review/"),
   );
 
   const selectedChildId = childId ?? rows[0]?.child.child_id ?? "";
@@ -555,6 +568,7 @@ export function DraftReviewPage() {
             {published.map(({ child, note, publishedAt }) => (
               <PublishedNoteRow
                 key={child.child_id}
+                onRevoked={() => setRevokedDraftId(note.draft_id)}
                 childId={child.child_id}
                 childName={child.name}
                 draftId={note.draft_id}
@@ -564,7 +578,7 @@ export function DraftReviewPage() {
             ))}
           </ul>
         </div>
-        <LeaveRevokedDialog blocker={blocker} childName={revokedRow?.child.name ?? ""} />
+        <LeaveRevokedDialog blocker={blocker} childName={unsentRow?.child.name ?? ""} />
       </>
     );
   }
@@ -857,7 +871,7 @@ export function DraftReviewPage() {
         </div>
       </div>
 
-      <LeaveRevokedDialog blocker={blocker} childName={revokedRow?.child.name ?? ""} />
+      <LeaveRevokedDialog blocker={blocker} childName={unsentRow?.child.name ?? ""} />
 
       <PublishConfirmDialog
         open={publishOpen}

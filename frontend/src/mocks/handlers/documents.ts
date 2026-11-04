@@ -36,7 +36,8 @@ import { isMockScenario } from "../scenario";
 // develop의 documents 라우터와 같고, 필드가 다른 곳은 API 문서를 따릅니다. 게시 여부는 status가 아니라
 // published_at으로 나타냅니다.
 // 시나리오: documents.drafts-empty(반·날짜 초안 목록이 비어 있음)
-//          documents.just-published(게시분을 방금 게시한 것으로 — 회수 화면 확인용)
+//          documents.just-published(게시분을 방금 게시한 것으로 — 지난 날짜에서 회수 확인용)
+//          documents.published-today(오늘 게시를 마친 상태로 시작 — mocks/db.ts 시드)
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 

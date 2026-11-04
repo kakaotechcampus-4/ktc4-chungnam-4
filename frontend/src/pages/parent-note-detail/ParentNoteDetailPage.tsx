@@ -173,6 +173,8 @@ export function ParentNoteDetailPage() {
               onRevoked={() =>
                 navigate(
                   `/t/today/review/${childId}?record_date=${encodeURIComponent(draft.record_date)}`,
+                  // 넘어간 화면이 "이번에 회수한 것"을 알아야 나갈 때 경고할 수 있습니다.
+                  { state: { revokedDraftId: draft.draft_id } },
                 )
               }
             />
