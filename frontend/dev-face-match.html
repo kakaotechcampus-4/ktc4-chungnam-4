@@ -285,6 +285,14 @@
       const mineStatusEl = document.getElementById("mine-status");
       const mineOutEl = document.getElementById("mine-out");
 
+      /**
+       * 「전체 측정」이 만든 글. 사진을 나눠 고를 때마다 실사진 요약이 **덧붙지 않게**,
+       * 고를 때마다 이 값으로 되돌린 뒤 이번 요약 하나만 붙입니다. 예전에는 `+=`라
+       * 세 번 나눠 고르면 요약이 세 벌 쌓였고, 앞의 두 벌은 사진이 덜 담겼을 때의
+       * 옛 숫자였습니다 — 그대로 복사하면 틀린 숫자를 올리게 됩니다.
+       */
+      let fixtureMd = "";
+
       const shortName = (path) => path.replace("/test/fixtures/faces/", "");
 
       /** 폴더·파일 이름에서 누구인지 읽습니다. 모르면 null(측정에서 뺍니다). */
@@ -753,7 +761,7 @@
           );
 
           // 6) PR·이슈에 붙일 글
-          mdEl.value = [
+          fixtureMd = [
             `모델 \`${FACE_MODEL_VERSION}\` · 설정 \`${JSON.stringify(MATCH_OPTIONS)}\``,
             `초상 ${solo.length}장(아이 ${children.length}명) · 활동 사진 얼굴 ${group.length}개`,
             "",
@@ -810,6 +818,7 @@
                 `| ${r.key} | ${r.used} | ${r.hits} / ${group.length} | ${fmt(r.score)} | ${fmt(r.margin)} |`,
             ),
           ].join("\n");
+          mdEl.value = fixtureMd;
 
           statusEl.textContent = "끝났습니다. 아래에서 실제 사람 사진으로 기준값을 재 보세요.";
         } finally {
@@ -858,6 +867,7 @@
       mineClearEl.addEventListener("click", () => {
         picked.clear();
         mineOutEl.replaceChildren();
+        mdEl.value = fixtureMd;
         mineStatusEl.textContent = "비웠습니다. 다시 골라 주세요.";
       });
 
@@ -874,6 +884,7 @@
         if (files.length === 0) return;
         mineEl.disabled = true;
         mineOutEl.replaceChildren();
+        mdEl.value = fixtureMd;
         try {
           const human = await loadFaceModels();
           const similarity = (a, b) => human.match.similarity(a, b, MATCH_OPTIONS);
@@ -1151,8 +1162,9 @@
                   .map((pair) => [`${pair.a}  ↔  ${pair.b}`, fmt(pair.score)]),
               ),
             );
-            mdEl.value +=
-              `\n\n## 실사진 ${people.length}명 (${people.join(", ")})\n\n` +
+            mdEl.value =
+              (fixtureMd ? `${fixtureMd}\n\n` : "") +
+              `## 실사진 ${people.length}명 (${people.join(", ")})\n\n` +
               `모델 \`${FACE_MODEL_VERSION}\` · 설정 \`${JSON.stringify(MATCH_OPTIONS)}\` · 기준 ${MATCH_MIN_SCORE} / 차이 ${MATCH_MIN_MARGIN}\n\n` +
               `| 묶음 | 쌍 | 가장 낮음 | 평균 | 가장 높음 |\n|---|---|---|---|---|\n` +
               `| 같은 사람 | ${ss.count} | ${fmt(ss.min)} | ${fmt(ss.mean)} | ${fmt(ss.max)} |\n` +
