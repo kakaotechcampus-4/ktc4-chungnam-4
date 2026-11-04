@@ -24,6 +24,14 @@ it("두 후보의 점수가 가까우면 교사 확인으로 보낸다", () => {
     candidates: [],
   });
 });
+it("비교할 등록 원아가 한 명뿐이면 점수가 높아도 자동 확정하지 않는다(H-2)", () => {
+  // 등록되지 않은 얼굴이 그 한 명과 0.9로 맞아도 차이를 잴 수 없어 확실한 후보로 보지 않는다
+  expect(matchFaces([face], [registered[0]!], () => 0.9)).toMatchObject({
+    classify_state: "unclassified",
+    has_unidentified_face: true,
+    candidates: [],
+  });
+});
 it("아무 얼굴도 없으면 LLM 가능 사진으로 확정하지 않는다", () => {
   expect(matchFaces([], registered, () => 1).has_unidentified_face).toBe(true);
 });
