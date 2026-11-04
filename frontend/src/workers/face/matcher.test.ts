@@ -3,9 +3,9 @@ import { FACE_MODEL_VERSION } from "./model-manifest";
 import { FACE_DESCRIPTOR_LENGTH } from "./types";
 
 const vector = (n: number) => Array<number>(FACE_DESCRIPTOR_LENGTH).fill(n);
-const face = { descriptor: vector(0.1), confidence: 0.99, usable: true };
+const face = { descriptor: vector(0.1), confidence: 0.99, meshScore: 0.9, usable: true };
 /** 옆모습처럼 정렬이 안 된 얼굴. 벡터는 1024로 멀쩡해도 믿을 수 없습니다. */
-const unalignedFace = { descriptor: vector(0.1), confidence: 0.99, usable: false };
+const unalignedFace = { descriptor: vector(0.1), confidence: 0.99, meshScore: 0.05, usable: false };
 const registered = [
   { child_id: "a", embedding: vector(0.1), model_version: FACE_MODEL_VERSION },
   { child_id: "b", embedding: vector(0.2), model_version: FACE_MODEL_VERSION },
@@ -39,7 +39,7 @@ it("아무 얼굴도 없으면 LLM 가능 사진으로 확정하지 않는다", 
 });
 it("알 수 없는 얼굴이 섞이면 확실한 후보를 남기되 사진 전체는 미분류다", () => {
   const result = matchFaces(
-    [face, { descriptor: vector(0.3), confidence: 0.9, usable: true }],
+    [face, { descriptor: vector(0.3), confidence: 0.9, meshScore: 0.9, usable: true }],
     registered,
     (a, b) => (a[0] === b[0] ? 0.95 : 0.1),
   );

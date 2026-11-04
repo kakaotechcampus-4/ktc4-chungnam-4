@@ -275,6 +275,22 @@ describe("정렬 점수", () => {
     expect((await detectFaces(photo()))[0]?.usable).toBe(true);
   });
 
+  // 판정 결과만으로는 "기준을 얼마로 할지"를 잴 수 없어 점수 자체도 내보냅니다.
+  // 확인 도구가 이 값으로 정면·옆모습 분포를 그려 기준값을 정합니다.
+  it("정렬 점수를 그대로 함께 돌려준다", async () => {
+    detectMock.mockResolvedValue({ face: [faceResult(FACE_DESCRIPTOR_LENGTH, 0.95, 0.37)] });
+
+    expect((await detectFaces(photo()))[0]?.meshScore).toBe(0.37);
+  });
+
+  it("정렬 점수가 없으면 0으로 돌려준다", async () => {
+    detectMock.mockResolvedValue({
+      face: [{ score: 0.95, embedding: Array<number>(FACE_DESCRIPTOR_LENGTH).fill(0.1) }],
+    });
+
+    expect((await detectFaces(photo()))[0]?.meshScore).toBe(0);
+  });
+
   // score는 검출·정렬을 합친 값이라 옆모습도 검출이 잘되면 높게 나옵니다. 그걸로 가르면
   // 거르지 못합니다.
   it("합산 score가 높아도 정렬 점수가 낮으면 usable=false다", async () => {
