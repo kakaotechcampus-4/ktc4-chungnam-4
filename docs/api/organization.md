@@ -9,7 +9,7 @@
 (막힘)은 정해져야 FE 목(MSW)과 BE schemas를 만들 수 있는 항목입니다. 막히면 작업하는 사람이 정하고 진행합니다. 정한 값은 같은 PR에서 이 파일에 반영하고, 항목을 `[x]`로 바꾼 뒤 `임시 결정(이름)`과 반영한 곳을 적습니다([README](README.md) §이 문서를 읽는 법). 담당의 답은 이슈 #58 댓글이나 이 파일을 고치는 PR로 받습니다.
 
 - [x] (막힘) `get_consented_children` 구현(이슈 #31 → #105). face 임베딩 캐시와 `llm_allowed` 판정이 이 함수를 기다림 → 구현(이한나, #134). 반영: `backend/domains/organization/service.py`
-- [x] `age_group` 값 형식("만 4세" vs "만 3~5세"), 코드와 표시 라벨을 나눌지 → 임시 결정(이한나): 코드 `age_band`(`infant`·`preschool`)와 표시 `age_group`("만 4세")을 나눔. 에이전트는 `age_band`로 교육과정을 고름. 반영: §② 화면용으로 채운 엔드포인트의 `ClassSummary`
+- [x] `age_group` 값 형식("만 4세" vs "만 3~5세"), 코드와 표시 라벨을 나눌지 → 확정(팀 결정): 코드 `age_band`(`infant`·`preschool`)와 표시 `age_group`("만 4세")을 나눔. 에이전트는 `age_band`로 교육과정을 고름. 반영: §② 화면용으로 채운 엔드포인트의 `ClassSummary`
 - [ ] 필수 동의 ①② 기록이 없는 원아를 명단에서 뺄지(김동건과 함께)
 - [ ] NFR-03 만료 자녀를 `access_expired: true`로 남기는 안
 - [ ] `class_teacher_name` 조인 방식(`Class.teacher_id` → auth의 `Teacher.name`)
@@ -59,7 +59,7 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 - 교사의 소속 어린이집이 아직 없으면(`center_id`가 null) `items: []`입니다. 소속은 있는데 반이 아직 없는 어린이집도 `items: []`이므로, FE는 두 경우를 `GET /me`의 `center_id`로 구분합니다 — 있으면 반 만들기·고르기(FR-25). 회원가입이 소속을 정해야 끝나므로(`POST /accounts`) null은 `--center-id` 없이 만든 시드 계정뿐입니다. 온보딩 API는 경로만 정했습니다.
 - 구현됨(#146): 서버는 위 기본 필드만 돌려줍니다. §② `ClassSummary`의 확장 필드(`age_band`·`child_count`·`is_favorite`·`needs_record_today`)는 아직 없습니다.
 - 에러: 공통 에러만
-- `age_group` 값 형식 → 임시 결정(이한나): 표시용 문자열로 두고, 교육과정은 새 필드 `age_band`로 고릅니다. 이 응답에 더하는 필드는 아래 §② 화면용으로 채운 엔드포인트의 `ClassSummary`에 있습니다.
+- `age_group` 값 형식 → 확정(팀 결정): 표시용 문자열로 두고, 교육과정은 새 필드 `age_band`로 고릅니다. 이 응답에 더하는 필드는 아래 §② 화면용으로 채운 엔드포인트의 `ClassSummary`에 있습니다.
 - 담당교사 개념 폐지로 원장·담임 구분 없이 같은 어린이집 교사는 모든 반을 봅니다.
 
 ### `GET /api/v1/classes/{class_id}/children` — 반의 재원 원아 명단(교사 화면 원아 이름의 유일한 출처)
@@ -250,7 +250,7 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 - 구현: `GET /centers/{center_id}/classes`, `POST /classes`. 소속이 아닌 어린이집(소속이 없는 교사 포함)은 403 `CENTER_ACCESS_DENIED`입니다 → 임시 결정(이한나). 다른 어린이집이 있는지 없는지는 알려 주지 않습니다.
 - `POST /classes`는 담당교사 폐지로 담임 배정을 하지 않고 만든 교사만 `Klass.teacher_id`에 남깁니다. 표시용 `age_group`은 `infant` → "만 0~2세", `preschool` → "만 3~5세"로 채웁니다 → 임시 결정(이한나). 같은 이름의 반은 막지 않습니다. `POST /classes/{class_id}/assign`은 담당교사 폐지로 만들지 않았습니다.
 - `ClassSummary`의 `is_favorite`·`needs_record_today`는 아직 항상 `false`입니다(즐겨찾기 저장소 없음, 오늘 기록 여부는 media·documents 데이터).
-- `POST /centers`는 HTTP 경로 없이 service 함수 `create_center`만 만들었습니다. 교사 소속 저장(auth)과 한 트랜잭션이어야 해서 `POST /accounts`(엄태은)가 부릅니다. 계약 상태는 `trial`로 시작합니다(FR-24). 가입 코드는 대문자·숫자 8자리(헷갈리는 0·O·1·I 제외)로 서버가 발급합니다 → 임시 결정(이한나), #158 3번에서 정해지면 바꿉니다 `GET /centers?center_code=` 조회(`find_center_by_code`)는 입력의 앞뒤 공백을 지우고 대문자로 바꿔 비교합니다.
+- `POST /centers`는 HTTP 경로 없이 service 함수 `create_center`만 만들었습니다. 교사 소속 저장(auth)과 한 트랜잭션이어야 해서 `POST /accounts`(엄태은)가 부릅니다. 계약 상태는 `trial`로 시작합니다(FR-24). 가입 코드는 대문자·숫자 8자리(헷갈리는 0·O·1·I 제외)로 서버가 발급하고, 겹치면 다시 뽑습니다(#225 ⑦). 재발급은 하지 않고, 같은 이름·주소의 어린이집 중복 등록도 막지 않습니다 → 확정(#225 B). `GET /centers?center_code=` 조회(`find_center_by_code`)는 입력의 앞뒤 공백을 지우고 대문자로 바꿔 비교합니다.
 
 ### 원아
 

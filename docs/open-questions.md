@@ -64,7 +64,7 @@
 - [ ] **로그로 무엇을 남기고 무엇을 지울지** (09/19) — `AccessLog`·`DeletionLog`의 기록 대상과 보존 기간. 남기지 않으면 H-4를 못 지키고, 과하게 남기면 그 자체가 개인정보가 됩니다. **한상균이 추가 작업 예정**
   - **`DeletionLog` 코드값 — 담당자 합의(09/29, 김동건·한상균, #74).** `reason`은 필수이며 `consent_revoked`(동의 철회) / `teacher_removed`(교사가 얼굴 정보만 삭제, 동의는 유지) / `retention_expired`(보관기한 파기, NFR-03-b) / `unapproved`(미승인 원본 파기, NFR-04) 4개만 받습니다. `target_type`은 `media_asset`·`face_embedding` 2개이고, `target_id`는 각각 `MediaAsset.id`·삭제 전에 확보한 `FaceEmbedding.id`로 대상마다 한 번씩 기록합니다 → `backend/domains/audit/models.py`
   - **비확정**: `unapproved`는 코드만 두었습니다. media에는 승인 상태가 없어 "미승인 원본"의 정의와 호출 시점이 정해지지 않았습니다 (#74)
-  - **비확정**: 동의 철회 시 organization이 face 삭제 함수를 같은 Session으로 부르고 커밋하는 구조는 김동건 제안이며 이한나 답변 전입니다 (#74)
+  - **확정(#225 ⑥)**: 동의 철회 시 organization이 face 삭제 함수를 같은 Session으로 부르고 커밋합니다 (#74)
   - 여전히 미정: `AccessLog`의 기록 대상·`target_type`·`action` 값, 두 로그의 보존 기간
 - [ ] **새로고침 시 무엇이 보존되어야 하는지** (09/19 논의, 방법 미정) — 업로드·검수 중 새로고침했을 때 로컬(IndexedDB)에 남아야 할 상태의 범위. 데이터 모델 ⑧ `LocalBatch`·`LocalPhoto`와 맞물림
 - [ ] **STT·사진 분류 UI를 프론트 어느 화면에 둘지** (09/19) — 추후 프론트 회의에서 결정. 제안(송유진 #83 리뷰, 팀 결정 전): 분류 결과와 수동 분류 · 발화 탭. `docs/api/media-face.md` 하단 §상의 필요 6
@@ -75,8 +75,8 @@
 - [ ] 영상·음성 파일이 없는 날의 서비스 동작
 - [x] 영상 중간 프레임을 사진처럼 초안 근거로 쓸지 — 쓴다면 몇 장·선택 기준 (파이프라인 1단계 `frame_extract`) → 결정(팀 회의, 10/27 정은 확인): 쓰지 않음. 영상은 발화만 근거로 씀. 반영: 테크스펙 §요청사항 2(초안 작성의 입력 소스), agents CLAUDE.md
 - [ ] 동의서 법적 문구 확정 (테크스펙 데이터모델 ② "수정 필요")
-- [ ] 어린이집 가입 코드(`center_code`) 형식·발급 방식 — 길이, 문자셋, 재발급 가능 여부 (FR-23, FR-24)
-- [ ] 교사가 직접 만든 어린이집의 중복 검증 — 같은 이름·주소가 이미 있을 때 막을지, 합칠지, 그냥 둘지 (FR-24)
+- [x] 어린이집 가입 코드(`center_code`) 형식·발급 방식 — 길이, 문자셋, 재발급 가능 여부 (FR-23, FR-24) → 결정(#225 ⑦·B): 대문자·숫자 8자리(0·O·1·I 제외), 겹치면 다시 뽑기. 재발급 없음(시연 범위). 반영: `backend/domains/organization/service.py` `create_center`, `docs/api/organization.md`
+- [x] 교사가 직접 만든 어린이집의 중복 검증 — 같은 이름·주소가 이미 있을 때 막을지, 합칠지, 그냥 둘지 (FR-24) → 결정(#225 B): 막지 않음. 이름·주소가 같다고 같은 원이라고 볼 수 없음. 반영: `create_center` docstring
 - [ ] `Klass.teacher_id` 컬럼을 유지할지(반 생성 기록용) 삭제할지 — 담당교사 개념 폐지로 접근 권한 판단에는 쓰지 않음 (`backend/domains/organization/models.py`)
 - [ ] 초안에 교사 이름을 **어디에 어떤 형식으로** 넣을지 — 본문 안 문구(예: "담임 OO 드림") vs 문서 메타 필드. 현재 스펙은 메타 필드 + 서버 렌더링 기준 (FR-26)
 - [ ] `DraftDocument.author_teacher_id` 컬럼 추가 — 마이그레이션 시점·BE 리드 확인 필요 (FR-26)
