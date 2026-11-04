@@ -1,0 +1,900 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>얼굴 대조 점수 재기</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family:
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+      }
+      body {
+        margin: 0 auto;
+        max-width: 1100px;
+        padding: 24px 16px 64px;
+        line-height: 1.6;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0 0 4px;
+      }
+      h2 {
+        font-size: 16px;
+        margin: 28px 0 8px;
+      }
+      p.lead {
+        margin: 0 0 20px;
+        opacity: 0.75;
+        font-size: 14px;
+      }
+      button {
+        font: inherit;
+        padding: 8px 14px;
+        border-radius: 8px;
+        border: 1px solid currentColor;
+        background: transparent;
+        cursor: pointer;
+      }
+      button[disabled] {
+        opacity: 0.4;
+        cursor: progress;
+      }
+      #status {
+        font-size: 14px;
+        opacity: 0.75;
+        margin-left: 8px;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 13px;
+        margin-bottom: 8px;
+      }
+      th,
+      td {
+        border-bottom: 1px solid rgba(128, 128, 128, 0.35);
+        padding: 6px 8px;
+        text-align: left;
+      }
+      td.num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      .ok {
+        color: #1a7f37;
+        font-weight: 600;
+      }
+      .bad {
+        color: #c1121f;
+        font-weight: 600;
+      }
+      textarea {
+        width: 100%;
+        min-height: 260px;
+        font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+        font-size: 12px;
+        margin-top: 24px;
+      }
+      details {
+        margin-bottom: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>얼굴 대조 점수 재기 (4단계 준비)</h1>
+    <p class="lead">
+      <code>detectFaces</code>가 뽑은 벡터끼리 <code>human.match.similarity</code>로 점수를 매겨,
+      <strong>같은 아이 쌍</strong>과 <strong>다른 아이 쌍</strong>이 갈라지는지 봅니다.
+      <code>matcher.ts</code>를 쓰기 전에 <strong>이 사진으로 기준값을 정할 수 있는지</strong>
+      부터 확인하려는 것입니다. 개발 전용 파일입니다.
+    </p>
+
+    <details>
+      <summary>무엇을 보면 되나</summary>
+      <ul>
+        <li>
+          <strong>갈라지면</strong> — 같은 아이 쌍의 <em>가장 낮은 점수</em>가 다른 아이 쌍의
+          <em>가장 높은 점수</em>보다 큽니다. 그 사이 어디든 기준값으로 쓸 수 있습니다
+        </li>
+        <li>
+          <strong>겹치면</strong> — 이 사진으로는 기준값을 정할 수 없습니다. 사진을 더 만들거나 다른
+          자료가 필요합니다
+        </li>
+        <li>
+          <strong>활동 사진 대조</strong>가 가장 현실적입니다. 등록한 얼굴과 실제 활동 사진 속
+          얼굴을 견주는 것이라, 서비스가 실제로 하는 일과 같습니다
+        </li>
+      </ul>
+    </details>
+
+    <div>
+      <button id="run" type="button">전체 측정</button>
+      <span id="status">아직 돌리지 않았습니다.</span>
+    </div>
+
+    <details open>
+      <summary><strong>실제 사람 사진으로 기준값 재기</strong> — 0.8 / 0.15를 정하는 자리</summary>
+      <p>
+        지금 기준값은 <strong>합성 사진으로 정한 임시 값</strong>입니다. 합성 아이들은
+        조명·배경·거리가 전부 같아 점수가 부풀려져 있어서, 같은 아이 최저(0.59)가 다른 아이
+        최고(0.90)보다 낮아 <strong>선을 그을 자리가 없습니다</strong>. 실제 사람 사진으로 다시
+        잽니다(#237).
+      </p>
+      <p><strong>파일 이름으로 무엇인지 알려 주세요.</strong></p>
+      <ul>
+        <li>
+          <code>진하_01.jpg</code> — 진하의 <strong>초상</strong>. 등록 벡터를 만듭니다(여러 장
+          평균)
+        </li>
+        <li>
+          <code>진하_옆_01.jpg</code> — <strong>옆모습</strong>. 등록에서 빼고
+          <code>usable</code> 판정만 봅니다
+        </li>
+        <li>
+          <code>group_01.jpg</code> — <strong>활동 사진</strong>. 얼굴이 여럿이어도 그대로 봅니다
+        </li>
+        <li>
+          <code>group_진하+동건_01.jpg</code> — 활동 사진 + <strong>정답</strong>(맞혔는지 채점)
+        </li>
+      </ul>
+      <p>
+        <strong>최소 3명</strong>이어야 "다른 사람" 쌍이 의미를 갖습니다.
+        <strong>활동 사진은 등록용과 다른 날·다른 장소에서</strong> 찍어 주세요 — 같은 자리에서
+        연달아 찍으면 합성 사진과 똑같이 점수가 부풀려집니다.
+      </p>
+      <p>
+        나오는 것: ① <code>usable</code>이 옆모습을 거르는지 ② 등록 벡터 ③
+        <strong>실제 <code>matchFaces</code> 규칙으로 자동 분류 장수와 1·2위 차이</strong> ④ 같은
+        사람 / 다른 사람이 갈라지는지.
+      </p>
+      <p>
+        <strong>사진은 브라우저 밖으로 나가지 않고 저장소에도 들어가지 않습니다</strong>(H-3). 고른
+        파일을 그 자리에서 읽어 점수만 내고 끝입니다. 프론트 픽스처는 합성 데이터만 쓰므로
+        (<code>frontend/CLAUDE.md</code>) 실제 사람 사진은 커밋하지 않습니다.
+      </p>
+      <div class="row">
+        <input id="mine" type="file" accept="image/*" multiple />
+        <button id="mine-clear" type="button">담은 사진 비우기</button>
+        <span id="mine-status">여러 번 나눠 골라도 됩니다 — 고를 때마다 쌓입니다.</span>
+      </div>
+      <div id="mine-out"></div>
+    </details>
+
+    <div id="out"></div>
+
+    <textarea id="md" readonly placeholder="측정이 끝나면 정리된 글이 여기 나옵니다."></textarea>
+
+    <script type="module">
+      import { detectFaces, loadFaceModels, MIN_MESH_SCORE } from "/src/workers/face/detector.ts";
+      // 기준값은 적지 않고 matcher에서 가져옵니다. 손으로 적으면 코드가 바뀔 때 이 페이지만
+      // 옛 값으로 재서, "이 숫자로 몇 장 자동 분류되나"가 거짓이 됩니다.
+      import {
+        MATCH_MIN_MARGIN,
+        MATCH_MIN_SCORE,
+        MATCH_OPTIONS,
+      } from "/src/workers/face/matcher.ts";
+      import { FACE_MODEL_VERSION } from "/src/workers/face/model-manifest.ts";
+
+      const fixtures = import.meta.glob("/test/fixtures/faces/**/*.jpg", {
+        eager: true,
+        import: "default",
+        query: "?url",
+      });
+
+      const statusEl = document.getElementById("status");
+      const outEl = document.getElementById("out");
+      const mdEl = document.getElementById("md");
+      const runEl = document.getElementById("run");
+      const mineEl = document.getElementById("mine");
+      const mineStatusEl = document.getElementById("mine-status");
+      const mineOutEl = document.getElementById("mine-out");
+
+      const shortName = (path) => path.replace("/test/fixtures/faces/", "");
+
+      /** 폴더·파일 이름에서 누구인지 읽습니다. 모르면 null(측정에서 뺍니다). */
+      function labelOf(path) {
+        const rest = shortName(path);
+        if (rest.startsWith("no-face/")) return null;
+        if (rest.startsWith("group/")) {
+          // 01_김도윤+이하준_블록쌓기.png → ["김도윤", "이하준"]
+          const names = rest.slice("group/".length).replace(/^\d+_/, "").split("_")[0];
+          return { kind: "group", names: names.split("+") };
+        }
+        return { kind: "solo", names: [rest.split("/")[0]] };
+      }
+
+      const fmt = (n) => n.toFixed(4);
+
+      function stats(values) {
+        if (values.length === 0) return null;
+        const sorted = [...values].sort((a, b) => a - b);
+        const sum = sorted.reduce((a, b) => a + b, 0);
+        const at = (q) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
+        return {
+          count: sorted.length,
+          min: sorted[0],
+          max: sorted[sorted.length - 1],
+          mean: sum / sorted.length,
+          p05: at(0.05),
+          p95: at(0.95),
+        };
+      }
+
+      function table(headers, rows) {
+        const el = document.createElement("table");
+        const thead = el.createTHead().insertRow();
+        headers.forEach((h) => {
+          const th = document.createElement("th");
+          th.textContent = h;
+          thead.append(th);
+        });
+        const body = el.createTBody();
+        rows.forEach((cells) => {
+          const tr = body.insertRow();
+          cells.forEach((value, i) => {
+            const td = tr.insertCell();
+            if (value instanceof Node) td.append(value);
+            else td.textContent = String(value);
+            if (i > 0) td.className = "num";
+          });
+        });
+        return el;
+      }
+
+      function heading(text) {
+        const h = document.createElement("h2");
+        h.textContent = text;
+        return h;
+      }
+
+      function verdict(text, good) {
+        const p = document.createElement("p");
+        p.textContent = text;
+        p.className = good ? "ok" : "bad";
+        return p;
+      }
+
+      async function fileFromUrl(url, name) {
+        const blob = await (await fetch(url)).blob();
+        return new File([blob], name, { type: blob.type });
+      }
+
+      runEl.addEventListener("click", async () => {
+        runEl.disabled = true;
+        outEl.replaceChildren();
+        try {
+          statusEl.textContent = "모델을 받는 중…";
+          const human = await loadFaceModels();
+          const similarity = (a, b) => human.match.similarity(a, b, MATCH_OPTIONS);
+
+          // 1) 벡터를 전부 뽑습니다.
+          const solo = []; // { name, child, descriptor }
+          const group = []; // { name, candidates, descriptor }
+          const paths = Object.keys(fixtures).sort();
+          for (const [index, path] of paths.entries()) {
+            const label = labelOf(path);
+            if (label === null) continue;
+            statusEl.textContent = `벡터 뽑는 중 ${index + 1}/${paths.length} · ${shortName(path)}`;
+            const file = await fileFromUrl(fixtures[path], shortName(path));
+            const faces = await detectFaces(file);
+            faces.forEach((face, i) => {
+              const entry = {
+                name: shortName(path) + (faces.length > 1 ? ` #${i + 1}` : ""),
+                meshScore: face.meshScore,
+                usable: face.usable,
+              };
+              if (label.kind === "solo")
+                solo.push({ ...entry, child: label.names[0], descriptor: face.descriptor });
+              else group.push({ ...entry, candidates: label.names, descriptor: face.descriptor });
+            });
+          }
+
+          // 1-b) usable 판정 — MIN_MESH_SCORE가 옆모습을 거르는지. 판정만 보면 "기준을 얼마로
+          //      할지"를 알 수 없어 정렬 점수 분포를 함께 냅니다. 옆모습 10장이 한 번에
+          //      들어오므로 실사진을 기다리지 않고 기준값을 좁힐 수 있습니다(#226 재리뷰).
+          const isSide = (name) => name.includes("옆모습");
+          const sideFaces = solo.filter((s) => isSide(s.name));
+          const frontFaces = solo.filter((s) => !isSide(s.name));
+          const scoreRow = (label, list) => {
+            if (list.length === 0) return [label, 0, "—", "—", "—", "—"];
+            const st = stats(list.map((f) => f.meshScore));
+            return [
+              label,
+              list.length,
+              list.filter((f) => f.usable).length,
+              fmt(st.min),
+              fmt(st.mean),
+              fmt(st.max),
+            ];
+          };
+          const leaked = sideFaces.filter((f) => f.usable);
+          outEl.append(
+            heading(`1. usable 판정 — 기준 ${MIN_MESH_SCORE} (정렬 점수)`),
+            table(
+              ["묶음", "얼굴", "usable=true", "점수 최저", "평균", "최고"],
+              [
+                scoreRow("정면·45도·웃음", frontFaces),
+                scoreRow("옆모습", sideFaces),
+                scoreRow("활동 사진", group),
+              ],
+            ),
+            verdict(
+              leaked.length === 0
+                ? `옆모습 ${sideFaces.length}개가 모두 걸러졌습니다. 기준 ${MIN_MESH_SCORE}가 맞습니다.`
+                : `옆모습 ${leaked.length}/${sideFaces.length}개가 usable로 샙니다. 기준을 올리거나 yaw가 필요합니다.`,
+              leaked.length === 0,
+            ),
+          );
+          if (leaked.length > 0) {
+            outEl.append(
+              table(
+                ["샌 옆모습", "정렬 점수"],
+                [...leaked]
+                  .sort((a, b) => b.meshScore - a.meshScore)
+                  .map((f) => [f.name, fmt(f.meshScore)]),
+              ),
+              verdict(
+                `정면 최저 ${fmt(stats(frontFaces.map((f) => f.meshScore)).min)} · 샌 옆모습 최고 ` +
+                  `${fmt(Math.max(...leaked.map((f) => f.meshScore)))} — 이 둘 사이에 선이 있으면 ` +
+                  "기준값만 올려도 되고, 없으면 yaw 기준이 필요합니다.",
+                stats(frontFaces.map((f) => f.meshScore)).min >
+                  Math.max(...leaked.map((f) => f.meshScore)),
+              ),
+            );
+          }
+
+          // 2) 초상끼리 전부 견줍니다. 옆모습은 등록에서 뺄 사진이라 뺀 경우도 함께 봅니다
+          //    (test/fixtures/faces/README.md — facemesh가 양쪽 눈을 봐야 정렬합니다).
+          statusEl.textContent = "점수 매기는 중…";
+          function measure(photos) {
+            const same = [];
+            const diff = [];
+            for (let i = 0; i < photos.length; i += 1) {
+              for (let j = i + 1; j < photos.length; j += 1) {
+                const score = similarity(photos[i].descriptor, photos[j].descriptor);
+                const pair = { a: photos[i].name, b: photos[j].name, score };
+                if (photos[i].child === photos[j].child) same.push(pair);
+                else diff.push(pair);
+              }
+            }
+            const sameStats = stats(same.map((p) => p.score));
+            const diffStats = stats(diff.map((p) => p.score));
+            return {
+              photos,
+              same,
+              diff,
+              sameStats,
+              diffStats,
+              separated: sameStats.min > diffStats.max,
+              gap: sameStats.min - diffStats.max,
+              worstSame: [...same].sort((x, y) => x.score - y.score).slice(0, 5),
+              worstDiff: [...diff].sort((x, y) => y.score - x.score).slice(0, 5),
+            };
+          }
+
+          const views = [
+            { key: "전부", result: measure(solo) },
+            { key: "옆모습 뺌", result: measure(solo.filter((s) => !s.name.includes("옆모습"))) },
+          ];
+
+          const children = [...new Set(solo.map((s) => s.child))].sort();
+          for (const { key, result } of views) {
+            const { sameStats: s, diffStats: d, separated, gap } = result;
+            outEl.append(
+              heading(
+                `1. 초상 비교 — ${key} (${result.photos.length}장 · 아이 ${children.length}명)`,
+              ),
+              table(
+                ["묶음", "쌍", "가장 낮음", "5%", "평균", "95%", "가장 높음"],
+                [
+                  [
+                    "같은 아이",
+                    s.count,
+                    fmt(s.min),
+                    fmt(s.p05),
+                    fmt(s.mean),
+                    fmt(s.p95),
+                    fmt(s.max),
+                  ],
+                  [
+                    "다른 아이",
+                    d.count,
+                    fmt(d.min),
+                    fmt(d.p05),
+                    fmt(d.mean),
+                    fmt(d.p95),
+                    fmt(d.max),
+                  ],
+                ],
+              ),
+              separated
+                ? verdict(
+                    `갈라졌습니다 — 같은 아이의 최저(${fmt(s.min)})가 다른 아이의 최고(${fmt(d.max)})보다 ${fmt(gap)} 높습니다. 기준값 후보 ${fmt((s.min + d.max) / 2)}.`,
+                    true,
+                  )
+                : verdict(
+                    `겹칩니다 — 같은 아이 최저 ${fmt(s.min)} < 다른 아이 최고 ${fmt(d.max)}. 평균 차이는 ${fmt(s.mean - d.mean)}입니다.`,
+                    false,
+                  ),
+              table(
+                [`같은 아이인데 가장 안 닮은 쌍 (${key})`, "점수"],
+                result.worstSame.map((p) => [`${p.a}  ↔  ${p.b}`, fmt(p.score)]),
+              ),
+              table(
+                [`다른 아이인데 가장 닮은 쌍 (${key})`, "점수"],
+                result.worstDiff.map((p) => [`${p.a}  ↔  ${p.b}`, fmt(p.score)]),
+              ),
+            );
+          }
+
+          const { same, diff, sameStats, diffStats, separated, gap, worstSame, worstDiff } =
+            views[0].result;
+
+          // 4) 활동 사진 속 얼굴을 초상과 견줍니다 — 실제 흐름과 같은 모양입니다.
+          //    검출 순서는 믿을 수 없으므로, 각 얼굴이 "가장 닮은 아이"로 누구를 고르는지만 봅니다.
+          const groupRows = group.map((face) => {
+            const scored = children
+              .map((child) => {
+                const best = Math.max(
+                  ...solo
+                    .filter((s) => s.child === child)
+                    .map((s) => similarity(face.descriptor, s.descriptor)),
+                );
+                return { child, best };
+              })
+              .sort((x, y) => y.best - x.best);
+            const picked = scored[0];
+            const runnerUp = scored[1];
+            const correct = face.candidates.includes(picked.child);
+            return {
+              name: face.name,
+              expected: face.candidates.join(" 또는 "),
+              picked: picked.child,
+              score: picked.best,
+              margin: picked.best - runnerUp.best,
+              correct,
+            };
+          });
+          const groupHits = groupRows.filter((r) => r.correct).length;
+          outEl.append(
+            heading(`3. 활동 사진 대조 — 얼굴 ${group.length}개`),
+            table(
+              ["얼굴", "정답", "고른 아이", "점수", "2등과 차이", "맞음"],
+              groupRows.map((r) => [
+                r.name,
+                r.expected,
+                r.picked,
+                fmt(r.score),
+                fmt(r.margin),
+                r.correct ? "✅" : "❌",
+              ]),
+            ),
+            verdict(
+              `${group.length}개 중 ${groupHits}개가 정답 안에 들었습니다.`,
+              groupHits === group.length,
+            ),
+          );
+
+          // 5) 등록 장수를 몇 장으로 할지 — 구성을 바꿔 가며 활동 사진을 맞히는지 봅니다.
+          //    등록 화면은 지금 최대 3장이고(MAX_PHOTOS, 임시 결정(김동건)) 테크스펙에는 장수가
+          //    없습니다. 쓸 수 있는 각도가 정면·좌45·우45·웃음 넷이라 3장이면 하나를 버려야 해서,
+          //    어느 구성이 나은지와 몇 장부터 더 넣어도 안 좋아지는지를 잽니다.
+          const angleOf = (name) => /_(\d\d)_/.exec(name)?.[1] ?? "";
+          const average = (vectors) =>
+            vectors[0].map((_, i) => vectors.reduce((sum, v) => sum + v[i], 0) / vectors.length);
+
+          const registrationSets = [
+            { key: "3장 · 정면+좌우45 (웃음 없음)", angles: ["01", "02", "03"] },
+            { key: "3장 · 정면+45+웃음", angles: ["01", "02", "06"] },
+            { key: "4장 · 옆모습 빼고 전부", angles: ["01", "02", "03", "06"] },
+            { key: "5장 · 옆모습 하나 더", angles: ["01", "02", "03", "06", "05"] },
+          ];
+
+          const setRows = registrationSets.map(({ key, angles }) => {
+            // 아이마다 그 구성에 해당하는 사진만 모아 평균을 냅니다(worker의 등록과 같은 방식).
+            const registered = new Map();
+            const usedCounts = [];
+            for (const child of children) {
+              const picked = solo.filter(
+                (s) => s.child === child && angles.includes(angleOf(s.name)),
+              );
+              if (picked.length === 0) continue;
+              registered.set(child, average(picked.map((s) => s.descriptor)));
+              usedCounts.push(picked.length);
+            }
+            // 활동 사진 얼굴로 맞히는지 봅니다 — 등록과 다른 사진이라 실제 흐름과 같습니다.
+            let hits = 0;
+            let scoreSum = 0;
+            let marginSum = 0;
+            for (const face of group) {
+              const ranked = [...registered.entries()]
+                .map(([child, vector]) => ({ child, score: similarity(face.descriptor, vector) }))
+                .sort((a, b) => b.score - a.score);
+              const [best, second] = ranked;
+              if (face.candidates.includes(best.child)) hits += 1;
+              scoreSum += best.score;
+              marginSum += best.score - (second?.score ?? 0);
+            }
+            return {
+              key,
+              used:
+                usedCounts.length === 0
+                  ? "-"
+                  : `${Math.min(...usedCounts)}~${Math.max(...usedCounts)}`,
+              hits,
+              score: scoreSum / group.length,
+              margin: marginSum / group.length,
+            };
+          });
+
+          outEl.append(
+            heading(`4. 등록 장수 비교 — 활동 사진 얼굴 ${group.length}개로 채점`),
+            table(
+              ["등록 구성", "실제 사용 장수", "맞힘", "1등 평균 점수", "2등과 평균 차이"],
+              setRows.map((r) => [
+                r.key,
+                r.used,
+                `${r.hits} / ${group.length}`,
+                fmt(r.score),
+                fmt(r.margin),
+              ]),
+            ),
+            verdict(
+              "맞힌 수가 같으면 '2등과 평균 차이'가 큰 쪽이 낫습니다 — 같은 정답이라도 더 여유 있게 맞힌 것입니다.",
+              true,
+            ),
+          );
+
+          // 6) PR·이슈에 붙일 글
+          mdEl.value = [
+            `모델 \`${FACE_MODEL_VERSION}\` · 설정 \`${JSON.stringify(MATCH_OPTIONS)}\``,
+            `초상 ${solo.length}장(아이 ${children.length}명) · 활동 사진 얼굴 ${group.length}개`,
+            "",
+            "| 묶음 | 사진 | 쌍 | 가장 낮음 | 평균 | 가장 높음 | 갈라짐 |",
+            "|---|---|---|---|---|---|---|",
+            ...views.flatMap(({ key, result: r }) => [
+              `| ${key} · 같은 아이 | ${r.photos.length} | ${r.sameStats.count} | ${fmt(r.sameStats.min)} | ${fmt(r.sameStats.mean)} | ${fmt(r.sameStats.max)} | ${r.separated ? "✅" : "❌"} |`,
+              `| ${key} · 다른 아이 | ${r.photos.length} | ${r.diffStats.count} | ${fmt(r.diffStats.min)} | ${fmt(r.diffStats.mean)} | ${fmt(r.diffStats.max)} | |`,
+            ]),
+            "",
+            ...views.map(
+              ({ key, result: r }) =>
+                `- **${key}**: ${r.separated ? `갈라짐 (차이 ${fmt(r.gap)}, 기준값 후보 ${fmt((r.sameStats.min + r.diffStats.max) / 2)})` : `겹침 — 같은 아이 최저 ${fmt(r.sameStats.min)} < 다른 아이 최고 ${fmt(r.diffStats.max)}`}. 평균 차이 ${fmt(r.sameStats.mean - r.diffStats.mean)}`,
+            ),
+            "",
+            "옆모습 뺀 경우의 경계 쌍",
+            "",
+            "| 쌍 | 점수 | 종류 |",
+            "|---|---|---|",
+            ...views[1].result.worstSame.map(
+              (p) => `| \`${p.a}\` ↔ \`${p.b}\` | ${fmt(p.score)} | 같은 아이인데 낮음 |`,
+            ),
+            ...views[1].result.worstDiff.map(
+              (p) => `| \`${p.a}\` ↔ \`${p.b}\` | ${fmt(p.score)} | 다른 아이인데 높음 |`,
+            ),
+            "",
+            `활동 사진 대조: 얼굴 ${group.length}개 중 ${groupHits}개가 정답.`,
+            "",
+            "| 얼굴 | 정답 | 고른 아이 | 점수 | 2등과 차이 | 맞음 |",
+            "|---|---|---|---|---|---|",
+            ...groupRows.map(
+              (r) =>
+                `| \`${r.name}\` | ${r.expected} | ${r.picked} | ${fmt(r.score)} | ${fmt(r.margin)} | ${r.correct ? "✅" : "❌"} |`,
+            ),
+            "",
+            "같은 아이인데 가장 안 닮은 쌍",
+            "",
+            "| 쌍 | 점수 |",
+            "|---|---|",
+            ...worstSame.map((p) => `| \`${p.a}\` ↔ \`${p.b}\` | ${fmt(p.score)} |`),
+            "",
+            "다른 아이인데 가장 닮은 쌍",
+            "",
+            "| 쌍 | 점수 |",
+            "|---|---|",
+            ...worstDiff.map((p) => `| \`${p.a}\` ↔ \`${p.b}\` | ${fmt(p.score)} |`),
+            "",
+            `등록 장수 비교 (활동 사진 얼굴 ${group.length}개로 채점)`,
+            "",
+            "| 등록 구성 | 실제 사용 장수 | 맞힘 | 1등 평균 점수 | 2등과 평균 차이 |",
+            "|---|---|---|---|---|",
+            ...setRows.map(
+              (r) =>
+                `| ${r.key} | ${r.used} | ${r.hits} / ${group.length} | ${fmt(r.score)} | ${fmt(r.margin)} |`,
+            ),
+          ].join("\n");
+
+          statusEl.textContent = "끝났습니다. 아래에서 실제 사람 사진으로 기준값을 재 보세요.";
+        } finally {
+          runEl.disabled = false;
+        }
+      });
+
+      /**
+       * 고른 파일이 무엇인지 가립니다. **얼굴 수를 먼저 봅니다** — 얼굴이 둘 이상인 사진은
+       * 초상일 수 없으므로 이름과 상관없이 활동 사진입니다. 폴더 이름은 파일 고르기로
+       * 넣으면 사라져서(픽스처의 `group/01_김도윤+이하준_블록쌓기.jpg` → `01_…`) 이름만으로는
+       * 놓칩니다.
+       *
+       * - 얼굴 2개 이상, 또는 `group…`, 또는 이름에 `+` → **활동 사진**
+       *   (`진하+동건`처럼 `+`로 이은 이름이 있으면 그게 정답입니다)
+       * - `진하_옆_01.jpg` → **옆모습**. 등록에서 빼고 usable 판정만 봅니다
+       * - `진하_01.jpg` → 진하의 **초상**. 등록 벡터를 만드는 데 씁니다
+       */
+      function labelOfPicked(pathOrName, faceCount) {
+        // 폴더째 골랐으면 `김도윤/김도윤_01_정면.jpg`처럼 옵니다. 폴더 이름이 곧 사람이거나
+        // `group`이라 그대로 쓰면 더 정확합니다.
+        const folder = pathOrName.includes("/") ? pathOrName.slice(0, pathOrName.indexOf("/")) : "";
+        const fileName = pathOrName.slice(pathOrName.lastIndexOf("/") + 1);
+        if (/^group$/i.test(folder)) {
+          const names = /([^_+]+(?:\+[^_+]+)+)/.exec(fileName)?.[1];
+          return { kind: "activity", expected: names ? names.split("+") : [] };
+        }
+        const base = fileName.replace(/\.[^.]+$/, "");
+        const joined = /([^_+]+(?:\+[^_+]+)+)/.exec(base)?.[1];
+        if (faceCount > 1 || /^group/i.test(base) || joined) {
+          return { kind: "activity", expected: joined ? joined.split("+") : [] };
+        }
+        const person = base.includes("_") ? base.slice(0, base.indexOf("_")) : "나";
+        return { kind: "portrait", person, side: /옆|side|profile/i.test(base) };
+      }
+
+      /**
+       * 고른 사진을 쌓아 둡니다. 아이별 폴더로 나뉘어 있어 한 번에 다 고르기 어렵고,
+       * 다시 고를 때마다 앞의 것이 지워지면 세 명을 모을 수 없습니다. 같은 파일을 또 고르면
+       * 이름+크기로 걸러 한 번만 셉니다.
+       */
+      const picked = new Map();
+      const mineClearEl = document.getElementById("mine-clear");
+      mineClearEl.addEventListener("click", () => {
+        picked.clear();
+        mineOutEl.replaceChildren();
+        mineStatusEl.textContent = "비웠습니다. 다시 골라 주세요.";
+      });
+
+      const averageOf = (vectors) =>
+        vectors[0].map((_, i) => vectors.reduce((sum, v) => sum + v[i], 0) / vectors.length);
+
+      mineEl.addEventListener("change", async () => {
+        for (const file of mineEl.files ?? []) {
+          // 폴더째 고르면 webkitRelativePath에 폴더가 남습니다. 픽스처의 `group/`처럼
+          // 폴더 이름이 무엇인지 알려 주는 경우가 있어 있으면 그쪽을 씁니다.
+          picked.set(`${file.name}:${String(file.size)}`, file);
+        }
+        const files = [...picked.values()];
+        if (files.length === 0) return;
+        mineEl.disabled = true;
+        mineOutEl.replaceChildren();
+        try {
+          const human = await loadFaceModels();
+          const similarity = (a, b) => human.match.similarity(a, b, MATCH_OPTIONS);
+
+          // 1) 벡터를 뽑습니다. **얼굴이 여럿인 사진도 버리지 않습니다** — 활동 사진이 그렇고,
+          //    예전에는 여기서 떨어뜨려 단체 사진을 아예 못 쟀습니다.
+          const portraits = [];
+          const activity = [];
+          let unusableCount = 0;
+          for (const [index, file] of files.entries()) {
+            mineStatusEl.textContent = `벡터 뽑는 중 ${index + 1}/${files.length} · ${file.name}`;
+            const faces = await detectFaces(file);
+            if (faces.length === 0) {
+              mineOutEl.append(verdict(`${file.name}: 얼굴을 찾지 못했습니다.`, false));
+              continue;
+            }
+            const label = labelOfPicked(file.webkitRelativePath || file.name, faces.length);
+            faces.forEach((face, n) => {
+              if (!face.usable) unusableCount += 1;
+              const name = file.name + (faces.length > 1 ? ` #${n + 1}` : "");
+              if (label.kind === "activity")
+                activity.push({
+                  name,
+                  expected: label.expected,
+                  usable: face.usable,
+                  descriptor: face.descriptor,
+                });
+              else
+                portraits.push({
+                  name,
+                  person: label.person,
+                  side: label.side,
+                  usable: face.usable,
+                  descriptor: face.descriptor,
+                });
+            });
+          }
+
+          // 2) usable 판정 — MIN_MESH_SCORE가 실사진에서도 맞는지 봅니다(#237).
+          const sidePortraits = portraits.filter((p) => p.side);
+          const frontPortraits = portraits.filter((p) => !p.side);
+          const sideUsable = sidePortraits.filter((p) => p.usable).length;
+          mineOutEl.append(
+            heading("1. usable 판정 — 옆모습이 걸러지는가"),
+            table(
+              ["묶음", "장수", "usable=true", "usable=false"],
+              [
+                [
+                  "정면·45도 초상",
+                  frontPortraits.length,
+                  frontPortraits.filter((p) => p.usable).length,
+                  frontPortraits.filter((p) => !p.usable).length,
+                ],
+                [
+                  "옆모습(이름에 '옆')",
+                  sidePortraits.length,
+                  sideUsable,
+                  sidePortraits.length - sideUsable,
+                ],
+                [
+                  "활동 사진 속 얼굴",
+                  activity.length,
+                  activity.filter((f) => f.usable).length,
+                  activity.filter((f) => !f.usable).length,
+                ],
+              ],
+            ),
+            verdict(
+              sidePortraits.length === 0
+                ? "옆모습 사진이 없어 기준값을 확인하지 못했습니다. 이름에 '옆'을 넣어 몇 장 넣어 주세요."
+                : sideUsable === 0
+                  ? `옆모습 ${sidePortraits.length}장이 모두 걸러졌습니다. MIN_MESH_SCORE가 실사진에서도 맞습니다.`
+                  : `옆모습 ${sideUsable}/${sidePortraits.length}장이 usable로 통과했습니다. 기준값을 올리거나 yaw 기준이 필요합니다.`,
+              sidePortraits.length > 0 && sideUsable === 0,
+            ),
+          );
+
+          // 3) 등록 벡터 — worker와 같은 방식(여러 장 평균). 옆모습과 usable=false는 뺍니다.
+          const people = [
+            ...new Set(frontPortraits.filter((p) => p.usable).map((p) => p.person)),
+          ].sort();
+          const registered = new Map();
+          for (const person of people) {
+            const picked = frontPortraits.filter((p) => p.usable && p.person === person);
+            registered.set(person, {
+              vector: averageOf(picked.map((p) => p.descriptor)),
+              count: picked.length,
+            });
+          }
+          mineOutEl.append(
+            heading(`2. 등록 벡터 — ${people.length}명`),
+            table(
+              ["사람", "등록에 쓴 장수"],
+              people.map((person) => [person, registered.get(person).count]),
+            ),
+          );
+          if (people.length < 2) {
+            mineOutEl.append(
+              verdict(
+                `등록할 사람이 ${people.length}명뿐이라 대조를 잴 수 없습니다. ` +
+                  "초상 사진을 `이름_01.jpg`처럼 사람마다 이름을 달리해 넣어 주세요(최소 3명 권장). " +
+                  "얼굴이 둘 이상인 사진은 활동 사진으로 봅니다.",
+                false,
+              ),
+            );
+            mineStatusEl.textContent = `등록할 사람이 ${people.length}명뿐입니다.`;
+            return;
+          }
+
+          // 4) 활동 사진 대조 — **matcher.ts와 같은 규칙**으로 1위·2위 차이까지 봅니다.
+          //    자동 분류 장수가 이 도구의 핵심 출력입니다(#238에서 이 숫자가 없어 한 번 틀렸습니다).
+          const rows = activity
+            .filter((f) => f.usable)
+            .map((face) => {
+              const ranked = [...registered.entries()]
+                .map(([person, r]) => ({ person, score: similarity(face.descriptor, r.vector) }))
+                .sort((a, b) => b.score - a.score);
+              const margin = ranked.length > 1 ? ranked[0].score - ranked[1].score : null;
+              const auto =
+                ranked[0].score >= MATCH_MIN_SCORE && margin !== null && margin >= MATCH_MIN_MARGIN;
+              const correct =
+                face.expected.length === 0 ? null : face.expected.includes(ranked[0].person);
+              return { name: face.name, first: ranked[0], margin, auto, correct };
+            });
+          const autoRows = rows.filter((r) => r.auto);
+          const wrongAuto = autoRows.filter((r) => r.correct === false);
+          mineOutEl.append(
+            heading(
+              `3. 활동 사진 대조 — 얼굴 ${rows.length}개 (기준 ${MATCH_MIN_SCORE} / 차이 ${MATCH_MIN_MARGIN})`,
+            ),
+            table(
+              ["얼굴", "1위", "점수", "2위와 차이", "자동 분류", "정답"],
+              rows.map((r) => [
+                r.name,
+                r.first.person,
+                fmt(r.first.score),
+                r.margin === null ? "—" : fmt(r.margin),
+                r.auto ? "O" : "수동",
+                r.correct === null ? "?" : r.correct ? "O" : "X",
+              ]),
+            ),
+            verdict(
+              `${rows.length}개 중 ${autoRows.length}개가 자동 분류됐고, 그중 ${wrongAuto.length}개가 틀렸습니다.` +
+                (wrongAuto.length === 0 ? "" : " 틀린 자동 분류는 0이어야 합니다."),
+              wrongAuto.length === 0,
+            ),
+          );
+          const marginValues = rows.map((r) => r.margin).filter((m) => m !== null);
+          if (marginValues.length > 0) {
+            const marginStats = stats(marginValues);
+            const firstStats = stats(rows.map((r) => r.first.score));
+            mineOutEl.append(
+              table(
+                ["값", "가장 낮음", "평균", "가장 높음"],
+                [
+                  ["1위 점수", fmt(firstStats.min), fmt(firstStats.mean), fmt(firstStats.max)],
+                  ["2위와 차이", fmt(marginStats.min), fmt(marginStats.mean), fmt(marginStats.max)],
+                ],
+              ),
+              verdict(
+                `기준값을 정할 때 이 분포를 보세요. 지금 기준(${MATCH_MIN_SCORE} / ${MATCH_MIN_MARGIN})에서 ${autoRows.length}/${rows.length}개가 자동입니다.`,
+                true,
+              ),
+            );
+          }
+
+          // 5) 사람끼리 — 같은 사람이 다른 사람보다 확실히 높은지. 겹치면 기준값을 못 정합니다.
+          const same = [];
+          const other = [];
+          for (let a = 0; a < frontPortraits.length; a += 1) {
+            for (let b = a + 1; b < frontPortraits.length; b += 1) {
+              const pair = {
+                a: frontPortraits[a].name,
+                b: frontPortraits[b].name,
+                score: similarity(frontPortraits[a].descriptor, frontPortraits[b].descriptor),
+              };
+              (frontPortraits[a].person === frontPortraits[b].person ? same : other).push(pair);
+            }
+          }
+          if (same.length > 0 && other.length > 0) {
+            const ss = stats(same.map((p) => p.score));
+            const os = stats(other.map((p) => p.score));
+            mineOutEl.append(
+              heading("4. 사람끼리 — 갈라지는가"),
+              table(
+                ["묶음", "쌍", "가장 낮음", "평균", "가장 높음"],
+                [
+                  ["같은 사람", ss.count, fmt(ss.min), fmt(ss.mean), fmt(ss.max)],
+                  ["다른 사람", os.count, fmt(os.min), fmt(os.mean), fmt(os.max)],
+                ],
+              ),
+              verdict(
+                ss.min > os.max
+                  ? `갈라졌습니다 — 같은 사람 최저 ${fmt(ss.min)} > 다른 사람 최고 ${fmt(os.max)}. 기준값 후보 ${fmt((ss.min + os.max) / 2)}.`
+                  : `겹칩니다 — 같은 사람 최저 ${fmt(ss.min)} ≤ 다른 사람 최고 ${fmt(os.max)}. 평균 차이 ${fmt(ss.mean - os.mean)}.`,
+                ss.min > os.max,
+              ),
+              table(
+                ["다른 사람인데 가장 닮은 쌍", "점수"],
+                [...other]
+                  .sort((x, y) => y.score - x.score)
+                  .slice(0, 5)
+                  .map((pair) => [`${pair.a}  ↔  ${pair.b}`, fmt(pair.score)]),
+              ),
+            );
+            mdEl.value +=
+              `\n\n## 실사진 ${people.length}명 (${people.join(", ")})\n\n` +
+              `모델 \`${FACE_MODEL_VERSION}\` · 설정 \`${JSON.stringify(MATCH_OPTIONS)}\` · 기준 ${MATCH_MIN_SCORE} / 차이 ${MATCH_MIN_MARGIN}\n\n` +
+              `| 묶음 | 쌍 | 가장 낮음 | 평균 | 가장 높음 |\n|---|---|---|---|---|\n` +
+              `| 같은 사람 | ${ss.count} | ${fmt(ss.min)} | ${fmt(ss.mean)} | ${fmt(ss.max)} |\n` +
+              `| 다른 사람 | ${os.count} | ${fmt(os.min)} | ${fmt(os.mean)} | ${fmt(os.max)} |\n\n` +
+              `활동 사진 얼굴 ${rows.length}개 중 자동 분류 ${autoRows.length}개(틀린 것 ${wrongAuto.length}개) · usable=false ${unusableCount}개\n`;
+          }
+          mineStatusEl.textContent =
+            `담긴 사진 ${files.length}장 · 얼굴 ${portraits.length + activity.length}개. ` +
+            "더 고르면 쌓입니다.";
+        } catch (error) {
+          mineOutEl.append(
+            verdict(`멈췄습니다 — ${error?.name ?? "오류"}: ${error?.message ?? error}`, false),
+          );
+          console.error(error);
+        } finally {
+          mineEl.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
