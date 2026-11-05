@@ -242,7 +242,7 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 그 달의 게시 중인 알림장이 없으면 `NO_TARGET_CHILDREN`으로 거절합니다.
 202 응답·Location·폴링은 기존 `GenerationJobResponse`, `GET /jobs/{job_id}`를 재사용합니다.
 `record_date`는 월 1일, 성공한 `drafts[].doc_type`은 `observation_log`입니다.
-같은 request_id는 다시 실행하지 않습니다. 새 요청도 기존 교사 수정·승인 문서를 덮지 않습니다.
+같은 request_id는 다시 실행하지 않습니다. 새 request_id라도 같은 원아·월의 유효한 pending/running 작업이 있으면 기존 작업을 반환하고 다시 큐에 넣지 않습니다(#259 리뷰). 완료·실패·타임아웃 작업에는 새 요청이 가능하지만, 기존 교사 수정·승인 문서를 덮지 않습니다.
 
 원아별 `stage`는 collecting_evidence/generating/verifying를 채웁니다.
 `GET /jobs/{job_id}/trace`는 같은 반 접근 권한이 있는 교사에게 원아별 역할·도구명·결과만 제공합니다.
@@ -251,4 +251,4 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 추가 실패 코드는 `AGENT_INPUT_TOO_LARGE`, `AGENT_RESPONSE_INVALID`, `AGENT_TOOL_NOT_ALLOWED`,
 `AGENT_TOOL_ARGUMENTS_INVALID`, `AGENT_TOOL_LIMIT`, `AGENT_STEP_LIMIT`, `AGENT_ROUTINE_MISSING`,
 `AGENT_SOURCE_CHANGED`입니다. 상한 초과·잘못된 도구 요청은 작업을 failed로 끝냅니다.
-요약 JSON/근거 참조 오류는 2회 재시도 후 `verification_failed` 확인 필요로 끝냅니다.
+요약 JSON/근거 참조 오류와 출력 한도 초과는 2회 재시도 후 `verification_failed` 확인 필요로 끝냅니다.
