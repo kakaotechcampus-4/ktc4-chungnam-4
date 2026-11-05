@@ -163,6 +163,30 @@ def test_텍스트는_2000_사진_분석은_2048을_응답_상한으로_보낸�
 @pytest.mark.parametrize(
     "model,expected",
     [
+        ("anthropic/claude-sonnet-5-5", 2000),
+        ("unknown-model", 2000),
+        ("zai-org/GLM-5.3-Flash", 4096),
+    ],
+)
+def test_GLM만_텍스트_응답_상한을_4096으로_올린다(
+    monkeypatch: pytest.MonkeyPatch, model: str, expected: int
+) -> None:
+    bodies = _capture_bodies(
+        monkeypatch,
+        SimpleNamespace(
+            anthropic_api_key=SecretStr("test-key"),
+            anthropic_model=model,
+            llm_gateway_base_url="https://gateway.invalid/test/v1",
+        ),
+    )
+    assert llm.call_claude("synthetic") == "OK"
+    # GLM은 2000이면 근거가 많은 날 잘리고, Claude 게이트웨이는 2000을 넘기면 400을 돌려준다.
+    assert bodies[0]["max_tokens"] == expected
+
+
+@pytest.mark.parametrize(
+    "model,expected",
+    [
         ("zai-org/GLM-5.3-Flash", "low"),
         ("anthropic/claude-sonnet-5-5", "low"),
         ("claude-sonnet-5-5", "low"),
