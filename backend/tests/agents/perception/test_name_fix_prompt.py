@@ -7,7 +7,7 @@ import pytest
 from prompts.perception import name_fix
 from prompts.perception.name_fix import PROMPT_VERSION, build_name_fix_prompt, roster_lines
 
-# 원아마다 [호칭, 성명] (organization.get_class_child_names의 값). 세 글자가 아니면 성명 하나다
+# 원아마다 [호칭, 성명] (organization.get_class_enrolled_child_names의 값). 세 글자가 아니면 성명 하나다
 CLASS = [["서아", "김서아"], ["하준", "이하준"], ["남궁민"]]
 UUID_PATTERN = re.compile(r"[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}", re.IGNORECASE)
 

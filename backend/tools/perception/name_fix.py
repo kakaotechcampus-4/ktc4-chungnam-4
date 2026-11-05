@@ -1,10 +1,15 @@
 """STT 이름 바로잡기 응답 읽기와 적용 (파이프라인 1-C).
 
-- LLM이 낸 수정 중 고치기 전후 말의 소리가 가까운 것만 그 줄에 적용한다. 소리 거리는 띄어쓰기를
-  뺀 두 말을 자모로 풀어 잰 편집 거리이고, MAX_SOUND_DISTANCE(3) 이하만 받는다. 소음 속 헛말을
-  명단 이름으로 바꾼 수정("송시스러"→"송하은", 거리 5)은 걸리고, "안노아가"→"한로하가"(거리 3)
-  같은 맞는 수정은 통과한다. 11/05 합성 음성 실험에서 이 기준이 막은 수정 10개 중 7개가 다른
-  원아·없던 이름이었다. 2로 줄이면 맞는 수정까지 막아 3%p를 잃었다.
+- LLM이 낸 수정은 서버가 세 가지를 확인한 것만 그 줄에 적용한다.
+  1. 고친 말에 명단 이름이 들어 있다 — "이름이 아닌 낱말은 고치지 않는다"는 프롬프트 규칙을 코드로
+     지킨다. "블로그"→"블록"처럼 소리만 가까운 일반 낱말 수정이 여기서 걸린다(#270 리뷰).
+  2. 고치기 전후 말의 소리가 가깝다. 소리 거리는 띄어쓰기를 뺀 두 말을 자모로 풀어 잰 편집 거리이고,
+     MAX_SOUND_DISTANCE(3) 이하만 받는다. 소음 속 헛말을 명단 이름으로 바꾼 수정("송시스러"→"송하은",
+     거리 5)은 걸리고, "안노아가"→"한로하가"(거리 3) 같은 맞는 수정은 통과한다. 11/05 합성 음성
+     실험에서 이 기준이 막은 수정 10개 중 7개가 다른 원아·없던 이름이었다. 2로 줄이면 맞는 수정까지
+     막아 3%p를 잃었다.
+  3. 적힌 말이 그 줄에 한 번만 나온다 — 두 번 이상이면 LLM이 가리킨 자리를 알 수 없어 건너뛴다.
+  같은 실험의 Claude 응답(수정 34개)에 다시 적용해 보니 1·3이 막은 맞는 수정은 없었다.
 - 순수 함수다. LLM·DB·로그를 모른다 — 문장과 이름을 로그에 남기지 않는다 (H-4).
 """
 
@@ -12,7 +17,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -40,7 +45,14 @@ class NameFix:
 class NameFixOutcome:
     lines: list[str]
     applied: int  # 적용한 수정 수
-    blocked: int  # 소리가 멀어서 막은 수정 수
+    blocked_not_name: int  # 고친 말에 명단 이름이 없어서 막은 수
+    blocked_sound: int  # 소리가 멀어서 막은 수
+    skipped_repeated: int  # 적힌 말이 그 줄에 두 번 이상 나와 건너뛴 수
+
+    @property
+    def blocked(self) -> int:
+        """적용하지 않은 수정 수(이유 모두)."""
+        return self.blocked_not_name + self.blocked_sound + self.skipped_repeated
 
 
 class _FixItem(BaseModel):
@@ -132,23 +144,39 @@ def parse_name_fix_response(content: str | None, line_count: int) -> list[NameFi
 def apply_name_fixes(
     lines: Sequence[str],
     fixes: Sequence[NameFix],
+    names: Collection[str],
     *,
     max_distance: int = MAX_SOUND_DISTANCE,
 ) -> NameFixOutcome:
-    """소리가 가까운 수정만 그 줄에서 처음 나오는 곳 하나에 적용한다.
+    """서버가 확인한 수정만 그 줄에 적용한다. names는 프롬프트에 넣은 명단의 호칭·성명이다.
 
-    적힌 말이 그 줄에 없으면(다른 줄 번호를 댔거나 말을 바꿔 옮겼으면) 적용하지 않고 세지도 않는다.
+    고친 말에 명단 이름이 있는지, 소리가 가까운지, 적힌 말이 그 줄에 한 번만 나오는지를 차례로 본다
+    (모듈 설명). 적힌 말이 그 줄에 없으면(다른 줄 번호를 댔거나 말을 바꿔 옮겼으면) 적용하지 않고
+    세지도 않는다.
     """
+    known = [name.strip() for name in names if name.strip()]
     fixed = list(lines)
-    applied = blocked = 0
+    applied = not_name = far = repeated = 0
     for fix in fixes:
         source, target = fix.source.strip(), fix.target.strip()
         index = fix.line - 1
         if not source or not target or not 0 <= index < len(fixed) or source not in fixed[index]:
             continue
+        if not any(name in target for name in known):
+            not_name += 1
+            continue
         if sound_distance(source, target) > max_distance:
-            blocked += 1
+            far += 1
+            continue
+        if fixed[index].count(source) > 1:
+            repeated += 1
             continue
         fixed[index] = fixed[index].replace(source, target, 1)
         applied += 1
-    return NameFixOutcome(lines=fixed, applied=applied, blocked=blocked)
+    return NameFixOutcome(
+        lines=fixed,
+        applied=applied,
+        blocked_not_name=not_name,
+        blocked_sound=far,
+        skipped_repeated=repeated,
+    )
