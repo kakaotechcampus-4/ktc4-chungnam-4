@@ -1,6 +1,12 @@
 import { QueryClient } from "@tanstack/react-query";
 
-import { createJob, isJobFinished, jobQueryOptions, type JobView } from "@/api/agents";
+import {
+  createObservationJob,
+  createJob,
+  isJobFinished,
+  jobQueryOptions,
+  type JobView,
+} from "@/api/agents";
 import {
   approveDraft,
   classDraftsQueryOptions,
@@ -625,4 +631,46 @@ describe("문장 ID", () => {
       },
     ]);
   });
+});
+
+it("공통 목의 월별 생성은 진행 중 작업을 재사용하고 요약과 원본 문서 근거를 반환한다", async () => {
+  const month = kstToday().slice(0, 7);
+  let sourceId = "";
+  updateDb((db) => {
+    const note = Object.values(db.drafts).find(
+      (draft) => draft.child_id === DOYUN && draft.doc_type === "parent_note",
+    );
+    if (!note) throw new Error("합성 알림장이 없습니다");
+    note.record_date = `${month}-01`;
+    note.status = "approved";
+    note.published_at = `${month}-01T00:00:00Z`;
+    sourceId = note.draft_id;
+    for (const draft of Object.values(db.drafts)) {
+      if (draft.child_id === DOYUN && draft.doc_type === "observation_log")
+        delete db.drafts[draft.draft_id];
+    }
+  });
+  const first = await createObservationJob(DOYUN, { month, request_id: fixtureId("request", 950) });
+  const second = await createObservationJob(DOYUN, {
+    month,
+    request_id: fixtureId("request", 951),
+  });
+  expect(second.job_id).toBe(first.job_id);
+  const client = queryClient();
+  const done = await pollUntilDone(client, first);
+  expect(done.status).toBe("succeeded");
+  const draft = await client.fetchQuery(draftQueryOptions(done.children[0]!.drafts[0]!.draft_id));
+  expect(draft.doc_type).toBe("observation_log");
+  expect(draft.daily_routine.length).toBeGreaterThan(0);
+  expect(draft.sentences[0]?.section).toBe("종합의견");
+  expect(draft.sentences[0]?.evidences[0]).toMatchObject({
+    source_type: "parent_note",
+    source_document_id: sourceId,
+  });
+});
+
+it("공통 목도 게시 알림장이 없는 월은 생성을 거절한다", async () => {
+  await expect(
+    createObservationJob(DOYUN, { month: "2000-01", request_id: fixtureId("request", 952) }),
+  ).rejects.toMatchObject({ status: 409, code: "NO_TARGET_CHILDREN" });
 });

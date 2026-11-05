@@ -1,4 +1,4 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 
@@ -664,7 +664,11 @@ describe("DraftReviewPage", () => {
 
     await user.click(screen.getByRole("button", { name: /색색의 블록을 골라/ }));
 
-    expect(screen.getByText(/블록을 여러 층으로 쌓고 있음/)).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("heading", { name: "근거 상세" }).closest("aside")!).getByText(
+        /블록을 여러 층으로 쌓고 있음/,
+      ),
+    ).toBeInTheDocument();
   });
 
   // H-1: 게시 요청에는 승인한 초안만 담겨야 한다. 미승인 초안이 섞이면 교사가 확인하지 않은

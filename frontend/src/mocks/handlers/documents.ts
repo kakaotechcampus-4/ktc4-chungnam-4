@@ -66,6 +66,7 @@ function detail(db: MockDb, draft: DraftRecord): DraftDetail {
     .filter((record): record is MediaRecord => record !== undefined)
     .map(toMediaUrl);
   return {
+    daily_routine: draft.daily_routine ?? [],
     draft_id: draft.draft_id,
     child_id: draft.child_id,
     doc_type: draft.doc_type,

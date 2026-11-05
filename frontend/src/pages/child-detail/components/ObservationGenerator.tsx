@@ -1,10 +1,10 @@
-// Figma: 1:703 — 개인 페이지에서 월별 요청형 관찰일지로 연결합니다(FR-06, #225).
+// 임시 연결 UI(FR-06, #225). 김진하 님 #264의 Figma 159:3788·159:3882 전용 화면으로 교체합니다.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 
 import { createObservationJob, isJobFinished, jobQueryOptions } from "@/api/agents";
-import { childDraftsQueryOptions } from "@/api/documents";
+import { childDraftsQueryOptions, documentsKeys } from "@/api/documents";
 import { Button } from "@/components/ui/button";
 import { kstToday } from "@/lib/datetime";
 
@@ -12,7 +12,7 @@ interface ObservationGeneratorProps {
   childId: string;
 }
 
-const STAGES = {
+const STAGE_LABEL_MAP: Record<string, string> = {
   transcribing: "발화를 정리하고 있어요",
   collecting_evidence: "게시된 알림장에서 관찰 내용을 모으고 있어요",
   generating: "관찰일지 초안을 작성하고 있어요",
@@ -38,6 +38,13 @@ export function ObservationGenerator({ childId }: ObservationGeneratorProps) {
   const count = notes.data?.filter((note) => note.record_date.startsWith(month)).length ?? 0;
   const childJob = job.data?.children.find((child) => child.child_id === childId);
   const complete = isJobFinished(job.data);
+  useEffect(() => {
+    if (complete) {
+      void client.invalidateQueries({
+        queryKey: documentsKeys.childDrafts(childId, "observation_log", false),
+      });
+    }
+  }, [childId, client, complete, jobId]);
   const busy = create.isPending || (jobId !== "" && !complete);
   const existing = observations.data?.find((draft) => draft.record_date === `${month}-01`);
   const drafted =
@@ -80,7 +87,7 @@ export function ObservationGenerator({ childId }: ObservationGeneratorProps) {
       {notes.isError && <p role="alert">{notes.error.message}</p>}
       {observations.isError && <p role="alert">{observations.error.message}</p>}
       {busy && !job.isError && (
-        <p role="status">{childJob?.stage ? STAGES[childJob.stage] : "작업을 준비하고 있어요"}</p>
+        <p role="status">{STAGE_LABEL_MAP[childJob?.stage ?? ""] ?? "작업을 준비하고 있어요"}</p>
       )}
       {create.isError && <p role="alert">{create.error.message}</p>}
       {job.isError && (

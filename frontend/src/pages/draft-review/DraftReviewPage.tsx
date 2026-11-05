@@ -31,7 +31,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
 import { ApiError } from "@/lib/api-client";
-import { formatDate, isDateOnly, kstToday } from "@/lib/datetime";
+import { formatYearMonth, formatDate, isDateOnly, kstToday } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 
 import { EvidencePanel } from "./components/EvidencePanel";
@@ -114,7 +114,13 @@ export function DraftReviewPage() {
   const recordDateParam = searchParams.get("record_date");
   const recordDate = isDateOnly(recordDateParam) ? recordDateParam : kstToday();
   // 지난 날짜로 열었는데 '오늘의 기록'이라고 하면 교사가 오늘 것으로 읽습니다. 날짜는 부제가 보여 줍니다.
-  const reviewTitle = recordDate === kstToday() ? "오늘의 기록을 완성해요" : "기록을 완성해요";
+  const reviewTitle = isObservation
+    ? "월별 관찰일지를 검토해요"
+    : recordDate === kstToday()
+      ? "오늘의 기록을 완성해요"
+      : "기록을 완성해요";
+  const reviewEyebrow = isObservation ? "월별 관찰일지  /  초안 검토" : "오늘의 기록  /  초안 검토";
+  const reviewDate = isObservation ? formatYearMonth(recordDate) : formatDate(recordDate);
 
   const {
     currentClass,
@@ -396,7 +402,7 @@ export function DraftReviewPage() {
   if (classPending) {
     return (
       <>
-        <PageHeader eyebrow="오늘의 기록  /  초안 검토" title={reviewTitle} />
+        <PageHeader eyebrow={reviewEyebrow} title={reviewTitle} />
         <p className="text-body text-ink-muted">반 정보를 불러오는 중이에요.</p>
       </>
     );
@@ -404,7 +410,7 @@ export function DraftReviewPage() {
   if (classError || childrenQuery.isError || draftsQuery.isError) {
     return (
       <>
-        <PageHeader eyebrow="오늘의 기록  /  초안 검토" title={reviewTitle} />
+        <PageHeader eyebrow={reviewEyebrow} title={reviewTitle} />
         <p className="text-body text-ink-muted">
           {failureText(classErrorValue ?? childrenQuery.error ?? draftsQuery.error)}
         </p>
@@ -462,6 +468,7 @@ export function DraftReviewPage() {
   const notReadyCount = rows.filter(isNotReady).length;
   // 수정 중에도 게시를 잠급니다. 고치던 초안이 그 사이 다른 곳에서 승인되면 화면에는 저장하지 않은
   // 글이 남는데 승인본이 나갑니다. 승인을 잠그는 것과 같은 이유입니다(H-1).
+  // 관찰일지는 게시 대상에서 제외한다. 버튼 숨김과 별개로 실행 가능 여부도 잠근다(H-1).
   const canPublish =
     !isObservation && publishTargets.length > 0 && !hasUnreviewedDraft && !isEditing;
 
@@ -529,9 +536,9 @@ export function DraftReviewPage() {
     return (
       <>
         <PageHeader
-          eyebrow="오늘의 기록  /  초안 검토"
+          eyebrow={reviewEyebrow}
           title="게시를 마쳤어요"
-          subtitle={`${formatDate(recordDate)}  ·  ${klassName}`}
+          subtitle={`${reviewDate}  ·  ${klassName}`}
         />
         <div className="flex flex-col gap-4 rounded-xl bg-paper p-7">
           <p className="text-lead text-ink">
@@ -549,9 +556,9 @@ export function DraftReviewPage() {
   return (
     <>
       <PageHeader
-        eyebrow="오늘의 기록  /  초안 검토"
+        eyebrow={reviewEyebrow}
         title={reviewTitle}
-        subtitle={`${formatDate(recordDate)}  ·  ${klassName}`}
+        subtitle={`${reviewDate}  ·  ${klassName}`}
       />
 
       <div className="flex items-start gap-5">

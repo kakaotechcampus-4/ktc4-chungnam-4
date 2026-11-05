@@ -78,8 +78,8 @@ export type EvidenceSourceTypeView =
 
 /** 문장 하나의 근거 */
 export interface EvidenceView {
+  source_document_id: string | null;
   /** 초안 안에서만 유일한 불투명 문자열(UUID 규약의 예외) */
-  source_document_id?: string | null;
   evidence_id: string;
   source_type: EvidenceSourceTypeView;
   text: string;
@@ -91,8 +91,8 @@ export interface EvidenceView {
 }
 
 export interface SentenceView {
+  section: string | null;
   /** 초안 안에서만 유일한 문자열입니다. 모양을 해석하지 않습니다 */
-  section?: string | null;
   sentence_id: string;
   text: string;
   /** 교사가 고친 문장. true면 evidences는 빈 배열입니다 */
@@ -113,7 +113,7 @@ export interface DraftMediaView {
 
 /** GET /drafts/{draft_id} — 초안 본문과 근거 */
 export interface DraftView {
-  daily_routine?: string[];
+  daily_routine: string[];
   draft_id: string;
   child_id: string;
   /** 알림장인지 관찰일지인지. 이 화면은 안 쓰지만 문서에 있는 응답 필드라 버리지 않습니다. */

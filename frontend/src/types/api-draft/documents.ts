@@ -43,8 +43,8 @@ export interface ChildDraftItem extends DraftSummary {
 
 /** 문장 하나의 근거 */
 export interface Evidence {
-  /** 초안 안에서만 유일한 불투명 문자열(UUID 규약의 예외) */
   source_document_id?: string | null;
+  /** 초안 안에서만 유일한 불투명 문자열(UUID 규약의 예외) */
   evidence_id: string;
   source_type: EvidenceSourceType;
   text: string;
@@ -56,8 +56,8 @@ export interface Evidence {
 }
 
 export interface Sentence {
-  /** 초안 안에서만 유일한 문자열(AI 문장 `s1`…, 교사가 쓴 문장 `t1`…). FE는 모양을 해석하지 않습니다 */
   section?: string | null;
+  /** 초안 안에서만 유일한 문자열(AI 문장 `s1`…, 교사가 쓴 문장 `t1`…). FE는 모양을 해석하지 않습니다 */
   sentence_id: string;
   text: string;
   /** 교사가 고친 문장. true면 evidences는 빈 배열입니다 */

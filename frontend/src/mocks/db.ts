@@ -52,6 +52,7 @@ export interface MediaRecord {
 }
 
 export interface DraftRecord {
+  daily_routine?: string[];
   draft_id: string;
   child_id: string;
   class_id: string;
@@ -84,6 +85,7 @@ export interface JobChildRecord {
 }
 
 export interface JobRecord {
+  doc_type?: DocType;
   job_id: string;
   request_id: string;
   class_id: string;
