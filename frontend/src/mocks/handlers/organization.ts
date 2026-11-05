@@ -7,6 +7,7 @@ import type {
   ClassCreateRequest,
   ClassFavoriteRequest,
   ClassSummary,
+  ConsentRevokeRequest,
   EducationPlan,
   EducationPlanRequest,
   MyChild,
@@ -247,6 +248,30 @@ export const handlers = [
     const updated = { ...found.child, ...body };
     children.set(updated.child_id, updated);
     return HttpResponse.json(updated);
+  }),
+  // ③ 동의 철회(FR-22). 서버처럼 얼굴 등록도 같이 지웁니다. 이미 철회됐어도 204입니다.
+  http.post(apiPath("/children/:childId/consents/revoke"), async ({ params, request }) => {
+    const found = guardChild(params.childId);
+    if ("denied" in found) return found.denied;
+    const body = (await request.json()) as ConsentRevokeRequest;
+    if (body.consent_type !== "face_feature") {
+      return errorResponse(422, "VALIDATION_ERROR", "얼굴 특징정보 동의만 철회할 수 있어요.");
+    }
+    const { child } = found;
+    if (child.face_feature_agreed) {
+      const consents = child.consents.map((item) =>
+        item.consent_type === "face_feature" ? { ...item, agreed: false } : item,
+      );
+      children.set(child.child_id, {
+        ...child,
+        consents,
+        consent_agreed_count: consents.filter((item) => item.agreed).length,
+        face_feature_agreed: false,
+        is_face_registered: false,
+        face_photo_count: 0,
+      });
+    }
+    return new HttpResponse(null, { status: 204 });
   }),
   http.get(apiPath("/children/:childId/overview"), ({ params }) => {
     const found = guardChild(params.childId);
