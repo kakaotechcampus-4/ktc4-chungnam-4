@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 
@@ -36,6 +36,9 @@ describe("FaceConsentRevokePage", () => {
     expect(await screen.findByText("얼굴 특징정보 동의를 철회했어요.")).toBeInTheDocument();
     expect(router.state.location.pathname).toBe(`/t/children/${JIWOO}`);
     expect(bodies).toEqual([{ consent_type: "face_feature" }]);
+    // 안내는 남기고 기록의 state는 비워서, 새로고침하면 다시 뜨지 않게 합니다.
+    await waitFor(() => expect(router.state.location.state).toBeNull());
+    expect(screen.getByText("얼굴 특징정보 동의를 철회했어요.")).toBeInTheDocument();
   });
 
   it("③ 동의가 없는 원아는 철회 버튼을 막는다", async () => {
