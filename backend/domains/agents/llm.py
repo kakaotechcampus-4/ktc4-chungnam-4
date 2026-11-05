@@ -31,6 +31,19 @@ _VISION_MAX_TOKENS = 2048
 # 초안 생성·Critic 응답 상한. 1024에서 응답이 중간에 잘려 JSON이 깨진 사례가 있어(4명 중 2명 실패,
 # 11/2 로컬 실행) 상한을 늘렸다. Claude 게이트웨이의 2000 상한에도 맞춘다(#258).
 _TEXT_MAX_TOKENS = 2000
+# #258 실측을 반영: GLM의 긴 응답은 4096, 확인하지 않은 모델은 기본 2000을 유지한다.
+_TEXT_MAX_TOKENS_BY_MODEL = {"zai-org/GLM-5.3-Flash": 4096}
+_LOW_REASONING_MODELS = frozenset(
+    {"zai-org/GLM-5.3-Flash", "anthropic/claude-sonnet-5-5", "claude-sonnet-5-5"}
+)
+
+
+class AgentResponseTruncated(ValueError):
+    """출력 한도 초과. 형식 재시도에 사용하며 잘린 본문은 보관하지 않는다."""
+
+
+def _text_max_tokens(model: str) -> int:
+    return _TEXT_MAX_TOKENS_BY_MODEL.get(model, _TEXT_MAX_TOKENS)
 
 
 def _complete(*, endpoint: str, model: str, messages: list[dict], max_tokens: int) -> str | None:
@@ -51,7 +64,7 @@ def _complete(*, endpoint: str, model: str, messages: list[dict], max_tokens: in
         body = {"model": model, "max_tokens": max_tokens, "messages": messages}
         # 이 모델은 추론 끄기를 지원하지 않는다. 공식 모델 정보의 low를 사용해
         # 추론만 하다 출력 한도·30초 제한을 소진하는 일을 줄인다.
-        if model == "zai-org/GLM-5.3-Flash" or model.startswith("anthropic/claude-"):
+        if model in _LOW_REASONING_MODELS:
             body["reasoning_effort"] = "low"
         if is_complete_url:
             response = client.post(endpoint, cast_to=ChatCompletion, body=body)
@@ -65,7 +78,7 @@ def call_claude(prompt: str) -> str | None:
     return _complete(
         endpoint=settings.llm_gateway_base_url,
         model=settings.anthropic_model,
-        max_tokens=_TEXT_MAX_TOKENS,
+        max_tokens=_text_max_tokens(settings.anthropic_model),
         messages=[{"role": "user", "content": prompt}],
     )
 
@@ -111,20 +124,19 @@ def call_agent(messages: list[dict], tools: list[dict]) -> openai.types.chat.Cha
         body = {
             "model": settings.anthropic_model,
             "messages": messages,
-            "max_tokens": _TEXT_MAX_TOKENS,
+            "max_tokens": _text_max_tokens(settings.anthropic_model),
             "tools": tools,
             "tool_choice": "auto",
         }
-        if (
-            settings.anthropic_model == "zai-org/GLM-5.3-Flash"
-            or settings.anthropic_model.startswith("anthropic/claude-")
-        ):
+        if settings.anthropic_model in _LOW_REASONING_MODELS:
             body["reasoning_effort"] = "low"
         response = (
             client.post(endpoint, cast_to=ChatCompletion, body=body)
             if endpoint.endswith("/chat/completions")
             else client.chat.completions.create(**body)
         )
+        if response.choices and response.choices[0].finish_reason == "length":
+            raise AgentResponseTruncated("AGENT_OUTPUT_TRUNCATED")
         if not response.choices or response.choices[0].finish_reason not in {"stop", "tool_calls"}:
             # 본문·키·공급자 오류 원문은 로그에 남기지 않는다.
             raise ValueError("AGENT_INCOMPLETE_RESPONSE")

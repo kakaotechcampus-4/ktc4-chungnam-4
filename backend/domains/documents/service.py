@@ -1719,18 +1719,22 @@ def published_records_for_agents(
     if lock:
         query = query.with_for_update().execution_options(populate_existing=True)
     rows = db.scalars(query).all()
+    if not rows:
+        return []
+    texts_by_draft: dict[UUID, list[str]] = {row.id: [] for row in rows}
+    sentences = db.execute(
+        select(DraftSentence.draft_id, DraftSentence.text)
+        .where(DraftSentence.draft_id.in_(texts_by_draft))
+        .order_by(DraftSentence.draft_id, DraftSentence.position)
+    )
+    for draft_id, text in sentences:
+        texts_by_draft[draft_id].append(text)
     return [
         PublishedEvidence(
             document_id=row.id,
             record_date=row.record_date,
             version=row.version,
-            text="\n".join(
-                db.scalars(
-                    select(DraftSentence.text)
-                    .where(DraftSentence.draft_id == row.id)
-                    .order_by(DraftSentence.position)
-                ).all()
-            ),
+            text="\n".join(texts_by_draft[row.id]),
         )
         for row in rows
     ]

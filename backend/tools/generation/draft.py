@@ -11,18 +11,15 @@
 
 from __future__ import annotations
 
-import json
-import re
 from collections.abc import Mapping
 from datetime import date
 
 from pydantic import Field, ValidationError
 
 from tools.contracts import ContractModel, DocType, DraftDocument, DraftSentence, NonEmpty
+from tools.json_response import parse_json_response
 
 MAX_SENTENCES = 10
-
-_CODE_FENCE = re.compile(r"\A```(?:json)?\s*(.*?)\s*```\Z", re.DOTALL)
 
 
 class DraftResponseError(ValueError):
@@ -56,14 +53,9 @@ def parse_draft_response(
     """
     if not raw_response:
         raise DraftResponseError("초안 생성 응답이 비어 있습니다.")
-    text = raw_response.strip()
-    fenced = _CODE_FENCE.match(text)
-    if fenced:
-        text = fenced.group(1)
-
     try:
-        answer = _Answer.model_validate(json.loads(text))
-    except (json.JSONDecodeError, ValidationError):
+        answer = _Answer.model_validate(parse_json_response(raw_response))
+    except (ValueError, ValidationError):
         raise DraftResponseError("초안 생성 응답이 약속한 JSON 형식이 아닙니다.") from None
 
     sentences: list[DraftSentence] = []

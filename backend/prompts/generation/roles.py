@@ -4,7 +4,7 @@ import re
 from functools import cache
 from pathlib import Path
 
-PROMPT_VERSION = "multi_agent.v1"
+PROMPT_VERSION = "multi_agent.v2"
 
 
 @cache

@@ -200,7 +200,7 @@ def test_네이티브_도구_요청과_잘린응답_거절(monkeypatch, full_url
         "get_settings",
         lambda: SimpleNamespace(
             anthropic_api_key=SecretStr("test-key"),
-            anthropic_model="anthropic/claude-sonnet-5",
+            anthropic_model="anthropic/claude-sonnet-5-5",
             llm_gateway_base_url=endpoint,
         ),
     )
@@ -208,7 +208,7 @@ def test_네이티브_도구_요청과_잘린응답_거절(monkeypatch, full_url
         {"type": "function", "function": {"name": "child_roster", "parameters": {"type": "object"}}}
     ]
     if finish_reason == "length":
-        with pytest.raises(ValueError, match="AGENT_INCOMPLETE_RESPONSE"):
+        with pytest.raises(llm.AgentResponseTruncated, match="AGENT_OUTPUT_TRUNCATED"):
             llm.call_agent([{"role": "user", "content": "synthetic"}], tools)
     else:
         assert (
@@ -222,3 +222,55 @@ def test_네이티브_도구_요청과_잘린응답_거절(monkeypatch, full_url
     assert seen[0][1]["tool_choice"] == "auto"
     assert seen[0][1]["max_tokens"] == 2000
     assert seen[0][1]["reasoning_effort"] == "low"
+
+
+@pytest.mark.parametrize(
+    "model,limit,low",
+    [
+        ("zai-org/GLM-5.3-Flash", 4096, True),
+        ("anthropic/claude-sonnet-5-5", 2000, True),
+        ("claude-sonnet-5-5", 2000, True),
+        ("unknown-model", 2000, False),
+    ],
+)
+def test_작성과_Critic이_동일한_모델별_상한과_추론설정을_쓴다(monkeypatch, model, limit, low):
+    bodies = []
+
+    def respond(request):
+        bodies.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "id": "test",
+                "object": "chat.completion",
+                "created": 0,
+                "model": model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "OK"},
+                    }
+                ],
+            },
+        )
+
+    real = llm.OpenAI
+    monkeypatch.setattr(
+        llm,
+        "OpenAI",
+        lambda **kw: real(**kw, http_client=httpx.Client(transport=httpx.MockTransport(respond))),
+    )
+    monkeypatch.setattr(
+        llm,
+        "get_settings",
+        lambda: SimpleNamespace(
+            anthropic_api_key=SecretStr("test-only"),
+            anthropic_model=model,
+            llm_gateway_base_url="https://gateway.invalid/v1",
+        ),
+    )
+    llm.call_agent([{"role": "user", "content": "synthetic"}], [])
+    llm.call_claude("synthetic")
+    assert [body["max_tokens"] for body in bodies] == [limit, limit]
+    assert [body.get("reasoning_effort") for body in bodies] == ["low" if low else None] * 2

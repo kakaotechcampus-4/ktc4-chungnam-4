@@ -8,8 +8,6 @@ Critic 호출 자체의 실패(타임아웃·API 오류)는 이 함수의 범위
 
 from __future__ import annotations
 
-import json
-
 from pydantic import ValidationError
 
 from tools.contracts import (
@@ -20,6 +18,7 @@ from tools.contracts import (
     VerificationResult,
     VerificationStage,
 )
+from tools.json_response import parse_json_response
 
 
 def parse_critic_response(raw_response: str, document: DraftDocument) -> VerificationResult:
@@ -31,8 +30,8 @@ def parse_critic_response(raw_response: str, document: DraftDocument) -> Verific
     - 모든 문장이 유효하게 판정되고 전부 pass여야 문서 전체 pass.
     """
     try:
-        parsed = json.loads(raw_response)
-    except (json.JSONDecodeError, TypeError):
+        parsed = parse_json_response(raw_response)
+    except (ValueError, TypeError):
         return _error_result(document, "Critic 응답이 JSON 형식이 아닙니다.")
 
     if not isinstance(parsed, list):

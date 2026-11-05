@@ -27,7 +27,7 @@ from core.exceptions import (
     MediaNotReady,
     NoTargetChildren,
 )
-from domains.agents.llm import call_agent, call_claude, call_vision
+from domains.agents.llm import AgentResponseTruncated, call_agent, call_claude, call_vision
 from domains.agents.models import (
     DraftDecisionLog,
     EvidenceBundle,
@@ -1058,6 +1058,8 @@ def _to_feedback(
             detail=(
                 issue.reason
                 if issue.check_type == contracts.VerificationCheckType.CRITIC_CONTENT
+                else "응답 형식이 잘못되었거나 출력 한도를 넘었습니다. 문장 수와 길이를 줄이고 완전한 JSON 하나만 작성하세요."
+                if issue.check_type == contracts.VerificationCheckType.DRAFT_RESPONSE_ERROR
                 else None
             ),
         )
@@ -1356,6 +1358,10 @@ def _agent_conversation(
             raise AgentExecutionError("AGENT_INPUT_TOO_LARGE")
         try:
             response = call_agent(messages, tool_definitions(names))
+        except AgentResponseTruncated:
+            raise DraftResponseError(
+                "출력 한도를 넘었습니다. 사실·문장 수와 길이를 줄여 완전한 JSON으로 작성하세요."
+            ) from None
         except ValueError:
             raise AgentExecutionError("AGENT_RESPONSE_INVALID") from None
         calls = response.tool_calls or []
@@ -1493,16 +1499,16 @@ def _prepare_agent_inputs(
             + json.dumps([asdict(item) for item in observed], ensure_ascii=False)
         )
         if attempt:
-            prompt += "\n이전 응답의 형식 또는 참조가 잘못되었습니다. 지정한 JSON과 실제 관찰 근거만 사용하세요."
-        raw = _agent_conversation(
-            role="collector",
-            prompt=prompt,
-            names=COLLECTOR_TOOLS,
-            required=set(),
-            execute=execute,
-            trace=trace,
-        )
+            prompt += "\n이전 응답의 형식·참조가 잘못되었거나 출력 한도를 넘었습니다. 사실 수와 길이를 줄이고 지정한 JSON과 실제 관찰 근거만 사용하세요."
         try:
+            raw = _agent_conversation(
+                role="collector",
+                prompt=prompt,
+                names=COLLECTOR_TOOLS,
+                required=set(),
+                execute=execute,
+                trace=trace,
+            )
             routine = parse_routine(raw, observed)
             trace("collector", "completed", None)
             break
@@ -1538,16 +1544,41 @@ def start_observation_job(
     month = month.replace(day=1)
     if month > datetime.now(_KST).date():
         raise InvalidRecordDate("미래 월의 관찰일지를 만들 수 없습니다.")
+    # 원아 행 잠금을 커밋까지 유지해 서로 다른 request_id의 동시 요청도 하나로 모은다.
+    class_id = organization_service.get_child_class_id(db, child_id, lock=True)
     existing = _find_job_by_request_id(db, request_id)
     if existing:
         return _started_again(db, existing, center_id)
+    now = datetime.now(UTC)
+    active = db.scalar(
+        select(GenerationJob)
+        .join(Job, Job.generation_job_id == GenerationJob.id)
+        .where(
+            Job.child_id == child_id,
+            GenerationJob.record_date == month,
+            GenerationJob.doc_type == contracts.DocType.OBSERVATION_LOG.value,
+            or_(
+                and_(
+                    Job.status == JobStatus.RUNNING.value, Job.updated_at >= now - _STALE_JOB_AFTER
+                ),
+                and_(
+                    Job.status == JobStatus.PENDING.value,
+                    Job.updated_at >= now - _STALE_PENDING_JOB_AFTER,
+                ),
+            ),
+        )
+        .order_by(GenerationJob.created_at)
+        .limit(1)
+    )
+    if active:
+        return _started_again(db, active, center_id)
     records = documents.published_records_for_agents(
         db, child_id=child_id, start_date=month, end_date=_month_end(month)
     )
     if not records:
         raise NoTargetChildren("이 달에 게시된 알림장이 없습니다.")
     parent = GenerationJob(
-        class_id=organization_service.get_child_class_id(db, child_id),
+        class_id=class_id,
         record_date=month,
         request_id=str(request_id),
         requested_by_teacher_id=teacher_id,

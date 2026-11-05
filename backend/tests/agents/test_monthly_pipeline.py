@@ -1,7 +1,8 @@
 """API→worker→관찰일지→교사 승인까지. 모델 응답만 고정하는 통합 검증."""
 
 import json
-from datetime import UTC, date
+import os
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -253,3 +254,156 @@ def test_수집에이전트의_DB도구는_원아_ID나_실명을_모델에_보�
     assert "CHILD_A" in serialized
     assert all(str(child) not in serialized for child in children)
     assert "김도윤" not in serialized
+
+
+@pytest.mark.parametrize("role", ["collector", "parent_note"])
+@pytest.mark.parametrize("always", [False, True])
+def test_출력한도_초과는_짧게_재시도하고_계속_실패하면_상한에서_끝난다(
+    flow, monkeypatch, role, always
+):
+    client, factory, klass, children, pending, _ = flow
+    login(client, TEACHER_EMAIL)
+    original = native_fixture(lambda prompt: service.call_claude(prompt))
+    attempts = []
+
+    def respond(messages, tools):
+        is_collector = tools[0]["function"]["name"] == "activity_plan"
+        target = is_collector if role == "collector" else not is_collector
+        if target and (is_collector or any(m["role"] == "tool" for m in messages)):
+            attempts.append(messages[0]["content"])
+            if always or len(attempts) == 1:
+                raise service.AgentResponseTruncated("AGENT_OUTPUT_TRUNCATED")
+        return original(messages, tools)
+
+    monkeypatch.setattr(service, "call_agent", respond)
+    status = run(client, klass, photo(factory, klass, [children[0]]), pending)
+    assert len(attempts) == (3 if always else 2)
+    assert "줄이" in attempts[1] or "줄여" in attempts[1]
+    assert status["status"] == "succeeded"
+    assert status["children"][0]["outcome"] == ("unclassified" if always else "drafted")
+
+
+def test_새_request_id로_같은_월을_요청해도_진행중인_작업을_이어받는다(flow):
+    published_note(flow)
+    client, factory, _, children, pending, _ = flow
+    url = f"/api/v1/children/{children[0]}/observation-jobs"
+    first = client.post(url, json={"request_id": str(uuid4()), "month": "2026-10"})
+    second = client.post(url, json={"request_id": str(uuid4()), "month": "2026-10"})
+    assert first.status_code == second.status_code == 202
+    assert first.json()["job_id"] == second.json()["job_id"]
+    assert len(pending) == 1
+    with factory() as db:
+        job = db.get(Job, pending[0][0])
+        job.status = "failed"
+        db.commit()
+    third = client.post(url, json={"request_id": str(uuid4()), "month": "2026-10"})
+    assert third.status_code == 202
+    assert third.json()["job_id"] != first.json()["job_id"]
+    assert len(pending) == 2
+
+
+def test_게시본_문장을_두번의_조회로_날짜와_문장순서대로_가져온다(flow):
+    from sqlalchemy import event
+
+    from domains.documents.models import DocumentPublication, DraftSentence
+
+    first = published_note(flow)
+    _, factory, _, children, _, _ = flow
+    with factory() as db:
+        source = db.get(DraftDocument, UUID(first))
+        source.record_date = date(2026, 10, 1)
+        for day in range(2, 5):
+            draft = DraftDocument(
+                child_id=children[0],
+                doc_type="parent_note",
+                record_date=date(2026, 10, day),
+                version=1,
+                status="approved",
+                author_teacher_id=source.author_teacher_id,
+            )
+            db.add(draft)
+            db.flush()
+            db.add(
+                DocumentPublication(
+                    draft_id=draft.id,
+                    include_photos=False,
+                    round_number=1,
+                    publish_request_id=str(uuid4()),
+                    published_version=1,
+                    revoke_deadline=datetime.now(UTC) + timedelta(days=1),
+                )
+            )
+            for position in [2, 1]:
+                db.add(
+                    DraftSentence(
+                        draft_id=draft.id,
+                        sentence_id=f"s{position}",
+                        position=position,
+                        text=f"문장{position}",
+                    )
+                )
+        db.commit()
+        queries = []
+        engine = db.get_bind()
+
+        def count(conn, cursor, statement, parameters, context, executemany):
+            queries.append(statement)
+
+        event.listen(engine, "before_cursor_execute", count)
+        try:
+            records = service.documents.published_records_for_agents(
+                db, child_id=children[0], start_date=date(2026, 10, 1), end_date=date(2026, 10, 31)
+            )
+        finally:
+            event.remove(engine, "before_cursor_execute", count)
+        assert len(queries) == 2
+        assert [r.record_date.day for r in records] == [1, 2, 3, 4]
+        assert records[1].text == "문장1\n문장2"
+
+
+@pytest.mark.skipif(
+    not os.environ.get("PHOTO_PIPELINE_TEST_DATABASE_URL"), reason="PostgreSQL row locks required"
+)
+def test_서로다른_요청_ID로_동시에_생성해도_월별_작업은_하나다(flow):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier, Event
+
+    from domains.agents.models import GenerationJob
+    from domains.organization.models import Klass
+
+    published_note(flow)
+    _, factory, class_id, children, _, _ = flow
+    with factory() as db:
+        klass = db.get(Klass, class_id)
+        teacher_id, center_id = klass.teacher_id, klass.center_id
+    barrier = Barrier(2)
+
+    def start(index):
+        with factory() as db:
+            barrier.wait(timeout=10)
+            result = service.start_observation_job(
+                db,
+                child_id=children[0],
+                month=date(2026, 10, 1),
+                request_id=uuid4(),
+                teacher_id=teacher_id,
+                center_id=center_id,
+            )
+            # 아직 커밋 안 된 새 작업을 다른 요청이 볼 수 없는 구간을 겹친다.
+            Event().wait(0.05)
+            db.commit()
+            return result.status.generation_job.id, len(result.to_enqueue)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(start, [0, 1]))
+    assert results[0][0] == results[1][0]
+    assert sum(count for _, count in results) == 1
+    with factory() as db:
+        assert (
+            len(
+                db.scalars(
+                    select(GenerationJob).where(GenerationJob.doc_type == "observation_log")
+                ).all()
+            )
+            == 1
+        )

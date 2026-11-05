@@ -855,9 +855,12 @@ def delete_education_plan(db: Session, plan_id: UUID, center_id: UUID | None) ->
     db.commit()
 
 
-def get_child_class_id(db: Session, child_id: UUID) -> UUID:
-    """worker가 대상 원아의 반을 찾는다. 외부 접근은 호출 API에서 검사한다(FR-05)."""
-    child = db.get(Child, child_id)
+def get_child_class_id(db: Session, child_id: UUID, *, lock: bool = False) -> UUID:
+    """원아의 반을 찾는다. lock은 월별 작업 생성을 직렬화하며 호출자가 커밋한다(FR-05·06)."""
+    stmt = select(Child).where(Child.id == child_id)
+    if lock:
+        stmt = stmt.with_for_update()
+    child = db.scalar(stmt)
     if child is None:
         raise ChildNotFound("원아를 찾을 수 없습니다.")
     return child.class_id
@@ -1025,6 +1028,9 @@ def get_child_overview(db: Session, child_id: UUID, center_id: UUID | None, acto
     )
 
 
-def get_class_age_band(db: Session, class_id: UUID) -> str:
-    """LLM 도구에는 생년월일 대신 반의 연령대만 제공한다(H-2)."""
-    return db.scalar(select(Klass.age_band).where(Klass.id == class_id)) or "unknown"
+def get_class_age_band(db: Session, class_id: UUID) -> AgeBand:
+    """현재 반의 연령대만 제공한다. 과거 반 이력은 아직 지원하지 않는다(H-2)."""
+    age_band = db.scalar(select(Klass.age_band).where(Klass.id == class_id))
+    if age_band is None:
+        raise ClassNotFound("반을 찾을 수 없습니다.")
+    return AgeBand(age_band)

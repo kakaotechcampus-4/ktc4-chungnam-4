@@ -18,8 +18,8 @@ def native_fixture(final: Callable[[str], str]) -> Callable:
                 content=json.dumps(
                     {
                         "facts": [
-                            {"text": item["text"][:350], "evidence_refs": [item["ref"]]}
-                            for item in items[:15]
+                            {"text": item["text"][:200], "evidence_refs": [item["ref"]]}
+                            for item in items[:10]
                         ]
                     },
                     ensure_ascii=False,

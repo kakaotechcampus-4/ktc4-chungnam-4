@@ -38,16 +38,16 @@ def collect(items: list[LlmEvidence]) -> DailyRoutine:
         prompt = role_prompt("collector") + "\n관찰 자료:\n"
         prompt += json.dumps([asdict(item) for item in items], ensure_ascii=False)
         if attempt:
-            prompt += "\n이전 응답의 형식 또는 참조가 잘못되었습니다. JSON 하나와 실제 관찰 근거만 사용하세요."
-        raw = service._agent_conversation(
-            role="collector",
-            prompt=prompt,
-            names=COLLECTOR_TOOLS,
-            required=set(),
-            execute=synthetic_lookup,
-            trace=trace,
-        )
+            prompt += "\n이전 응답의 형식·참조 오류 또는 출력 한도 초과입니다. 사실 수와 길이를 줄이고 JSON 하나와 실제 관찰 근거만 사용하세요."
         try:
+            raw = service._agent_conversation(
+                role="collector",
+                prompt=prompt,
+                names=COLLECTOR_TOOLS,
+                required=set(),
+                execute=synthetic_lookup,
+                trace=trace,
+            )
             routine = parse_routine(raw, items)
             trace("collector", "completed", None)
             return routine

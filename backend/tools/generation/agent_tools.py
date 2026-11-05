@@ -5,7 +5,15 @@ from typing import Literal
 
 from tools.contracts import ContractModel
 
-SECTIONS = ("신체운동·건강", "의사소통", "사회관계", "예술경험", "자연탐구", "종합의견")
+SECTION_GUIDANCE = {
+    "신체운동·건강": "움직임·도구 사용·위생 행동",
+    "의사소통": "실제 발화·듣기·표현 행동",
+    "사회관계": "관찰된 또래 상호작용",
+    "예술경험": "관찰된 음악·미술·표현 활동",
+    "자연탐구": "관찰된 탐색·비교·분류 활동",
+    "종합의견": "앞 영역의 근거 있는 행동만 종합",
+}
+SECTIONS = tuple(SECTION_GUIDANCE)
 COLLECTOR_TOOLS = ("activity_plan", "previous_records", "child_roster")
 PARENT_TOOLS = ("emotional_vocabulary", "developmental_wording")
 OBSERVATION_TOOLS = ("domain_style", "developmental_guideline")
@@ -46,14 +54,7 @@ def writing_guidance(name: str, *, age_band: str, focus: str) -> str:
         "domain_style": {
             "sections": list(SECTIONS),
             "style": "관찰 행동을 해당 영역에 배치하고 '~하였다' 문체로 쓴다. 근거 없는 영역은 비워 둔다.",
-            "domains": {
-                "신체운동·건강": "움직임·도구 사용·위생 행동",
-                "의사소통": "실제 발화·듣기·표현 행동",
-                "사회관계": "관찰된 또래 상호작용",
-                "예술경험": "관찰된 음악·미술·표현 활동",
-                "자연탐구": "관찰된 탐색·비교·분류 활동",
-                "종합의견": "앞 영역의 근거 있는 행동만 종합",
-            },
+            "domains": SECTION_GUIDANCE,
         },
         "developmental_guideline": {
             "rule": common,

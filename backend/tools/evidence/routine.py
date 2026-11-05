@@ -1,7 +1,6 @@
 """에이전트1 산출물. 요약을 새로운 근거로 승격하지 않고 원본 참조를 보존한다(FR-27)."""
 
 import json
-import re
 from collections.abc import Sequence
 
 from pydantic import Field, ValidationError
@@ -9,25 +8,22 @@ from pydantic import Field, ValidationError
 from tools.contracts import ContractModel, NonEmpty, SourceType
 from tools.generation.draft import DraftResponseError
 from tools.generation.pseudonymize import LlmEvidence
+from tools.json_response import parse_json_response
 
 
 class RoutineFact(ContractModel):
-    text: NonEmpty = Field(max_length=350)
+    text: NonEmpty = Field(max_length=200)
     evidence_refs: list[NonEmpty] = Field(min_length=1, max_length=20)
 
 
 class DailyRoutine(ContractModel):
-    facts: list[RoutineFact] = Field(min_length=1, max_length=15)
+    facts: list[RoutineFact] = Field(min_length=1, max_length=10)
 
 
 def parse_routine(raw: str | None, evidence: Sequence[LlmEvidence]) -> DailyRoutine:
-    text = (raw or "").strip()
-    fenced = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
-    if fenced:
-        text = fenced.group(1)
     try:
-        routine = DailyRoutine.model_validate_json(text)
-    except ValidationError:
+        routine = DailyRoutine.model_validate(parse_json_response(raw))
+    except (ValueError, ValidationError):
         raise DraftResponseError("하루 일과 응답 형식이 올바르지 않습니다.") from None
     by_ref = {item.ref: item for item in evidence}
     for fact in routine.facts:
