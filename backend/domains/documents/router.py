@@ -21,6 +21,7 @@ from domains.documents.schemas import (
     ApproveRequest,
     ChildDraftListResponse,
     ClassDraftListResponse,
+    ClassObservationLogListResponse,
     DraftCreateRequest,
     DraftDetailResponse,
     DraftUpdateRequest,
@@ -58,6 +59,21 @@ def list_class_drafts(
         record_date=record_date,
         doc_type=doc_type,
         published=published,
+    )
+
+
+@router.get("/classes/{class_id}/observation-logs", response_model=ClassObservationLogListResponse)
+def list_class_observation_logs(
+    class_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    teacher: CurrentTeacher,
+    month: Annotated[str, Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")],
+) -> ClassObservationLogListResponse:
+    return service.list_class_observation_logs(
+        db,
+        class_id=class_id,
+        center_id=teacher.center_id,
+        month=date.fromisoformat(f"{month}-01"),
     )
 
 

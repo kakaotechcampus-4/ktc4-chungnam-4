@@ -143,6 +143,8 @@ from domains.documents.schemas import (
     ChildDraftListResponse,
     ClassDraftItem,
     ClassDraftListResponse,
+    ClassObservationLogItem,
+    ClassObservationLogListResponse,
     DraftCreateRequest,
     DraftDetailResponse,
     DraftSaveInput,
@@ -152,6 +154,7 @@ from domains.documents.schemas import (
     DraftVersionInfo,
     EvidenceView,
     MediaUrl,
+    ObservationLogSummary,
     ParentMediaDay,
     ParentMediaDownloadResponse,
     ParentMediaItem,
@@ -492,6 +495,69 @@ def list_child_drafts(
             )
             for draft, published_at in rows
         ]
+    )
+
+
+def list_class_observation_logs(
+    db: Session, *, class_id: UUID, center_id: UUID | None, month: date
+) -> ClassObservationLogListResponse:
+    """반 전체의 한 달 관찰일지 현황 — 관찰일지 아이 목록 화면 (FR-06, #225 ⑱, #263).
+
+    - 접근 검사와 재원 원아 명단은 organization이 맡는다. 게시 알림장이 없는 원아도 명단
+      순서대로 행을 둔다 — 화면이 그 원아의 「생성하기」를 막아야 해서다(#225 ⑫).
+    - published_note_count는 그 달(record_date 기준, #225 ⑩)에 지금 게시 중인 알림장 수다.
+      회수됐거나 승인만 된 알림장은 세지 않는다 — 관찰일지 근거가 될 수 없는 문서다.
+    - 월 관찰일지는 record_date가 그 달 1일인 문서다.
+    - 미래 월도 막지 않는다. 게시 알림장이 0건이라 화면이 같은 규칙으로 막는다 — 임시
+      결정(한상균), #263.
+    - 본문을 싣지 않아 열람 기록을 남기지 않는다(원아별 목록과 같은 기준).
+    """
+    month_start = month.replace(day=1)
+    next_month = (month_start + timedelta(days=32)).replace(day=1)
+    roster = organization_service.list_class_children(db, class_id, center_id)
+    child_ids = [child.child_id for child in roster.items]
+    if not child_ids:
+        return ClassObservationLogListResponse(month=month_start.strftime("%Y-%m"), items=[])
+
+    active = _active_publications()
+    note_counts = dict(
+        db.execute(
+            select(DraftDocument.child_id, func.count(DraftDocument.id))
+            .join(active, active.c.draft_id == DraftDocument.id)
+            .where(
+                DraftDocument.child_id.in_(child_ids),
+                DraftDocument.doc_type == DocType.PARENT_NOTE.value,
+                DraftDocument.record_date >= month_start,
+                DraftDocument.record_date < next_month,
+            )
+            .group_by(DraftDocument.child_id)
+        )
+        .tuples()
+        .all()
+    )
+    logs = {
+        draft.child_id: ObservationLogSummary(
+            draft_id=draft.id, status=DraftStatus(draft.status), created_at=draft.created_at
+        )
+        for draft in db.scalars(
+            select(DraftDocument).where(
+                DraftDocument.child_id.in_(child_ids),
+                DraftDocument.doc_type == DocType.OBSERVATION_LOG.value,
+                DraftDocument.record_date == month_start,
+            )
+        )
+    }
+    return ClassObservationLogListResponse(
+        month=month_start.strftime("%Y-%m"),
+        items=[
+            ClassObservationLogItem(
+                child_id=child.child_id,
+                name=child.name,
+                published_note_count=note_counts.get(child.child_id, 0),
+                observation_log=logs.get(child.child_id),
+            )
+            for child in roster.items
+        ],
     )
 
 
@@ -1006,6 +1072,7 @@ def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
         include_photos=publication.include_photos if publication else None,
         revoke_deadline=publication.revoke_deadline if publication else None,
         can_revoke=_can_revoke(publication),
+        created_at=draft.created_at,
         updated_at=draft.updated_at,
     )
 
