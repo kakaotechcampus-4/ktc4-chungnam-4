@@ -36,7 +36,7 @@ def sessions(monkeypatch: pytest.MonkeyPatch) -> sessionmaker:
 def 반_명단(monkeypatch: pytest.MonkeyPatch) -> dict[uuid.UUID, list[str]]:
     """반 명단 조회는 organization 테이블 없이 바꿔 끼웁니다. 비어 있으면 이름 없이 부릅니다."""
     names: dict[uuid.UUID, list[str]] = {}
-    monkeypatch.setattr(service, "get_class_child_names", lambda session, class_id: names)
+    monkeypatch.setattr(service, "get_class_enrolled_child_names", lambda session, class_id: names)
     return names
 
 
@@ -110,7 +110,7 @@ def test_발화를_원본_기준_시각으로_저장하고_done이_된다(
         assert session.query(TranscriptSegment.avg_logprob).scalar() == -0.3
 
 
-def test_그_반_원아의_호칭과_성명을_STT에_넘긴다(
+def test_그_반_재원_원아의_호칭과_성명을_STT에_넘긴다(
     sessions: sessionmaker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     media_id = _asset(sessions, media_type="voice_memo")
@@ -124,7 +124,7 @@ def test_그_반_원아의_호칭과_성명을_STT에_넘긴다(
         asked.append(class_id)
         return {uuid.uuid4(): ["하준", "김하준"], uuid.uuid4(): ["서아", "이서아"]}
 
-    monkeypatch.setattr(service, "get_class_child_names", names)
+    monkeypatch.setattr(service, "get_class_enrolled_child_names", names)
 
     service.transcribe_media(media_id)
 
