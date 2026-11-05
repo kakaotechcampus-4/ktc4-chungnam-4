@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     stt_model: str = "whisper-large-v3"
     # 영상 하나 안에서 조각을 동시에 보내는 수 (10/30 김동건). 많이 두면 엘리스가 429·504로 막습니다
     stt_max_concurrency: int = Field(default=4, ge=1, le=16)
+    # STT 직후 이름 바로잡기(파이프라인 1-C, H-2 예외). 반 원아 성명·호칭과 전사문을 위 agents
+    # 게이트웨이(ANTHROPIC_MODEL)로 보냅니다. 서버 LLM이 Claude일 때만 켭니다 — GLM은 다른 원아로
+    # 잘못 고치는 일이 많았습니다(11/05 실험). 기본은 꺼짐입니다.
+    stt_name_fix_enabled: bool = False
 
     # 로그인 토큰 서명 키. 없으면 앱은 뜨지만 로그인만 실패합니다 — 다른 도메인
     # 개발이 키 때문에 막히지 않게 하기 위함입니다 (face_embedding_key와 같은 방식).

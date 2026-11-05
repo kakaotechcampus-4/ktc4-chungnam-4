@@ -5,11 +5,13 @@ tasks.py는 이 모듈의 orchestrate_drafts만 호출합니다 (CLAUDE.md: task
 
 import logging
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
+import openai
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, object_session
@@ -39,6 +41,7 @@ from domains.media import service as media_service
 from domains.organization import service as organization_service
 from domains.organization.service import ensure_class_access
 from prompts.generation.draft import DraftFeedback, build_draft_prompt
+from prompts.perception.name_fix import build_name_fix_prompt
 from prompts.perception.photo_analysis import build_single_photo_prompt
 from prompts.verification.critic import build_critic_prompt
 from tools import contracts
@@ -46,6 +49,7 @@ from tools.evidence.builder import build_evidence
 from tools.generation.draft import DraftResponseError, parse_draft_response
 from tools.generation.pseudonymize import pseudonymize_evidence, restore_names
 from tools.perception.merge import failed_photo_ids, merge_perception_results
+from tools.perception.name_fix import NameFixOutcome, apply_name_fixes, parse_name_fix_response
 from tools.perception.photo import parse_single_photo_analysis
 from tools.perception.transcript import normalize_transcript
 from tools.perception.types import (
@@ -666,6 +670,70 @@ def _cap_photos(media: list[media_service.MediaEvidence]) -> list[media_service.
 
 # 사진 분석 응답이 형식을 어기면 그 사진만 이만큼 다시 부른다. 호출 예외는 여기서 잡지 않고
 # Celery task 재시도가 맡는다 (테크스펙 §오류 복구 '사진 분석 응답 오류', #155).
+# 파이프라인 1-C 이름 바로잡기(H-2 예외). 한 번에 보내는 전사 조각 수와 동시 호출 수다.
+# 7조각 묶음은 조각마다 부를 때와 정확도가 같은 수준이고 비용은 1/3이었다(11/05 합성 음성 실험,
+# 원아 10명 반). 동시 호출은 STT 기본값(4)에 맞춘다 — 실험에서 동시 10개로 부르자 시간 초과가 났다.
+NAME_FIX_LINES_PER_CALL = 7
+_NAME_FIX_MAX_CONCURRENCY = 4
+
+
+def fix_transcript_names(lines: Sequence[str], children: Sequence[Sequence[str]]) -> list[str]:
+    """STT 전사 조각에서 잘못 적힌 원아 이름을 바로잡아, 같은 길이·순서로 돌려준다 (1-C).
+
+    media의 transcribe_media가 STT 결과를 저장하기 전에 부른다. children은 원아마다 이름들이다
+    ([호칭, 성명], `organization.get_class_child_names`의 값).
+
+    LLM에는 반 원아 이름과 전사문만 간다 — H-2의 예외이고, child_id·생년월일·보호자 정보는 받지도
+    않는다. 응답은 고친 곳만 받아 소리가 가까운 수정만 적용한다(tools/perception/name_fix).
+    호출이 실패하거나 형식이 깨진 묶음은 재시도하지 않고 원문을 둔다 — 보강 단계라 실패해도 지금
+    동작보다 나빠지지 않고, STT 작업 시간을 아낀다. 로그에는 개수만 남긴다 (H-4).
+    """
+    originals = list(lines)
+    if not originals or not any(name.strip() for names in children for name in names):
+        return originals
+    # 프롬프트에 넣은 꼴(띄어쓰기 한 칸)에 수정을 적용해야 응답의 적힌 말을 찾을 수 있다
+    normalized = [" ".join(line.split()) for line in originals]
+    batches = [
+        list(range(start, min(start + NAME_FIX_LINES_PER_CALL, len(normalized))))
+        for start in range(0, len(normalized), NAME_FIX_LINES_PER_CALL)
+    ]
+
+    def fix_batch(indexes: list[int]) -> NameFixOutcome | None:
+        chunk = [normalized[index] for index in indexes]
+        try:
+            content = call_claude(build_name_fix_prompt(children, chunk))
+        except openai.OpenAIError as error:
+            # 바로잡기만 건너뛴다. STT 결과는 그대로 저장된다
+            logger.warning("name fix call failed: %s", type(error).__name__)
+            return None
+        fixes = parse_name_fix_response(content, len(chunk))
+        if fixes is None:
+            logger.warning("name fix response was not readable")
+            return None
+        return apply_name_fixes(chunk, fixes)
+
+    with ThreadPoolExecutor(max_workers=min(_NAME_FIX_MAX_CONCURRENCY, len(batches))) as pool:
+        outcomes = list(pool.map(fix_batch, batches))
+
+    fixed = list(originals)
+    for indexes, outcome in zip(batches, outcomes, strict=True):
+        if outcome is None:
+            continue
+        for index, line in zip(indexes, outcome.lines, strict=True):
+            if line != normalized[index]:
+                fixed[index] = line
+    done = [outcome for outcome in outcomes if outcome is not None]
+    logger.info(
+        "name fix: %d lines, %d calls, %d failed, %d applied, %d blocked",
+        len(originals),
+        len(batches),
+        len(batches) - len(done),
+        sum(outcome.applied for outcome in done),
+        sum(outcome.blocked for outcome in done),
+    )
+    return fixed
+
+
 PHOTO_RESPONSE_RETRIES = 1
 
 
