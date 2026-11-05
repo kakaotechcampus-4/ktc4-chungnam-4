@@ -141,6 +141,7 @@
 
 - `MediaChildLink.method` 값 → **`face_recognition` / `manual`**, NOT NULL. `confidence_score`는 자동일 때만 (09/21) → 테크스펙 데이터 모델 ③
 - **`MediaAsset.llm_allowed`** (boolean NOT NULL default false) 추가 — 타 반·외부 인물이 남은 사진을 LLM 경로에서 제외하는 게이트 (09/21) → 테크스펙 데이터 모델 ③
+- **학부모가 열어 본 알림장도 게시 후 24시간 안이면 회수**하고 고쳐 다시 보냄 — 잘못 나간 알림장을 학부모가 먼저 열면 고칠 길이 없었음 (11/05 팀 논의, #266) → 테크스펙 파이프라인 9단계·흐름 D-6, `docs/api/documents.md` §revoke
 **온디바이스 · 파이프라인**
 
 - **브라우저 VAD 안 씀.** 오디오를 자르지 않고 통째로 업로드 (09/14) → `frontend/CLAUDE.md` §온디바이스
