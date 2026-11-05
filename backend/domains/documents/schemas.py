@@ -341,6 +341,8 @@ class ParentNoteSummary(BaseModel):
     # 앞 3장. "사진도 함께 보내기"를 끄고 게시했으면 빈 배열이다.
     photos: list[MediaUrl]
     is_read: bool
+    # 회수 뒤 고쳐 다시 보낸 알림장. 화면이 "선생님이 내용을 고쳤어요"를 띄운다 (#266, 테크스펙 D-6).
+    is_resent: bool
 
 
 class ParentNoteListResponse(BaseModel):
@@ -367,6 +369,8 @@ class ParentNoteDetailResponse(BaseModel):
     photos: list[MediaUrl]
     author_name: str
     published_at: datetime
+    # 목록의 is_resent와 같다.
+    is_resent: bool
     # 같은 자녀의 이전(더 오래된)·다음(더 최근) 게시본 (제안)
     prev: ParentNoteLink | None
     next: ParentNoteLink | None

@@ -1271,6 +1271,7 @@ def list_letters_for_parent(
                 preview=previews.get(draft.id, ""),
                 photos=photos[draft.id],
                 is_read=publication.id in viewed,
+                is_resent=_is_resent(publication),
             )
             for draft, publication in page
         ],
@@ -1335,6 +1336,7 @@ def get_letter_for_parent(
             draft.author_teacher_id, ""
         ),
         published_at=publication.published_at,
+        is_resent=_is_resent(publication),
         prev=ParentNoteLink(parent_note_id=older.id, record_date=older.record_date)
         if older
         else None,
@@ -1428,6 +1430,15 @@ def get_media_download_for_parent(
         url_expires_at=download.url_expires_at,
         filename=download.filename,
     )
+
+
+def _is_resent(publication: DocumentPublication) -> bool:
+    """회수 뒤 다시 보낸 회차인가. 게시는 활성 회차가 없을 때만 되므로 2회째부터가 다시 보낸 것이다.
+
+    학부모 화면의 "선생님이 내용을 고쳤어요"에 쓴다 — 먼저 본 학부모가 바뀐 것을 알게 하려는
+    것이다(11/05 팀 논의, #266). 전 회차를 본 학부모만 가르지 않는다 — 임시 결정(한상균).
+    """
+    return publication.round_number > 1
 
 
 def _parent_notes(

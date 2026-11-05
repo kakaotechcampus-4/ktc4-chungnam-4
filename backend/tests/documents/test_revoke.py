@@ -330,7 +330,8 @@ def test_학부모가_본_알림장도_회수해_고쳐_다시_게시하면_새_
     """#266의 흐름 — 잘못 나간 알림장을 학부모가 먼저 열었어도 내리고, 고쳐서, 다시 보낸다."""
     center_id, draft = published
     _login_as_parent()
-    assert client.get(f"/api/v1/parent-notes/{draft.id}").status_code == 200
+    first = client.get(f"/api/v1/parent-notes/{draft.id}")
+    assert (first.status_code, first.json()["is_resent"]) == (200, False)
     _login_as_teacher(center_id)
     assert _revoke(client, draft).status_code == 200
 
@@ -361,8 +362,12 @@ def test_학부모가_본_알림장도_회수해_고쳐_다시_게시하면_새_
     assert RevisionAction.REVOKE.value in _actions(db, draft)
     assert RevisionAction.REOPEN.value in _actions(db, draft)
     _login_as_parent()
+    # 전에 읽었어도 새 회차라 다시 안 읽음이고, 화면이 "선생님이 내용을 고쳤어요"를 띄운다
+    (item,) = client.get(f"/api/v1/children/{draft.child_id}/parent-notes").json()["items"]
+    assert (item["is_read"], item["is_resent"]) == (False, True)
     opened = client.get(f"/api/v1/parent-notes/{draft.id}")
     assert opened.status_code == 200, opened.text
+    assert opened.json()["is_resent"] is True
     assert "고친 문장." in opened.text
     assert "블록을 쌓았어요." not in opened.text
 
