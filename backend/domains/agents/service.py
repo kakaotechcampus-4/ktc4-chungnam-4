@@ -684,15 +684,14 @@ def fix_transcript_names(lines: Sequence[str], children: Sequence[Sequence[str]]
     ([호칭, 성명], `organization.get_class_enrolled_child_names`의 값).
 
     LLM에는 반 재원 원아 이름과 전사문만 간다 — H-2의 예외이고, child_id·생년월일·보호자 정보는
-    받지도 않는다. 응답은 고친 곳만 받아, 고친 말에 명단 이름이 있고 소리가 가까운 수정만 적용한다
-    (tools/perception/name_fix).
+    받지도 않는다. 응답은 고친 곳만 받아, 고친 말에 명단 이름이 있고 소리가 가깝고 비슷한 다른 원아가
+    없는 수정만 적용한다(tools/perception/name_fix).
     호출이 실패하거나 형식이 깨진 묶음은 재시도하지 않고 원문을 둔다 — 보강 단계라 실패해도 지금
     동작보다 나빠지지 않고, STT 작업 시간을 아낀다. 로그에는 개수만 남긴다 (H-4).
     """
     originals = list(lines)
     if not originals or not any(name.strip() for names in children for name in names):
         return originals
-    names = [name for group in children for name in group]
     # 프롬프트에 넣은 꼴(띄어쓰기 한 칸)에 수정을 적용해야 응답의 적힌 말을 찾을 수 있다
     normalized = [" ".join(line.split()) for line in originals]
     batches = [
@@ -712,7 +711,7 @@ def fix_transcript_names(lines: Sequence[str], children: Sequence[Sequence[str]]
         if fixes is None:
             logger.warning("name fix response was not readable")
             return None
-        return apply_name_fixes(chunk, fixes, names)
+        return apply_name_fixes(chunk, fixes, children)
 
     with ThreadPoolExecutor(max_workers=min(_NAME_FIX_MAX_CONCURRENCY, len(batches))) as pool:
         outcomes = list(pool.map(fix_batch, batches))
@@ -727,7 +726,7 @@ def fix_transcript_names(lines: Sequence[str], children: Sequence[Sequence[str]]
     done = [outcome for outcome in outcomes if outcome is not None]
     logger.info(
         "name fix: %d lines, %d calls, %d failed, %d applied, "
-        "%d blocked (not a name %d, far %d, repeated %d)",
+        "%d blocked (not a name %d, far %d, repeated %d, ambiguous %d)",
         len(originals),
         len(batches),
         len(batches) - len(done),
@@ -736,6 +735,7 @@ def fix_transcript_names(lines: Sequence[str], children: Sequence[Sequence[str]]
         sum(outcome.blocked_not_name for outcome in done),
         sum(outcome.blocked_sound for outcome in done),
         sum(outcome.skipped_repeated for outcome in done),
+        sum(outcome.blocked_ambiguous for outcome in done),
     )
     return fixed
 

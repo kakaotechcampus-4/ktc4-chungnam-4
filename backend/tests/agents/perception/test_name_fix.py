@@ -4,14 +4,18 @@ import pytest
 
 from tools.perception.name_fix import (
     MAX_SOUND_DISTANCE,
+    MIN_NAME_MARGIN,
     NameFix,
     apply_name_fixes,
+    name_margin,
     parse_name_fix_response,
     sound_distance,
 )
 
-# 프롬프트에 넣은 명단의 호칭·성명 (합성 이름)
-NAMES = ("서아", "이서아", "로하", "한로하", "하은", "송하은", "하준", "김하준")
+# 프롬프트에 넣은 명단, 원아마다 [호칭, 성명] (합성 이름)
+CHILDREN = (("서아", "이서아"), ("로하", "한로하"), ("하은", "송하은"), ("하준", "김하준"))
+# #274 조원 녹음의 가상 명단 일부. 서연·서윤처럼 소리가 비슷한 이름이 같이 있다
+SIMILAR = (("서연", "김서연"), ("서윤", "박서윤"), ("유나", "송유나"))
 
 
 def test_JSON만_온_응답에서_고칠_곳을_읽는다():
@@ -62,7 +66,8 @@ def test_소리가_가까운_수정만_그_줄에_적용한다():
         NameFix(2, "송시스러", "송하은"),  # 거리 5: 소음 속 헛말을 이름으로 바꿈
     ]
 
-    outcome = apply_name_fixes(lines, fixes, NAMES)
+    # 소리 확인만 보려고 여유 확인은 끈다
+    outcome = apply_name_fixes(lines, fixes, CHILDREN, min_margin=0)
 
     assert outcome.lines == [
         "한로하가 친구에게 장난감을 빌려주었어요.",
@@ -77,7 +82,7 @@ def test_고친_말에_명단_이름이_없으면_소리가_가까워도_막는�
     lines = ["블로그 높이 쌓았어요.", "사고 먹을 사람?"]
     fixes = [NameFix(1, "블로그", "블록"), NameFix(2, "사고", "사과")]
 
-    outcome = apply_name_fixes(lines, fixes, NAMES)
+    outcome = apply_name_fixes(lines, fixes, CHILDREN)
 
     assert outcome.lines == lines
     assert (outcome.applied, outcome.blocked_not_name) == (0, 2)
@@ -85,7 +90,7 @@ def test_고친_말에_명단_이름이_없으면_소리가_가까워도_막는�
 
 def test_적힌_말이_그_줄에_없으면_적용하지도_세지도_않는다():
     outcome = apply_name_fixes(
-        ["서화가 웃었다.", "하준아 가자."], [NameFix(2, "서화가", "서아가")], NAMES
+        ["서화가 웃었다.", "하준아 가자."], [NameFix(2, "서화가", "서아가")], CHILDREN
     )
 
     assert outcome.lines == ["서화가 웃었다.", "하준아 가자."]
@@ -93,16 +98,41 @@ def test_적힌_말이_그_줄에_없으면_적용하지도_세지도_않는다(
 
 
 def test_적힌_말이_그_줄에_두_번_있으면_자리를_몰라_건너뛴다():
-    outcome = apply_name_fixes(["서화야 서화야"], [NameFix(1, "서화야", "서아야")], NAMES)
+    outcome = apply_name_fixes(["서화야 서화야"], [NameFix(1, "서화야", "서아야")], CHILDREN)
 
     assert outcome.lines == ["서화야 서화야"]
     assert (outcome.applied, outcome.skipped_repeated) == (0, 1)
 
 
+def test_비슷한_다른_원아가_있으면_고치지_않는다():
+    # #274 조원 녹음에서 나온 두 경우. "사연이도"는 서연(거리 1)과 서윤(거리 2) 사이라 애매하다
+    lines = ["눈 감자. 사연이도 이불 덮고,", "송윤아 왔나요?"]
+    fixes = [NameFix(1, "사연이도", "서연이도"), NameFix(2, "송윤아", "송유나")]
+
+    outcome = apply_name_fixes(lines, fixes, SIMILAR)
+
+    assert outcome.lines == ["눈 감자. 사연이도 이불 덮고,", "송유나 왔나요?"]
+    assert (outcome.applied, outcome.blocked_ambiguous) == (1, 1)
+
+
+def test_여유는_다른_원아_이름을_넣어_본_거리와의_차이다():
+    assert name_margin("사연이도", "서연이도", SIMILAR) == 1  # 서윤이도: 거리 2 − 1
+    assert name_margin("사연이도", "사과", SIMILAR) is None  # 명단 이름이 없다
+    assert MIN_NAME_MARGIN == 2
+
+
+def test_반에_다른_원아가_없으면_여유를_따지지_않는다():
+    outcome = apply_name_fixes(
+        ["서화야 가자."], [NameFix(1, "서화야", "서아야")], (("서아", "이서아"),)
+    )
+
+    assert outcome.lines == ["서아야 가자."]
+
+
 def test_입력_목록은_바꾸지_않는다():
     lines = ["서화야"]
 
-    apply_name_fixes(lines, [NameFix(1, "서화야", "서아야")], NAMES)
+    apply_name_fixes(lines, [NameFix(1, "서화야", "서아야")], CHILDREN)
 
     assert lines == ["서화야"]
 
