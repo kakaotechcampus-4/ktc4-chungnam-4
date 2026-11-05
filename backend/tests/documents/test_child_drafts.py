@@ -118,16 +118,22 @@ def _draft(
     return draft
 
 
-def _publish(db: Session, draft: DraftDocument, *, revoked: bool = False) -> None:
+def _publish(
+    db: Session,
+    draft: DraftDocument,
+    *,
+    revoked: bool = False,
+    published_at: datetime = PUBLISHED_AT,
+) -> None:
     db.add(
         DocumentPublication(
             draft_id=draft.id,
             round_number=1,
             publish_request_id=str(uuid.uuid4()),
             published_version=draft.version,
-            published_at=PUBLISHED_AT,
-            revoke_deadline=PUBLISHED_AT + timedelta(hours=24),
-            revoked_at=PUBLISHED_AT + timedelta(hours=1) if revoked else None,
+            published_at=published_at,
+            revoke_deadline=published_at + timedelta(hours=24),
+            revoked_at=published_at + timedelta(hours=1) if revoked else None,
         )
     )
     db.commit()
@@ -159,6 +165,8 @@ def test_그_원아의_그_종류_문서를_기록_날짜_최신순으로_담는
             "status": "verified",
             "version": 1,
             "published_at": None,
+            "revoke_deadline": None,
+            "can_revoke": False,
             "preview": "어제 기록이에요.",
         },
         {
@@ -167,6 +175,8 @@ def test_그_원아의_그_종류_문서를_기록_날짜_최신순으로_담는
             "status": "approved",
             "version": 1,
             "published_at": None,
+            "revoke_deadline": None,
+            "can_revoke": False,
             "preview": "지난주 기록이에요.",
         },
     ]
@@ -198,6 +208,28 @@ def test_published가_없으면_게시_전_문서도_담고_게시_시각을_싣
 
     assert items[0]["published_at"].removesuffix("Z") == "2026-10-27T08:40:00"
     assert items[1]["published_at"] is None
+
+
+def test_게시_중인_문서에_회수_기한과_회수_가능_여부를_싣는다(client, db, class_id):
+    child_id = _child(db, class_id)
+    just_now = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=1)
+    recent = _draft(db, child_id, date(2026, 11, 4))
+    _publish(db, recent, published_at=just_now)
+    expired = _draft(db, child_id, date(2026, 10, 27))
+    _publish(db, expired)
+    _draft(db, child_id, date(2026, 10, 23))  # 게시 전
+
+    items = _list(client, child_id).json()["items"]
+
+    # 테스트 DB(SQLite)는 시간대를 저장하지 않아 "Z"가 빠진다. PostgreSQL은 timestamptz라 UTC로 온다.
+    assert [
+        (item["revoke_deadline"] and item["revoke_deadline"].removesuffix("Z"), item["can_revoke"])
+        for item in items
+    ] == [
+        ((just_now + timedelta(hours=24)).replace(tzinfo=None).isoformat(), True),
+        ("2026-10-28T08:40:00", False),
+        (None, False),
+    ]
 
 
 def test_기록이_없으면_빈_목록이다(client, db, class_id):

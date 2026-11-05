@@ -89,6 +89,9 @@ class DraftSummary(BaseModel):
     version: int
     # 활성 게시 회차의 게시 시각. 게시 전이면 null이다 (승인·게시 분리).
     published_at: datetime | None
+    # 상세와 같은 값이다. 상세를 미리 받으면 교사 열람 기록이 남아 목록에도 싣는다 (#260).
+    revoke_deadline: datetime | None
+    can_revoke: bool
     preview: str
 
 
