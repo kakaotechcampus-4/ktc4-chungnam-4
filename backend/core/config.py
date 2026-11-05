@@ -56,7 +56,8 @@ class Settings(BaseSettings):
     # agents(초안 생성·Critic)용 게이트웨이. 기수·팀별 주소라 반드시 .env에서 설정합니다.
     llm_gateway_base_url: str = ""
     # 테크스펙의 에이전트 모델(Claude Sonnet 계열). 엘리스 게이트웨이는 "anthropic/claude-sonnet-5"를
-    # 400 "not allowed"로 거절하고 이 ID만 받는다 (11/03 /v1/models 확인).
+    # 400 "not allowed"로 거절한다. /v1/models에 나오는 이 ID를 쓴다(접두어 없는 "claude-sonnet-5-5"도
+    # 받는다, 11/03 확인).
     anthropic_model: str = "anthropic/claude-sonnet-5-5"
     # 사진 분석용 게이트웨이는 agents와 분리합니다 (09/23 결정, #98).
     vision_gateway_base_url: str = ""
