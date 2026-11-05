@@ -491,7 +491,8 @@ documents의 상세 작성 엔드포인트는 12개(교사용 8, 학부모용 4)
       "photos": [
         { "media_id": "3ed1a000-0000-4000-8000-000000000041", "type": "photo", "url": "https://<bucket>.s3.amazonaws.com/<key>?X-Amz-Signature=…", "url_expires_at": "2026-09-15T12:05:00Z" }
       ],
-      "is_read": false
+      "is_read": false,
+      "is_resent": false
     }
   ],
   "next_cursor": "eyJyZWNvcmRfZGF0ZSI6IjIwMjYtMDktMTQifQ",
@@ -503,6 +504,9 @@ documents의 상세 작성 엔드포인트는 12개(교사용 8, 학부모용 4)
 - 게이트를 통과한 게시본만 담습니다.
 - `photos`는 지금 보여도 되는 선택 사진·영상(§publications) 가운데 앞 3장의 서명 URL입니다. 영상이 섞일 수 있으니 `type`을 보고 그립니다. `include_photos=false`로 게시했으면 빈 배열입니다.
 - `is_read`·`unread_count`는 이 학부모의 본문 열람 기록을 기준으로 합니다. `unread_count`는 전체 안 읽음 수이고, W3의 두 곳에 같은 값을 씁니다.
+  - 열람 기록은 게시 회차마다 따로라서, 회수 뒤 다시 보낸 알림장은 전에 읽었어도 다시 `is_read=false`입니다.
+- `is_resent`는 교사가 회수한 뒤 고쳐 다시 보낸 알림장(게시 회차 2회째부터)이면 `true`입니다. 화면은 "선생님이 내용을 고쳤어요"를 띄웁니다(11/05 팀 논의, #266, 테크스펙 D-6). 본문 응답에도 같은 값이 있습니다.
+  - 전 회차를 본 학부모에게만이 아니라 그 알림장을 보는 학부모 모두에게 `true`입니다. 누가 전 회차를 봤는지 학부모마다 가르지 않고, 고친 사실을 숨길 이유도 없어서입니다 — 임시 결정(한상균).
 - `this_month_count`(제안)는 기록 날짜가 KST 기준 이번 달인 게시본 수("이번 달 12")입니다. `unread_count`와 함께 목록 응답 봉투를 확장한 필드입니다.
 - 목록에도 발췌와 사진이 보이므로 AccessLog(action=view_list, target_type=document_publication)를 남깁니다. `first_viewed_at`(학부모가 처음 본문을 연 시각)은 건드리지 않습니다.
 - 에러:
@@ -533,6 +537,7 @@ documents의 상세 작성 엔드포인트는 12개(교사용 8, 학부모용 4)
   ],
   "author_name": "김하늘",
   "published_at": "2026-09-15T08:40:00Z",
+  "is_resent": false,
   "prev": { "parent_note_id": "d7af0000-0000-4000-8000-000000000002", "record_date": "2026-09-14" },
   "next": null
 }
@@ -543,6 +548,7 @@ documents의 상세 작성 엔드포인트는 12개(교사용 8, 학부모용 4)
 - `content`는 문장 단위로 줄을 바꿉니다(`\n`).
 - `photos`는 사진을 함께 보낸 경우 지금 보여도 되는 선택 사진·영상(§publications) 전부입니다. 영상이 섞일 수 있으니 `type`을 보고 그립니다.
 - `author_name`은 작성 교사 이름입니다(FR-26).
+- `is_resent`는 목록과 같습니다. 다시 보낸 알림장이면 `true`이고, `published_at`은 다시 보낸 시각입니다.
 - `prev`·`next`(제안)는 같은 자녀의 이전·다음 게시본입니다.
 - 에러:
   - `PARENT_NOTE_NOT_FOUND` (404) — 없음, 미게시, 남의 자녀 것을 구분하지 않고 모두 404로 답합니다.
