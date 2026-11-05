@@ -28,7 +28,8 @@ TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=10.0)
 MAX_RETRIES = 2  # 조각당. 처음 시도까지 최대 3번
 RETRY_BASE_SECONDS = 2.0  # 2초 → 4초. 실패한 조각들이 한꺼번에 몰리지 않게 조금씩 흔듭니다
 # 합성 음성 실험(11/05)에서 prompt에 이름을 30개까지 넣어 봤습니다. 성명·호칭 짝으로 30개를 넘지
-# 않게 15명에서 자릅니다. 비슷한 이름이 많을수록 다른 원아 이름으로 적히는 일이 늘었습니다
+# 않게 15명에서 자릅니다. 비슷한 이름이 많을수록 다른 원아 이름으로 적히는 일이 늘었습니다.
+# 알려진 한계: 15명이 넘는 반은 성명 가나다순 뒤쪽 원아가 늘 빠져 이름 인식 효과를 못 봅니다(#269 리뷰)
 MAX_PROMPT_CHILDREN = 15
 # 이름만으로 된 전사 구간에 서로 다른 이름이 이만큼 있으면 prompt를 그대로 읊은 것으로 봅니다
 ECHO_MIN_NAMES = 4
@@ -84,7 +85,7 @@ class SpeechSegment:
 def build_name_prompt(children: Iterable[Sequence[str]]) -> str | None:
     """반 원아들의 이름을 Whisper `prompt`로 만듭니다. 원아가 없으면 None(prompt 없이 부름)입니다.
 
-    children은 원아마다 [호칭, 성명](`organization.get_class_child_names`의 값)입니다. 원아마다 성명
+    children은 원아마다 [호칭, 성명](`organization.get_class_enrolled_child_names`의 값)입니다. 원아마다 성명
     다음 호칭을 두고, 성명 가나다순으로 쉼표로만 잇습니다. 교사는 호칭으로도 성명으로도 부르는데,
     호칭만 넣으면 성명으로 부른 이름을 자주 놓치고 소음 속에서 호칭 목록을 통째로 지어냈습니다.
     소개 문장이나 말투 예시는 넣지 않습니다 — 이름 인식이 떨어지고 그 문장을 지어냅니다(11/05 원아

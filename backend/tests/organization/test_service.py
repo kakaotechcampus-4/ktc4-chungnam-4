@@ -22,6 +22,7 @@ from domains.organization.service import (
     ensure_class_access,
     find_center_by_code,
     get_class_child_names,
+    get_class_enrolled_child_names,
     get_consented_children,
     has_consent,
 )
@@ -346,7 +347,19 @@ def test_졸업_퇴소_원아의_이름도_넣고_다른_반은_뺀다():
     assert set(get_class_child_names(db, class_id)) == {enrolled, graduated, withdrawn}
 
 
+def test_밖으로_보내는_명단은_재원_원아만_같은_모양으로_돌려준다():
+    db = _session()
+    class_id = _class(db)
+    enrolled = _child(db, class_id, name="김민준")
+    _child(db, class_id, status="graduated", name="이서아")
+    _child(db, class_id, status="withdrawn", name="박도윤")
+    _child(db, _class(db), name="최하준")
+
+    assert get_class_enrolled_child_names(db, class_id) == {enrolled: ["민준", "김민준"]}
+
+
 def test_원아가_없는_반은_빈_딕셔너리():
     db = _session()
 
     assert get_class_child_names(db, _class(db)) == {}
+    assert get_class_enrolled_child_names(db, _class(db)) == {}
