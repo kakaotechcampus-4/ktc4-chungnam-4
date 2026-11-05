@@ -2,6 +2,7 @@ import pytest
 
 from prompts.generation.draft import DraftFeedback, build_draft_prompt
 from tools.contracts import DocType, SourceType
+from tools.generation.draft import MAX_SENTENCES
 from tools.generation.pseudonymize import LlmEvidence
 
 
@@ -51,3 +52,10 @@ def test_근거가_없으면_프롬프트를_만들지_않는다():
 def test_관찰일지는_생성_조건이_정해지기_전까지_만들지_않는다():
     with pytest.raises(KeyError):
         build_draft_prompt(DocType.OBSERVATION_LOG, _evidence())
+
+
+def test_본문의_문장_수_상한이_응답_검증과_같다():
+    # 본문 규칙만 바뀌면 LLM은 그 수만큼 쓰는데 응답 검증은 초안 전체를 실패로 본다.
+    prompt = build_draft_prompt(DocType.PARENT_NOTE, _evidence())
+
+    assert f"문장은 {MAX_SENTENCES}개 이하로 쓴다." in prompt
