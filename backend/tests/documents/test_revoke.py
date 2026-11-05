@@ -202,7 +202,8 @@ def test_H1_회수한_알림장은_학부모_목록과_본문에서_사라진다
     assert response.json()["error"]["code"] == "PARENT_NOTE_NOT_FOUND"
 
 
-def test_학부모가_본문을_열면_회수할_수_없고_아무것도_바뀌지_않는다(client, db, published):
+def test_학부모가_본문을_열었어도_기한_안이면_회수하고_학부모에게서_사라진다(client, db, published):
+    """잘못 나간 알림장을 학부모가 먼저 열면 고칠 길이 없어서 열람과 상관없이 회수한다 (#266)."""
     center_id, draft = published
     _login_as_parent()
     assert client.get(f"/api/v1/parent-notes/{draft.id}").status_code == 200
@@ -210,11 +211,11 @@ def test_학부모가_본문을_열면_회수할_수_없고_아무것도_바뀌�
     _login_as_teacher(center_id)
     response = _revoke(client, draft)
 
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "DRAFT_ALREADY_VIEWED"
-    assert _publication(db, draft).revoked_at is None
-    assert (draft.status, draft.version) == (DraftStatus.APPROVED.value, 4)
-    assert _actions(db, draft) == []
+    assert response.status_code == 200
+    assert _publication(db, draft).revoked_at is not None
+    assert (draft.status, draft.version) == (DraftStatus.REVOKED.value, 5)
+    _login_as_parent()
+    assert client.get(f"/api/v1/parent-notes/{draft.id}").status_code == 404
 
 
 def test_학부모가_목록만_봤으면_회수할_수_있다(client, db, published):
@@ -325,8 +326,12 @@ def test_회수한_알림장은_되돌리기_전에는_고치거나_승인하거
     assert (result["status"], result["error_code"]) == ("failed", "DRAFT_NOT_APPROVED")
 
 
-def test_회수한_알림장을_고쳐_다시_게시하면_새_회차로_학부모에게_간다(client, db, published):
-    _, draft = published
+def test_학부모가_본_알림장도_회수해_고쳐_다시_게시하면_새_회차로_간다(client, db, published):
+    """#266의 흐름 — 잘못 나간 알림장을 학부모가 먼저 열었어도 내리고, 고쳐서, 다시 보낸다."""
+    center_id, draft = published
+    _login_as_parent()
+    assert client.get(f"/api/v1/parent-notes/{draft.id}").status_code == 200
+    _login_as_teacher(center_id)
     assert _revoke(client, draft).status_code == 200
 
     reopened = client.post(f"/api/v1/drafts/{draft.id}/reopen", json={"expected_version": 5})
@@ -346,7 +351,12 @@ def test_회수한_알림장을_고쳐_다시_게시하면_새_회차로_학부�
 
     assert result["status"] == "published"
     publication = _publication(db, draft)
-    assert (publication.round_number, publication.revoked_at) == (2, None)
+    # 새 회차는 학부모가 아직 열지 않았다 — 고친 글을 처음 보는 것이다
+    assert (publication.round_number, publication.revoked_at, publication.first_viewed_at) == (
+        2,
+        None,
+        None,
+    )
     assert _actions(db, draft)[-1] == RevisionAction.RESEND.value
     assert RevisionAction.REVOKE.value in _actions(db, draft)
     assert RevisionAction.REOPEN.value in _actions(db, draft)
@@ -374,10 +384,11 @@ def test_상세는_회수_가능_여부와_기한을_알려_준다(client, db, p
     assert detail["can_revoke"] is True
     assert detail["revoke_deadline"] is not None
 
+    # 학부모가 열어 봐도 기한 안이면 그대로 회수할 수 있다 (#266)
     _login_as_parent()
     assert client.get(f"/api/v1/parent-notes/{draft.id}").status_code == 200
     _login_as_teacher(center_id)
-    assert client.get(f"/api/v1/drafts/{draft.id}").json()["can_revoke"] is False
+    assert client.get(f"/api/v1/drafts/{draft.id}").json()["can_revoke"] is True
 
 
 def test_기한이_지나거나_회수하면_상세의_회수_가능이_꺼진다(client, db, published):

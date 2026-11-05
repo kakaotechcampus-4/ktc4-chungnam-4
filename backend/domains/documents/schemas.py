@@ -186,7 +186,7 @@ class DraftDetailResponse(BaseModel):
     include_photos: bool | None
     # 활성 게시 회차의 회수 기한. 활성 회차가 없으면 null이다.
     revoke_deadline: datetime | None
-    # 지금 회수할 수 있는가 (기한 이내이고 학부모가 본문을 열기 전).
+    # 지금 회수할 수 있는가 (활성 게시 회차가 있고 기한 이내. 학부모가 열어 봤어도 된다, #266).
     can_revoke: bool
     updated_at: datetime
 

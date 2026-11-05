@@ -28,8 +28,10 @@ DocumentPublication 행을 각자 원자적으로 갱신하는 것만으로는 �
 판단과 쓰기를 분리하면, 그 사이에 회수가 끼어들어 이미 "보여줘도 된다"고 판단한
 요청이 회수 이후에도 본문을 반환해버릴 수 있다.
 
-해결: "판단"과 "쓰기"를 하나의 UPDATE 문으로 합치고, 서로 상대가 쓰는 필드를
-WHERE에 넣는다 — rowcount가 곧 판단 결과다.
+해결: "판단"과 "쓰기"를 하나의 UPDATE 문으로 합치고, 상대가 쓰는 필드를 WHERE에
+넣는다 — rowcount가 곧 판단 결과다. 학부모가 열어 봤어도 회수하므로(11/05 팀 논의,
+#266) 회수는 first_viewed_at을 보지 않는다. 지켜야 하는 것은 "회수 뒤에는 보여 주지
+않는다" 한 방향이고, 열람의 WHERE에 있는 revoked_at이 그것을 막는다.
 
     # 열람
     result = db.execute(
@@ -46,17 +48,17 @@ WHERE에 넣는다 — rowcount가 곧 판단 결과다.
         .where(
             DocumentPublication.id == pub_id,
             DocumentPublication.revoked_at.is_(None),  # 이미 회수된 행을 또 갱신하지 않는다
-            DocumentPublication.first_viewed_at.is_(None),
             DocumentPublication.revoke_deadline > now,
         )
         .values(revoked_at=now)
     )
     if result.rowcount == 0:
-        raise Conflict()  # 이미 회수됐거나 열람됐거나 기한이 지났다는 뜻
+        raise Conflict()  # 이미 회수됐거나 기한이 지났다는 뜻
 
-두 UPDATE가 같은 행을 대상으로 하므로, 어느 쪽이 먼저 커밋되든 나중 것의 WHERE는
-그 사이 바뀐 값 때문에 자동으로 막힌다 — PostgreSQL READ COMMITTED(기본 격리
+두 UPDATE가 같은 행을 대상으로 하므로, 회수가 먼저 커밋되면 나중에 온 열람의 WHERE는
+그 사이 채워진 revoked_at 때문에 자동으로 막힌다 — PostgreSQL READ COMMITTED(기본 격리
 수준)에서 UPDATE는 행 락을 잡은 뒤 WHERE를 커밋된 최신값으로 재평가하기 때문이다.
+열람이 먼저 커밋돼도 회수는 막히지 않는다(학부모는 회수 전에 본 것이다).
 격리 수준을 REPEATABLE READ 이상으로 바꾸면 이 재평가 대신 직렬화 오류가 날 수
 있으니, 그 경우엔 별도 재시도 처리가 필요하다. 이 패턴은 설계·주석 수준까지만
 검토됐고, 동시성 자체를 실제로 검증한 테스트는 아직 없다 — 구현 시 동시 요청
@@ -103,7 +105,6 @@ from core.exceptions import (
     DraftAlreadyApproved,
     DraftAlreadyExists,
     DraftAlreadyPublished,
-    DraftAlreadyViewed,
     DraftNotApprovable,
     DraftNotApproved,
     DraftNotFound,
@@ -1170,8 +1171,9 @@ def revoke_publication(
 ) -> RevokeResponse:
     """게시한 알림장을 회수한다 (테크스펙 파이프라인 9단계, H-1, docs/api/documents.md).
 
-    - 회수 자격(미회수·미열람·기한 이내)은 회차 UPDATE 한 문장으로 판단한다 — 그 사이 학부모가
-      열면 둘 중 하나만 성공한다 (모듈 docstring "열람·회수 공통 주의사항").
+    - 회수 자격(미회수·기한 이내)은 회차 UPDATE 한 문장으로 판단한다. 학부모가 열어 봤어도
+      회수한다 — 잘못 나간 알림장을 학부모가 먼저 열면 고칠 길이 없어서다(11/05 팀 논의, #266).
+      회수가 먼저 커밋되면 그 뒤의 열람은 막힌다 (모듈 docstring "열람·회수 공통 주의사항").
     - 회차 갱신과 초안 상태 전이·RevisionLog는 한 트랜잭션이다. 버전이 달라 전이가 실패하면
       _claim_version이 롤백해 회차도 그대로 남는다.
     """
@@ -1189,7 +1191,6 @@ def revoke_publication(
         .where(
             DocumentPublication.id == publication_id,
             _is_active_publication(),
-            DocumentPublication.first_viewed_at.is_(None),
             DocumentPublication.revoke_deadline > revoked_at,
         )
         .values(revoked_at=revoked_at)
@@ -1223,14 +1224,12 @@ def _not_revocable(db: Session, publication_id: UUID) -> AidamError:
     publication = db.get(DocumentPublication, publication_id, populate_existing=True)
     if publication.revoked_at is not None:
         return DraftNotPublished("이미 회수한 알림장입니다.")
-    if publication.first_viewed_at is not None:
-        return DraftAlreadyViewed("학부모가 이미 열어 본 알림장은 회수할 수 없습니다.")
     return RevokeDeadlinePassed("회수 기한(게시 후 24시간)이 지났습니다.")
 
 
 def _can_revoke(publication: DocumentPublication | None) -> bool:
     """상세 응답용. 실제 판단은 revoke_publication의 UPDATE가 한다."""
-    if publication is None or publication.first_viewed_at is not None:
+    if publication is None:
         return False
     deadline = publication.revoke_deadline
     # SQLite는 시간대를 저장하지 않는다. DB에는 UTC로 저장한다(backend/CLAUDE.md).
@@ -1244,8 +1243,8 @@ def list_letters_for_parent(
 
     - 단일 게이트(_parent_notes)를 통과한 게시본만 기록 날짜 최신순으로 담는다.
     - 목록에도 미리보기와 사진이 보이므로 담은 알림장마다 AccessLog(view_list)를 남기고,
-      기록을 커밋한 뒤에 돌려준다 — 임시 결정(한상균), docs/api/documents.md. 목록은 회수
-      판단용 first_viewed_at을 건드리지 않는다.
+      기록을 커밋한 뒤에 돌려준다 — 임시 결정(한상균), docs/api/documents.md. 목록은 본문을
+      처음 연 시각인 first_viewed_at을 건드리지 않는다.
     - is_read·unread_count는 이 학부모가 본문을 연 적이 있는지(AccessLog view_detail)로 센다.
     """
     notes = _parent_notes(db, parent_id=parent_id, child_id=child_id)
@@ -1354,7 +1353,7 @@ def list_media_for_parent(
       고른 사진·영상만 싣는다(_parent_note_media_ids). 교사가 승인하지 않은 것은 나가지 않는다.
     - 보낼 것이 없는 알림장은 건너뛰고, 기록 날짜 최신순으로 limit개 알림장씩 나눈다.
     - 화면에 실린 알림장마다 AccessLog(view_media)를 커밋한 뒤 돌려준다 — 임시 결정(김동건).
-      목록과 같이 first_viewed_at은 건드리지 않는다(회수 판단은 본문 열람 기준).
+      목록과 같이 first_viewed_at은 건드리지 않는다(본문을 처음 연 시각이라서).
     """
     notes = _parent_notes(db, parent_id=parent_id, child_id=child_id)
     note_media = _parent_note_media_ids(db, notes)
