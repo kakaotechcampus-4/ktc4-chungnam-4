@@ -27,7 +27,7 @@
   - 초안 생성: `build_draft_prompt` → `call_claude` → `parse_draft_response`
   - Critic: `build_critic_prompt` → `call_claude` → `parse_critic_response`
   - 사진 분석: `build_single_photo_prompt` → `call_vision` → `parse_single_photo_analysis` (`_analyze_photos`, #179). 사진 생성 파이프라인에 연결했습니다
-  - 이름 바로잡기(1-C): `build_name_fix_prompt` → `call_claude` → `parse_name_fix_response` → `apply_name_fixes`. media `transcribe_media`가 STT 결과를 저장하기 전에 `fix_transcript_names`로 부릅니다. 한 파일의 조각을 7개씩 묶어 부르고 고친 곳만 받습니다. 서버는 고치기 전후 말의 자모 거리가 3 이하인 것만 적용합니다 — 소음 속 헛말을 명단 이름으로 바꾼 수정을 막기 위함입니다(11/05 실험). 호출이 실패하거나 형식이 깨진 묶음은 재시도하지 않고 원문을 둡니다. 보강 단계라 실패해도 지금 동작보다 나빠지지 않기 때문입니다
+  - 이름 바로잡기(1-C): `build_name_fix_prompt` → `call_claude` → `parse_name_fix_response` → `apply_name_fixes`. media `transcribe_media`가 STT 결과를 저장하기 전에 `fix_transcript_names`로 부릅니다. 한 파일의 조각을 7개씩 묶어 부르고 고친 곳만 받습니다. 서버는 고친 말에 명단 이름이 있고, 고치기 전후 말의 자모 거리가 3 이하이고, 적힌 말이 그 줄에 한 번만 나오고, 비슷한 다른 원아 이름이 없는 수정만 적용합니다(`tools/perception/name_fix.py`, 테크스펙 1-C). 호출이 실패하거나 형식이 깨진 묶음은 재시도하지 않고 원문을 둡니다. 보강 단계라 실패해도 지금 동작보다 나빠지지 않기 때문입니다
   - 예전 규칙 "에이전트 1~4는 각각 하나의 모듈, 하나의 진입 함수 `run(...) -> Result`"는 코드와 맞지 않아 바꿨습니다(#138, `[rule]`).
 - 에이전트 출력은 자유 텍스트로 받지 않고 **구조화된 JSON**으로 받아 Pydantic으로 검증합니다. 파싱 실패는 재시도 대상.
 - **규칙으로 되는 건 LLM에 맡기지 않습니다.** 동의 확인·귀속 판정·비식별화·노출은 전부 코드입니다 (테크스펙 책임 분담 표).
