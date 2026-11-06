@@ -7,6 +7,7 @@ from main import app
 # 경로는 docs/api/documents.md와 같다. 베이스 경로 /api/v1은 main.py가 붙인다.
 _EXPECTED = {
     ("GET", "/api/v1/drafts/{draft_id}"),
+    ("GET", "/api/v1/drafts/{draft_id}/selectable-media"),
     ("PATCH", "/api/v1/drafts/{draft_id}"),
     ("POST", "/api/v1/drafts/{draft_id}/approve"),
     ("POST", "/api/v1/drafts/{draft_id}/reopen"),
