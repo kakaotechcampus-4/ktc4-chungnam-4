@@ -26,6 +26,7 @@
   - `NO_LINKED_PARENT` → organization `has_linked_parent`(#188)로 검사하고, 걸리면 회차·버전 변화 없이 그 건만 실패합니다. 임시 결정(한상균). `parent_note_id` 재사용 확정은 아직 열려 있습니다
 - [x] 학부모에게 `llm_allowed == true`인 선택 사진만 보이게 할지(김동건과 함께) → 고를 때와 학부모가 볼 때 모두 media `collect_media_for_llm` 범위(`llm_allowed`, 파기 안 됨, 귀속 원아 전원 ③ 동의)의 사진만 씁니다. 임시 결정(한상균), 범위는 김동건 #172 리뷰에서 확인. 반영: 이 문서 §publications·§학부모 목록·본문
   - **11/04 범위를 넓혔습니다(팀 승인, 테크스펙 D-4).** 그 원아에게 귀속된 사진·영상이면 다른 아이·미동의 원아가 함께 찍혀도 고르고 보낼 수 있습니다. `llm_allowed`와 ③ 동의는 LLM 경로에서만 봅니다. 음성메모는 보내지 않습니다
+- [x] 교사가 고를 사진·영상 후보를 받는 곳(#257 멘토 리뷰) → AI 초안은 `selected_media_ids`가 비어 있고 초안 상세의 `media[]`에는 선택·근거·실패 사진만 와서, "사진도 함께 보내기"를 켜고 게시해도 글만 갔습니다. 임시 결정(송유진): `GET /api/v1/drafts/{draft_id}/selectable-media`를 둡니다. 범위는 바꾸지 않습니다(테크스펙 D-4). 정한 값은 그 절에 표시했습니다. 반영: 이 문서 §`GET /api/v1/drafts/{draft_id}/selectable-media`, [README](README.md) 색인, [screens.md](screens.md)
 - [x] `review_confirmed`를 `reviewed`로 개명 → 바꿨습니다(FE도 `reviewed`를 씀). 임시 결정(한상균). 반영: `backend/domains/documents/schemas.py` `ApproveRequest`
 - [ ] `preview` 정의: 앞부분 100자, 문장 경계에서 자름
 - [x] `documents/CLAUDE.md`의 `/documents` 표기 수정
@@ -48,7 +49,7 @@
 
 ## 구현과 다른 점
 
-이 문서의 상세 작성 엔드포인트 12개는 모두 구현돼 있고(학부모 사진·영상 2개는 #242), 요청·응답의 원본은 OpenAPI(로컬 서버의 `/docs`. `APP_ENV=production`이면 꺼짐)입니다([README](README.md) §이 문서를 읽는 법). 아래는 사진 통합 PR의 코드가 이 문서와 **아직 다른 곳만** 남깁니다(11/02 기준). PR #14 골격 기준으로 적었던 게시 요청(`include_photos`)·게시 건별 결과·서명 URL·에러 코드 행은 구현하면서 이 문서대로 맞춰져 지웠습니다.
+이 문서의 상세 작성 엔드포인트 14개는 모두 구현돼 있고(학부모 사진·영상 2개는 #242, 사진 후보 목록은 #257 멘토 리뷰), 요청·응답의 원본은 OpenAPI(로컬 서버의 `/docs`. `APP_ENV=production`이면 꺼짐)입니다([README](README.md) §이 문서를 읽는 법). 아래는 사진 통합 PR의 코드가 이 문서와 **아직 다른 곳만** 남깁니다(11/02 기준). PR #14 골격 기준으로 적었던 게시 요청(`include_photos`)·게시 건별 결과·서명 URL·에러 코드 행은 구현하면서 이 문서대로 맞춰져 지웠습니다.
 
 | 항목 | 이 문서 | 지금 코드 |
 |---|---|---|
@@ -60,7 +61,7 @@
 
 ## 이 도메인의 규칙
 
-documents의 상세 작성 엔드포인트는 12개(교사용 8, 학부모용 4)입니다.
+documents의 상세 작성 엔드포인트는 14개(교사용 10, 학부모용 4)입니다.
 
 - 교사: 반·날짜별 초안을 검토·수정·승인하고, 알림장을 학부모에게 게시합니다.
 - 학부모: 게시된 알림장의 목록과 본문을 봅니다. 볼 때마다 열람 기록이 남습니다.
@@ -249,7 +250,7 @@ documents의 상세 작성 엔드포인트는 12개(교사용 8, 학부모용 4)
   - `source_type`은 5종입니다: `photo_observation`·`video_speech`·`video_scene`·`teacher_voice_memo`·`activity_plan`.
   - `activity_plan` 근거는 `media_id`가 null입니다. 사진·계획 근거는 `start_ms`·`end_ms`가 null입니다.
 - `media[]`에는 선택 사진과 근거 미디어의 서명 URL이 들어갑니다(화면 데이터 "근거 클립 재생 URL"). media service 함수로 붙이며, 만료되면 `GET /api/v1/media/{media_id}`로 다시 받습니다. 선택 사진 다음 보여 주는 근거의 미디어 순서로 겹치지 않게 싣고, 교사가 고친 문장의 근거 미디어는 싣지 않습니다.
-- `selected_media_ids`는 선택 사진의 순서입니다. PATCH와 같은 필드입니다.
+- `selected_media_ids`는 선택 사진의 순서입니다. PATCH와 같은 필드입니다. AI 초안은 이 값을 채우지 않아 교사가 고르기 전에는 비어 있습니다(§`GET /api/v1/drafts/{draft_id}/selectable-media`). 영상도 고를 수 있어 항목의 종류는 `media[]`의 `type`으로 구분합니다.
 - `author_name`은 서버가 `author_teacher_id`로 조회해 붙입니다. LLM에는 보내지 않습니다(FR-26, H-2).
 - `status == unclassified`이면 `evidences`가 빈 배열일 수 있습니다. 지금 코드는 PASS일 때만 근거를 저장합니다.
 - 스펙 모델에 없는 필드는 `title`, `selected_media_ids`, `media`, `published_at`, `revoke_deadline`, `can_revoke`입니다(제안).
@@ -294,7 +295,7 @@ documents의 상세 작성 엔드포인트는 12개(교사용 8, 학부모용 4)
 
 ### `PATCH /api/v1/drafts/{draft_id}` — 교사용: 초안 직접 수정(문장 텍스트·선택 사진)
 
-- 쓰는 화면: 초안 검토/왼쪽 원아 목록 — "직접 수정", "방금 저장됨", "임시저장하고 나가기"
+- 쓰는 화면: 초안 검토/왼쪽 원아 목록 — "직접 수정", "방금 저장됨", "임시저장하고 나가기", "사진 추가" 대화상자의 저장
 - 요구사항: FR-17
 - 권한: 교사 — 같은 어린이집 원아의 초안만(담당교사 개념 폐지, 테크스펙 §데이터 모델 ① 조직 · 사용자의 Class)
 - 요청: 본문 필드는 아래와 같습니다.
@@ -337,6 +338,38 @@ documents의 상세 작성 엔드포인트는 12개(교사용 8, 학부모용 4)
   - `CHILD_ACCESS_DENIED` (403) — 다른 어린이집 원아의 초안일 때. 원아 기준으로 검사합니다 — 임시 결정(한상균), #156
   - `VALIDATION_ERROR` (422) — 바꿀 것이 없거나, 같은 `sentence_id`·`media_id`가 두 번 오거나, 앞뒤 공백을 지운 `text`가 비었을 때(고친 문장·새 문장 모두)
 - [확인 필요: 한상균] 자동저장마다 RevisionLog를 남기면 최근 5회 보관분이 자동저장 기록으로 채워집니다. 저장 시점과 로그 단위를 정해야 합니다. 문장 삭제, 사진 선택 변경의 로그 기록, `unclassified` 초안 수정을 허용할지도 정해야 합니다(문장 추가 로그는 위에서 정함).
+
+### `GET /api/v1/drafts/{draft_id}/selectable-media` — 교사용: 알림장에 고를 수 있는 사진·영상 후보
+
+- 쓰는 화면: 초안 검토/왼쪽 원아 목록의 "사진 추가" 대화상자
+- 요구사항: FR-10, 테크스펙 D-4
+- 권한: `GET /api/v1/drafts/{draft_id}`와 같습니다. 교사 — 같은 어린이집 원아의 초안만이고, 승인 전 초안도 볼 수 있습니다(H-1 검수 권한). 학부모 응답이 아닙니다.
+- 요청: 경로 `draft_id`
+- 응답 `200` (`Cache-Control: no-store`):
+
+```json
+{
+  "items": [
+    { "media_id": "3ed1a000-0000-4000-8000-000000000041", "type": "photo", "url": "https://<bucket>.s3.amazonaws.com/<key>?X-Amz-Signature=…", "url_expires_at": "2026-09-15T06:45:00Z", "captured_at": "2026-09-15T01:10:00Z" },
+    { "media_id": "3ed1a000-0000-4000-8000-000000000045", "type": "video", "url": "https://<bucket>.s3.amazonaws.com/<key>?X-Amz-Signature=…", "url_expires_at": "2026-09-15T06:45:00Z", "captured_at": "2026-09-15T02:30:00Z" }
+  ],
+  "next_cursor": null
+}
+```
+
+- 초안 상세의 `media[]`에는 선택 사진·근거·실패 사진만 와서 고를 후보를 따로 받습니다(#257 멘토 리뷰).
+- 범위는 고를 때(§PATCH `MEDIA_NOT_LINKED_TO_CHILD`)·학부모가 볼 때(§publications)와 같습니다 — 그 원아에게 귀속된 그 기록 날짜(KST)의 사진·영상이고, 파기된 것과 음성메모는 뺍니다. 함께 찍힌 아이의 ③ 동의와 `llm_allowed`는 보지 않습니다(테크스펙 D-4, 11/04 팀 승인). 범위의 정의는 서버 `_shareable_media` 하나이고, 고를 때·볼 때의 판정(`_shareable_media_ids`)도 이 함수를 씁니다.
+- 순서는 촬영 시각(`captured_at`) 순입니다. 교사가 고른 순서는 PATCH의 `selected_media_ids`가 담습니다.
+- 원아 한 명의 하루치라 페이지를 나누지 않고 `next_cursor`는 항상 `null`입니다 — 임시 결정(송유진). 후보가 없으면 `items`가 빈 배열이고 200입니다. 왜 비었는지는 화면이 안내합니다.
+- `url`은 표시·재생용 서명 URL이고, 파기 판정과 서명은 초안 상세와 같은 media 함수를 씁니다. 만료되면 이 엔드포인트를 다시 부릅니다.
+- 초안 상태는 보지 않습니다(읽기라서). 승인·회수 뒤의 선택 변경은 PATCH가 막으므로, 화면은 검토 대기(`verified`)일 때만 대화상자를 엽니다 — 임시 결정(송유진).
+- 볼 때마다 `AccessLog`(actor_type=teacher, target_type=draft_document, action=view_selectable_media)를 한 줄 남기고 커밋한 뒤 돌려줍니다. 아이 사진의 서명 URL을 주는 열람이라 NFR-05를 따릅니다 — 임시 결정(송유진). 기록에 실패하면 URL 없이 500입니다.
+- `Cache-Control: no-store`는 서명 URL이 디스크·프록시 캐시에 남지 않게 하려는 것입니다(학부모 모아 보기, `GET /media/{media_id}`와 같음) — 임시 결정(송유진).
+- 에러:
+  - `NOT_PARENT_NOTE` (409) — 관찰일지일 때. 관찰일지는 학부모에게 가지 않아 고를 사진이 없습니다. §publications의 건별 코드와 같은 값을 씁니다 — 임시 결정(송유진)
+  - `DRAFT_NOT_FOUND` (404) — 없는 초안일 때
+  - `CHILD_ACCESS_DENIED` (403) — 다른 어린이집 원아의 초안일 때. 원아 기준으로 검사합니다 — 임시 결정(한상균), #156
+  - `ACCESS_LOG_FAILED` (500) — 열람 기록에 실패했을 때(URL 없이)
 
 ### `POST /api/v1/drafts/{draft_id}/approve` — 교사용: 초안 승인(H-1 승인 게이트)
 
