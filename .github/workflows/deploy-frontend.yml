@@ -32,7 +32,8 @@ name: Deploy frontend
 
 on:
   push:
-    branches: [develop]
+    # 임시: 시연 영상을 찍는 동안 develop-next를 배포합니다. 영상이 끝나면 develop-next를 지웁니다.
+    branches: [develop, develop-next]
     # 배포 워크플로라 필수 검사가 아니므로 경로 필터를 걸어도 됩니다(ci.yml 주석의 경고는 필수 검사 이야기).
     # 템플릿(aidam-fe.yaml)만 바뀐 PR은 여기서 돌지 않습니다. 템플릿은 change set으로 적용합니다(README).
     paths:
@@ -60,9 +61,10 @@ env:
 
 jobs:
   deploy:
-    # environment frontend가 develop만 받습니다. 다른 브랜치에서 수동 실행하면 environment에서
+    # environment frontend가 받는 브랜치만 돕니다. 다른 브랜치에서 수동 실행하면 environment에서
     # 거절되기 전에 여기서 건너뜁니다.
-    if: github.ref == 'refs/heads/develop'
+    # 임시: 시연 영상을 찍는 동안 develop-next도 배포합니다. 영상이 끝나면 develop-next 조건을 지웁니다.
+    if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/develop-next'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
@@ -86,7 +88,7 @@ jobs:
         run: |
           if [ -z "$ROLLBACK_TAG" ]; then
             echo "ref=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
-            echo "배포 대상: ${GITHUB_SHA:0:7} (develop)"
+            echo "배포 대상: ${GITHUB_SHA:0:7} (${GITHUB_REF_NAME})"
             exit 0
           fi
           # 값 전체가 형식과 같아야 합니다. 줄 단위로 맞추는 grep을 쓰지 않고, 입력 원문은 로그에 찍지 않습니다.

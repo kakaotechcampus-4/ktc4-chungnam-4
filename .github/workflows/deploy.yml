@@ -13,7 +13,8 @@ name: Deploy to EC2
 
 on:
   push:
-    branches: [develop]
+    # 임시: 시연 영상을 찍는 동안 develop-next를 배포합니다. 영상이 끝나면 develop-next를 지웁니다.
+    branches: [develop, develop-next]
     # 서버는 backend/만 씁니다(deploy.sh의 COMPOSE_DIR). frontend/·docs/만 바뀐 머지에
     # 컨테이너를 다시 띄우면 처리 중이던 초안 생성 task만 끊깁니다.
     # backend/의 .md는 빼지 않습니다 — prompts/의 프롬프트 본문이 .md입니다.
