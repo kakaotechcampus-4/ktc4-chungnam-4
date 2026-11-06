@@ -61,6 +61,7 @@ class FakeSession:
 def _generation_inputs(monkeypatch) -> None:
     """orchestrate_drafts가 루프 전에 부르는 입력 적재를 막는다. 필요한 테스트가 다시 덮어쓴다."""
     monkeypatch.setattr(service, "_load_generation_inputs", lambda bundle: object())
+    monkeypatch.setattr(service.documents, "get_draft_version", lambda *args, **kwargs: None)
     monkeypatch.setattr(service.organization_service, "has_consent", lambda *args: True)
     monkeypatch.setattr(
         service, "_prepare_agent_inputs", lambda session, job, bundle, inputs: _inputs([])
@@ -277,7 +278,7 @@ def test_orchestrate_drafts_성공하면_초안을_저장하고_미분류함으�
     def _fail_if_called(*args: object, **kwargs: object) -> None:
         raise AssertionError("성공했는데 미분류함으로 보내면 안 된다")
 
-    def _save(session, job, bundle, document, evidence_by_id):
+    def _save(session, job, bundle, document, evidence_by_id, **kwargs):
         # 저장하는 동안은 이미 RUNNING이어야 폴링 화면이 진행 중으로 본다.
         assert job.status == JobStatus.RUNNING.value
         saved.append(document)
@@ -405,7 +406,7 @@ def _orchestrate_until(
         ),
     )
     monkeypatch.setattr(
-        service, "_save_passed_draft", lambda session, *args: session.add("초안·근거")
+        service, "_save_passed_draft", lambda session, *args, **kwargs: session.add("초안·근거")
     )
     monkeypatch.setattr(
         service, "_send_to_unclassified", lambda session, *args, **kwargs: session.add("미분류")
@@ -537,7 +538,7 @@ def test_orchestrate_drafts_재생성은_같은_draft_id의_다음_버전이고_
         service, "_collect_evidence", lambda session, child_id, target_date: object()
     )
     monkeypatch.setattr(service, "_generate_draft", _fake_generate)
-    monkeypatch.setattr(service, "_save_passed_draft", lambda *args: None)
+    monkeypatch.setattr(service, "_save_passed_draft", lambda *args, **kwargs: None)
     monkeypatch.setattr(service, "_verify_with_critic_retry", _fake_verify)
     monkeypatch.setattr(
         service,
@@ -888,7 +889,9 @@ def test_orchestrate_drafts_생성_응답_형식_오류는_기록하고_재생�
     )
     saved: list[contracts.DraftDocument] = []
     monkeypatch.setattr(
-        service, "_save_passed_draft", lambda session, job, bundle, doc, ev: saved.append(doc)
+        service,
+        "_save_passed_draft",
+        lambda session, job, bundle, doc, ev, **kwargs: saved.append(doc),
     )
 
     service.orchestrate_drafts(job_id="job-1", child_id="00000000-0000-0000-0000-000000000001")
@@ -1021,7 +1024,7 @@ def test_orchestrate_drafts_인식_결과는_재생성해도_한_번만_만든�
         "_verify_with_critic_retry",
         lambda *args: contracts.DecisionResult(decision=next(decisions), reason="t"),
     )
-    monkeypatch.setattr(service, "_save_passed_draft", lambda *args: None)
+    monkeypatch.setattr(service, "_save_passed_draft", lambda *args, **kwargs: None)
 
     service.orchestrate_drafts(job_id="job-1", child_id="00000000-0000-0000-0000-000000000001")
 

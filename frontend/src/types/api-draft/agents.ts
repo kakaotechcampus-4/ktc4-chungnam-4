@@ -24,6 +24,7 @@ export type JobErrorCode =
   | "STT_FAILED"
   | "LLM_TIMEOUT"
   | "LLM_CALL_FAILED"
+  | "DRAFT_VERSION_CONFLICT"
   | "INTERNAL_ERROR"
   | "AGENT_INPUT_TOO_LARGE"
   | "AGENT_RESPONSE_INVALID"
@@ -34,6 +35,7 @@ export type JobErrorCode =
   | "AGENT_ROUTINE_INVALID"
   | "AGENT_ROUTINE_MISSING"
   | "AGENT_SOURCE_CHANGED";
+
 
 /** POST /classes/{class_id}/jobs 요청 */
 export interface JobCreateRequest {
