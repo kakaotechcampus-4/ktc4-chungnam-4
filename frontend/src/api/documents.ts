@@ -10,6 +10,8 @@ import type {
   DraftDetail,
   DraftPatchRequest,
   DraftReopenRequest,
+  DraftRevokeRequest,
+  DraftRevokeResponse,
   ParentMediaDownload,
   ParentMediaList,
   ParentNoteDetail,
@@ -27,6 +29,7 @@ import {
   toParentNoteDetailView,
   toParentNoteListView,
   toPublicationResultView,
+  toRevokedPublicationView,
 } from "./documents-adapter";
 import type { DocTypeView } from "./documents-view";
 
@@ -35,6 +38,7 @@ export {
   canApprove,
   canReopen,
   canSaveParentMedia,
+  revokeDeadlineOf,
   didSendPhotos,
   isNotReady,
   isPublished,
@@ -63,6 +67,7 @@ export type {
   ParentMediaTypeView,
   PublicationResultView,
   PublicationStatusView,
+  RevokedPublicationView,
   RosterStatusView,
   SentenceView,
 } from "./documents-view";
@@ -80,6 +85,15 @@ export const documentsKeys = {
     ["classes", classId, "drafts", recordDate] as const,
   /** 반에서 게시된 알림장이 있는 원아(알림장 명단) */
   publishedNotes: (classId: string) => ["classes", classId, "drafts", "published"] as const,
+  /**
+   * 한 원아의 문서 목록 전부(게시본 목록과 회수함). 게시·회수처럼 **게시 여부가 바뀌는**
+   * 요청 뒤에 비울 때 씁니다.
+   *
+   * 아래 `childDrafts`가 `published`를 키에 넣어 둘을 갈라 두기 때문에, 한쪽만 비우면
+   * 다른 쪽이 낡은 채로 남습니다 — 회수한 알림장이 회수함에 안 보였던 것이 이것입니다.
+   */
+  childDraftLists: (childId: string, docType: DocTypeView) =>
+    ["children", childId, "drafts", docType] as const,
   /**
    * 한 원아의 문서 목록(알림장 상세의 날짜 이동).
    * `published`까지 넣습니다 — 빼면 "게시된 것만"과 "전부"가 같은 캐시를 써서,
@@ -169,6 +183,18 @@ export async function approveDraft(draftId: string, body: DraftApproveRequest) {
 export async function reopenDraft(draftId: string, body: DraftReopenRequest) {
   return toDraftView(
     await api.post<DraftDetail>(`/drafts/${encodeURIComponent(draftId)}/reopen`, body),
+  );
+}
+
+/**
+ * 교사용: 게시한 알림장을 회수해 학부모에게서 내립니다(테크스펙 파이프라인 9단계).
+ *
+ * 회수할 수 있는지는 **서버가 판정합니다** — 기한(게시 후 24시간)을 넘겼거나 학부모가
+ * 이미 열었으면 409입니다. 화면은 버튼을 열고 닫을 뿐이고 그 판정을 대신하지 않습니다.
+ */
+export async function revokePublication(draftId: string, body: DraftRevokeRequest) {
+  return toRevokedPublicationView(
+    await api.post<DraftRevokeResponse>(`/drafts/${encodeURIComponent(draftId)}/revoke`, body),
   );
 }
 

@@ -22,7 +22,28 @@ import { DraftReviewPage } from "./DraftReviewPage";
 // 김도윤 검토 대기, 이하준·최지우 승인 완료, 박서아 확인 필요, 정예린 자료 없음.
 // 게시는 반 전체를 하루 한 번 하므로 검토 중인 어제에는 게시된 원아가 없습니다.
 const YESTERDAY = shiftDate(kstToday(), -1);
+// 그제는 김도윤·최지우 알림장이 모두 나간 날이라 "게시를 마쳤어요" 화면이 뜹니다.
+const CLOSED_DAY = shiftDate(kstToday(), -2);
 const DOYUN = fixtureId("child", 1);
+/** 그제 알림장(김도윤 102 · 최지우 142) */
+const CLOSED_DAY_NOTES = [fixtureId("draft", 102), fixtureId("draft", 142)];
+
+function renderClosedDay() {
+  return renderRoutes([{ path: "/t/today/review/:childId", element: <DraftReviewPage /> }], {
+    initialEntry: `/t/today/review/${DOYUN}?record_date=${CLOSED_DAY}`,
+  });
+}
+
+/** 그제 게시분의 게시 시각을 방금으로 당겨 회수 기한(24시간) 안으로 만듭니다. */
+function publishedJustNow() {
+  updateDb((db) => {
+    for (const id of CLOSED_DAY_NOTES) {
+      const draft = db.drafts[id];
+      if (!draft) throw new Error("그제 알림장이 시드에 없습니다.");
+      draft.published_at = new Date().toISOString();
+    }
+  });
+}
 
 function renderPage(childId = DOYUN) {
   return renderRoutes([{ path: "/t/today/review/:childId", element: <DraftReviewPage /> }], {
@@ -1291,6 +1312,55 @@ describe("DraftReviewPage", () => {
     expect(screen.queryByRole("button", { name: "직접 수정" })).not.toBeInTheDocument();
   });
 
+  // 회수는 게시 후 24시간 안에만 됩니다. 시드의 그제 게시분은 이미 지났으므로 버튼을 감추고,
+  // 왜 못 하는지 알립니다 — 버튼만 사라지면 교사는 기능이 없는 줄 압니다.
+  it("회수 기한이 지난 게시분은 회수 버튼을 보여 주지 않는다", async () => {
+    renderClosedDay();
+
+    expect(await screen.findByRole("heading", { name: "게시를 마쳤어요" })).toBeInTheDocument();
+    expect(screen.getAllByText("회수 기한이 지났어요").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "회수" })).not.toBeInTheDocument();
+  });
+
+  // 회수하면 그 원아의 초안이 "안 나간 초안"이 되어 날짜가 다시 열립니다. 그래야 교사가
+  // 평소 흐름대로 고쳐서 다시 승인·게시할 수 있습니다(H-1: 게시본은 바로 못 고침).
+  it("기한 안의 게시분을 회수하면 그 날짜가 다시 열린다", async () => {
+    const user = userEvent.setup();
+    publishedJustNow();
+    renderClosedDay();
+
+    await user.click((await screen.findAllByRole("button", { name: "회수" }))[0]!);
+    await user.click(await screen.findByRole("button", { name: "회수하기" }));
+
+    expect(await screen.findByRole("heading", { name: /기록을 완성해요/ })).toBeInTheDocument();
+
+    // 회수본은 승인 상태가 아니므로 "다시 검토하기"로 되돌린 뒤에 고칩니다. **버튼이 보이는
+    // 것만으로는 부족합니다** — 처음에 여기까지만 보다가, 눌렀을 때 목이 "승인한 초안만
+    // 되돌릴 수 있어요"로 막는 것을 놓쳤습니다(브라우저로 확인하다 발견).
+    await user.click(await screen.findByRole("button", { name: "다시 검토하기" }));
+
+    expect(await screen.findByRole("button", { name: "직접 수정" })).toBeInTheDocument();
+    expect(screen.queryByText(/되돌릴 수 있습니다/)).not.toBeInTheDocument();
+  });
+
+  // 학부모가 이미 열어 본 알림장은 서버가 막습니다. 화면은 기한만 보고 버튼을 열기 때문에
+  // 눌러 봐야 알 수 있고, 그때 이유가 보여야 교사가 다음 행동을 고릅니다.
+  it("학부모가 이미 열어 봤으면 회수가 막힌 이유를 보여 준다", async () => {
+    const user = userEvent.setup();
+    publishedJustNow();
+    updateDb((db) => {
+      db.readParentNotes.push(fixtureId("draft", 102));
+    });
+    renderClosedDay();
+
+    await user.click((await screen.findAllByRole("button", { name: "회수" }))[0]!);
+    await user.click(await screen.findByRole("button", { name: "회수하기" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "학부모가 이미 열어 본 알림장은 회수할 수 없습니다.",
+    );
+  });
+
   // 4번: "수정 완료" 없이 승인하면 고치기 전 문장이 승인·게시되는데 화면에는 고친 글이
   // 남아 있어 교사가 알아채지 못한다. 그래서 수정 중에는 승인 자체를 막는다.
   it("직접 수정 중에는 확인 체크와 승인 버튼이 잠긴다", async () => {
@@ -1379,5 +1449,57 @@ describe("DraftReviewPage", () => {
     renderPage();
 
     expect(await screen.findByText("담당 반이 아니에요.")).toBeInTheDocument();
+  });
+
+  // 회수해 놓고 보내지 않은 채 나가면 그 알림장은 보호자에게 보이지 않는 채로 묻힙니다.
+  // 자동으로 다시 게시하지는 않고(H-1: 승인을 코드가 대신하게 됨), 어디서 찾는지 알립니다.
+  it("회수본을 보내지 않고 나가려 하면 회수함에 남는다고 알린다", async () => {
+    const user = userEvent.setup();
+    publishedJustNow();
+    const { router } = renderClosedDay();
+
+    await user.click((await screen.findAllByRole("button", { name: "회수" }))[0]!);
+    await user.click(await screen.findByRole("button", { name: "회수하기" }));
+    await screen.findByRole("heading", { name: /기록을 완성해요/ });
+
+    await act(() => router.navigate("/t/notes"));
+
+    expect(await screen.findByText("보내지 않고 나가시겠어요?")).toBeInTheDocument();
+    expect(screen.getByText(/회수함/)).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe(`/t/today/review/${DOYUN}`);
+
+    await user.click(screen.getByRole("button", { name: "계속 고치기" }));
+
+    expect(screen.queryByText("보내지 않고 나가시겠어요?")).not.toBeInTheDocument();
+  });
+
+  // 되돌려 승인하면 status가 approved가 되는데 보호자에게는 여전히 안 나간 상태입니다.
+  // 상태만 보던 때는 승인하는 순간 경고가 사라졌습니다(브라우저로 찾은 구멍).
+  it("회수한 뒤 승인만 하고 나가도 아직 안 보냈다고 알린다", async () => {
+    const user = userEvent.setup();
+    publishedJustNow();
+    const { router } = renderClosedDay();
+
+    await user.click((await screen.findAllByRole("button", { name: "회수" }))[0]!);
+    await user.click(await screen.findByRole("button", { name: "회수하기" }));
+    await user.click(await screen.findByRole("button", { name: "다시 검토하기" }));
+    await user.click(await screen.findByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await screen.findByRole("button", { name: "다시 검토하기" });
+
+    await act(() => router.navigate("/t/notes"));
+
+    expect(await screen.findByText("보내지 않고 나가시겠어요?")).toBeInTheDocument();
+  });
+
+  // 평범한 날에는 그날 초안이 전부 미게시라, 상태만 보고 막으면 잠깐 나갈 때마다 경고가 뜹니다.
+  it("회수한 적이 없으면 나갈 때 막지 않는다", async () => {
+    const { router } = renderPage();
+    await screen.findByRole("heading", { name: /작은 블록/ });
+
+    await act(() => router.navigate("/t/notes"));
+
+    expect(screen.queryByText("보내지 않고 나가시겠어요?")).not.toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/t/notes");
   });
 });

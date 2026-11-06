@@ -100,18 +100,9 @@ def test_만료된_키는_인증_실패로_끝나고_자동_재시도하지_않�
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize(
-    "call",
-    [
-        lambda: llm.call_claude("synthetic"),
-        lambda: llm.call_vision("synthetic", ["https://example.invalid/a.jpg"]),
-    ],
-    ids=["텍스트", "사진_분석"],
-)
-def test_텍스트와_사진_분석_호출은_응답_상한을_2048로_보낸다(
-    monkeypatch: pytest.MonkeyPatch, call
-) -> None:
-    bodies = []
+def _capture_bodies(monkeypatch: pytest.MonkeyPatch, settings: SimpleNamespace) -> list[dict]:
+    """게이트웨이로 나가는 요청 본문을 모은다. 응답은 항상 "OK"."""
+    bodies: list[dict] = []
 
     def respond(request: httpx.Request) -> httpx.Response:
         bodies.append(json.loads(request.content))
@@ -138,10 +129,24 @@ def test_텍스트와_사진_분석_호출은_응답_상한을_2048로_보낸다
         "OpenAI",
         lambda **kw: real(**kw, http_client=httpx.Client(transport=httpx.MockTransport(respond))),
     )
-    monkeypatch.setattr(
-        llm,
-        "get_settings",
-        lambda: SimpleNamespace(
+    monkeypatch.setattr(llm, "get_settings", lambda: settings)
+    return bodies
+
+
+@pytest.mark.parametrize(
+    "call,expected",
+    [
+        (lambda: llm.call_claude("synthetic"), 2000),
+        (lambda: llm.call_vision("synthetic", ["https://example.invalid/a.jpg"]), 2048),
+    ],
+    ids=["텍스트", "사진_분석"],
+)
+def test_텍스트는_2000_사진_분석은_2048을_응답_상한으로_보낸다(
+    monkeypatch: pytest.MonkeyPatch, call, expected: int
+) -> None:
+    bodies = _capture_bodies(
+        monkeypatch,
+        SimpleNamespace(
             anthropic_api_key=SecretStr("test-key"),
             anthropic_model="test",
             llm_gateway_base_url="https://gateway.invalid/test/v1",
@@ -150,5 +155,54 @@ def test_텍스트와_사진_분석_호출은_응답_상한을_2048로_보낸다
         ),
     )
     assert call() == "OK"
-    # 1024로 보내면 긴 초안·Critic 응답이 중간에 잘려 JSON이 깨진다. 한쪽만 바뀌는 것도 막는다
-    assert bodies[0]["max_tokens"] == 2048
+    # 1024로 보내면 긴 초안·Critic 응답이 중간에 잘려 JSON이 깨진다.
+    # 텍스트를 2000보다 올리면 엘리스 Claude 게이트웨이가 400을 돌려준다.
+    assert bodies[0]["max_tokens"] == expected
+
+
+@pytest.mark.parametrize(
+    "model,expected",
+    [
+        ("anthropic/claude-sonnet-5-5", 2000),
+        ("unknown-model", 2000),
+        ("zai-org/GLM-5.3-Flash", 4096),
+    ],
+)
+def test_GLM만_텍스트_응답_상한을_4096으로_올린다(
+    monkeypatch: pytest.MonkeyPatch, model: str, expected: int
+) -> None:
+    bodies = _capture_bodies(
+        monkeypatch,
+        SimpleNamespace(
+            anthropic_api_key=SecretStr("test-key"),
+            anthropic_model=model,
+            llm_gateway_base_url="https://gateway.invalid/test/v1",
+        ),
+    )
+    assert llm.call_claude("synthetic") == "OK"
+    # GLM은 2000이면 근거가 많은 날 잘리고, Claude 게이트웨이는 2000을 넘기면 400을 돌려준다.
+    assert bodies[0]["max_tokens"] == expected
+
+
+@pytest.mark.parametrize(
+    "model,expected",
+    [
+        ("zai-org/GLM-5.3-Flash", "low"),
+        ("anthropic/claude-sonnet-5-5", "low"),
+        ("claude-sonnet-5-5", "low"),
+        ("test", None),
+    ],
+)
+def test_추론_토큰을_쓰는_모델에만_reasoning_effort_low를_보낸다(
+    monkeypatch: pytest.MonkeyPatch, model: str, expected: str | None
+) -> None:
+    bodies = _capture_bodies(
+        monkeypatch,
+        SimpleNamespace(
+            anthropic_api_key=SecretStr("test-key"),
+            anthropic_model=model,
+            llm_gateway_base_url="https://gateway.invalid/test/v1",
+        ),
+    )
+    assert llm.call_claude("synthetic") == "OK"
+    assert bodies[0].get("reasoning_effort") == expected
