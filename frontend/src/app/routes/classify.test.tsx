@@ -593,6 +593,25 @@ describe("아이별 하루 확인", () => {
     expect(screen.getByRole("button", { name: "근거 저장" })).toBeDisabled();
   });
 
+  it("추가 근거는 고른 활동 날짜로 저장한다", async () => {
+    useUploadQueue.getState().setRecordDate("2026-09-01");
+    const saved: string[] = [];
+    server.events.on("request:start", ({ request }) => {
+      if (request.method === "PUT" && request.url.includes("/evidence/")) saved.push(request.url);
+    });
+    const user = userEvent.setup();
+    renderAt(`/t/today/children/${DOYUN}/summary`);
+
+    const textbox = await screen.findByRole("textbox", { name: "관찰 내용" });
+    await waitFor(() => expect(textbox).toBeEnabled());
+    await user.type(textbox, "나뭇잎을 비교했어요.");
+    await user.click(screen.getByRole("button", { name: "근거 저장" }));
+
+    expect(await screen.findByText("저장했어요.")).toBeVisible();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toContain(`/children/${DOYUN}/evidence/2026-09-01`);
+  });
+
   it("추가 근거 저장에 실패하면 이유를 보여 준다", async () => {
     server.use(
       http.put(apiPath("/children/:childId/evidence/:recordDate"), () =>
