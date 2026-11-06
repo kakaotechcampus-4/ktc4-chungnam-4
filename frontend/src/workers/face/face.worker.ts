@@ -1,5 +1,5 @@
 import { detectFaces, loadFaceModels } from "./detector";
-import { matchFaces, MATCH_OPTIONS, usable } from "./matcher";
+import { matchFaces, MATCH_OPTIONS, pickRegistrationFace, usableEmbedding } from "./matcher";
 import { FACE_MODEL_VERSION } from "./model-manifest";
 import type { RegisteredFace } from "./types";
 
@@ -19,25 +19,23 @@ self.onmessage = (event: MessageEvent<FaceRequest>) => {
       if (request.kind === "register") {
         const descriptors: number[][] = [];
         for (let i = 0; i < request.photos.length; i++) {
-          const faces = await detectFaces(request.photos[i]!);
-          if (faces.length !== 1) {
+          // 고르는 규칙과 그 이유는 matcher의 pickRegistrationFace에 있습니다.
+          const pick = pickRegistrationFace(await detectFaces(request.photos[i]!));
+          if (!pick.ok) {
             self.postMessage({
               id: request.id,
-              result: {
-                extract_state: faces.length ? "multiple_faces" : "no_face",
-                photo_index: i,
-              },
+              result: { extract_state: pick.reason, photo_index: i },
             });
             return;
           }
-          descriptors.push(faces[0]!.descriptor);
+          descriptors.push(pick.face.descriptor);
         }
         const first = descriptors[0];
         if (!first) throw new Error("empty registration");
         const embedding = first.map(
           (_, i) => descriptors.reduce((sum, d) => sum + d[i]!, 0) / descriptors.length,
         );
-        if (!usable(embedding)) throw new Error("invalid descriptor");
+        if (!usableEmbedding(embedding)) throw new Error("invalid descriptor");
         result = {
           extract_state: "extracted",
           embedding: { embedding, model_version: FACE_MODEL_VERSION },

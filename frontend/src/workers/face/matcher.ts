@@ -11,13 +11,45 @@ import {
 export const MATCH_MIN_SCORE = 0.8;
 export const MATCH_MIN_MARGIN = 0.15;
 export const MATCH_OPTIONS = { order: 2, multiplier: 25, min: 0.2, max: 0.8 };
-export function usable(vector: readonly number[]): boolean {
+/**
+ * 저장된 벡터를 대조에 쓸 수 있는가 — 서버에서 받은 등록 임베딩을 검사합니다.
+ *
+ * **검출 얼굴에는 쓰지 않습니다.** 그쪽은 `DetectedFace.usable`을 보세요 — 정렬 점수로
+ * 가른 값입니다. 길이로만 보면 옆모습도 통과합니다(`keepInvalid`로 남긴 얼굴도 faceres가
+ * 1024 벡터를 만듭니다). 등록 임베딩은 여러 장을 평균 낸 값이라 정렬 점수가 없어서,
+ * 여기서는 길이·유한성·전부 0인지만 볼 수 있습니다.
+ */
+export function usableEmbedding(vector: readonly number[]): boolean {
   return (
     vector.length === FACE_DESCRIPTOR_LENGTH &&
     vector.every(Number.isFinite) &&
     vector.some((v) => v !== 0)
   );
 }
+/** 등록 사진 한 장에서 벡터를 뽑을 얼굴을 고른 결과. 못 고르면 왜인지 남깁니다. */
+export type RegistrationPick =
+  { ok: true; face: DetectedFace } | { ok: false; reason: "no_face" | "multiple_faces" };
+
+/**
+ * 등록 사진 한 장에서 **정렬된 얼굴이 정확히 하나일 때만** 그 얼굴을 고릅니다.
+ *
+ * `keepInvalid`를 켠 뒤로는 배경에 스친 옆모습까지 `faces`에 담깁니다. 그대로 세면 멀쩡한
+ * 등록 사진이 "여러 명"으로 거절되므로 `usable`한 얼굴만 셉니다. 등록 벡터는 정면으로
+ * 만들어야 합니다 — 옆모습은 자기 자신과도 0.51~0.58입니다(#226 측정).
+ *
+ * `no_face`는 "얼굴이 없다"가 아니라 **"쓸 수 있는 얼굴이 없다"**입니다. 옆모습만 찍힌
+ * 사진도 여기로 옵니다. 그래서 화면 문구는 원인을 옆모습으로 단정하지 않습니다
+ * (#261 리뷰 김동건 님).
+ *
+ * worker에서 떼어 둡니다 — worker 모듈은 불러오는 것만으로 `self.onmessage`를 걸어서
+ * 테스트에서 그대로 부를 수 없습니다 (#261 리뷰 송유진 님).
+ */
+export function pickRegistrationFace(faces: readonly DetectedFace[]): RegistrationPick {
+  const usable = faces.filter((face) => face.usable);
+  if (usable.length === 1) return { ok: true, face: usable[0]! };
+  return { ok: false, reason: usable.length > 1 ? "multiple_faces" : "no_face" };
+}
+
 export function matchFaces(
   faces: readonly DetectedFace[],
   registered: readonly RegisteredFace[],
@@ -26,10 +58,12 @@ export function matchFaces(
   const candidates = new Map<string, number>();
   let unidentified = faces.length === 0;
   const valid = registered.filter(
-    (r) => r.model_version === FACE_MODEL_VERSION && usable(r.embedding),
+    (r) => r.model_version === FACE_MODEL_VERSION && usableEmbedding(r.embedding),
   );
   for (const face of faces) {
-    if (!usable(face.descriptor)) {
+    // 정렬이 안 된 얼굴(옆모습 등)은 벡터를 믿을 수 없어 대조에 넣지 않습니다. 다만 **얼굴이
+    // 있다는 것은 남깁니다** — 미식별로 잡혀야 교사 수동 분류로 가고 LLM에서 빠집니다(H-2).
+    if (!face.usable || !usableEmbedding(face.descriptor)) {
       unidentified = true;
       continue;
     }
