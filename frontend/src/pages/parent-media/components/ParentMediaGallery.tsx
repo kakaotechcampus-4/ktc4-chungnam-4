@@ -7,6 +7,7 @@ import {
   parentMediaInfiniteQueryOptions,
   type ParentMediaItemView,
 } from "@/api/documents";
+import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api-client";
 import { formatDate } from "@/lib/datetime";
@@ -24,6 +25,11 @@ type MediaFilter = "all" | "photo" | "video";
 
 const FILTER_LABEL_MAP: Record<MediaFilter, string> = { all: "전체", photo: "사진", video: "영상" };
 const FILTERS: MediaFilter[] = ["all", "photo", "video"];
+const MEDIA_GRID_CLASS = "grid grid-cols-3 gap-1.5 sm:grid-cols-4 sm:gap-2 lg:grid-cols-6";
+const CARD_CLASS = "rounded-3xl border border-line/70 bg-paper shadow-card";
+/** 날짜 묶음이 차례로 올라오는 간격. 뒤쪽까지 오래 기다리지 않게 앞 몇 개만 늦춥니다. */
+const STAGGER_MS = 70;
+const STAGGER_LIMIT = 6;
 
 function matchesFilter(item: ParentMediaItemView, filter: MediaFilter) {
   return filter === "all" || item.type === filter;
@@ -77,21 +83,21 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
   }
 
   const header = (
-    <header className="flex flex-col gap-1">
-      <h1 className="text-h3 font-bold text-ink">사진·영상</h1>
-      <p className="text-body text-ink-muted">
-        선생님이 알림장과 함께 보내 준 사진과 영상이에요. 눌러서 크게 보고 저장할 수 있어요.
-      </p>
-    </header>
+    <PageHeader
+      compact
+      className="pb-0"
+      title="사진·영상 모아 보기"
+      subtitle="선생님이 알림장과 함께 보내 준 사진과 영상이에요. 눌러서 크게 보고 저장할 수 있어요."
+    />
   );
 
   if (query.isPending) {
     return (
       <section className="flex flex-col gap-6">
         {header}
-        <div aria-hidden="true" className="grid grid-cols-3 gap-1 sm:grid-cols-4 sm:gap-2">
+        <div aria-hidden="true" className={MEDIA_GRID_CLASS}>
           {Array.from({ length: 8 }, (_, index) => (
-            <div key={index} className="aspect-square animate-pulse rounded-lg bg-neutral-soft" />
+            <div key={index} className="aspect-square animate-pulse rounded-xl bg-neutral-soft" />
           ))}
         </div>
         <p className="sr-only">사진과 영상을 불러오는 중이에요.</p>
@@ -103,7 +109,7 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
     return (
       <section className="flex flex-col gap-6">
         {header}
-        <div role="alert" className="flex flex-col items-start gap-3 rounded-xl bg-paper p-6">
+        <div role="alert" className={cn(CARD_CLASS, "flex flex-col items-start gap-3 p-6")}>
           <p className="text-body text-ink">{failureText(query.error)}</p>
           {!(query.error instanceof ApiError && query.error.code === "CHILD_ACCESS_EXPIRED") && (
             <Button size="sm" variant="outline" onClick={() => void query.refetch()}>
@@ -120,7 +126,12 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
     return (
       <section className="flex flex-col gap-6">
         {header}
-        <div className="flex flex-col items-center gap-3 rounded-2xl bg-paper px-6 py-14 text-center">
+        <div
+          className={cn(
+            CARD_CLASS,
+            "flex flex-col items-center gap-3 px-6 py-14 text-center motion-safe:animate-rise",
+          )}
+        >
           <Images aria-hidden="true" className="size-10 text-line" strokeWidth={1.5} />
           <p className="text-lead font-bold text-ink">아직 받은 사진·영상이 없어요</p>
           <p className="text-body text-ink-muted">
@@ -150,10 +161,10 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
             aria-selected={filter === option}
             onClick={() => changeFilter(option)}
             className={cn(
-              "h-9 rounded-full border px-4 text-label font-bold transition-colors",
+              "h-9 rounded-full border px-4 text-label font-bold outline-none transition duration-200 ease-soft focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-95",
               filter === option
-                ? "border-brand-ink bg-brand-ink text-paper"
-                : "border-line bg-paper text-ink hover:bg-tint-2",
+                ? "border-brand-ink bg-brand-ink text-paper shadow-xs"
+                : "border-line bg-paper text-ink-muted hover:-translate-y-px hover:border-brand-border hover:text-brand-ink",
             )}
           >
             {FILTER_LABEL_MAP[option]} {countByFilter[option]}
@@ -173,11 +184,16 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
         </p>
       )}
 
-      {days.map((day) => {
+      {days.map((day, dayIndex) => {
         const savable = day.items.filter(canSaveParentMedia).map((item) => item.media_id);
         return (
-          <section key={day.parent_note_id} aria-label={formatDate(day.record_date)}>
-            <div className="mb-2 flex items-center gap-2">
+          <section
+            key={day.parent_note_id}
+            aria-label={formatDate(day.record_date)}
+            className={cn(CARD_CLASS, "p-4 motion-safe:animate-rise sm:p-6")}
+            style={{ animationDelay: `${Math.min(dayIndex, STAGGER_LIMIT) * STAGGER_MS}ms` }}
+          >
+            <div className="mb-3 flex items-center gap-2">
               <h2 className="text-nav font-bold text-ink">
                 {formatDate(day.record_date, { year: false })}
               </h2>
@@ -185,7 +201,7 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
               <Button
                 size="sm"
                 variant="ghost"
-                className="ml-auto h-8 px-2 text-label text-brand-ink"
+                className="ml-auto h-8 rounded-full px-3 text-label text-brand-ink active:scale-95"
                 disabled={saver.isBusy || savable.length === 0}
                 onClick={() => saver.save(savable)}
               >
@@ -193,7 +209,7 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
                 모두 저장
               </Button>
             </div>
-            <div className="grid grid-cols-3 gap-1 sm:grid-cols-4 sm:gap-2">
+            <div className={MEDIA_GRID_CLASS}>
               {day.items.map((item) => (
                 <MediaTile
                   key={item.media_id}
@@ -210,7 +226,7 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
       {query.hasNextPage && (
         <Button
           variant="outline"
-          className="self-center"
+          className="self-center active:scale-98"
           disabled={query.isFetchingNextPage}
           onClick={() => void query.fetchNextPage()}
         >
