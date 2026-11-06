@@ -50,6 +50,10 @@ class DraftSaveInput(BaseModel):
     sentences: list[DraftSentenceInput] = Field(min_length=1)
     ai_version: int = Field(ge=1)
     evidence_bundle_id: UUID | None = None
+    # AI가 근거로 쓴 사진. 알림장에 보낼 사진의 기본 선택이다(교사가 PATCH로 바꾼다). 처음 저장하면
+    # 그대로 넣고, 재생성이면 교사가 이미 고른 선택 뒤에 새 사진만 더한다. 공개가 아니라 후보라서
+    # 학부모에게는 승인과 게시의 include_photos를 거쳐야 나간다(H-1).
+    selected_media_ids: list[UUID] = Field(default_factory=list)
 
     @field_validator("sentences")
     @classmethod

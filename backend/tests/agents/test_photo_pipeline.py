@@ -946,3 +946,18 @@ def test_계획_근거는_KST_해당_요일만_사용하고_비어도_다른_요
             f"weekly 제목 / 놀이 목표{(' / ' + expected_activity) if expected_activity else ''}"
             in texts
         )
+
+
+# 9주차 #257 리뷰 4번: 사진으로 만든 초안의 선택 사진이 비어 있어 게시해도 학부모에게 글만 갔다.
+def test_사진으로_만든_초안은_근거_사진을_보낼_사진의_기본_선택으로_갖는다(flow: Flow) -> None:
+    client, factory, klass, children, pending, _ = flow
+    login(client, TEACHER_EMAIL)
+    media = photo(factory, klass, [children[0]])
+
+    result = run(client, klass, media, pending)
+
+    draft_id = result["children"][0]["drafts"][0]["draft_id"]
+    detail = client.get(f"/api/v1/drafts/{draft_id}").json()
+    assert detail["selected_media_ids"] == [str(media)]
+    # 선택 사진은 화면이 그릴 수 있게 media에도 실려 온다
+    assert str(media) in {item["media_id"] for item in detail["media"]}
