@@ -195,7 +195,10 @@ it("모르는 진행 단계도 준비 안내를 보여 준다", async () => {
 it("문서 보호로 저장하지 못하면 연결 장애로 안내하지 않는다", async () => {
   records();
   const conflict = result("failed");
-  conflict.children[0].error_code = "DRAFT_VERSION_CONFLICT";
+  conflict.children = conflict.children.map((child) => ({
+    ...child,
+    error_code: "DRAFT_VERSION_CONFLICT",
+  }));
   server.use(
     http.post(apiPath("/children/:childId/observation-jobs"), () =>
       HttpResponse.json(conflict, { status: 202 }),
