@@ -20,7 +20,8 @@ export type UnclassifiedReasonView =
   | "photo_analysis_failed";
 
 /** failed일 때만. 화면 문구는 코드를 보고 만듭니다. */
-export type JobErrorCodeView = "STT_FAILED" | "LLM_TIMEOUT" | "LLM_CALL_FAILED" | "INTERNAL_ERROR";
+export type JobErrorCodeView =
+  "STT_FAILED" | "LLM_TIMEOUT" | "LLM_CALL_FAILED" | "DRAFT_VERSION_CONFLICT" | "INTERNAL_ERROR";
 
 export type DraftDocTypeView = "observation_log" | "parent_note";
 

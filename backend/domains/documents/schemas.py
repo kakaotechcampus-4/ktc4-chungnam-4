@@ -74,6 +74,8 @@ class DraftVersionInfo(BaseModel):
 
     draft_id: UUID
     version: int
+    # 잠금 버전과 구분해 다음 AI 검증 회차를 이어간다 (#257).
+    ai_version: int = 1
     status: DraftStatus
     has_teacher_edits: bool
 
