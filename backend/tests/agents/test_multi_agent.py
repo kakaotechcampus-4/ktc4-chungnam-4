@@ -95,9 +95,49 @@ def test_임의도구와_조회범위_변경을_실행전에_차단한다(monkey
         run(monkeypatch, [tool(name, args)], execute=forbidden)
 
 
-def test_반복도구_호출은_무한반복하지_않는다(monkeypatch):
+def test_같은_도구와_인자의_재호출은_기존_결과를_재사용한다(monkeypatch):
+    result, calls, _ = run(monkeypatch, [tool("activity_plan"), tool("activity_plan"), finish()])
+    assert result == "done" and calls == ["activity_plan"]
+
+
+def test_병렬_중복호출도_각_call_id에_응답하고_조회는_한번만_한다(monkeypatch):
+    response = tool("activity_plan")
+    duplicate = response.tool_calls[0].model_copy(update={"id": "call2"})
+    response.tool_calls.append(duplicate)
+    seen = []
+    answers = iter([response, finish()])
+
+    def respond(messages, tools):
+        seen.append(json.loads(json.dumps(messages)))
+        return next(answers)
+
+    monkeypatch.setattr(service, "call_agent", respond)
+    executions = []
+    assert (
+        service._agent_conversation(
+            role="collector",
+            prompt="synthetic",
+            names=("activity_plan",),
+            required=set(),
+            execute=lambda name, args: executions.append(name) or "cached-result",
+        )
+        == "done"
+    )
+    assert executions == ["activity_plan"]
+    assert seen[1][-2:] == [
+        {"role": "tool", "tool_call_id": call_id, "content": "cached-result"}
+        for call_id in ["call1", "call2"]
+    ]
+
+
+def test_다른_인자로_반복_조회하는_경우는_상한을_유지한다(monkeypatch):
     with pytest.raises(service.AgentExecutionError, match="AGENT_TOOL_LIMIT"):
-        run(monkeypatch, [tool("activity_plan"), tool("activity_plan")])
+        run(monkeypatch, [tool("activity_plan"), tool("activity_plan", '{"focus":"play"}')])
+
+
+def test_같은_도구만_계속_요청해도_턴_상한에서_종료한다(monkeypatch):
+    with pytest.raises(service.AgentExecutionError, match="AGENT_STEP_LIMIT"):
+        run(monkeypatch, [tool("activity_plan")] * service.MAX_AGENT_TURNS)
 
 
 def test_필수도구를_끝까지_안쓰면_상한에서_종료한다(monkeypatch):

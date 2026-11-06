@@ -36,7 +36,6 @@ export type JobErrorCode =
   | "AGENT_ROUTINE_MISSING"
   | "AGENT_SOURCE_CHANGED";
 
-
 /** POST /classes/{class_id}/jobs 요청 */
 export interface JobCreateRequest {
   /** FE가 만든 UUID. 같은 값으로 다시 보내면 작업을 새로 만들지 않습니다. */

@@ -1393,6 +1393,7 @@ def _agent_conversation(
     """네이티브 function calling의 유한 루프. 역할마다 대화는 새로 시작한다(FR-05)."""
     messages = [{"role": "user", "content": prompt}]
     called: set[str] = set()
+    results: dict[str, tuple[ToolArguments, str]] = {}
     for _ in range(MAX_AGENT_TURNS):
         if len(json.dumps(messages, ensure_ascii=False)) > MAX_AGENT_INPUT_CHARS:
             raise AgentExecutionError("AGENT_INPUT_TOO_LARGE")
@@ -1428,12 +1429,17 @@ def _agent_conversation(
             if call.type != "function" or call.function.name not in names:
                 raise AgentExecutionError("AGENT_TOOL_NOT_ALLOWED")
             name = call.function.name
-            if name in called:
-                raise AgentExecutionError("AGENT_TOOL_LIMIT")
             try:
                 args = ToolArguments.model_validate_json(call.function.arguments)
             except ValidationError:
                 raise AgentExecutionError("AGENT_TOOL_ARGUMENTS_INVALID") from None
+            if name in results:
+                previous_args, result = results[name]
+                if args != previous_args:
+                    raise AgentExecutionError("AGENT_TOOL_LIMIT")
+                # 병렬 중복 호출에도 각 call ID로 응답하되 조회는 한 번만 한다.
+                messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
+                continue
             # ID·URL·SQL은 도구 인자 스키마에 없다. 조회 범위는 execute의 서버 클로저에 고정.
             try:
                 result = execute(name, args)
@@ -1442,6 +1448,7 @@ def _agent_conversation(
                     trace(role, "failed", name)
                 raise
             called.add(name)
+            results[name] = (args, result)
             if trace:
                 trace(role, "tool_completed", name)
             messages.append({"role": "tool", "tool_call_id": call.id, "content": result})

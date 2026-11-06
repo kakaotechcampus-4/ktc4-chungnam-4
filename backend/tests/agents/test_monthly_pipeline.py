@@ -407,3 +407,101 @@ def test_서로다른_요청_ID로_동시에_생성해도_월별_작업은_하�
             )
             == 1
         )
+
+
+@pytest.mark.parametrize("protection", [None, "edit", "approve", "concurrent_edit"])
+def test_월별_재생성도_257의_버전보호를_따른다(flow, monkeypatch, protection):
+    note = published_note(flow)
+    client, factory, _, children, pending, _ = flow
+    # 월 1일의 게시 알림장이 있어도 관찰일지와 혼동하지 않는다.
+    with factory() as db:
+        db.get(DraftDocument, UUID(note)).record_date = date(2026, 10, 1)
+        db.commit()
+    monkeypatch.setattr(
+        service,
+        "call_agent",
+        native_fixture(
+            lambda prompt: json.dumps(
+                {
+                    "sentences": [
+                        {
+                            "section": "자연탐구",
+                            "text": "CHILD_A가 블록을 쌓았다.",
+                            "evidence_refs": ["E1"],
+                        }
+                    ]
+                }
+            )
+        ),
+    )
+
+    def generate():
+        response = client.post(
+            f"/api/v1/children/{children[0]}/observation-jobs",
+            json={"request_id": str(uuid4()), "month": "2026-10"},
+        )
+        assert response.status_code == 202, response.text
+        job_id, child_id = pending[-1]
+        service.orchestrate_drafts(str(job_id), str(child_id))
+        return client.get(response.headers["Location"]).json()
+
+    first = generate()
+    assert first["status"] == "succeeded", first
+    draft_id = first["children"][0]["drafts"][0]["draft_id"]
+    before = client.get(f"/api/v1/drafts/{draft_id}").json()
+
+    def edit():
+        response = client.patch(
+            f"/api/v1/drafts/{draft_id}",
+            json={
+                "expected_version": before["version"],
+                "sentences": [{"sentence_id": "s1", "text": "교사가 수정한 관찰 내용입니다."}],
+            },
+        )
+        assert response.status_code == 200, response.text
+
+    if protection == "edit":
+        edit()
+    elif protection == "approve":
+        response = client.post(
+            f"/api/v1/drafts/{draft_id}/approve",
+            json={
+                "expected_version": before["version"],
+                "reviewed": True,
+            },
+        )
+        assert response.status_code == 200, response.text
+    elif protection == "concurrent_edit":
+        original = service._generate_draft
+
+        def generate_and_edit(*args, **kwargs):
+            result = original(*args, **kwargs)
+            edit()
+            return result
+
+        monkeypatch.setattr(service, "_generate_draft", generate_and_edit)
+    if protection in {"edit", "approve"}:
+        monkeypatch.setattr(
+            service, "call_agent", lambda *a: pytest.fail("보호 문서는 AI 호출 금지")
+        )
+
+    result = generate()
+    after = client.get(f"/api/v1/drafts/{draft_id}").json()
+    if protection:
+        assert result["status"] == "failed", result
+        assert result["children"][0]["error_code"] == "DRAFT_VERSION_CONFLICT"
+        assert result["children"][0]["drafts"] == []
+        if protection != "approve":
+            assert after["sentences"][0]["text"] == "교사가 수정한 관찰 내용입니다."
+        else:
+            assert after["status"] == "approved"
+    else:
+        assert result["status"] == "succeeded", result
+        assert result["children"][0]["drafts"][0]["draft_id"] == draft_id
+        assert after["version"] == before["version"] + 1
+        with factory() as db:
+            evidence = db.scalars(
+                select(SentenceEvidence).where(SentenceEvidence.draft_id == UUID(draft_id))
+            ).all()
+            assert len(evidence) == 1
+            assert evidence[0].source_document_id == UUID(note)

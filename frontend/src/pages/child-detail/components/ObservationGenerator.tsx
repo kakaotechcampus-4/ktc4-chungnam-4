@@ -102,7 +102,9 @@ export function ObservationGenerator({ childId }: ObservationGeneratorProps) {
         <p role="alert">
           {childJob?.error_code === "AGENT_INPUT_TOO_LARGE"
             ? "알림장 분량이 처리 한도를 넘었어요. 담당 교사에게 확인해 주세요."
-            : "초안을 완성하지 못했어요. 자료와 연결 상태를 확인한 뒤 다시 시도해 주세요."}
+            : childJob?.error_code === "DRAFT_VERSION_CONFLICT"
+              ? "기존 관찰일지가 수정되거나 승인되어 새 결과를 저장하지 않았어요. 기존 관찰일지를 확인해 주세요."
+              : "초안을 완성하지 못했어요. 자료와 연결 상태를 확인한 뒤 다시 시도해 주세요."}
         </p>
       )}
       {drafted ? (

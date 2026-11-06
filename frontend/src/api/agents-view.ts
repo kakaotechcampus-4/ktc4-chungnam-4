@@ -36,7 +36,6 @@ export type JobErrorCodeView =
   | "AGENT_ROUTINE_MISSING"
   | "AGENT_SOURCE_CHANGED";
 
-
 export type DraftDocTypeView = "observation_log" | "parent_note";
 
 export interface JobDraftRefView {

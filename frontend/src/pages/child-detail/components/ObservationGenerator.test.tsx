@@ -191,3 +191,20 @@ it("모르는 진행 단계도 준비 안내를 보여 준다", async () => {
   await user.click(button);
   expect(await screen.findByRole("status")).toHaveTextContent("작업을 준비하고 있어요");
 });
+
+it("문서 보호로 저장하지 못하면 연결 장애로 안내하지 않는다", async () => {
+  records();
+  const conflict = result("failed");
+  conflict.children[0].error_code = "DRAFT_VERSION_CONFLICT";
+  server.use(
+    http.post(apiPath("/children/:childId/observation-jobs"), () =>
+      HttpResponse.json(conflict, { status: 202 }),
+    ),
+  );
+  const user = userEvent.setup();
+  renderRoute(<ObservationGenerator childId={childId} />);
+  const button = await screen.findByRole("button", { name: "관찰일지 생성하기" });
+  await waitFor(() => expect(button).toBeEnabled());
+  await user.click(button);
+  expect(await screen.findByRole("alert")).toHaveTextContent("새 결과를 저장하지 않았어요");
+});
