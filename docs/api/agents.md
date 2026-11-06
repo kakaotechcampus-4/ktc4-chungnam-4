@@ -150,6 +150,7 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 - 검증 실패로 미분류된 경우는 아직 미정입니다. 지금 코드는 PASS일 때만 `SentenceEvidence`를 저장하고, 미분류 경로 `_send_to_unclassified`는 스텁입니다.
 - `failed_stage`·`error_code`는 `failed`일 때만 채웁니다. 반 전체 `failed_stage`는 실패한 원아 중 가장 앞 단계입니다. 화면 문구는 FE가 코드를 보고 만듭니다.
 - 폴링 요청 자체가 네트워크 오류로 실패한 경우와 작업이 `failed`인 경우는 다른 문구로 보여 줍니다.
+- #257 리뷰 반영(임시 결정: 엄태은): 재생성할 기존 초안에 교사 수정·승인·회수 이력이 있거나, AI 호출 전 읽은 버전과 저장 시 버전이 다르면 `children[].status=failed`, `error_code=DRAFT_VERSION_CONFLICT`입니다. 기존 문서를 보존하고 자동 재시도하지 않습니다. 수정 이력 없는 검토 대기 초안은 같은 ID로 재생성하며 잠금 버전과 AI 버전을 각각 증가시킵니다. 미분류로 끝난 작업은 과거 초안 유무와 무관하게 `outcome=unclassified`로 안내합니다.
 - 미분류 원아 예: `{ "child_id": "c41d0000-0000-4000-8000-000000000003", "status": "succeeded", "stage": null, "outcome": "unclassified", "unclassified_reason": "insufficient_evidence", "failed_stage": null, "error_code": null, "drafts": [] }`
 - 실패 원아 예: `{ "child_id": "c41d0000-0000-4000-8000-000000000003", "status": "failed", "stage": null, "outcome": null, "unclassified_reason": null, "failed_stage": "generating", "error_code": "LLM_TIMEOUT", "drafts": [] }`
 - 에러:
