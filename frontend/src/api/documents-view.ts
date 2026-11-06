@@ -70,7 +70,12 @@ export type DocTypeView = "observation_log" | "parent_note";
 
 /** 근거가 어디서 왔는지. 근거 패널이 출처 이름으로 바꿔 보여 줍니다. */
 export type EvidenceSourceTypeView =
-  "photo_observation" | "video_speech" | "video_scene" | "teacher_voice_memo" | "activity_plan";
+  | "photo_observation"
+  | "video_speech"
+  | "video_scene"
+  | "teacher_voice_memo"
+  | "teacher_note"
+  | "activity_plan";
 
 /** 문장 하나의 근거 */
 export interface EvidenceView {
