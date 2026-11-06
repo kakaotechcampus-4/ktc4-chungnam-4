@@ -1,4 +1,6 @@
 import { kstToday, shiftDate } from "@/lib/datetime";
+
+import { isMockScenario } from "./scenario";
 import type {
   JobErrorCode,
   JobOutcome,
@@ -269,6 +271,14 @@ export function seedDb(now: Date = new Date()): MockDb {
     include_photos: includePhotos,
     updated_at: at(date, "08:40:00"),
   });
+  /** 방금 게시한 것으로 둡니다. 회수 기한(게시 후 24시간) 안이라 회수 화면을 볼 수 있습니다. */
+  const publishJustNow = (draft: DraftRecord, includePhotos: boolean): DraftRecord => ({
+    ...draft,
+    version: draft.version + 1,
+    published_at: now.toISOString(),
+    include_photos: includePhotos,
+    updated_at: now.toISOString(),
+  });
 
   const [doyunLog, doyunNote] = drafts(1, yesterday, [blocks, sand], 11, 12);
   const [hajunLog, hajunNote] = drafts(2, yesterday, [sand], 21, 22);
@@ -276,6 +286,10 @@ export function seedDb(now: Date = new Date()): MockDb {
   const [doyunLog2, doyunNote2] = drafts(1, twoDaysAgo, [sand2], 101, 102);
   const [jiwooLog2, jiwooNote2] = drafts(4, twoDaysAgo, [book2], 141, 142);
   const [doyunLog3, doyunNote3] = drafts(1, threeDaysAgo, [book3], 201, 202);
+  // 시나리오 documents.published-today: 오늘 게시를 마친 상태로 시작합니다. 시드의 게시분은
+  // 그제 것이라 회수 기한이 늘 지나 있고, 지난 날짜로 열어야 해서 "오늘 올리고 회수하는"
+  // 평범한 흐름을 보여 줄 수 없습니다. 게시 확인까지 손으로 누르지 않고 그 화면부터 봅니다.
+  const [doyunLogToday, doyunNoteToday] = drafts(1, today, [blocks], 301, 302);
 
   // 게시는 반 전체를 하루 한 번 합니다 — 임시 결정(김진하), docs/api/documents.md §POST /publications.
   // 그래서 한 날짜는 "아무도 게시 안 됨"(검토 중)이거나 "그날 게시분이 다 나감"(닫힘) 둘 중 하나입니다.
@@ -293,6 +307,9 @@ export function seedDb(now: Date = new Date()): MockDb {
     publish(approve(jiwooNote2, twoDaysAgo), twoDaysAgo, true),
     approve(doyunLog3, threeDaysAgo),
     publish(approve(doyunNote3, threeDaysAgo), threeDaysAgo, false),
+    ...(isMockScenario("documents.published-today")
+      ? [approve(doyunLogToday, today), publishJustNow(approve(doyunNoteToday, today), true)]
+      : []),
   ];
 
   return {
