@@ -333,6 +333,28 @@ describe("수동 분류 · 사진", () => {
     expect(screen.getByText("확인 필요 4개")).toBeVisible();
   });
 
+  // 테크스펙 H-2 판정 경로: 자동으로 못 맞힌 사진도 교사가 아이를 고르면 귀속이 끝납니다(FR-14).
+  it("수동 분류한 사진도 확인 체크 뒤에는 LLM을 허용해 보낸다", async () => {
+    seedQueue();
+    const user = userEvent.setup();
+    renderAt("/t/today/manual-sort");
+
+    expect(
+      await screen.findByText(/명단에 없는 사람이 나오면 이 자료를 제외해 주세요/),
+    ).toBeVisible();
+    await user.click(await screen.findByRole("checkbox", { name: "최지우" }));
+    await user.click(screen.getByRole("button", { name: "선택한 아이에게 연결" }));
+    await waitForSpeech();
+    await user.click(screen.getByRole("checkbox", { name: "아이 분류를 확인했어요" }));
+    await user.click(screen.getByRole("button", { name: "확인한 자료로 계속" }));
+
+    expect(photo(5)).toMatchObject({
+      review_state: "확정",
+      assigned_child_ids: [JIWOO],
+      llm_allowed: true,
+    });
+  });
+
   it("제외한 사진은 업로드 목록에서 빠진다", async () => {
     seedQueue();
     const user = userEvent.setup();
