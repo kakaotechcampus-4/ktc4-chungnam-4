@@ -13,6 +13,8 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from core.base import Base
+from core.config import get_settings
+from domains.agents import service as agents_service
 from domains.media import audio, service, stt, tasks
 from domains.media.models import MediaAsset, MediaUpload, TranscriptSegment
 
@@ -221,3 +223,110 @@ def test_작업이_실패하면_훅이_failed로_바꾼다(sessions: sessionmake
     )
 
     assert _state(sessions, media_id)[0] == "failed"
+
+
+# --- 이름 바로잡기 (파이프라인 1-C, H-2 예외) ---
+
+
+@pytest.fixture
+def 이름_바로잡기_켬(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("STT_NAME_FIX_ENABLED", "true")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+def test_켜져_있으면_저장하기_전에_원아_이름을_바로잡는다(
+    sessions: sessionmaker,
+    monkeypatch: pytest.MonkeyPatch,
+    반_명단: dict[uuid.UUID, list[str]],
+    이름_바로잡기_켬: None,
+) -> None:
+    media_id = _asset(sessions)
+    반_명단[uuid.uuid4()] = ["서아", "김서아"]
+    _fake_pipeline(monkeypatch, [CHUNK], [stt.SpeechSegment(4.0, 6.0, "서화야, 블록 정리하자.")])
+    received: list[tuple[list[str], list[list[str]]]] = []
+
+    def fix(lines: list[str], children: list[list[str]]) -> list[str]:
+        received.append((list(lines), [list(names) for names in children]))
+        return ["서아야, 블록 정리하자."]
+
+    monkeypatch.setattr(agents_service, "fix_transcript_names", fix)
+
+    service.transcribe_media(media_id)
+
+    # 교사가 처음 보는 발화부터 바로잡혀 있습니다
+    assert _state(sessions, media_id) == (
+        "done",
+        [(4.0, 6.0, "서아야, 블록 정리하자.", "video_audio")],
+    )
+    assert received == [(["서화야, 블록 정리하자."], [["서아", "김서아"]])]
+
+
+def test_꺼져_있으면_바로잡기를_부르지_않는다(
+    sessions: sessionmaker, monkeypatch: pytest.MonkeyPatch, 반_명단: dict[uuid.UUID, list[str]]
+) -> None:
+    media_id = _asset(sessions)
+    반_명단[uuid.uuid4()] = ["서아", "김서아"]
+    _fake_pipeline(monkeypatch, [CHUNK], [stt.SpeechSegment(4.0, 6.0, "서화야")])
+    # 로컬 .env에 켜 둔 값이 있어도 환경변수가 이깁니다
+    monkeypatch.setenv("STT_NAME_FIX_ENABLED", "false")
+    get_settings.cache_clear()
+
+    def fail(lines: list[str], children: list[list[str]]) -> list[str]:
+        raise AssertionError("꺼져 있으면 부르면 안 됩니다")
+
+    monkeypatch.setattr(agents_service, "fix_transcript_names", fail)
+
+    service.transcribe_media(media_id)
+    get_settings.cache_clear()
+
+    assert _state(sessions, media_id) == ("done", [(4.0, 6.0, "서화야", "video_audio")])
+
+
+def test_반_원아가_없으면_바로잡기를_부르지_않는다(
+    sessions: sessionmaker, monkeypatch: pytest.MonkeyPatch, 이름_바로잡기_켬: None
+) -> None:
+    media_id = _asset(sessions)
+    _fake_pipeline(monkeypatch, [CHUNK], [stt.SpeechSegment(4.0, 6.0, "서화야")])
+
+    def fail(lines: list[str], children: list[list[str]]) -> list[str]:
+        raise AssertionError("명단이 없으면 부르면 안 됩니다")
+
+    monkeypatch.setattr(agents_service, "fix_transcript_names", fail)
+
+    service.transcribe_media(media_id)
+
+    assert _state(sessions, media_id) == ("done", [(4.0, 6.0, "서화야", "video_audio")])
+
+
+def test_이름_바로잡기_요청에는_반_원아_이름과_전사문만_간다(
+    sessions: sessionmaker,
+    monkeypatch: pytest.MonkeyPatch,
+    반_명단: dict[uuid.UUID, list[str]],
+    이름_바로잡기_켬: None,
+) -> None:
+    # H-2 예외의 범위 (backend/CLAUDE.md 필수 테스트 2): 미디어·반·교사·원아 ID는 나가지 않습니다
+    media_id = _asset(sessions)
+    child_id = uuid.uuid4()
+    반_명단[child_id] = ["서아", "김서아"]
+    _fake_pipeline(monkeypatch, [CHUNK], [stt.SpeechSegment(4.0, 6.0, "서화야, 블록 정리하자.")])
+    prompts: list[str] = []
+
+    def fake_llm(prompt: str) -> str:
+        prompts.append(prompt)
+        return '{"fixes": [{"line": 1, "from": "서화야", "to": "서아야"}]}'
+
+    monkeypatch.setattr(agents_service, "call_claude", fake_llm)
+
+    service.transcribe_media(media_id)
+
+    assert len(prompts) == 1
+    assert "- 김서아 / 서아" in prompts[0]
+    assert "1. 서화야, 블록 정리하자." in prompts[0]
+    with sessions() as session:
+        asset = session.get(MediaAsset, uuid.UUID(media_id))
+        identifiers = [asset.id, asset.class_id, asset.teacher_id, asset.client_photo_id, child_id]
+    for identifier in identifiers:
+        assert str(identifier) not in prompts[0]
+    assert _state(sessions, media_id)[1][0][2] == "서아야, 블록 정리하자."

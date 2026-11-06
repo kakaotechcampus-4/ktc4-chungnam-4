@@ -102,7 +102,7 @@ def generate_drafts(self, job_id: str, child_id: str) -> None:
 ## 필수 테스트 (없으면 머지 불가)
 
 1. 미승인 초안이 학부모 노출 API로 나가지 않는다 (H-1, FR-08)
-2. LLM 요청 payload에 실명이 포함되지 않는다 (H-2)
+2. LLM 요청 payload에 실명이 포함되지 않는다 (H-2). 예외인 STT 이름 바로잡기(1-C)에는 반 재원 원아 이름과 전사문 말고는 들어가지 않는다
 3. 재시도 상한 초과 시 예외가 아니라 미분류함으로 떨어진다
 4. 모든 열람 API 호출이 `AccessLog`를 남긴다 (NFR-05)
 

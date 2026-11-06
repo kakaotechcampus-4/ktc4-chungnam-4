@@ -17,7 +17,7 @@
 
 - **이 도메인만 최상위 `tools/`, `prompts/`를 호출합니다.** 호출 주체는 `service.py` 하나로 제한합니다.
 - `tools/`, `prompts/`는 AI 담당 영역입니다. FastAPI·Celery를 모르는 순수 함수/텍스트로 유지하고, 백엔드 사정으로 그 안에 프레임워크 코드를 넣지 않습니다.
-- **LLM 입력은 비식별 텍스트 + 동의 원아의 활동 사진·영상 프레임**입니다 (H-2). 실명은 파이프라인 3단계에서 `CHILD_A` 토큰으로 치환하고 매핑 테이블은 서버 내부에만 둡니다. 실명·생년월일·학부모 정보·얼굴 임베딩은 LLM에 보내지 않으며, 프롬프트·로그·Langfuse에도 실명이 남지 않게 합니다.
+- **LLM 입력은 비식별 텍스트 + 동의 원아의 활동 사진·영상 프레임**입니다 (H-2). 실명은 파이프라인 3단계에서 `CHILD_A` 토큰으로 치환하고 매핑 테이블은 서버 내부에만 둡니다. 실명·생년월일·학부모 정보·얼굴 임베딩은 LLM에 보내지 않으며, 프롬프트·로그·Langfuse에도 실명이 남지 않게 합니다. **예외는 1-C 이름 바로잡기(`fix_transcript_names`) 하나입니다**(팀 승인 대기, #268). 반 재원 원아 성명·호칭과 STT 전사문만 보내고, 이 호출의 입력·출력은 로그·Langfuse에 남기지 않습니다(호출 수·고친 개수만).
 - **미동의 원아가 귀속된 사진은 LLM에 보내지 않습니다** (09/13 결정, H-2). 판정은 `MediaChildLink`로 귀속된 원아들의 동의 상태를 organization의 판정 함수로 확인해서 합니다 — 한 명이라도 얼굴특징정보처리 미동의면 그 사진은 근거에서 뺍니다. 블러본을 기대하지 마세요, 블러는 폐기됐습니다.
 - 귀속이 끝나지 않았거나 미식별 얼굴이 남은 사진도 보내지 않습니다. 사진이 전부 빠져도 발화 근거로 초안을 만들고, 그마저 없으면 미분류함으로 보냅니다.
 - 이미지는 교사가 업로드 대상으로 확정한 것만 선별합니다. 아이 1명·하루 기준 3~5장 권장으로 전송량을 제한하며, 정확한 상한은 확정 예정입니다.
@@ -27,6 +27,7 @@
   - 초안 생성: `build_draft_prompt` → `call_claude` → `parse_draft_response`
   - Critic: `build_critic_prompt` → `call_claude` → `parse_critic_response`
   - 사진 분석: `build_single_photo_prompt` → `call_vision` → `parse_single_photo_analysis` (`_analyze_photos`, #179). 사진 생성 파이프라인에 연결했습니다
+  - 이름 바로잡기(1-C): `build_name_fix_prompt` → `call_claude` → `parse_name_fix_response` → `apply_name_fixes`. media `transcribe_media`가 STT 결과를 저장하기 전에 `fix_transcript_names`로 부릅니다. 한 파일의 조각을 7개씩 묶어 부르고 고친 곳만 받습니다. 서버는 고친 말에 명단 이름이 있고, 고치기 전후 말의 자모 거리가 3 이하이고, 적힌 말이 그 줄에 한 번만 나오고, 비슷한 다른 원아 이름이 없는 수정만 적용합니다(`tools/perception/name_fix.py`, 테크스펙 1-C). 호출이 실패하거나 형식이 깨진 묶음은 재시도하지 않고 원문을 둡니다. 보강 단계라 실패해도 지금 동작보다 나빠지지 않기 때문입니다
   - 예전 규칙 "에이전트 1~4는 각각 하나의 모듈, 하나의 진입 함수 `run(...) -> Result`"는 코드와 맞지 않아 바꿨습니다(#138, `[rule]`).
 - 에이전트 출력은 자유 텍스트로 받지 않고 **구조화된 JSON**으로 받아 Pydantic으로 검증합니다. 파싱 실패는 재시도 대상.
 - **규칙으로 되는 건 LLM에 맡기지 않습니다.** 동의 확인·귀속 판정·비식별화·노출은 전부 코드입니다 (테크스펙 책임 분담 표).
@@ -48,6 +49,7 @@
 
   | 파이프라인 단계 | 본문 | 조립 |
   | --- | --- | --- |
+  | 1-C 이름 바로잡기 | `perception/name_fix.md` | `perception/name_fix.py` |
   | 5 사진 맥락 추출 | `perception/photo_analysis.md` | `perception/photo_analysis.py` |
   | 6 알림장 생성 | `generation/parent_note.md` | `generation/draft.py` |
   | 7-B Critic | `verification/critic.md` | `verification/critic.py` |
@@ -65,6 +67,6 @@
 
 ## 다른 도메인과의 관계
 
-- `media`: 업로드 완료 후 트리거, `MediaAsset`·`TranscriptSegment` 참조
+- `media`: 업로드 완료 후 트리거, `MediaAsset`·`TranscriptSegment` 참조. media가 STT 직후 `fix_transcript_names`(1-C)를 부름
 - `organization`: `Child`, `TeacherPersona`, `EducationPlan` 참조
 - `documents`: 생성한 초안을 `DraftDocument`로 넘김

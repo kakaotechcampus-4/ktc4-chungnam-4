@@ -8,7 +8,7 @@ import logging
 import tempfile
 import time as clock
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from functools import cache
 from pathlib import Path
@@ -1267,8 +1267,8 @@ _TRANSCRIPT_SOURCE = {"video": "video_audio", "voice_memo": "voice_memo"}
 def transcribe_media(media_id: str) -> None:
     """영상·음성의 발화를 만듭니다 (NFR-08, FR-27, 파이프라인 1-B). Celery worker가 부릅니다.
 
-    S3 원본 → 음성 추출 → 말소리 구간을 28초 이하 조각으로 → 조각 동시 STT → 원본 기준
-    시각으로 `TranscriptSegment` 저장 → `transcript_status = done`.
+    S3 원본 → 음성 추출 → 말소리 구간을 28초 이하 조각으로 → 조각 동시 STT → (켜져 있으면)
+    원아 이름 바로잡기(1-C) → 원본 기준 시각으로 `TranscriptSegment` 저장 → `transcript_status = done`.
 
     - 말소리를 못 찾으면 STT를 부르지 않고 "멘트 없음" 한 줄로 done입니다.
     - 음성 추출이나 STT가 끝내 실패하면 발화 없이 failed입니다. 화면은 "발화 없이 계속"을
@@ -1299,6 +1299,7 @@ def transcribe_media(media_id: str) -> None:
         logger.warning("transcription failed for media %s: %s", media_id, type(error).__name__)
         mark_transcription_failed(media_id)
         return
+    speech = _fix_child_names(speech, names)
 
     with SessionLocal() as session:
         # 이 작업만 pending을 done으로 바꿉니다. 행이 이미 지워진 경우 등은 아무것도 남기지 않습니다
@@ -1334,6 +1335,24 @@ def transcribe_media(media_id: str) -> None:
         len(speech),
         clock.monotonic() - started,
     )
+
+
+def _fix_child_names(
+    speech: list[stt.SpeechSegment], names: list[list[str]]
+) -> list[stt.SpeechSegment]:
+    """저장하기 전에 STT가 잘못 적은 원아 이름을 바로잡습니다 (파이프라인 1-C, H-2 예외).
+
+    교사가 발화 검수 화면에서 처음 볼 때부터 이름이 맞게 보이게 하려는 것입니다 — 저장한 뒤에
+    고치면 교사가 고치기 전 문장을 먼저 봅니다. 꺼져 있거나 발화·반 원아가 없으면 그대로 둡니다.
+    LLM 호출과 실패 처리(실패한 묶음은 원문)는 agents가 합니다.
+    """
+    if not speech or not names or not get_settings().stt_name_fix_enabled:
+        return speech
+    # agents가 media를 import하므로, 모듈을 불러올 때 순환하지 않게 여기서 가져옵니다
+    from domains.agents.service import fix_transcript_names
+
+    fixed = fix_transcript_names([segment.text for segment in speech], names)
+    return [replace(segment, text=text) for segment, text in zip(speech, fixed, strict=True)]
 
 
 def _speech_chunks(storage_key: str) -> list[audio.AudioChunk]:
