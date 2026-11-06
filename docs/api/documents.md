@@ -249,7 +249,7 @@ documents의 상세 작성 엔드포인트는 12개(교사용 8, 학부모용 4)
   - `source_type`은 5종입니다: `photo_observation`·`video_speech`·`video_scene`·`teacher_voice_memo`·`activity_plan`.
   - `activity_plan` 근거는 `media_id`가 null입니다. 사진·계획 근거는 `start_ms`·`end_ms`가 null입니다.
 - `media[]`에는 선택 사진과 근거 미디어의 서명 URL이 들어갑니다(화면 데이터 "근거 클립 재생 URL"). media service 함수로 붙이며, 만료되면 `GET /api/v1/media/{media_id}`로 다시 받습니다. 선택 사진 다음 보여 주는 근거의 미디어 순서로 겹치지 않게 싣고, 교사가 고친 문장의 근거 미디어는 싣지 않습니다.
-- `selected_media_ids`는 선택 사진의 순서입니다. PATCH와 같은 필드입니다.
+- `selected_media_ids`는 선택 사진의 순서입니다. PATCH와 같은 필드입니다. AI가 만든 초안은 근거로 쓴 사진이 기본으로 들어 있고(임시 결정(정은), 테크스펙 §④ DraftDocument), 교사가 PATCH로 더하거나 뺍니다. 직접 쓴 초안은 빈 배열입니다.
 - `author_name`은 서버가 `author_teacher_id`로 조회해 붙입니다. LLM에는 보내지 않습니다(FR-26, H-2).
 - `status == unclassified`이면 `evidences`가 빈 배열일 수 있습니다. 지금 코드는 PASS일 때만 근거를 저장합니다.
 - 스펙 모델에 없는 필드는 `title`, `selected_media_ids`, `media`, `published_at`, `revoke_deadline`, `can_revoke`입니다(제안).
