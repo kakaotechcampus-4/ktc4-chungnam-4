@@ -158,11 +158,154 @@ describe("DraftReviewPage", () => {
   });
 
   // '준비 중'이 스크린리더에만 읽혀, 화면을 보는 교사는 왜 눌리지 않는지 몰랐습니다(10/30 배포 점검 25번).
-  it("꺼진 사진 추가 타일은 준비 중이라고 화면에도 보여 준다", async () => {
-    await renderAndWait();
+  // 초안이 있으면 사진을 고를 수 있어(9주차 리뷰 4번) 이 타일은 초안이 없는 빈 상태에만 남습니다.
+  it("초안이 없는 빈 상태의 사진 추가 타일은 준비 중이라고 화면에도 보여 준다", async () => {
+    renderPage(fixtureId("child", 5)); // 정예린 — 시드에 초안이 없다
+    await screen.findByText("아직 이 아이의 기록이 없어요. 직접 작성할 수 있어요.");
     const tile = screen.getByRole("button", { name: "사진 추가 (준비 중)" });
     expect(tile).toBeDisabled();
     expect(tile).toHaveTextContent("준비 중");
+  });
+
+  // 9주차 리뷰 4번: 사진으로 만든 초안도 보낼 사진을 고를 길이 없어 학부모에게 글만 갔습니다.
+  describe("보낼 사진 고르기", () => {
+    /** 김도윤 초안에서 교사가 고른 사진을 비워, 근거 사진이 후보로 남게 합니다. */
+    function clearDoyunSelection() {
+      updateDb((db) => {
+        const draft = db.drafts[DOYUN_NOTE];
+        if (!draft) throw new Error("김도윤 초안이 시드에 없습니다.");
+        draft.selected_media_ids = [];
+      });
+    }
+
+    function capturePatches() {
+      const sent: DraftPatchRequest[] = [];
+      server.use(
+        http.patch(apiPath("/drafts/:draftId"), async ({ request }) => {
+          sent.push((await request.clone().json()) as DraftPatchRequest);
+        }),
+      );
+      return sent;
+    }
+
+    it("고른 사진을 빼면 남은 선택을 서버에 저장한다", async () => {
+      const user = userEvent.setup();
+      const before = readDb().drafts[DOYUN_NOTE]?.selected_media_ids ?? [];
+      expect(before.length).toBeGreaterThan(0);
+      const sent = capturePatches();
+      await renderAndWait();
+
+      await user.click(screen.getByRole("button", { name: "선택 사진 1 빼기" }));
+
+      await waitFor(() => expect(sent).toHaveLength(1));
+      expect(sent[0]?.selected_media_ids).toEqual(before.slice(1));
+      expect(sent[0]?.expected_version).toBe(1);
+      expect(
+        await screen.findByText(`선택 사진 ${String(before.length - 1)}장`),
+      ).toBeInTheDocument();
+    });
+
+    it("고르지 않은 사진을 골라 맨 뒤에 붙여 저장한다", async () => {
+      const user = userEvent.setup();
+      clearDoyunSelection();
+      const sent = capturePatches();
+      await renderAndWait();
+      expect(screen.getByText("선택 사진 0장")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "사진 추가" }));
+      await user.click(await screen.findByRole("button", { name: "사진 1 추가" }));
+
+      await waitFor(() => expect(sent).toHaveLength(1));
+      expect(sent[0]?.selected_media_ids).toHaveLength(1);
+      expect(await screen.findByText("선택 사진 1장")).toBeInTheDocument();
+      // 고른 사진은 후보에서 빠진다
+      expect(readDb().drafts[DOYUN_NOTE]?.selected_media_ids).toEqual(sent[0]?.selected_media_ids);
+    });
+
+    it("고를 사진이 더 없으면 사진 추가를 잠그고 이유를 적는다", async () => {
+      const user = userEvent.setup();
+      clearDoyunSelection();
+      await renderAndWait();
+      // 후보를 모두 고르면 더 고를 사진이 없다
+      await user.click(screen.getByRole("button", { name: "사진 추가" }));
+      const candidates = await screen.findAllByRole("button", { name: /사진 \d+ 추가/ });
+      for (let count = candidates.length; count > 0; count -= 1) {
+        await user.click(await screen.findByRole("button", { name: "사진 1 추가" }));
+        await screen.findByText(`선택 사진 ${String(candidates.length - count + 1)}장`);
+      }
+      await user.keyboard("{Escape}");
+
+      expect(await screen.findByText("더 고를 수 있는 사진이 없어요.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "사진 추가" })).toBeDisabled();
+    });
+
+    it("문장을 수정하는 중에는 사진을 바꿀 수 없다", async () => {
+      const user = userEvent.setup();
+      await renderAndWait();
+
+      await user.click(screen.getByRole("button", { name: "직접 수정" }));
+
+      expect(screen.getByRole("button", { name: "사진 추가" })).toBeDisabled();
+      expect(screen.queryByRole("button", { name: /선택 사진 \d+ 빼기/ })).not.toBeInTheDocument();
+      expect(screen.getByText("문장을 수정하는 중에는 사진을 바꿀 수 없어요.")).toBeInTheDocument();
+    });
+
+    it("승인한 초안은 다시 검토하기 뒤에야 사진을 바꿀 수 있다", async () => {
+      const user = userEvent.setup();
+      renderPage(fixtureId("child", 2)); // 이하준 — 시드에서 승인 완료
+      await screen.findByRole("button", { name: /이하준/ });
+
+      expect(
+        await screen.findByText(/승인한 초안은 ‘다시 검토하기’를 누른 뒤에/),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /선택 사진 \d+ 빼기/ })).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "다시 검토하기" }));
+
+      expect(await screen.findByRole("button", { name: /선택 사진 1 빼기/ })).toBeInTheDocument();
+    });
+
+    // H-1: 승인은 확인한 본문과 사진에 대한 것입니다. 사진이 바뀌면 다시 확인하게 합니다.
+    it("사진을 바꾸면 확인 체크가 풀린다", async () => {
+      const user = userEvent.setup();
+      await renderAndWait();
+      await user.click(screen.getByRole("checkbox"));
+      expect(screen.getByRole("checkbox")).toBeChecked();
+
+      await user.click(screen.getByRole("button", { name: "선택 사진 1 빼기" }));
+
+      await waitFor(() => expect(screen.getByRole("checkbox")).not.toBeChecked());
+    });
+
+    it("서버가 거절하면 이유를 보여 주고 선택은 그대로다", async () => {
+      const user = userEvent.setup();
+      const before = readDb().drafts[DOYUN_NOTE]?.selected_media_ids ?? [];
+      server.use(
+        http.patch(apiPath("/drafts/:draftId"), () =>
+          errorResponse(
+            400,
+            "MEDIA_NOT_LINKED_TO_CHILD",
+            "이 원아의 그날 사진·영상만 고를 수 있어요.",
+          ),
+        ),
+      );
+      await renderAndWait();
+
+      await user.click(screen.getByRole("button", { name: "선택 사진 1 빼기" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("그날 사진·영상만 고를 수 있어요");
+      expect(screen.getByText(`선택 사진 ${String(before.length)}장`)).toBeInTheDocument();
+    });
+
+    it("그 사이 다른 곳에서 고쳐 버전이 밀리면 새 본문을 다시 받는다", async () => {
+      const user = userEvent.setup();
+      await renderAndWait();
+      editDoyunNoteElsewhere();
+
+      await user.click(screen.getByRole("button", { name: "선택 사진 1 빼기" }));
+
+      expect(await screen.findByText(/다른 곳에서 고친 첫 문장이에요/)).toBeInTheDocument();
+    });
   });
 
   // 본문을 못 받으면 초안이 있는데도 빈 상태와 직접 작성 칸이 떴습니다. 새로 써서 저장하면 이미
