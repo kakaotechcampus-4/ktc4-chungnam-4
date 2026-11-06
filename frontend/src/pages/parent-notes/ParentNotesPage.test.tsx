@@ -1,4 +1,5 @@
 import { screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 
 import { fixtureId } from "@/mocks/fixtures/ids";
@@ -100,6 +101,63 @@ describe("ParentNotesPage 모아 보기 링크", () => {
 
     expect(await screen.findByText("이 자녀의 열람 기간이 지났어요.")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "사진·영상 모아 보기" })).not.toBeInTheDocument();
+  });
+});
+
+describe("ParentNotesPage 검색", () => {
+  it("내용으로 찾으면 맞는 알림장만 남기고 몇 건인지 알려 준다", async () => {
+    const user = userEvent.setup();
+    renderPage(myChild(false), LIST);
+
+    await user.type(await screen.findByRole("searchbox", { name: "알림장 검색" }), "모래");
+
+    expect(screen.getByRole("link", { name: /모래놀이를 했어요/ })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /블록을 높이/ })).not.toBeInTheDocument();
+    expect(screen.getByText("1건을 찾았어요")).toBeInTheDocument();
+  });
+
+  it("날짜로도 찾는다", async () => {
+    const user = userEvent.setup();
+    renderPage(myChild(false), LIST);
+
+    await user.type(await screen.findByRole("searchbox", { name: "알림장 검색" }), "10월 30일");
+
+    expect(screen.getByRole("link", { name: /나뭇잎을 모았어요/ })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /모래놀이를 했어요/ })).not.toBeInTheDocument();
+  });
+
+  it("맞는 알림장이 없으면 안내하고, 전체 보기로 돌아온다", async () => {
+    const user = userEvent.setup();
+    renderPage(myChild(false), LIST);
+
+    await user.type(await screen.findByRole("searchbox", { name: "알림장 검색" }), "없는 말");
+
+    expect(screen.getByRole("heading", { name: "맞는 알림장이 없어요" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "전체 알림장 보기" }));
+
+    expect(screen.getByRole("searchbox", { name: "알림장 검색" })).toHaveValue("");
+    expect(screen.getByRole("link", { name: /블록을 높이/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /나뭇잎을 모았어요/ })).toBeInTheDocument();
+  });
+
+  it("지우기 단추로 검색어를 비우면 다시 안 읽은 수를 보여 준다", async () => {
+    const user = userEvent.setup();
+    renderPage(myChild(false), LIST);
+
+    expect(screen.queryByRole("button", { name: "검색어 지우기" })).not.toBeInTheDocument();
+    await user.type(await screen.findByRole("searchbox", { name: "알림장 검색" }), "모래");
+    await user.click(screen.getByRole("button", { name: "검색어 지우기" }));
+
+    expect(screen.getByRole("searchbox", { name: "알림장 검색" })).toHaveValue("");
+    expect(screen.getByText("아직 읽지 않은 알림장 1개")).toBeInTheDocument();
+  });
+
+  it("알림장이 하나도 없으면 검색칸을 보여 주지 않는다", async () => {
+    renderPage(myChild(false));
+
+    await screen.findByRole("heading", { name: "아직 도착한 알림장이 없어요" });
+
+    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
   });
 });
 

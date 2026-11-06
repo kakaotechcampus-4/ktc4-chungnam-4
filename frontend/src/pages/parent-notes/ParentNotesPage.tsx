@@ -1,16 +1,18 @@
 // Figma: 1차 결과본 W3 106:4388 (FR-09 학부모 자녀별 알림장). 값은 그대로 옮기지 않고 서비스 토큰에 맞췄습니다.
 import { useQuery } from "@tanstack/react-query";
-import { CalendarClock, CheckCheck, MailOpen, Users } from "lucide-react";
-import { useRef } from "react";
+import { CalendarClock, CheckCheck, MailOpen, SearchX, Users } from "lucide-react";
+import { useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 
-import { parentNotesQueryOptions } from "@/api/documents";
+import { parentNotesQueryOptions, type ParentNoteSummaryView } from "@/api/documents";
 import { myChildrenQueryOptions } from "@/api/organization";
 import { FocusCard } from "@/components/common/FocusCard";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import { nickname } from "@/lib/child-name";
+import { formatDate } from "@/lib/datetime";
 
+import { NoteSearchBox } from "./components/NoteSearchBox";
 import { ParentNoteCard } from "./components/ParentNoteCard";
 import { ParentNotesRail } from "./components/ParentNotesRail";
 
@@ -18,6 +20,12 @@ const NOTICE_CARD_CLASS = "rounded-3xl border border-line/70 shadow-card motion-
 /** 카드가 차례로 올라오는 간격. 너무 뒤의 카드까지 기다리지 않게 앞 몇 장만 늦춥니다. */
 const STAGGER_MS = 70;
 const STAGGER_LIMIT = 6;
+
+// 검색 API가 없어 지금 불러온 쪽 안에서 찾습니다. 본문 대신 목록에 오는 미리보기(앞 100자)와 날짜를 봅니다.
+function matchesSearch(note: ParentNoteSummaryView, keyword: string) {
+  const date = formatDate(note.record_date, { year: false });
+  return `${date} ${note.preview}`.toLowerCase().includes(keyword.toLowerCase());
+}
 
 function NotesSkeleton() {
   return (
@@ -40,6 +48,9 @@ export function ParentNotesPage() {
     ...parentNotesQueryOptions(child?.child_id ?? "", params.get("cursor") ?? undefined),
     enabled: Boolean(child && !child.access_expired),
   });
+  // 검색어는 자녀에 묶습니다. 다른 자녀로 넘어가면 저절로 비워집니다.
+  const [search, setSearch] = useState({ childId: "", text: "" });
+  const searchText = search.childId === child?.child_id ? search.text : "";
   // 표시용 URL이 만료되면 사진마다 오류가 나서, 한 번만 새로 받습니다.
   const refetchedForExpiry = useRef(false);
 
@@ -132,28 +143,41 @@ export function ParentNotesPage() {
   }
 
   const unreadCount = notes.data?.unread_count ?? 0;
+  const keyword = searchText.trim();
+  const visibleNotes = (notes.data?.items ?? []).filter((note) => matchesSearch(note, keyword));
+  const changeSearch = (text: string) => setSearch({ childId: child.child_id, text });
 
   return (
     <>
       {header}
-      {/* 이 줄은 두 칸 위에 둡니다. 목록 칸 안에 두면 첫 카드만 내려가 오른쪽 칸과 윗선이 어긋납니다. */}
+      {/* 이 줄은 두 칸 위에 둡니다. 목록 칸 안에 두면 첫 카드만 내려가 오른쪽 칸과 윗선이 어긋납니다.
+          검색칸은 넓은 화면에서 오른쪽 칸과 폭을 맞추고, 휴대폰에서는 목록 위에 옵니다. */}
       {notes.data?.items.length ? (
-        <p className="mb-4 flex items-center gap-2 text-label font-bold text-brand-ink">
-          {unreadCount > 0 ? (
-            <>
-              <span aria-hidden="true" className="relative flex size-2">
-                <span className="absolute inline-flex size-full rounded-full bg-brand-ink/50 motion-safe:animate-ping" />
-                <span className="relative inline-flex size-2 rounded-full bg-brand-ink" />
-              </span>
-              아직 읽지 않은 알림장 {unreadCount}개
-            </>
-          ) : (
-            <>
-              <CheckCheck aria-hidden="true" className="size-4" />
-              알림장을 모두 읽었어요
-            </>
-          )}
-        </p>
+        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-6">
+          <p className="flex items-center gap-2 text-label font-bold text-brand-ink" role="status">
+            {keyword ? (
+              `${visibleNotes.length}건을 찾았어요`
+            ) : unreadCount > 0 ? (
+              <>
+                <span aria-hidden="true" className="relative flex size-2">
+                  <span className="absolute inline-flex size-full rounded-full bg-brand-ink/50 motion-safe:animate-ping" />
+                  <span className="relative inline-flex size-2 rounded-full bg-brand-ink" />
+                </span>
+                아직 읽지 않은 알림장 {unreadCount}개
+              </>
+            ) : (
+              <>
+                <CheckCheck aria-hidden="true" className="size-4" />
+                알림장을 모두 읽었어요
+              </>
+            )}
+          </p>
+          <NoteSearchBox
+            value={searchText}
+            onChange={changeSearch}
+            className="w-full shrink-0 lg:w-rail"
+          />
+        </div>
       ) : null}
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
         <section aria-label="알림장 목록" className="flex min-w-0 flex-1 flex-col gap-6">
@@ -181,9 +205,24 @@ export function ParentNotesPage() {
                 선생님이 알림장을 보내면 여기에서 볼 수 있어요.
               </p>
             </FocusCard>
+          ) : !visibleNotes.length ? (
+            <FocusCard centered className={NOTICE_CARD_CLASS}>
+              <SearchX aria-hidden="true" className="size-10 text-line" strokeWidth={1.5} />
+              <h2 className="text-lead font-bold text-ink">맞는 알림장이 없어요</h2>
+              <p className="text-body text-ink-muted">
+                지금 불러온 알림장의 날짜와 앞부분에서 찾아요.
+              </p>
+              <Button
+                variant="outline"
+                className="active:scale-98"
+                onClick={() => changeSearch("")}
+              >
+                전체 알림장 보기
+              </Button>
+            </FocusCard>
           ) : (
             <ul className="grid gap-4 sm:grid-cols-2">
-              {notes.data.items.map((note, index) => (
+              {visibleNotes.map((note, index) => (
                 <li
                   key={note.parent_note_id}
                   className="motion-safe:animate-rise"

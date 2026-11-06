@@ -1,4 +1,4 @@
-import { ChevronDown, Images, ShieldCheck } from "lucide-react";
+import { ChevronDown, Images } from "lucide-react";
 import { Link } from "react-router";
 
 import type { ParentNoteListView } from "@/api/documents";
@@ -17,13 +17,8 @@ interface ParentNotesRailProps {
 }
 
 const RAIL_CARD_CLASS = "rounded-3xl border border-line/70 bg-paper shadow-card";
-const NOTICE_LINES = [
-  "선생님이 승인한 알림장만 보여요",
-  "열람하면 기록이 남아요",
-  "댓글 기능은 없어요",
-];
 
-// 학부모 목록 오른쪽 칸(Figma W3). 프로필 · 이번 달 · 안내 순서이고, 스크롤해도 따라옵니다.
+// 학부모 목록 오른쪽 칸(Figma W3의 프로필 · 이번 달). 스크롤해도 따라옵니다.
 // 좁은 화면에서는 목록 아래로 내려옵니다.
 export function ParentNotesRail({ child, childList, list }: ParentNotesRailProps) {
   return (
@@ -81,14 +76,6 @@ export function ParentNotesRail({ child, childList, list }: ParentNotesRailProps
           </dl>
         </section>
       ) : null}
-      <ul className="flex flex-col gap-2 rounded-3xl bg-tint-2 p-5 text-label text-ink-muted">
-        {NOTICE_LINES.map((line) => (
-          <li key={line} className="flex items-center gap-2">
-            <ShieldCheck aria-hidden="true" className="size-4 shrink-0 text-brand-ink/70" />
-            {line}
-          </li>
-        ))}
-      </ul>
     </aside>
   );
 }

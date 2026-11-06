@@ -1,6 +1,6 @@
 // Figma: 1차 결과본 W4 106:4489 (FR-09 승인·게시된 알림장 열람). 값은 그대로 옮기지 않고 서비스 토큰에 맞췄습니다.
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, ShieldCheck } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 
@@ -19,7 +19,6 @@ interface NeighborCardProps {
   listPath: string;
 }
 
-const NOTICE_LINES = ["열람하면 기록이 남아요", "댓글 기능은 없어요"];
 const RAIL_CARD_CLASS = "rounded-2xl border border-line/70 bg-paper p-4 shadow-card";
 
 // 이전·다음 알림장으로 가는 카드. 없으면 눌리지 않는 "없음" 칸입니다(Figma W4).
@@ -153,14 +152,6 @@ export function ParentNoteReaderPage() {
                   </p>
                 </div>
               </div>
-              <ul className="flex flex-col gap-2 rounded-2xl bg-tint-2 p-4 text-label text-ink-muted">
-                {NOTICE_LINES.map((line) => (
-                  <li key={line} className="flex items-center gap-2">
-                    <ShieldCheck aria-hidden="true" className="size-4 shrink-0 text-brand-ink/70" />
-                    {line}
-                  </li>
-                ))}
-              </ul>
               <nav aria-label="다른 날 알림장" className="flex flex-col gap-3">
                 <NeighborCard label="이전 알림장" link={note.data.prev} listPath={listPath} />
                 <NeighborCard label="다음 알림장" link={note.data.next} listPath={listPath} />
