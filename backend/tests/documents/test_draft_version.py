@@ -77,7 +77,6 @@ def test_초안의_ID와_잠금용_버전과_상태를_돌려준다():
     assert info.draft_id == draft.id
     # save_draft(expected_version=...)에 넘길 값은 AI 회차가 아니라 잠금용 버전이다.
     assert info.version == 3
-    assert info.ai_version == 2
     assert info.status == DraftStatus.APPROVED
     assert info.has_teacher_edits is False
 

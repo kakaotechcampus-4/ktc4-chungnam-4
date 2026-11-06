@@ -10,7 +10,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, delete, or_, select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, object_session
 
@@ -34,7 +34,7 @@ from domains.agents.models import (
 from domains.agents.models import SentenceEvidence as SentenceEvidenceRow
 from domains.agents.models import VerificationResult as VerificationResultRow
 from domains.documents import service as documents
-from domains.documents.schemas import DraftSaveInput, DraftSentenceInput, DraftStatus
+from domains.documents.schemas import DraftSaveInput, DraftSentenceInput
 from domains.media import service as media_service
 from domains.organization import service as organization_service
 from domains.organization.service import ensure_class_access
@@ -288,17 +288,16 @@ def _job_status(db: Session, generation_job: GenerationJob) -> GenerationJobStat
 
 
 def _child_status(db: Session, job: Job, record_date: date) -> ChildJobStatus:
-    """이번 작업의 실패·미분류를 먼저 보고, 저장까지 끝난 경우만 초안으로 안내한다 (#257)."""
+    """원아별 상태. 성공한 원아는 그날 초안이 있는지로 결과를 정한다.
+
+    Job에 결과 컬럼이 없어도 초안은 원아·종류·날짜당 하나라서 찾을 수 있다. FE는 drafts로 초안
+    검토 화면에 넘어간다 (docs/api/agents.md). 같은 날 앞선 작업이 만든 초안이 있으면 이번 작업이
+    미분류로 끝났어도 drafted로 보인다 — 재생성 규칙(get_draft_version)을 붙일 때 함께 다룬다.
+    단계별 진행은 후속 과제이며 실패 코드·미분류 사유는 Job에서 읽는다.
+    """
     status = JobStatus(job.status)
     if status != JobStatus.SUCCEEDED:
         return ChildJobStatus(child_id=job.child_id, status=status, error_code=job.error_code)
-    if job.unclassified_reason is not None:
-        return ChildJobStatus(
-            child_id=job.child_id,
-            status=status,
-            outcome="unclassified",
-            unclassified_reason=job.unclassified_reason,
-        )
     draft = documents.get_draft_version(
         db, child_id=job.child_id, doc_type=DAILY_DOC_TYPE, record_date=record_date
     )
@@ -438,23 +437,6 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
         if job.status in {JobStatus.SUCCEEDED.value, JobStatus.FAILED.value}:
             return
         _set_job_status(session, job, JobStatus.RUNNING)
-        # 사진 분석을 포함한 외부 호출 전에 보호 여부와 잠금 버전을 읽는다 (#75·#257).
-        existing = documents.get_draft_version(
-            session,
-            child_id=UUID(child_id),
-            doc_type=DAILY_DOC_TYPE,
-            record_date=(
-                job.target_date if job.target_date.tzinfo else job.target_date.replace(tzinfo=UTC)
-            )
-            .astimezone(_KST)
-            .date(),
-        )
-        if existing is not None and (
-            existing.status != DraftStatus.VERIFIED or existing.has_teacher_edits
-        ):
-            _finish_draft_conflict(session, job)
-            return
-        expected_version = existing.version if existing else None
         # 중복 전달 또는 시간 초과로 이미 종료된 작업은 다시 생성하지 않는다.
         bundle = _collect_evidence(session, child_id, job.target_date)
 
@@ -463,8 +445,10 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
         # NEEDS_TEACHER_REVIEW를 낼 때까지 regeneration_count를 그대로 늘려서 넘긴다.
         regeneration_count = 0
         # 재생성은 같은 초안의 새 버전이다 (documents DraftDocument 설계).
-        draft_id = str(existing.draft_id) if existing else str(uuid4())
-        version = existing.ai_version + 1 if existing else 1
+        # TODO(eun): 같은 원아·종류·날짜 문서가 이미 있으면 get_draft_version(#140)으로
+        #   draft_id·버전을 이어받는다 (#133 리뷰). 지금은 Job마다 새 초안으로 시작한다.
+        draft_id = str(uuid4())
+        version = 1
         previous: contracts.DraftDocument | None = None
         issues: list[contracts.VerificationIssue] = []
         # 인식 결과(사진 분석 LLM 포함)는 재생성마다 다시 만들지 않는다. 루프 안에서 부르면
@@ -516,17 +500,13 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
             )
 
             if decision_result.decision == contracts.Decision.PASS:
-                saved = _save_passed_draft(
+                _save_passed_draft(
                     session,
                     job,
                     bundle,
                     _restore_names(generated),
                     generated.source_evidence_by_id,
-                    expected_version=expected_version,
                 )
-                if saved is False:
-                    _finish_draft_conflict(session, job)
-                    return
                 _commit_job_succeeded(session, job)
                 return
             if decision_result.decision == contracts.Decision.NEEDS_TEACHER_REVIEW:
@@ -538,21 +518,6 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
 
         _send_to_unclassified(session, job_id, child_id, reason=reason)
         _commit_job_succeeded(session, job)
-
-
-def _finish_draft_conflict(session: Session, job: Job) -> None:
-    """기존 문서를 보존한 요청은 새 생성 성공으로 알리지 않는다 (FR-05, #257)."""
-    job_id = job.id
-    session.rollback()
-    changed = session.execute(
-        update(Job)
-        .where(Job.id == job_id, Job.status == JobStatus.RUNNING.value)
-        .values(status=JobStatus.FAILED.value, error_code="DRAFT_VERSION_CONFLICT")
-    )
-    if changed.rowcount:
-        job.status = JobStatus.FAILED.value
-        job.error_code = "DRAFT_VERSION_CONFLICT"
-    session.commit()
 
 
 def _commit_job_succeeded(session: Session, job: Job) -> None:
@@ -1075,9 +1040,7 @@ def _save_passed_draft(
     bundle: EvidenceBundle,
     document: contracts.DraftDocument,
     evidence_by_id: dict[str, contracts.EvidenceItem],
-    *,
-    expected_version: int | None = None,
-) -> bool:
+) -> None:
     """PASS한 초안을 documents에 저장하고, 문장별 근거를 같은 트랜잭션에 남긴다 (FR-05, FR-07).
 
     커밋은 하지 않는다 — orchestrate_drafts가 Job 성공 상태와 함께 한 번에 커밋한다
@@ -1085,8 +1048,8 @@ def _save_passed_draft(
     저장되지 않은 draft_id나 반영되지 않은 AI 초안을 가리키는 근거가 남지 않게 한다
     (#75 3번). 검증 기록은 _verify_and_record가 이미 커밋해서 되돌려지지 않는다.
 
-    충돌하면 교사 문서를 그대로 두고 False를 반환한다. 호출자가 실패 안내로 종료하며
-    미분류함에는 보내지 않는다 (#257).
+    충돌하면 교사 문서를 그대로 두고 돌아온다. 원아 Job은 성공으로 끝내고 미분류함에는
+    보내지 않는다 (#75 6번).
     """
     data = DraftSaveInput(
         # agents가 만든 draft_id로 저장해야 검증 기록과 문서가 서로를 찾는다 (#75 2번).
@@ -1104,14 +1067,12 @@ def _save_passed_draft(
         evidence_bundle_id=bundle.id,
     )
     try:
-        documents.save_draft(session, data, expected_version=expected_version)
-        if expected_version is not None:
-            # sentence_id를 재사용하므로 이전 본문의 근거도 같은 트랜잭션에서 교체한다.
-            session.execute(
-                delete(SentenceEvidenceRow).where(SentenceEvidenceRow.draft_id == data.draft_id)
-            )
+        # TODO(eun): 같은 원아·종류·날짜 문서가 이미 있으면 documents의 get_draft_version
+        #   (#75 5번, 한상균)으로 버전을 읽어 재생성으로 저장한다. 교사가 수정·승인한 문서면
+        #   건너뛴다(#75 6-1). 그 함수가 생기기 전에는 항상 최초 저장으로 보내므로, 이미 있는
+        #   문서는 충돌로 거부되고 그대로 남는다.
+        documents.save_draft(session, data, expected_version=None)
         _record_sentence_evidence(session, document, evidence_by_id)
-        return True
     except DraftVersionConflict:
         session.rollback()
         # 검증 PASS 기록은 남았는데 문서가 없는 이유를 나중에 추적하려고 남긴다 (#90).
@@ -1122,7 +1083,6 @@ def _save_passed_draft(
             job.id,
             document.draft_id,
         )
-        return False
 
 
 def _author_teacher_id(session: Session, job: Job) -> UUID:
