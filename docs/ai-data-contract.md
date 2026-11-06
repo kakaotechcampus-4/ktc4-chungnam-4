@@ -69,6 +69,12 @@
   `photo_observation`·`activity_plan`에서 금지하고(값이 있으면 거부),
   영상·음성에서만 허용한다 — 이때도 STT가 한쪽 시간만 제공하거나 둘 다
   없어도 통과한다(없는 값을 추측해서 채우지 않는다, PR #15 리뷰 반영).
+- 교사가 글로 남긴 추가 근거(`TeacherEvidence`)는 `source_type="teacher_note"`로 넣는다
+  (2026-11-06 결정, 정은·엄태은). 기존 값으로는 담을 수 없다 — `teacher_voice_memo`는
+  `media_id`가 필수이고 `activity_plan`은 관찰이 아니라 계획이다. `teacher_note`는 미디어에서
+  온 근거가 아니므로 `media_id`와 `start_ms`/`end_ms`가 없어야 한다(`activity_plan`과 같은
+  제약). 아이의 말이 아니라 교사의 관찰이므로 Critic의 `teacher_note_as_child_speech` 검사
+  대상이다. `tools/contracts.py`의 `SourceType`과 검증 코드는 이 문서가 합의된 뒤 고친다.
 - 근거 부족은 빈 정상 초안으로 표현하지 않는다. 태은님(AI 근거 통합·관찰일지·알림장 생성 담당)의
   근거 준비 단계에서 생성하지 않고 백엔드에 부족 상태를 전달해야 한다. 구체적인 부족 상태 계약은
   태은님·정은님과 합의한다.

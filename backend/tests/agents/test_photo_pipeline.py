@@ -946,3 +946,116 @@ def test_계획_근거는_KST_해당_요일만_사용하고_비어도_다른_요
             f"weekly 제목 / 놀이 목표{(' / ' + expected_activity) if expected_activity else ''}"
             in texts
         )
+
+
+def test_추가_근거는_비식별화되어_생성에_들어가고_교사_근거_패널에_원문으로_남는다(
+    flow: Flow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from domains.agents.models import SentenceEvidence
+    from domains.organization import service as organization_service
+
+    client, factory, klass, children, pending, _ = flow
+    login(client, TEACHER_EMAIL)
+    with factory() as db:
+        names = organization_service.get_class_child_names(db, klass)[children[0]]
+    secret = "우산을 직접 챙겼어요"
+    saved = client.put(
+        f"/api/v1/children/{children[0]}/evidence/{DAY}",
+        json={"activity_time": "10:30", "text": f"{names[0]}가 비 오는 날 {secret}."},
+    )
+    assert saved.status_code == 201
+    prompts: list[str] = []
+
+    def llm(prompt: str) -> str:
+        prompts.append(prompt)
+        if '"sentence_id"' in prompt:
+            return json.dumps(
+                [
+                    {
+                        "sentence_id": "s1",
+                        "verdict": "pass",
+                        "reason_code": "ok",
+                        "detail": "근거와 일치",
+                        "evidence_ids": ["E1"],
+                    },
+                    {
+                        "sentence_id": "s2",
+                        "verdict": "pass",
+                        "reason_code": "ok",
+                        "detail": "근거와 일치",
+                        "evidence_ids": ["E2"],
+                    },
+                ]
+            )
+        return json.dumps(
+            {
+                "sentences": [
+                    {"text": "CHILD_A는 블록을 쌓으며 놀이했어요.", "evidence_refs": ["E1"]},
+                    {"text": "CHILD_A는 비 오는 날 우산을 직접 챙겼어요.", "evidence_refs": ["E2"]},
+                ]
+            }
+        )
+
+    monkeypatch.setattr(service, "call_claude", llm)
+    result = run(client, klass, photo(factory, klass, [children[0]]), pending)
+
+    assert result["status"] == "succeeded"
+    assert result["children"][0]["outcome"] == "drafted"
+    # H-2: 메모 내용은 LLM에 가지만 이름은 가지 않는다(생성·검증 호출 모두)
+    assert prompts
+    assert all(not any(name in prompt for name in names) for prompt in prompts)
+    draft_prompt = next(prompt for prompt in prompts if '"sentence_id"' not in prompt)
+    assert secret in draft_prompt
+    assert "teacher_note" in draft_prompt
+    # FR-07: 교사 근거 패널에는 비식별화 전 원문이 교사 메모 출처로 보인다
+    draft_id = result["children"][0]["drafts"][0]["draft_id"]
+    with factory() as db:
+        rows = db.scalars(
+            select(SentenceEvidence).where(SentenceEvidence.draft_id == UUID(draft_id))
+        ).all()
+    note_rows = [row for row in rows if row.evidence_id.startswith("note:")]
+    assert len(note_rows) == 1
+    assert note_rows[0].source_media_id is None
+    assert names[0] in note_rows[0].source_text
+    detail = client.get(f"/api/v1/drafts/{draft_id}").json()
+    evidences = [e for sentence in detail["sentences"] for e in sentence.get("evidences", [])]
+    assert "teacher_note" in {evidence["source_type"] for evidence in evidences}
+
+
+def test_생성에는_그_아이_그날의_추가_근거만_들어간다(flow: Flow) -> None:
+    from domains.agents.models import EvidenceBundle, TeacherEvidence
+
+    _client, factory, klass, children, _pending, _calls = flow
+    with factory() as db:
+        teacher_id = db.get(Klass, klass).teacher_id
+        for child_id, day, text in (
+            (children[0], DAY, "이 아이의 오늘 메모"),
+            (children[1], DAY, "같은 반 다른 아이의 메모"),
+            (children[0], DAY - timedelta(days=1), "이 아이의 어제 메모"),
+        ):
+            db.add(
+                TeacherEvidence(
+                    child_id=child_id,
+                    record_date=day,
+                    activity_time="10:30",
+                    text=text,
+                    author_teacher_id=teacher_id,
+                )
+            )
+        bundle = EvidenceBundle(
+            child_id=children[0],
+            date=datetime(2026, 10, 30, 3, tzinfo=UTC),
+            media_refs=[],
+            transcript_refs=[],
+            context_lookup={},
+        )
+        db.add(bundle)
+        db.flush()
+        inputs = service._load_generation_inputs(bundle)
+
+    notes = [item for item in inputs.evidence if item.source_type.value == "teacher_note"]
+    assert [item.text for item in notes] == ["이 아이의 오늘 메모"]
+    assert notes[0].evidence_id.startswith("note:")
+    assert notes[0].child_ids == [str(children[0])]
+    assert notes[0].media_id is None
+    assert notes[0].evidence_id in inputs.request.evidence_ids
