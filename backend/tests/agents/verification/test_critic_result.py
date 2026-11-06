@@ -77,6 +77,55 @@ def test_JSON이_아니면_응답_오류로_처리한다():
     assert result.issues[0].check_type == VerificationCheckType.CRITIC_RESPONSE_ERROR
 
 
+def _all_pass() -> str:
+    return json.dumps(
+        [
+            {
+                "sentence_id": sentence_id,
+                "verdict": "pass",
+                "reason_code": "ok",
+                "detail": "근거 확인",
+                "evidence_ids": ["ev_001"],
+            }
+            for sentence_id in ("s1", "s2")
+        ]
+    )
+
+
+def test_코드_블록으로_감싼_응답도_읽는다():
+    result = parse_critic_response("```json\n" + _all_pass() + "\n```", _document())
+
+    assert result.passed is True
+    assert result.issues == []
+
+
+def test_앞_설명_뒤의_완전한_코드_블록은_읽는다():
+    raw = "판정 결과입니다.\n```json\n" + _all_pass() + "\n```"
+    result = parse_critic_response(raw, _document())
+    assert result.passed is True
+
+
+def test_코드_블록_뒤에_설명이_붙으면_응답_오류다():
+    raw = "```json\n" + _all_pass() + "\n```\n판정 결과입니다."
+    result = parse_critic_response(raw, _document())
+    assert result.passed is False
+    assert result.issues[0].check_type == VerificationCheckType.CRITIC_RESPONSE_ERROR
+
+
+def test_앞_설명을_읽어도_잘못된_근거는_통과하지_않는다():
+    raw = "판정 결과입니다.\n```json\n" + _all_pass().replace("ev_001", "missing") + "\n```"
+    result = parse_critic_response(raw, _document())
+    assert result.passed is False
+    assert result.issues[0].check_type == VerificationCheckType.CRITIC_RESPONSE_ERROR
+
+
+def test_응답이_비어_있으면_응답_오류로_처리한다():
+    result = parse_critic_response(None, _document())
+
+    assert result.passed is False
+    assert result.issues[0].check_type == VerificationCheckType.CRITIC_RESPONSE_ERROR
+
+
 def test_배열이_아니면_응답_오류로_처리한다():
     raw = json.dumps({"sentence_id": "s1", "verdict": "pass"})
 

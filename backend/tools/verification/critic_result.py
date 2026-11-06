@@ -24,6 +24,7 @@ from tools.json_response import parse_json_response
 def parse_critic_response(raw_response: str, document: DraftDocument) -> VerificationResult:
     """Critic 응답 문자열을 VerificationResult로 정규화한다.
 
+    - 앞 설명·코드 블록 처리는 수집·작성과 같은 공통 파서를 따른다(#259 리뷰).
     - JSON이 아니거나 배열이 아니면 문서 전체 실패(CRITIC_RESPONSE_ERROR).
     - 문서의 모든 sentence_id가 응답에 등장하지 않으면 실패 — 누락은 통과가 아니다.
     - 존재하지 않는 sentence_id를 가리키거나 verdict가 pass/fail이 아니면 그 항목만 오류.

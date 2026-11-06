@@ -19,7 +19,7 @@ from pathlib import Path
 from tools.contracts import DraftDocument, EvidenceItem
 from tools.generation.agent_tools import SECTION_GUIDANCE
 
-PROMPT_VERSION = "critic.v4"
+PROMPT_VERSION = "critic.v5"
 
 _TEMPLATE_PATH = Path(__file__).with_name("critic.md")
 _DOCUMENT_SLOT = "{{DOCUMENT}}"
