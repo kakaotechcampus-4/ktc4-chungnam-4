@@ -1,4 +1,4 @@
-import { matchFaces } from "./matcher";
+import { matchFaces, pickRegistrationFace } from "./matcher";
 import { FACE_MODEL_VERSION } from "./model-manifest";
 import { FACE_DESCRIPTOR_LENGTH } from "./types";
 
@@ -93,4 +93,38 @@ it("확실한 얼굴 옆에 정렬 안 된 얼굴이 있으면 사진 전체를 
   );
   expect(result.classify_state).toBe("unclassified");
   expect(result.has_unidentified_face).toBe(true);
+});
+
+describe("pickRegistrationFace", () => {
+  // 등록 사진에 옆모습이 섞여 드는 것은 keepInvalid를 켠 뒤 생긴 일입니다. 뒤에 지나가는
+  // 아이나 벽의 사진이 잡히는데, 그걸 "여러 명"으로 세면 멀쩡한 등록 사진이 거절됩니다.
+  const frontFace = { descriptor: vector(0.3), confidence: 0.99, meshScore: 1, usable: true };
+
+  it("정면 1 + 옆모습 1이면 정면 얼굴로 등록한다", () => {
+    const pick = pickRegistrationFace([unalignedFace, frontFace]);
+    expect(pick).toEqual({ ok: true, face: frontFace });
+  });
+
+  it("옆모습만 있으면 등록하지 않는다", () => {
+    expect(pickRegistrationFace([unalignedFace, unalignedFace])).toEqual({
+      ok: false,
+      reason: "no_face",
+    });
+  });
+
+  it("얼굴을 아예 못 찾아도 같은 이유로 돌려준다", () => {
+    expect(pickRegistrationFace([])).toEqual({ ok: false, reason: "no_face" });
+  });
+
+  it("정렬된 얼굴이 둘이면 여러 명으로 본다", () => {
+    expect(pickRegistrationFace([face, frontFace])).toEqual({
+      ok: false,
+      reason: "multiple_faces",
+    });
+  });
+
+  it("옆모습이 여럿이어도 정면이 하나면 등록한다", () => {
+    const pick = pickRegistrationFace([unalignedFace, frontFace, unalignedFace, unalignedFace]);
+    expect(pick).toEqual({ ok: true, face: frontFace });
+  });
 });

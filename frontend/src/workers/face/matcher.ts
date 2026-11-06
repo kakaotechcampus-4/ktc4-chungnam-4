@@ -26,6 +26,30 @@ export function usableEmbedding(vector: readonly number[]): boolean {
     vector.some((v) => v !== 0)
   );
 }
+/** 등록 사진 한 장에서 벡터를 뽑을 얼굴을 고른 결과. 못 고르면 왜인지 남깁니다. */
+export type RegistrationPick =
+  { ok: true; face: DetectedFace } | { ok: false; reason: "no_face" | "multiple_faces" };
+
+/**
+ * 등록 사진 한 장에서 **정렬된 얼굴이 정확히 하나일 때만** 그 얼굴을 고릅니다.
+ *
+ * `keepInvalid`를 켠 뒤로는 배경에 스친 옆모습까지 `faces`에 담깁니다. 그대로 세면 멀쩡한
+ * 등록 사진이 "여러 명"으로 거절되므로 `usable`한 얼굴만 셉니다. 등록 벡터는 정면으로
+ * 만들어야 합니다 — 옆모습은 자기 자신과도 0.51~0.58입니다(#226 측정).
+ *
+ * `no_face`는 "얼굴이 없다"가 아니라 **"쓸 수 있는 얼굴이 없다"**입니다. 옆모습만 찍힌
+ * 사진도 여기로 옵니다. 그래서 화면 문구는 원인을 옆모습으로 단정하지 않습니다
+ * (#261 리뷰 김동건 님).
+ *
+ * worker에서 떼어 둡니다 — worker 모듈은 불러오는 것만으로 `self.onmessage`를 걸어서
+ * 테스트에서 그대로 부를 수 없습니다 (#261 리뷰 송유진 님).
+ */
+export function pickRegistrationFace(faces: readonly DetectedFace[]): RegistrationPick {
+  const usable = faces.filter((face) => face.usable);
+  if (usable.length === 1) return { ok: true, face: usable[0]! };
+  return { ok: false, reason: usable.length > 1 ? "multiple_faces" : "no_face" };
+}
+
 export function matchFaces(
   faces: readonly DetectedFace[],
   registered: readonly RegisteredFace[],
