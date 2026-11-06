@@ -10,7 +10,12 @@ export type DocType = "observation_log" | "parent_note";
 export type DraftStatus = "draft" | "verified" | "approved" | "revoked";
 
 export type EvidenceSourceType =
-  "photo_observation" | "video_speech" | "video_scene" | "teacher_voice_memo" | "activity_plan";
+  | "photo_observation"
+  | "video_speech"
+  | "video_scene"
+  | "teacher_voice_memo"
+  | "teacher_note"
+  | "activity_plan";
 
 /** GET /classes/{class_id}/drafts 한 칸(원아의 문서 하나) */
 export interface DraftSummary {

@@ -1,4 +1,4 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 
@@ -241,6 +241,28 @@ describe("DraftReviewPage", () => {
       expect(await screen.findByText("선택 사진 1장")).toBeInTheDocument();
       // 고른 사진은 후보에서 빠진다
       expect(readDb().drafts[DOYUN_NOTE]?.selected_media_ids).toEqual(sent[0]?.selected_media_ids);
+    });
+
+    it("사진을 고르다 저장에 실패하면 대화상자 안에 이유를 보여 준다", async () => {
+      const user = userEvent.setup();
+      clearDoyunSelection();
+      server.use(
+        http.patch(apiPath("/drafts/:draftId"), () =>
+          errorResponse(
+            400,
+            "MEDIA_NOT_LINKED_TO_CHILD",
+            "이 원아의 그날 사진·영상만 고를 수 있어요.",
+          ),
+        ),
+      );
+      await renderAndWait();
+
+      await user.click(screen.getByRole("button", { name: "사진 추가" }));
+      await user.click(await screen.findByRole("button", { name: "사진 1 추가" }));
+
+      expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent(
+        "그날 사진·영상만 고를 수 있어요",
+      );
     });
 
     it("고를 사진이 더 없으면 사진 추가를 잠그고 이유를 적는다", async () => {

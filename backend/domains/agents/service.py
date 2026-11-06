@@ -148,7 +148,7 @@ def start_generation_job(
 ) -> StartedGenerationJob:
     """서버 전송을 마친 반·날짜의 초안 생성 작업을 만든다 (FR-05, FR-06, FR-26).
 
-    대상 원아는 그 날짜에 귀속된 자료가 있는 원아 전원이다. ③ 미동의 원아도 빼지 않고,
+    대상 원아는 그 날짜에 귀속된 자료나 추가 근거가 있는 원아 전원이다. ③ 미동의 원아도 빼지 않고,
     그 원아가 귀속된 사진만 근거 수집에서 빠진다(H-2·H-3). 커밋과 큐 넣기는 호출자가 한다.
     """
     ensure_class_access(db, class_id, center_id)
@@ -188,7 +188,7 @@ def start_generation_job(
             "아직 서버 전송이 끝나지 않은 자료가 있습니다.",
             detail={"media_ids": [str(media_id) for media_id in unready]},
         )
-    child_ids = media_service.get_attributed_children(db, class_id, record_date)
+    child_ids = _draft_target_children(db, class_id, record_date)
     if not child_ids:
         raise NoTargetChildren("이 날짜에 원아에게 연결된 자료가 없습니다.")
 
@@ -350,6 +350,23 @@ class SavedTeacherEvidence:
     evidence: TeacherEvidence
     # 처음 저장이면 True(201), 덮어썼으면 False(200)
     created: bool
+
+
+def _draft_target_children(db: Session, class_id: UUID, record_date: date) -> list[UUID]:
+    """초안 생성 대상. 그날 귀속된 자료가 있거나 추가 근거를 남긴 반 원아다.
+
+    화면이 자료 없는 아이에게도 메모를 남기라고 안내하므로, 메모만 있어도 초안을 만든다
+    (임시 결정(송유진), 이전에는 자료가 있는 원아만이었다).
+    """
+    attributed = media_service.get_attributed_children(db, class_id, record_date)
+    class_children = list(organization_service.get_class_child_names(db, class_id))
+    noted = db.scalars(
+        select(TeacherEvidence.child_id).where(
+            TeacherEvidence.child_id.in_(class_children),
+            TeacherEvidence.record_date == record_date,
+        )
+    ).all()
+    return sorted({*attributed, *noted}, key=str)
 
 
 def list_teacher_evidence(

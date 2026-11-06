@@ -40,6 +40,12 @@ export function DraftPhotos({
   const locked = lockedReason !== null;
   const selectedIds = photos.map((photo) => photo.media_id);
   const canAdd = !locked && !saving && candidates.length > 0;
+  const errorAlert =
+    error !== null ? (
+      <p role="alert" className="text-caption text-destructive">
+        {error}
+      </p>
+    ) : null;
 
   return (
     <>
@@ -77,11 +83,8 @@ export function DraftPhotos({
       ) : candidates.length === 0 ? (
         <p className="text-caption text-ink-muted">더 고를 수 있는 사진이 없어요.</p>
       ) : null}
-      {error !== null ? (
-        <p role="alert" className="text-caption text-destructive">
-          {error}
-        </p>
-      ) : null}
+      {/* 대화상자가 열려 있으면 안에서 알립니다. 밖에 두면 대화상자 뒤에 가려집니다. */}
+      {pickerOpen ? null : errorAlert}
 
       <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
         <DialogContent>
@@ -109,6 +112,7 @@ export function DraftPhotos({
               ))}
             </div>
           )}
+          {errorAlert}
         </DialogContent>
       </Dialog>
     </>
