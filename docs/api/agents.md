@@ -168,7 +168,7 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 | `POST /api/v1/jobs/{job_id}/retry` | 실패한 단계 다시 시도 | 경로만 | 정은 |
 | `GET /api/v1/jobs/{job_id}/daily-routines` | 하루 정리(장면) 받기 | 경로만 | 정은 |
 | `POST /api/v1/jobs/{job_id}/resume`(가칭) | 하루 정리를 확인한 뒤 초안 생성 이어 하기 | 경로만 | 정은 |
-| `GET /api/v1/classes/{class_id}/evidence?record_date=`, `PUT /api/v1/children/{child_id}/evidence/{record_date}` | 추가 근거(교사 관찰 메모) 읽기·저장 | 제안(하단 §상의 필요 2) | 정은 |
+| `GET /api/v1/classes/{class_id}/evidence?record_date=`, `PUT /api/v1/children/{child_id}/evidence/{record_date}` | 추가 근거(교사 관찰 메모) 읽기·저장 | 구현으로 결정(11/6, 하단 §상의 필요 2). 서버는 아직 없음 | 정은 |
 | `POST /api/v1/jobs/{job_id}/cancel` | 작업 취소 | 경로만 | 정은 |
 | `GET /api/v1/classes/{class_id}/jobs?record_date=` | 그날 작업 찾기(오늘의 기록 재진입) | 경로만 | 정은 |
 | `POST /api/v1/drafts/{draft_id}/revision-requests` | AI에게 다듬기 요청 | 경로만 | 정은·한상균 |
@@ -177,7 +177,7 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 
 ## 상의 필요 — 김동건 제안 (정은과 함께)
 
-> ④ 아이별 하루 확인·추가 근거 화면을 만들며 필요한 API를 채운 것입니다. agents 담당(정은) 영역이라 혼자 정하지 않았고, 팀 결정이 아닙니다. FE 타입·목은 이 모양으로 먼저 만들어 두었습니다(`types/api-draft/agents.ts`, `mocks/handlers/agents.ts`). 합의되면 위 본문으로 옮깁니다.
+> ④ 아이별 하루 확인·추가 근거 화면을 만들며 필요한 API를 채운 것입니다. agents 담당(정은) 영역이라 혼자 정하지 않았고, 팀 결정이 아닙니다. 단 **§2 추가 근거는 2026-11-06 디스코드에서 구현으로 정해졌습니다**(정은·엄태은). FE 타입·목은 이 모양으로 먼저 만들어 두었습니다(`types/api-draft/agents.ts`, `mocks/handlers/agents.ts`). 합의되면 위 본문으로 옮깁니다.
 
 ### 1. 하루 정리 확인(FR-27)을 서버 전송 전으로 — 송유진 제안(#83 리뷰)
 
@@ -223,11 +223,19 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 - `text`에는 실명이 들어갈 수 있어 LLM으로 보내기 전에 `CHILD_A`로 비식별화해야 합니다(H-2).
 - 에러: `CHILD_ACCESS_DENIED` (403), 422(`text`가 빔)
 
+#### 결정 (2026-11-06 디스코드, 정은·엄태은)
+
+- **구현합니다.** 9주차 #257 리뷰 5번(서버에 API가 없어 404로 입력이 잠김)의 해결 방향입니다. 추가 근거는 AI가 초안을 만들 때 쓰는 재료이고, 교사가 초안을 직접 쓰는 일은 AI 결과를 다듬는 과정이라 서로 겹치지 않습니다. (예전에 "겹쳐서 일단 제거"로 알던 것을 되돌렸습니다.)
+- 저장은 `TeacherEvidence`(아이·날짜당 1건, 덮어쓰기) — 테크스펙 §④.
+- 근거 출처는 새 `source_type=teacher_note` — `docs/ai-data-contract.md`. 테크스펙 `SentenceEvidence`의 `source_media_id`·`source_timestamp`는 이미 nullable이라 바꾸지 않습니다.
+- 이번 범위는 **글만**입니다. screens.md가 적어 둔 음성·관련 사진 연결은 제외합니다(FE도 글만 받음).
+
 #### 정할 것
 
-- 테크스펙 `EvidenceBundle`·`SentenceEvidence`에 교사 텍스트 근거를 담을 자리(`source_type`)가 없습니다.
-- screens.md는 음성·관련 사진도 함께 적어 두었지만, FE는 글만 받습니다.
-- screens.md 체크리스트에 "+ 추가 근거 작성"이 상세 작성 범위 밖이라 숨길 UI로 올라 있습니다(송유진). 이 API를 채택하면 그 항목을 닫습니다.
+- `text` 길이 상한, `activity_time` 필수 여부와 기본값(지금 FE는 10:30을 임의로 채움).
+- `EvidenceBundle`에 메모 참조를 컬럼으로 둘지, 근거를 구성할 때 조회할지.
+- 저장한 메모가 이미 만들어진 초안에 반영되는 시점(다음 생성부터인지, 검토 대기 초안의 재생성에도 쓰는지).
+- screens.md 체크리스트의 "+ 추가 근거 작성"(숨길 UI)은 송유진 님 항목이라 여기서 닫지 않았습니다.
 
 ### 3. Job 트리거 문구와 FE 책임 (#60)
 
