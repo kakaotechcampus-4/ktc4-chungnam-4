@@ -20,7 +20,8 @@ export type UnclassifiedReason =
   | "photo_analysis_failed";
 
 /** failed일 때만. 실명·발화 원문은 넣지 않습니다(H-4). */
-export type JobErrorCode = "STT_FAILED" | "LLM_TIMEOUT" | "LLM_CALL_FAILED" | "INTERNAL_ERROR";
+export type JobErrorCode =
+  "STT_FAILED" | "LLM_TIMEOUT" | "LLM_CALL_FAILED" | "DRAFT_VERSION_CONFLICT" | "INTERNAL_ERROR";
 
 /** POST /classes/{class_id}/jobs 요청 */
 export interface JobCreateRequest {
