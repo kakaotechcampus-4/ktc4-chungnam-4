@@ -55,6 +55,18 @@ describe("ChildDetailPage", () => {
       `/t/children/${CHILD_ID}/invite`,
     );
     expect(screen.getByText("얼굴 등록됨")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "얼굴 동의 철회" })).toHaveAttribute(
+      "href",
+      `/t/children/${CHILD_ID}/face/revoke`,
+    );
+  });
+
+  it("③ 동의가 없는 원아에게는 동의 철회 링크를 보여 주지 않는다", async () => {
+    // 정예린(child 5)은 ③ 동의가 없습니다.
+    renderPage(fixtureId("child", 5));
+
+    expect(await screen.findByRole("heading", { level: 1, name: "정예린" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "얼굴 동의 철회" })).not.toBeInTheDocument();
   });
 
   it("없는 원아면 찾을 수 없다고 알려 준다", async () => {

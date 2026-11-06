@@ -3,6 +3,7 @@ import { ChildFormPage } from "@/pages/child-form/ChildFormPage";
 import { ChildInviteLinkPage } from "@/pages/child-invite-link/ChildInviteLinkPage";
 import { ChildrenSetupPage } from "@/pages/children-setup/ChildrenSetupPage";
 import { ChildrenPage } from "@/pages/children/ChildrenPage";
+import { FaceConsentRevokePage } from "@/pages/face-consent-revoke/FaceConsentRevokePage";
 import { EducationPlanFormPage } from "@/pages/education-plan-form/EducationPlanFormPage";
 import { EducationPlansPage } from "@/pages/education-plans/EducationPlansPage";
 import { OnboardingClassNewPage } from "@/pages/onboarding-class-new/OnboardingClassNewPage";
@@ -30,6 +31,9 @@ export const organizationRoutes: AreaRoutes = {
     { path: "children/:childId", Component: ChildDetailPage },
     { path: "children/:childId/edit", Component: ChildFormPage },
     { path: "children/:childId/invite", Component: ChildInviteLinkPage },
+    // ③ 동의 철회(FR-22). 원아 상세와 얼굴 정보 삭제 화면에서 들어옵니다.
+    // /face/ 아래 다른 화면(얼굴 정보·삭제)은 classify.ts에 있습니다. 동의는 ② 몫이라 철회만 여기 둡니다.
+    { path: "children/:childId/face/revoke", Component: FaceConsentRevokePage },
     { path: "plans", Component: EducationPlansPage },
     { path: "plans/new", Component: EducationPlanFormPage },
     { path: "plans/:planId/edit", Component: EducationPlanFormPage },
