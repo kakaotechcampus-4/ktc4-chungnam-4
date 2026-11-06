@@ -33,6 +33,7 @@ from domains.documents.schemas import (
     ReopenRequest,
     RevokeRequest,
     RevokeResponse,
+    SelectableMediaListResponse,
 )
 
 router = APIRouter(tags=["documents"])
@@ -84,6 +85,21 @@ def get_draft(
     teacher: CurrentTeacher,
 ) -> DraftDetailResponse:
     return service.get_draft_for_teacher(
+        db, draft_id=draft_id, teacher_id=teacher.teacher_id, center_id=teacher.center_id
+    )
+
+
+@router.get("/drafts/{draft_id}/selectable-media", response_model=SelectableMediaListResponse)
+def list_selectable_media(
+    draft_id: UUID,
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+    teacher: CurrentTeacher,
+) -> SelectableMediaListResponse:
+    """알림장에 고를 수 있는 그 원아의 그날 사진·영상 후보 (FR-10, 테크스펙 D-4)."""
+    # 서명 URL이 디스크·프록시 캐시에 남지 않게 합니다
+    response.headers["Cache-Control"] = "no-store"
+    return service.list_selectable_media(
         db, draft_id=draft_id, teacher_id=teacher.teacher_id, center_id=teacher.center_id
     )
 

@@ -165,6 +165,8 @@ from domains.documents.schemas import (
     PublishRequest,
     PublishResponse,
     RevokeResponse,
+    SelectableMediaItem,
+    SelectableMediaListResponse,
     UnclassifiedSummary,
 )
 from domains.media import service as media_service
@@ -713,20 +715,68 @@ def _ensure_selectable_photos(db: Session, draft: DraftDocument, media_ids: Sequ
 
 
 def _shareable_media_ids(db: Session, child_id: UUID, record_date: date) -> set[UUID]:
+    """고를 때와 보여 줄 때 판정하는 범위. 정의는 _shareable_media 하나다."""
+    return {media.media_id for media in _shareable_media(db, child_id, record_date)}
+
+
+def _shareable_media(
+    db: Session, child_id: UUID, record_date: date
+) -> list[media_service.MediaMeta]:
     """그 원아·그 날짜에 학부모에게 보여도 되는 사진·영상. 고를 때와 보여 줄 때 같은 범위를 쓴다.
 
     교사가 그 원아에게 귀속시킨 사진·영상이면 다른 아이가 함께 찍혀도 된다(FR-10). 함께 찍힌
     아이의 촬영·공유는 필수 동의(②) 범위로 보고, ③(얼굴특징정보) 동의와 llm_allowed는 LLM
     경로에서만 본다(H-2). 무엇을 보낼지는 교사가 고르고 승인한다(H-1). 음성메모는 보내지 않는다.
     테크스펙 D-4(11/04 팀 승인, open-questions 57번). 이전 범위는 llm_allowed·귀속 원아 전원 ③
-    동의였다(임시 결정(한상균)).
+    동의였다(임시 결정(한상균)). 촬영 순서다.
     """
-    return {
-        media.media_id
-        for media in media_service.list_child_media(
-            db, child_id, record_date, types=_PARENT_MEDIA_TYPES
-        )
+    return media_service.list_child_media(db, child_id, record_date, types=_PARENT_MEDIA_TYPES)
+
+
+def list_selectable_media(
+    db: Session, *, draft_id: UUID, teacher_id: UUID, center_id: UUID | None
+) -> SelectableMediaListResponse:
+    """교사가 이 알림장에 고를 수 있는 사진·영상 후보를 본다 (FR-10, 테크스펙 D-4).
+
+    - 초안 상세의 media에는 선택·근거·실패 사진만 와서 후보를 따로 준다 (#257 멘토 리뷰).
+    - 권한은 get_draft_for_teacher와 같다. 후보를 보는 것은 검수이고, 학부모에게 나가려면 고른 뒤
+      승인·게시해 _parent_notes 게이트를 지나야 한다 (H-1).
+    - 촬영 순서다. 거른 뒤 서명 전에 파기된 것은 서명이 뺀다.
+    - 아이 사진의 서명 URL을 주는 열람이라 AccessLog(teacher, draft_document,
+      view_selectable_media)를 커밋한 뒤 돌려준다 — NFR-05, 임시 결정(송유진). 기록에 실패하면
+      URL 없이 500이다.
+    """
+    draft = _draft_for_teacher(db, draft_id, center_id)
+    if draft.doc_type != DocType.PARENT_NOTE.value:
+        raise NotParentNote("알림장에만 사진을 고를 수 있습니다.")
+    captured_at_by_media = {
+        media.media_id: media.captured_at
+        for media in _shareable_media(db, draft.child_id, draft.record_date)
     }
+    items = [
+        SelectableMediaItem(
+            media_id=signed.media_id,
+            type=signed.type,
+            url=signed.url,
+            url_expires_at=signed.url_expires_at,
+            captured_at=captured_at_by_media[signed.media_id],
+        )
+        for signed in _signed_media(db, list(captured_at_by_media))
+    ]
+    try:
+        audit_service.record_access(
+            db,
+            actor_type="teacher",
+            actor_id=teacher_id,
+            target_type="draft_document",
+            target_id=draft_id,
+            action="view_selectable_media",
+        )
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise AccessLogFailed("열람 기록을 남기지 못해 사진을 보여 드릴 수 없습니다.") from None
+    return SelectableMediaListResponse(items=items)
 
 
 def _not_editable(status: str) -> AidamError:
