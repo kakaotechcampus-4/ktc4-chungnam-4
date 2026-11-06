@@ -1,7 +1,9 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 
 import { createJob, isJobFinished, jobQueryOptions, type JobView } from "@/api/agents";
+import { classChildrenQueryOptions } from "@/api/organization";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
 import { uploadTargets, useUploadQueue } from "@/features/upload-queue/upload-queue-store";
 import { ApiError } from "@/lib/api-client";
@@ -26,6 +28,7 @@ function runningJobId(error: Error | null) {
 // 마지막 귀속 저장이 끝난 뒤 초안 생성을 한 번만 시작하고, 끝날 때까지 진행 상태를 봅니다(#60).
 // 폴링 간격과 멈춤은 jobQueryOptions가 정합니다(2초, succeeded·failed에서 멈춤).
 export function DraftStep({ onDone, onCancel }: DraftStepProps) {
+  const navigate = useNavigate();
   const { currentClass } = useCurrentClass();
   // 같은 요청이 두 번 가도 작업이 하나만 생기게 하는 키입니다. 화면에 머무는 동안 바뀌지 않습니다.
   const [requestId] = useState(() => crypto.randomUUID());
@@ -72,15 +75,23 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
 
   // 폴링 요청이 실패한 것과 작업이 failed인 것은 다른 문구입니다. 작업 실패는 처리 실패 화면이 맡습니다.
   const error = (resumedJobId === undefined ? create.error : null) ?? pollError;
+  const noTargets = error instanceof ApiError && error.code === "NO_TARGET_CHILDREN";
+  const children = useQuery({
+    ...classChildrenQueryOptions(currentClass?.class_id ?? ""),
+    enabled: noTargets && currentClass !== null,
+  });
+  const firstChildId = children.data?.[0]?.child_id;
 
   return (
     <ProcessingCard
       title={
-        error
-          ? "진행 상태를 확인하지 못했어요"
-          : needsAttention
-            ? "처리가 끝났어요. 확인이 필요해요"
-            : "오늘의 기록을 문장으로 정리해요"
+        noTargets
+          ? "초안을 만들 자료가 없어요"
+          : error
+            ? "진행 상태를 확인하지 못했어요"
+            : needsAttention
+              ? "처리가 끝났어요. 확인이 필요해요"
+              : "오늘의 기록을 문장으로 정리해요"
       }
       stopped={Boolean(error) || finished}
       detail="아이별 초안과 문장 근거를 연결하고 있어요"
@@ -102,6 +113,12 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
           {job.children.some((child) => child.error_code === "LLM_TIMEOUT") ? (
             <p>처리 제한 시간이 지났어요. 잠시 후 다시 시도해 주세요.</p>
           ) : null}
+          {job.children.some((child) => child.error_code === "DRAFT_VERSION_CONFLICT") ? (
+            <p>
+              수정·승인된 기존 초안이 있거나 생성 중 문서가 바뀌어 재생성을 반영하지 않았어요. 기존
+              문서는 유지돼요.
+            </p>
+          ) : null}
           {job.children.some((child) => child.unclassified_reason === "photo_analysis_failed") ? (
             <p>
               사진 분석 응답을 읽지 못해 초안을 만들지 못한 아이가 있어요. 사진을 확인하거나 직접
@@ -114,7 +131,25 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
           <Button onClick={() => onDone(job)}>결과 확인하기</Button>
         </div>
       ) : null}
-      {error ? (
+      {noTargets ? (
+        <div role="alert" className="space-y-3 text-body text-coral-ink">
+          <p>
+            {recordDate}에 원아에게 연결된 자료가 없어요. 사진 분류를 확인하거나 직접 작성해 주세요.
+          </p>
+          <Button onClick={() => navigate("/t/today/classification")}>분류 다시 확인</Button>
+          <Button
+            disabled={!firstChildId}
+            onClick={() => navigate(`/t/today/review/${firstChildId}?record_date=${recordDate}`)}
+          >
+            직접 작성
+          </Button>
+          {children.isError ? (
+            <Button onClick={() => void children.refetch()}>원아 목록 다시 불러오기</Button>
+          ) : children.isSuccess && !firstChildId ? (
+            <p>반에 원아를 등록한 뒤 직접 작성할 수 있어요.</p>
+          ) : null}
+        </div>
+      ) : error ? (
         <div role="alert" className="space-y-3 text-body text-coral-ink">
           <p>{error.message}</p>
           <p>올린 자료는 유지돼요. 연결을 확인한 뒤 다시 시도해 주세요.</p>
