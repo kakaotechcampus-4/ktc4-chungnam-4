@@ -10,7 +10,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [develop, main]
+    branches: [develop, develop-next, main]
 
 permissions:
   contents: read
