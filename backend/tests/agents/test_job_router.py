@@ -18,7 +18,7 @@ from core.base import Base
 from core.database import get_db
 from domains.agents import router as agents_router
 from domains.agents import service as agents_service
-from domains.agents.models import GenerationJob, Job, JobStatus
+from domains.agents.models import GenerationJob, Job, JobStatus, TeacherEvidence
 from domains.auth.middleware import get_current_teacher
 from domains.auth.service import TeacherProfile
 from domains.documents.models import DraftDocument, DraftSentence, RevisionLog
@@ -55,6 +55,7 @@ def session_factory() -> sessionmaker[Session]:
             DraftDocument.__table__,
             DraftSentence.__table__,
             RevisionLog.__table__,
+            TeacherEvidence.__table__,
         ],
     )
     factory = sessionmaker(bind=engine)

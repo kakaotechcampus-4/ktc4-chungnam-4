@@ -1022,6 +1022,51 @@ def test_추가_근거는_비식별화되어_생성에_들어가고_교사_근�
     assert "teacher_note" in {evidence["source_type"] for evidence in evidences}
 
 
+def test_추가_근거만_있는_원아도_초안을_만든다(flow: Flow, monkeypatch: pytest.MonkeyPatch) -> None:
+    client, _, klass, children, pending, _ = flow
+    login(client, TEACHER_EMAIL)
+    saved = client.put(
+        f"/api/v1/children/{children[1]}/evidence/{DAY}",
+        json={"activity_time": "10:30", "text": "비 오는 날 우산을 직접 챙겼어요."},
+    )
+    assert saved.status_code == 201
+
+    def llm(prompt: str) -> str:
+        if '"sentence_id"' in prompt:
+            return json.dumps(
+                [
+                    {
+                        "sentence_id": "s1",
+                        "verdict": "pass",
+                        "reason_code": "ok",
+                        "detail": "근거와 일치",
+                        "evidence_ids": ["E1"],
+                    }
+                ]
+            )
+        return json.dumps(
+            {
+                "sentences": [
+                    {"text": "CHILD_A는 비 오는 날 우산을 직접 챙겼어요.", "evidence_refs": ["E1"]}
+                ]
+            }
+        )
+
+    monkeypatch.setattr(service, "call_claude", llm)
+    response = client.post(
+        f"/api/v1/classes/{klass}/jobs",
+        json={"record_date": str(DAY), "request_id": str(uuid4()), "media_ids": []},
+    )
+    assert response.status_code == 202, response.text
+    for job, child in pending:
+        service.orchestrate_drafts(str(job), str(child))
+    result = client.get(f"/api/v1/jobs/{response.json()['job_id']}").json()
+
+    assert [child["child_id"] for child in result["children"]] == [str(children[1])]
+    assert result["children"][0]["outcome"] != "unclassified"
+    assert result["children"][0]["drafts"]
+
+
 def test_생성에는_그_아이_그날의_추가_근거만_들어간다(flow: Flow) -> None:
     from domains.agents.models import EvidenceBundle, TeacherEvidence
 
