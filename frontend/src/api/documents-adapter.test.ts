@@ -20,6 +20,7 @@ import {
   isPublishTarget,
   needsReview,
   isPublished,
+  selectablePhotos,
   selectedPhotos,
   sentPhotos,
   toClassDraftView,
@@ -163,6 +164,26 @@ describe("사진", () => {
     expect(selectedPhotos(toDraftView(detail()))).toEqual([PHOTO]);
     expect(selectedPhotos(toDraftView(detail({ include_photos: false })))).toEqual([PHOTO]);
     expect(selectedPhotos(undefined)).toEqual([]);
+  });
+
+  // 9주차 리뷰 4번: 교사가 보낼 사진을 고를 수 있어야 합니다. 후보는 초안 상세가 싣는 사진뿐입니다.
+  it("고를 수 있는 사진은 아직 안 고른 사진이고, 영상·음성은 뺀다", () => {
+    const other = { ...PHOTO, media_id: "other-photo" };
+    const failed = { ...PHOTO, media_id: "failed-photo" };
+    const video = { ...PHOTO, media_id: "video-1", type: "video" as const };
+    const voice = { ...PHOTO, media_id: "voice-1", type: "voice_memo" as const };
+    const view = toDraftView(
+      detail({
+        failed_media_ids: [failed.media_id],
+        media: [PHOTO, other, failed, video, voice],
+      }),
+    );
+    // 이미 고른 PHOTO는 후보에서 빠지고, 분석 실패 사진은 교사가 눈으로 보고 고를 수 있다.
+    expect(selectablePhotos(view).map((media) => media.media_id)).toEqual([
+      "other-photo",
+      "failed-photo",
+    ]);
+    expect(selectablePhotos(undefined)).toEqual([]);
   });
 
   // 알림장 상세는 "학부모가 받은 것"을 보는 자리라 실제로 나간 사진만 봅니다.

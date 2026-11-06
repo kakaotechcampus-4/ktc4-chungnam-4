@@ -42,6 +42,7 @@ export {
   isUnpublishedDraft,
   needsReview,
   pickRosterStatus,
+  selectablePhotos,
   selectedPhotos,
   sentPhotos,
 } from "./documents-adapter";

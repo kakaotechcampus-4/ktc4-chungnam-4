@@ -233,6 +233,19 @@ export function selectedPhotos(draft: DraftView | undefined): DraftMediaView[] {
 }
 
 /**
+ * 교사가 아직 고르지 않았지만 보낼 사진으로 고를 수 있는 사진입니다. 초안 상세가 싣는 사진
+ * (문장 근거, 분석 실패)에서만 고릅니다 — 반·날짜의 사진 전체를 주는 API가 아직 경로만 있어서
+ * (docs/api/media-face.md) 거기까지는 보여 줄 수 없습니다. 서버는 고른 사진이 그 원아·그
+ * 날짜에 학부모에게 보여도 되는 것인지 다시 확인합니다(`PATCH /drafts/{draft_id}`).
+ */
+export function selectablePhotos(draft: DraftView | undefined): DraftMediaView[] {
+  if (draft === undefined) return [];
+  return draft.media.filter(
+    (media) => media.type === "photo" && !draft.selected_media_ids.includes(media.media_id),
+  );
+}
+
+/**
  * **학부모에게 실제로 나간 사진**입니다. 알림장 상세처럼 게시본을 되짚어 보는 화면이 씁니다.
  * `true`일 때만 돌려줍니다 — `null`(게시 전 캐시가 남은 경우)에 보여 주면 사진을 빼고
  * 게시했는데도 교사에게는 사진이 보입니다(#89 리뷰).
