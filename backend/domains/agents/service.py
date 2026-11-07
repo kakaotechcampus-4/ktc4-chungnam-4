@@ -88,9 +88,10 @@ logger = logging.getLogger(__name__)
 # PASS 초안 저장이 교사 문서와 충돌해 건너뛴 경우의 로그 코드. 원인은 세분화하지 않는다 (#75).
 DRAFT_SAVE_CONFLICT = "draft_save_conflict"
 
-# 원아 1명·하루에 LLM으로 보낼 사진 수 상한. agents CLAUDE.md의 "3~5장 권장"에서 위쪽 값을
-# 골랐다. TODO(eun): 정확한 상한과 고르는 기준(지금은 하루 전체에서 고르게)은 확정 예정이다.
-MAX_PHOTOS_PER_CHILD = 5
+# 원아 1명·하루에 LLM으로 보낼 사진 수 상한. 임시 결정(송유진): 5장이면 나머지 사진이 근거에서
+# 빠져서 올렸다. 서버와 같은 구성에서 약 3MB 사진 30장은 작업 제한(180초) 안인 130초에 끝났고
+# 45장은 넘겼다. TODO(eun): 정확한 상한과 고르는 기준(지금은 하루 전체에서 고르게)은 확정 예정이다.
+MAX_PHOTOS_PER_CHILD = 30
 
 # 매일 도는 Job은 알림장, 관찰일지는 교사의 월별 요청에서 별도로 실행한다(#225).
 DAILY_DOC_TYPE = contracts.DocType.PARENT_NOTE

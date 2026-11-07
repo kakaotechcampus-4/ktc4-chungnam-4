@@ -209,6 +209,24 @@ class DraftDetailResponse(BaseModel):
     updated_at: datetime
 
 
+class SelectableMediaItem(BaseModel):
+    """알림장에 고를 수 있는 사진·영상 한 건. 서명 URL은 화면 표시·재생용이다."""
+
+    media_id: UUID
+    type: Literal["photo", "video"]
+    url: str
+    url_expires_at: datetime
+    captured_at: datetime
+
+
+class SelectableMediaListResponse(BaseModel):
+    """GET /api/v1/drafts/{draft_id}/selectable-media. 촬영 순서이고, 하루치라 페이지를 나누지 않는다
+    (임시 결정(송유진))."""
+
+    items: list[SelectableMediaItem]
+    next_cursor: str | None = None
+
+
 class SentenceEdit(BaseModel):
     # 앞뒤 공백을 지운 뒤 길이를 본다 — 공백만 있는 문장은 422, 공백만 다른 문장은 그대로인 문장이다.
     model_config = ConfigDict(hide_input_in_errors=True, str_strip_whitespace=True)

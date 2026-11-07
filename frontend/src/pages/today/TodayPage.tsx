@@ -35,10 +35,18 @@ function failureText(error: unknown) {
   return error instanceof ApiError ? error.message : "잠시 후 다시 시도해 주세요.";
 }
 
-/** 교사가 검토할 수 있는 알림장 초안이 있는지. 초안 검토 화면은 알림장 기준이고, 생성 중은 아직 열 수 없습니다. */
+/** 학부모에게 나간 알림장인지. 서버 상태는 approved 그대로라 published_at을 봅니다. */
+function isPublishedNote(item: ClassDraftView) {
+  return Boolean(item.parent_note?.published_at);
+}
+
+/**
+ * 교사가 아직 할 일이 있는 알림장 초안인지. 초안 검토 화면은 알림장 기준이고, 생성 중은 아직 열 수 없습니다.
+ * 이미 나간 초안까지 세면 게시를 마친 뒤에도 "초안이 준비돼 있어요"로 나옵니다(11/07 배포 점검).
+ */
 function hasReviewableNote(item: ClassDraftView) {
   const status = item.parent_note?.status;
-  return status === "review" || status === "approved";
+  return (status === "review" || status === "approved") && !isPublishedNote(item);
 }
 
 /** 초안 생성이 끝나지 않은 원아인지 */
@@ -63,6 +71,7 @@ type TodayCard =
   | { kind: "empty" }
   | { kind: "review"; childId: string }
   | { kind: "generating" }
+  | { kind: "published"; childId: string; count: number }
   | { kind: "unclassified"; childId: string };
 
 function pickCard(items: readonly ClassDraftView[]): TodayCard {
@@ -70,6 +79,14 @@ function pickCard(items: readonly ClassDraftView[]): TodayCard {
   const reviewable = items.find(hasReviewableNote);
   if (reviewable) return { kind: "review", childId: reviewable.child_id };
   if (items.some(isGenerating)) return { kind: "generating" };
+  // 회수했거나 모르는 상태인 초안은 교사가 봐야 하니, 게시를 마쳤다고 하기 전에 먼저 보냅니다.
+  const locked = items.find((item) => item.parent_note !== null && needsCheck(item));
+  if (locked) return { kind: "unclassified", childId: locked.child_id };
+  const published = items.filter(isPublishedNote);
+  const [firstPublished] = published;
+  if (firstPublished) {
+    return { kind: "published", childId: firstPublished.child_id, count: published.length };
+  }
   // 확인이 필요한 원아만 남았으면, 초안 검토 화면에서 그 원아를 골라 직접 씁니다.
   const unclassified = items.find(needsCheck);
   if (unclassified) return { kind: "unclassified", childId: unclassified.child_id };
@@ -256,6 +273,21 @@ export function TodayPage() {
             <p className="max-w-140 text-lead text-ink-muted">
               잠시 뒤 다시 들어오면 초안을 검토할 수 있어요.
             </p>
+            <Link to="/t/today/upload" className={TEXT_LINK_CLASS}>
+              {"자료 더 올리기  →"}
+            </Link>
+          </>
+        ) : card.kind === "published" ? (
+          <>
+            <img src={emptyMedia} alt="" className="size-14" />
+            <h2 className="text-h3 font-bold text-ink">오늘의 기록을 전달했어요</h2>
+            <p className="max-w-140 text-lead text-ink-muted">
+              학부모님께 알림장 {card.count}건을 보냈어요. 잘못 나간 글은 회수한 뒤에 고칠 수
+              있어요.
+            </p>
+            <Button asChild size="lg">
+              <Link to={`/t/today/review/${card.childId}`}>게시 내역 보기</Link>
+            </Button>
             <Link to="/t/today/upload" className={TEXT_LINK_CLASS}>
               {"자료 더 올리기  →"}
             </Link>
