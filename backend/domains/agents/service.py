@@ -339,6 +339,7 @@ def _overall_status(children: Sequence[ChildJobStatus]) -> JobStatus:
 # 근거 ID 접두. 문장별 근거 행에는 출처 종류가 없어서, 미디어가 없는 근거 중 활동계획(`plan:`)과
 # 교사 메모를 이 접두로 가른다.
 TEACHER_NOTE_EVIDENCE_PREFIX = "note:"
+SEGMENT_EVIDENCE_PREFIX = "seg:"
 
 
 @dataclass(frozen=True)
@@ -494,13 +495,26 @@ class SentenceEvidenceView:
     captured_at: datetime | None
 
 
+def _segment_id(evidence_id: str) -> UUID | None:
+    """발화 근거의 구간 ID. evidence_id는 tools/perception/transcript.py가 seg:<id>로 만든다."""
+    if not evidence_id.startswith(SEGMENT_EVIDENCE_PREFIX):
+        return None
+    try:
+        return UUID(evidence_id.removeprefix(SEGMENT_EVIDENCE_PREFIX))
+    except ValueError:
+        return None
+
+
 def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[SentenceEvidenceView]]:
     """초안의 문장별 근거를 sentence_id로 묶어 돌려준다 (FR-07).
 
     권한 판정과 열람 기록은 부르는 쪽(documents)이 한다. 근거가 없는 문장은 키가 없다 — 교사가
     고친 문장의 근거를 비우는 것도 documents가 정한다 (documents.md §PATCH).
 
-    임시 결정(정은): 근거 행에 출처 종류·끝 시각을 저장하지 않아서 source_type은 미디어 종류로
+    end_ms는 근거 행에 없어서 evidence_id가 가리키는 발화 구간에서 읽는다. 재생을 문장 끝까지
+    하기 위함이고, 구간에 끝 시각이 없으면 null이다(임시 결정(송유진)).
+
+    임시 결정(정은): 근거 행에 출처 종류를 저장하지 않아서 source_type은 미디어 종류로
     정하고 end_ms는 null이다. 영상 속 교사 관찰 발화는 생성 때 teacher_voice_memo였어도
     여기서는 video_speech로 보인다. TODO(eun): 영상 근거를 쓰기 시작하면 SentenceEvidence에
     source_type·end_ms를 저장한다(테크스펙 먼저).
@@ -512,6 +526,10 @@ def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[Sente
     ).all()
     media = media_service.get_media_meta(
         db, [row.source_media_id for row in rows if row.source_media_id is not None]
+    )
+    segment_ids = {row.evidence_id: _segment_id(row.evidence_id) for row in rows}
+    end_ms_by_segment = media_service.get_segment_end_ms(
+        db, [segment_id for segment_id in segment_ids.values() if segment_id is not None]
     )
     result: dict[str, list[SentenceEvidenceView]] = {}
     for row in rows:
@@ -531,7 +549,7 @@ def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[Sente
                 start_ms=(
                     round(row.source_timestamp * 1000) if row.source_timestamp is not None else None
                 ),
-                end_ms=None,
+                end_ms=end_ms_by_segment.get(segment_ids[row.evidence_id]),
                 captured_at=meta.captured_at if meta is not None else None,
             )
         )
