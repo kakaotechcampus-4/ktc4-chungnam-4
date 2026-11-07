@@ -21,7 +21,12 @@ from domains.audit.models import AccessLog
 from domains.auth.middleware import get_current_user
 from domains.auth.service import ParentProfile
 from domains.documents import service as documents_service
-from domains.documents.models import DocumentPublication, DraftDocument, DraftStatus
+from domains.documents.models import (
+    DocumentPublication,
+    DraftDocument,
+    DraftSentence,
+    DraftStatus,
+)
 from domains.media.service import MediaDownload, MediaMeta, SignedMediaUrl
 from main import app
 
@@ -37,7 +42,7 @@ def db() -> Iterator[Session]:
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
-    tables = [DraftDocument, DocumentPublication, AccessLog]
+    tables = [DraftDocument, DraftSentence, DocumentPublication, AccessLog]
     Base.metadata.create_all(engine, tables=[table.__table__ for table in tables])
     session = sessionmaker(bind=engine)()
     yield session
@@ -173,6 +178,45 @@ def test_알림장_단위로_쪽을_나눈다(client, db):
     assert [d["parent_note_id"] for d in first["days"]] == [str(newest.id), str(middle.id)]
     assert [d["parent_note_id"] for d in second["days"]] == [str(oldest.id)]
     assert second["next_cursor"] is None
+
+
+def _with_body(db: Session, draft: DraftDocument, text: str) -> DraftDocument:
+    db.add(DraftSentence(draft_id=draft.id, sentence_id="s1", position=0, text=text))
+    db.commit()
+    return draft
+
+
+def test_검색은_함께_게시한_알림장의_본문과_날짜에서_찾고_개수도_그_안에서_센다(client, db):
+    sand = _with_body(db, _note(db, 20), "모래놀이터에서 조개를 찾았어요.")
+    _with_body(db, _note(db, 21, selected=(PHOTO,)), "그림책을 읽었어요.")
+
+    by_body = client.get(_media_url(), params={"q": "모래 놀이터"}).json()
+    by_date = client.get(_media_url(), params={"q": "10월 20일"}).json()
+    nothing = client.get(_media_url(), params={"q": "없는 말"}).json()
+    everything = client.get(_media_url()).json()
+
+    assert [day["parent_note_id"] for day in by_body["days"]] == [str(sand.id)]
+    assert (by_body["photo_count"], by_body["video_count"]) == (1, 1)
+    assert [day["parent_note_id"] for day in by_date["days"]] == [str(sand.id)]
+    assert (nothing["days"], nothing["photo_count"], nothing["video_count"]) == ([], 0, 0)
+    assert len(everything["days"]) == 2
+
+
+def test_H1_검색해도_게이트_밖_사진은_나오지_않고_찾은_알림장만_기록한다(client, db):
+    word = "공통낱말"
+    shown = _with_body(db, _note(db, 20), f"{word}이 든 문장이에요.")
+    _with_body(db, _note(db, 19, status=DraftStatus.VERIFIED, published=False), f"{word}이에요.")
+    _with_body(db, _note(db, 18, revoked=True), f"{word}이에요.")
+    _with_body(db, _note(db, 17, include_photos=False), f"{word}이에요.")
+    _with_body(db, _note(db, 16), "다른 내용이에요.")
+    publication = db.scalar(
+        select(DocumentPublication).where(DocumentPublication.draft_id == shown.id)
+    )
+
+    body = client.get(_media_url(), params={"q": word}).json()
+
+    assert [day["parent_note_id"] for day in body["days"]] == [str(shown.id)]
+    assert _logs(db) == [("document_publication", "view_media", publication.id)]
 
 
 def test_남의_아이_사진은_403(client, db):
