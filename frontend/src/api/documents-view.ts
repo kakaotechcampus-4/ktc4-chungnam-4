@@ -243,6 +243,10 @@ export interface ParentNoteListView {
   unread_count: number;
   this_month_count: number;
 }
+export interface ParentNoteLinkView {
+  parent_note_id: string;
+  record_date: string;
+}
 export interface ParentNoteDetailView {
   parent_note_id: string;
   child_id: string;
@@ -250,4 +254,9 @@ export interface ParentNoteDetailView {
   content: string;
   photos: DraftMediaView[];
   author_name: string;
+  published_at: string;
+  /** 같은 자녀의 더 오래된 게시본 */
+  prev: ParentNoteLinkView | null;
+  /** 같은 자녀의 더 최근 게시본 */
+  next: ParentNoteLinkView | null;
 }

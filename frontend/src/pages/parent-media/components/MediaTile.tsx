@@ -1,6 +1,7 @@
-import { Play } from "lucide-react";
+import { Maximize2, Play } from "lucide-react";
 
 import type { ParentMediaItemView } from "@/api/documents";
+import { FadeImage } from "@/components/common/FadeImage";
 import { PhotoPlaceholder } from "@/components/common/PhotoPlaceholder";
 import { formatTime } from "@/lib/datetime";
 
@@ -11,7 +12,8 @@ interface MediaTileProps {
   onLoadError: () => void;
 }
 
-const TILE_MEDIA_CLASS = "size-full object-cover transition-transform group-hover:scale-105";
+const TILE_MEDIA_CLASS =
+  "size-full object-cover motion-safe:transition motion-safe:duration-700 motion-safe:ease-soft group-hover:scale-105";
 
 export function MediaTile({ item, onOpen, onLoadError }: MediaTileProps) {
   const label = `${item.type === "video" ? "영상" : "사진"} ${formatTime(item.captured_at)}`;
@@ -20,10 +22,10 @@ export function MediaTile({ item, onOpen, onLoadError }: MediaTileProps) {
       type="button"
       onClick={onOpen}
       aria-label={`${label} 크게 보기`}
-      className="group relative aspect-square overflow-hidden rounded-lg bg-neutral-soft outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+      className="group relative aspect-square cursor-zoom-in overflow-hidden rounded-xl bg-neutral-soft outline-none transition duration-300 ease-soft hover:-translate-y-0.5 hover:shadow-card-hover focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-98"
     >
       {item.type === "photo" && (
-        <img
+        <FadeImage
           src={item.url}
           alt=""
           loading="lazy"
@@ -52,6 +54,13 @@ export function MediaTile({ item, onOpen, onLoadError }: MediaTileProps) {
       {item.type === "unknown" && (
         <PhotoPlaceholder label="열 수 없는 파일" className="size-full" />
       )}
+      {/* 올리면 위쪽에 크게 보기 표시가 올라옵니다. */}
+      <span
+        aria-hidden="true"
+        className="absolute top-1.5 right-1.5 flex size-7 items-center justify-center rounded-full bg-paper/90 text-brand-ink opacity-0 shadow-xs backdrop-blur-sm transition duration-300 ease-soft group-hover:translate-y-0 group-hover:opacity-100 motion-safe:translate-y-1"
+      >
+        <Maximize2 className="size-3.5" />
+      </span>
     </button>
   );
 }

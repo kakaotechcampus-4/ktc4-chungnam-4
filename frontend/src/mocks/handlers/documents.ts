@@ -1,6 +1,6 @@
 import { http, HttpResponse } from "msw";
 
-import { kstToday, toKstDate } from "@/lib/datetime";
+import { formatDate, kstToday, toKstDate } from "@/lib/datetime";
 import type { ListResponse } from "@/types/api-draft/common";
 import type {
   ChildDraftItem,
@@ -178,6 +178,19 @@ function toParentMediaItem(media: MediaRecord): ParentMediaItem {
     url,
     url_expires_at,
   };
+}
+
+// 서버 _matching_notes와 같은 규칙입니다. 띄어쓰기·대소문자를 가리지 않고 본문과 날짜에서 찾습니다.
+function searchKey(text: string) {
+  return text.replace(/\s+/g, "").toLowerCase();
+}
+
+function matchesSearch(draft: DraftRecord, keyword: string | null) {
+  const needle = searchKey(keyword ?? "");
+  if (!needle) return true;
+  const sentences = draft.sentences.map((sentence) => sentence.text);
+  const text = [formatDate(draft.record_date), draft.record_date, ...sentences].join(" ");
+  return searchKey(text).includes(needle);
 }
 
 function visibleNotesOfChild(db: MockDb, childId: string) {
@@ -655,7 +668,8 @@ export const handlers = [
     }
     const db = readDb();
     const notes = visibleNotesOfChild(db, childId);
-    const page = notes.slice(offset, offset + limit);
+    const found = notes.filter((draft) => matchesSearch(draft, query.get("q")));
+    const page = found.slice(offset, offset + limit);
     const thisMonth = kstToday().slice(0, 7);
     const items = page.map((draft): ParentNoteSummary => ({
       parent_note_id: draft.draft_id,
@@ -667,7 +681,7 @@ export const handlers = [
     }));
     return HttpResponse.json<ParentNoteList>({
       items,
-      next_cursor: offset + limit < notes.length ? String(offset + limit) : null,
+      next_cursor: offset + limit < found.length ? String(offset + limit) : null,
       unread_count: notes.filter((draft) => !db.readParentNotes.includes(draft.draft_id)).length,
       // 게시 시각이 아니라 기록 날짜(KST)로 셉니다(API 문서 §학부모 목록, #174).
       this_month_count: notes.filter((draft) => draft.record_date.slice(0, 7) === thisMonth).length,
@@ -721,6 +735,7 @@ export const handlers = [
     }
     const db = readDb();
     const notes = visibleNotesOfChild(db, childId)
+      .filter((draft) => matchesSearch(draft, query.get("q")))
       .map((draft) => ({ draft, media: parentMedia(db, draft) }))
       .filter((note) => note.media.length > 0);
     const all = notes.flatMap((note) => note.media);
