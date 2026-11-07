@@ -94,12 +94,14 @@ def pseudonymize_evidence(
         reverse=True,
     )
 
+    calls = _call_patterns(names_by_child_id, token_by_child_id)
+
     llm_items: list[LlmEvidence] = []
     evidence_id_by_ref: dict[str, str] = {}
     masked_by_id: dict[str, EvidenceItem] = {}
     for index, (evidence_id, item) in enumerate(evidence_by_id.items(), start=1):
         ref = f"E{index}"
-        text = _replace_names(item.text, replacements)
+        text = _replace_calls(_replace_names(item.text, replacements), calls)
         evidence_id_by_ref[ref] = evidence_id
         masked_by_id[evidence_id] = EvidenceItem.model_validate({**item.model_dump(), "text": text})
         llm_items.append(
@@ -204,4 +206,50 @@ def _letters(number: int) -> str:
 def _replace_names(text: str, replacements: Sequence[tuple[str, str]]) -> str:
     for name, token in replacements:
         text = text.replace(name, token)
+    return text
+
+
+_HANGUL = "가-힣"
+# 이름만 부를 때 붙는 호격 조사 ("서야~", "민수야").
+_VOCATIVE = "[아야]"
+
+
+def _call_patterns(
+    names_by_child_id: Mapping[str, Sequence[str]], token_by_child_id: Mapping[str, str]
+) -> list[tuple[re.Pattern[str], str]]:
+    """organization 이름 목록이 담지 못하는 호칭을 찾는 패턴 (#202 7번, H-2).
+
+    이름 목록은 세 글자 이름만 이름("민준")을 따로 담는다. 그래서 두 글자 이름("이서")을 이름만
+    부르거나("서야"), 네 글자 이름("남궁민수")의 이름 부분을 부르면("민수야") 목록에 걸리지 않는다.
+    - 두 글자: 뒷글자 한 글자는 다른 낱말에도 흔해서, 앞뒤에 한글이 없고 호격("아·야")이 붙은
+      경우만 바꾼다.
+    - 네 글자: 성 한 글자 + 이름 세 글자일 수도, 성 두 글자 + 이름 두 글자일 수도 있어 뒤 세 글자와
+      뒤 두 글자를 모두 바꾼다.
+    세 글자 이름은 목록이 이미 이름을 담으므로 건드리지 않는다. 성명 길이는 목록에서 가장 긴
+    값으로 본다. 같은 패턴이 여러 원아에게서 나오면 원아 ID 순으로 먼저 오는 쪽에 붙인다 —
+    누구인지 몰라도 실명이 LLM으로 가는 것보다 낫다. 애칭("준이")은 이름에서 만들 수 없어
+    다루지 않는다.
+    """
+    patterns: dict[str, tuple[re.Pattern[str], str, int]] = {}
+    for child_id in sorted(names_by_child_id):
+        full_name = max((name.strip() for name in names_by_child_id[child_id]), key=len, default="")
+        token = token_by_child_id[child_id]
+        candidates: list[str] = []
+        if len(full_name) == 2:
+            candidates.append(
+                rf"(?<![{_HANGUL}]){re.escape(full_name[1])}{_VOCATIVE}(?![{_HANGUL}])"
+            )
+        elif len(full_name) == 4:
+            candidates.extend(re.escape(full_name[start:]) for start in (1, 2))
+        for source in candidates:
+            patterns.setdefault(source, (re.compile(source), token, len(source)))
+    # 긴 것부터 바꿔야 "궁민수"를 먼저 바꾸고 "민수"가 남지 않는다.
+    return [
+        (pattern, token) for pattern, token, _ in sorted(patterns.values(), key=lambda p: -p[2])
+    ]
+
+
+def _replace_calls(text: str, calls: Sequence[tuple[re.Pattern[str], str]]) -> str:
+    for pattern, token in calls:
+        text = pattern.sub(token, text)
     return text
