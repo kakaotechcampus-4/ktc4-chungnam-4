@@ -52,8 +52,8 @@
 
 관찰일지 화면(Figma 159:3788·159:3882)을 만들려면 필요한데 지금 응답에 없는 것들입니다. #259 리뷰에서 함께 올렸습니다.
 
-- [ ] (막힘) **근거에 알림장 날짜** — 「근거 알림장」 패널이 `9월 15일 (화)`로 찍는데, `list_sentence_evidences`(`backend/domains/agents/service.py`)가 `captured_at`을 미디어에서만 채워 `parent_note` 근거는 **항상 `null`**입니다. 같은 이유로 정렬에서도 전부 뒤로 갑니다. 생성 때는 `observed_date=record.record_date`로 들고 있는데 `SentenceEvidence`에 저장하지 않습니다. 행에 날짜를 더할지 `source_document_id`로 조인할지 정해 주세요
-- [ ] (막힘) **양식의 칸 목록과 순서** — 지금 `section`은 문장에 붙은 문자열뿐이라, 화면이 ① 칸 순서를 모르고 ② 근거가 없어 문장이 안 만들어진 **빈 칸을 그릴 수 없습니다.** #225 ⑫가 "1~4건이면 칸이 비어 있을 수 있어요"로 합의한 그 칸입니다. 문자열 목록이면 충분합니다 — 양식 API(⑬ 반 단위 저장)에 얹거나 초안 응답에 `sections: [...]`로
+- [x] (막힘) **근거에 알림장 날짜** — 「근거 알림장」 패널이 `9월 15일 (화)`로 찍는데, `list_sentence_evidences`(`backend/domains/agents/service.py`)가 `captured_at`을 미디어에서만 채워 `parent_note` 근거는 **항상 `null`**이었고 정렬에서도 전부 뒤로 갔습니다 → **`SentenceEvidence`에 컬럼을 더하지 않고 `source_document_id`가 가리키는 알림장의 `record_date`를 조인해 `captured_at`에 채웁니다**(그날 0시, KST). `parent_note` 근거에만 해당하고 미디어 근거는 지금처럼 미디어의 촬영 시각입니다. 스키마·마이그레이션 변경은 없습니다. 임시 결정(정은, 11/07), #264. 반영: 이 문서 §`GET /api/v1/drafts/{draft_id}`, `agents/service.py`의 `list_sentence_evidences`, `documents/service.py`의 `get_record_dates`
+- [x] (막힘) **양식의 칸 목록과 순서** — 지금 `section`은 문장에 붙은 문자열뿐이라, 화면이 ① 칸 순서를 모르고 ② 근거가 없어 문장이 안 만들어진 **빈 칸을 그릴 수 없었습니다.** #225 ⑫가 "1~4건이면 칸이 비어 있을 수 있어요"로 합의한 그 칸입니다 → **초안 응답에 `sections: [...]` 문자열 목록을 더합니다.** `observation_log`일 때만 채우고(기본 양식의 영역 순서, agents의 `SECTIONS`) 알림장은 빈 배열입니다. 양식을 원별로 저장하는 ⑬은 아직 없어 모든 원이 같은 기본 양식입니다. 스키마·마이그레이션 변경은 없습니다. 임시 결정(정은, 11/07), #264. 반영: 이 문서 §`GET /api/v1/drafts/{draft_id}`, `agents/service.py`의 `observation_log_sections`, `documents/schemas.py`의 `DraftDetailResponse`
 - [ ] (막힘) **이미 만든 관찰일지 다시 생성** — 화면에 「다시 생성」이 있습니다(159:3788 안내 문구·159:3882 버튼). 지금은 `save_draft(expected_version=None)`이 중복을 충돌로 거부해 **요청은 가는데 결과가 버려집니다.** `backend/domains/agents/service.py`의 `TODO(eun)`가 그 자리입니다
 - [ ] 초안 **생성 시각** — 위 §observation-logs의 `created_at`과 생성 결과 화면 부제("9월 30일에 만들었어요")에 씁니다. `updated_at`은 교사가 고치면 바뀌어 쓸 수 없습니다. **#267이 목록과 초안 상세에 `created_at`을 넣어 해결합니다** — 머지되면 이 항목과 `screens.md`의 "(목록에 없음: …생성 시각…)"을 함께 닫습니다
 
@@ -257,6 +257,7 @@ documents의 상세 작성 엔드포인트는 15개(교사용 11, 학부모용 4
   "status": "verified",
   "version": 3,
   "title": null,
+  "sections": [],
   "sentences": [
     {
       "sentence_id": "s1",
@@ -299,6 +300,7 @@ documents의 상세 작성 엔드포인트는 15개(교사용 11, 학부모용 4
 ```
 
 - `revoke_deadline`은 활성 게시 회차의 회수 기한이고, 활성 회차가 없으면 `null`입니다. `can_revoke`는 지금 회수할 수 있는지입니다(활성 게시 회차가 있고 기한 이내. 학부모가 열어 봤어도 회수할 수 있습니다, #266). FE가 규칙을 따로 계산하지 않게 서버가 답합니다 — 임시 결정(한상균).
+- `sections`는 양식의 칸 이름을 **양식 순서대로** 담은 문자열 목록입니다. `doc_type`이 `observation_log`일 때만 채우고(기본 양식의 영역 순서), 알림장은 빈 배열입니다. 화면이 칸 순서를 알고, 근거가 없어 문장이 안 만들어진 빈 칸도 그릴 수 있게 합니다(#225 ⑫). 문장의 `section`은 이 목록의 값 중 하나입니다 — 임시 결정(정은, 11/07), #264. 원별 양식(⑬)이 생기면 이 목록의 출처만 바뀝니다.
 - `include_photos`는 게시할 때 정해지는 값이라 **게시 전에는 `null`** 입니다 — 임시 결정(김진하). `false`면 학부모에게 글만 갔다는 뜻이고, 교사 화면(알림장 상세)도 사진을 감춥니다. 보낸 것과 교사가 보는 것이 달라지면 교사가 "사진을 보냈다"고 착각합니다. 초안 검토 화면은 아직 게시 전(`null`)이라 선택 사진을 그대로 보여 줍니다.
 - `sentence_id`는 초안 안에서만 유일한 문자열입니다 — 임시 결정(한상균), 이슈 #75. 순번으로 가리키면 교사가 문장을 끼워 넣거나 지울 때 뒤 번호가 밀려 근거가 다른 문장을 가리킵니다. 문장 순서는 배열 순서입니다.
   - AI 문장은 agents가 붙인 값(`s…`), 교사가 쓴 문장은 서버가 붙인 `t1`·`t2`…입니다(임시 결정(정은)). FE는 값의 모양을 해석하지 않습니다.
@@ -308,6 +310,7 @@ documents의 상세 작성 엔드포인트는 15개(교사용 11, 학부모용 4
   - `evidence_id`는 초안 안에서만 유일한 불투명 문자열입니다. "ID는 UUID"라는 공통 규약의 예외입니다.
   - `source_type`은 5종입니다: `photo_observation`·`video_speech`·`video_scene`·`teacher_voice_memo`·`activity_plan`.
   - `activity_plan` 근거는 `media_id`가 null입니다. 사진·계획 근거는 `start_ms`·`end_ms`가 null입니다.
+  - `parent_note` 근거(월 관찰일지가 모은 게시 알림장)의 `captured_at`은 그 알림장의 기록 날짜(`record_date`)를 그날 0시(KST)로 찍은 값입니다. 근거 행의 `source_document_id`로 알림장을 찾아 채우며 저장하지 않습니다 — 임시 결정(정은, 11/07), #264.
   - 영상·음성 근거의 `end_ms`는 그 근거의 발화 구간(`TranscriptSegment`)에서 읽은 끝 시각입니다. 구간에 끝 시각이 없으면 null입니다. 근거 행에 저장하지 않아 스키마는 그대로입니다. 임시 결정(송유진).
 - `media[]`에는 선택 사진과 근거 미디어의 서명 URL이 들어갑니다(화면 데이터 "근거 클립 재생 URL"). media service 함수로 붙이며, 만료되면 `GET /api/v1/media/{media_id}`로 다시 받습니다. 선택 사진 다음 보여 주는 근거의 미디어 순서로 겹치지 않게 싣고, 교사가 고친 문장의 근거 미디어는 싣지 않습니다.
 - `selected_media_ids`는 선택 사진의 순서입니다. PATCH와 같은 필드입니다. AI가 만든 초안은 근거로 쓴 사진이 기본으로 들어 있고(임시 결정(정은), 테크스펙 §④ DraftDocument), 교사가 PATCH로 더하거나 뺍니다(후보는 §`GET /api/v1/drafts/{draft_id}/selectable-media`). 재생성하면 이미 고른 선택은 두고 새 근거 사진만 뒤에 더하며, 교사가 뺀 사진이 다시 근거가 되면 다시 들어옵니다 — 선택 변경은 RevisionLog에 남지 않아 뺀 것인지 처음부터 없던 것인지 구분할 수 없습니다. 직접 쓴 초안은 빈 배열입니다. 영상도 고를 수 있어 항목의 종류는 `media[]`의 `type`으로 구분합니다.
