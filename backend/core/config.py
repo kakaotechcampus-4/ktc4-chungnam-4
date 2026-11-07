@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     # (docs/api/auth.md "세션·토큰 만료 시간" 임시 결정(엄태은) 24시간).
     jwt_expire_hours: int = Field(default=24, gt=0)
 
+    # 비밀번호 재설정 링크 (docs/api/auth.md §비밀번호 재설정 임시 결정(정은)).
+    # 메일에 넣는 링크의 주소(예: https://<도메인>). 비어 있으면 상대 경로만 만듭니다.
+    public_base_url: str = ""
+    password_reset_expire_minutes: int = Field(default=30, gt=0)
+
     @field_validator("jwt_secret")
     @classmethod
     def require_strong_jwt_secret(cls, value: SecretStr | None) -> SecretStr | None:

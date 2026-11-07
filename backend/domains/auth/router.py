@@ -10,11 +10,12 @@ from http import HTTPStatus
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Response
 from sqlalchemy.orm import Session
 
 from core.database import get_db
 from domains.auth import service
+from domains.auth.mailer import PasswordResetSender, get_password_reset_sender
 from domains.auth.middleware import (
     CurrentTeacher,
     CurrentUser,
@@ -30,6 +31,8 @@ from domains.auth.schemas import (
     InviteCreateResponse,
     InvitePreviewResponse,
     MeResponse,
+    PasswordResetConfirmRequest,
+    PasswordResetRequest,
     SessionCreateRequest,
     SessionResponse,
     to_me_response,
@@ -75,6 +78,29 @@ def delete_current_session() -> Response:
     """로그아웃. 이미 만료된 세션으로 불러도 204입니다(멱등)."""
     response = Response(status_code=HTTPStatus.NO_CONTENT)
     clear_session_cookie(response)
+    return response
+
+
+@router.post("/password-resets", status_code=HTTPStatus.NO_CONTENT)
+def request_password_reset(
+    body: PasswordResetRequest,
+    background_tasks: BackgroundTasks,
+    sender: Annotated[PasswordResetSender, Depends(get_password_reset_sender)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    """비밀번호 재설정 링크 요청. 가입 여부와 상관없이 항상 204입니다 (임시 결정(정은))."""
+    service.request_password_reset(db, body.email, sender=sender, enqueue=background_tasks.add_task)
+    return Response(status_code=HTTPStatus.NO_CONTENT)
+
+
+@router.post("/password-resets/confirm", status_code=HTTPStatus.NO_CONTENT)
+def confirm_password_reset(
+    body: PasswordResetConfirmRequest, db: Annotated[Session, Depends(get_db)]
+) -> Response:
+    """메일 링크의 토큰으로 새 비밀번호를 저장합니다. 로그인 쿠키는 주지 않습니다."""
+    service.reset_password(db, body.token, body.password)
+    response = Response(status_code=HTTPStatus.NO_CONTENT)
+    response.headers["Cache-Control"] = "no-store"
     return response
 
 

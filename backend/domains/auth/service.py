@@ -7,9 +7,10 @@
 """
 
 import hashlib
+import logging
 import secrets
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import TypedDict
@@ -28,11 +29,22 @@ from core.exceptions import (
     InviteUnavailable,
     JwtSecretNotConfigured,
     RequestValidationFailed,
+    ResetLinkUnavailable,
     RoleNotAllowed,
     Unauthenticated,
 )
-from domains.auth.models import Account, AccountType, Parent, ParentInvite, Teacher
+from domains.auth.mailer import PasswordResetSender
+from domains.auth.models import (
+    Account,
+    AccountType,
+    Parent,
+    ParentInvite,
+    PasswordResetToken,
+    Teacher,
+)
 from domains.organization import service as organization_service
+
+logger = logging.getLogger(__name__)
 
 _ALGORITHM = "HS256"
 
@@ -458,3 +470,97 @@ def accept_parent_invite(
     except Exception:
         db.rollback()
         raise
+
+
+# 같은 계정에 이 시간 안에 다시 요청하면 새 토큰·메일을 만들지 않습니다(메일 폭탄 완화).
+_RESET_COOLDOWN = timedelta(minutes=1)
+
+
+def request_password_reset(
+    db: Session,
+    email: str,
+    *,
+    sender: PasswordResetSender,
+    enqueue: Callable[..., object],
+) -> None:
+    """비밀번호 재설정 링크를 만듭니다. **가입 여부와 상관없이 같은 결과**를 돌려줍니다.
+
+    계정이 없거나 쿨다운 중이면 조용히 끝냅니다 — 여기서 예외를 던지면 가입 여부가 샙니다
+    (domains/auth/CLAUDE.md "인증 실패 사유 비구분"). 발송은 `enqueue`로 응답 뒤에 미뤄,
+    발송 시간 차이로도 가입 여부가 드러나지 않게 합니다. 토큰·이메일은 로그에 남기지 않습니다 (H-4).
+    """
+    account = db.scalar(select(Account).where(Account.email == normalize_email(email)))
+    if account is None:
+        return
+    now = datetime.now(UTC)
+    recent = db.scalar(
+        select(PasswordResetToken.id).where(
+            PasswordResetToken.account_id == account.id,
+            PasswordResetToken.created_at > now - _RESET_COOLDOWN,
+        )
+    )
+    if recent is not None:
+        return
+    db.execute(
+        update(PasswordResetToken)
+        .where(
+            PasswordResetToken.account_id == account.id,
+            PasswordResetToken.consumed_at.is_(None),
+        )
+        .values(consumed_at=now)
+    )
+    token = secrets.token_urlsafe(32)
+    settings = get_settings()
+    db.add(
+        PasswordResetToken(
+            account_id=account.id,
+            token_hash=_invite_hash(token),
+            created_at=now,
+            expires_at=now + timedelta(minutes=settings.password_reset_expire_minutes),
+        )
+    )
+    db.commit()
+    reset_url = f"{settings.public_base_url.rstrip('/')}/reset-password/{token}"
+    enqueue(_deliver_reset_link, sender, account.email, reset_url)
+
+
+def _deliver_reset_link(sender: PasswordResetSender, to_email: str, reset_url: str) -> None:
+    try:
+        sender.send(to_email=to_email, reset_url=reset_url)
+    except Exception:  # noqa: BLE001 - 발송 실패를 응답에 드러내면 가입 여부가 샙니다
+        # 발송 실패가 응답에 드러나면 가입 여부가 샙니다. 삼키되 값 없이 사실만 남깁니다 (H-4).
+        logger.error("Password reset mail delivery failed")
+
+
+def reset_password(db: Session, token: str, new_password: str) -> None:
+    """토큰으로 비밀번호를 바꿉니다. 토큰은 한 번만 쓰이고, 쓰이면 그 계정의 다른 토큰도 닫습니다."""
+    now = datetime.now(UTC)
+    record = db.scalar(
+        select(PasswordResetToken).where(
+            PasswordResetToken.token_hash == _invite_hash(token),
+            PasswordResetToken.expires_at > now,
+            PasswordResetToken.consumed_at.is_(None),
+        )
+    )
+    if record is None:
+        raise ResetLinkUnavailable("사용할 수 없는 재설정 링크입니다.")
+    # 동시에 두 번 눌려도 한쪽만 성공하도록 조건부 UPDATE로 먼저 소비합니다.
+    claimed = db.execute(
+        update(PasswordResetToken)
+        .where(PasswordResetToken.id == record.id, PasswordResetToken.consumed_at.is_(None))
+        .values(consumed_at=now)
+    )
+    account = db.get(Account, record.account_id)
+    if claimed.rowcount != 1 or account is None:
+        db.rollback()
+        raise ResetLinkUnavailable("사용할 수 없는 재설정 링크입니다.")
+    account.password_hash = hash_password(new_password)
+    db.execute(
+        update(PasswordResetToken)
+        .where(
+            PasswordResetToken.account_id == account.id,
+            PasswordResetToken.consumed_at.is_(None),
+        )
+        .values(consumed_at=now)
+    )
+    db.commit()

@@ -185,3 +185,23 @@ class InviteAcceptRequest(BaseModel):
 
 class InviteAcceptedResponse(BaseModel):
     child_id: UUID
+
+
+class PasswordResetRequest(BaseModel):
+    """재설정 링크 요청. 가입 여부는 응답으로 알려 주지 않습니다."""
+
+    email: str = Field(min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+$")
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    """메일 링크의 토큰과 새 비밀번호. 토큰은 경로가 아니라 본문으로 받아 접근 로그에 남지 않게 합니다."""
+
+    token: str = Field(min_length=1, max_length=256)
+    password: str = Field(min_length=1, max_length=1024)
+
+    @field_validator("password")
+    @classmethod
+    def _fits_bcrypt(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > MAX_PASSWORD_BYTES:
+            raise ValueError(f"비밀번호는 {MAX_PASSWORD_BYTES}바이트 이하여야 합니다.")
+        return value

@@ -445,3 +445,11 @@ class InviteUnavailable(AidamError):
     code = "INVITE_UNAVAILABLE"
     status_code = 410
     message = "사용할 수 없는 초대 링크입니다. 선생님께 새 링크를 요청해 주세요."
+
+
+class ResetLinkUnavailable(AidamError):
+    """없거나 만료·사용된 비밀번호 재설정 링크. 사유를 구분하지 않습니다."""
+
+    code = "RESET_LINK_UNAVAILABLE"
+    status_code = 410
+    message = "사용할 수 없는 재설정 링크입니다. 비밀번호 찾기를 다시 해 주세요."
