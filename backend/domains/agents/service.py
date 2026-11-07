@@ -1253,6 +1253,10 @@ def _save_passed_draft(
         ],
         ai_version=document.version,
         evidence_bundle_id=bundle.id,
+        # 근거로 쓴 사진을 보낼 사진의 기본 선택으로 넘긴다. 비어 있으면 교사가 매번 골라야 하고
+        # 게시해도 글만 나간다(9주차 #257 리뷰 4번). 근거 사진은 collect_media_for_llm을 거친
+        # 그 원아의 사진이라 학부모에게 보여도 되는 범위 안이다. 공개는 승인·게시가 따로 정한다(H-1).
+        selected_media_ids=_photo_media_ids(evidence_by_id),
     )
     try:
         documents.save_draft(session, data, expected_version=expected_version)
@@ -1274,6 +1278,17 @@ def _save_passed_draft(
             document.draft_id,
         )
         return False
+
+
+def _photo_media_ids(evidence_by_id: dict[str, contracts.EvidenceItem]) -> list[UUID]:
+    """생성에 쓴 근거 중 사진의 media_id. 근거 순서(촬영 시각 순)를 지키고 중복은 한 번만 쓴다."""
+    return list(
+        dict.fromkeys(
+            UUID(item.media_id)
+            for item in evidence_by_id.values()
+            if item.source_type == contracts.SourceType.PHOTO_OBSERVATION and item.media_id
+        )
+    )
 
 
 def _author_teacher_id(session: Session, job: Job) -> UUID:
