@@ -24,6 +24,7 @@ from domains.auth import models as auth_models  # noqa: F401
 from domains.documents import models as documents_models  # noqa: F401
 from domains.face import models as face_models  # noqa: F401
 from domains.media import models as media_models  # noqa: F401
+from domains.notice import models as notice_models  # noqa: F401
 from domains.organization import models as organization_models  # noqa: F401
 
 target_metadata = Base.metadata

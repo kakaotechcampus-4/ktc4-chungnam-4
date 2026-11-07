@@ -242,6 +242,7 @@ backend/
 │   ├── media/
 │   ├── agents/
 │   ├── documents/
+│   ├── notice/
 │   └── audit/
 ├── tools/                   # AI 도구 구현 위치
 ├── prompts/                 # AI 프롬프트 구현 위치
@@ -291,7 +292,8 @@ backend/
 | `face`         | 김동건 | FaceEmbedding, EmbeddingLifecycleLog                                                      |
 | `media`        | 김동건 | MediaAsset, MediaChildLink, TranscriptSegment                                             |
 | `agents`       | 정은  | EvidenceBundle, SentenceEvidence, VerificationResult                                      |
-| `documents`    | 한상균 | DraftDocument, RevisionLog, UnclassifiedItem, Notice                                      |
+| `documents`    | 한상균 | DraftDocument, RevisionLog, UnclassifiedItem                                              |
+| `notice`       | 정은 | Notice(공지 게시판, FR-11/12)                                                              |
 | `audit`        | 한상균 | AccessLog, DeletionLog                                                                    |
 
 

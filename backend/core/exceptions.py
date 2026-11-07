@@ -189,6 +189,13 @@ class AccessLogFailed(AidamError):
     status_code = 500
 
 
+class NoticeNotFound(AidamError):
+    """없는 공지. 학부모는 자녀의 반 것이 아닌 공지도 같은 코드로 받는다 (FR-12)."""
+
+    code = "NOTICE_NOT_FOUND"
+    status_code = 404
+
+
 class InvalidCursor(AidamError):
     """목록 커서를 읽을 수 없는 경우."""
 
