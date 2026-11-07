@@ -15,7 +15,7 @@ RETRYABLE_LLM_ERRORS: tuple[type[Exception], ...] = (
     openai.InternalServerError,
 )
 
-# SDK 기본값(10분)이면 Celery soft_time_limit(180초)이 먼저 끊어 버림
+# SDK 기본값(10분)이면 Celery soft_time_limit(service.JOB_SOFT_TIME_LIMIT_SECONDS)이 먼저 끊어 버림
 # 1회 호출 상한을 둬서 느린 호출은 SDK가 끊고 오류로 올림 (테크스펙 파이프라인 4단계)
 _TIMEOUT_SECONDS = 30
 

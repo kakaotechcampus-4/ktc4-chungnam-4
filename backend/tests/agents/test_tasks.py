@@ -13,6 +13,11 @@ from celery.exceptions import SoftTimeLimitExceeded
 from domains.agents import tasks
 
 
+def test_작업_시간_제한은_service_상수를_따른다() -> None:
+    """사진 분석 호출이 늘어 180초에서 300초로 올렸다."""
+    assert tasks.generate_drafts.soft_time_limit == tasks.service.JOB_SOFT_TIME_LIMIT_SECONDS == 300
+
+
 def _retries_on(error_type: type[Exception]) -> bool:
     return any(issubclass(error_type, retryable) for retryable in tasks.RETRYABLE_ERRORS)
 

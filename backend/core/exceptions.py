@@ -412,6 +412,17 @@ class JobNotFound(AidamError):
     status_code = 404
 
 
+class JobNotRetryable(AidamError):
+    """다시 시도할 실패 원아가 없습니다 (docs/api/agents.md `POST /jobs/{job_id}/retry`).
+
+    실패한 원아가 없거나, 실패 원인이 `DRAFT_VERSION_CONFLICT`뿐이라 다시 돌려도 같은 이유로
+    실패할 때입니다.
+    """
+
+    code = "JOB_NOT_RETRYABLE"
+    status_code = 409
+
+
 class CenterNotFound(AidamError):
     """가입 코드와 일치하는 어린이집이 없는 경우 (FR-23)."""
 
