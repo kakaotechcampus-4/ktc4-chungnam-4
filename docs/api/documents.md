@@ -308,6 +308,7 @@ documents의 상세 작성 엔드포인트는 15개(교사용 11, 학부모용 4
   - `evidence_id`는 초안 안에서만 유일한 불투명 문자열입니다. "ID는 UUID"라는 공통 규약의 예외입니다.
   - `source_type`은 5종입니다: `photo_observation`·`video_speech`·`video_scene`·`teacher_voice_memo`·`activity_plan`.
   - `activity_plan` 근거는 `media_id`가 null입니다. 사진·계획 근거는 `start_ms`·`end_ms`가 null입니다.
+  - 영상·음성 근거의 `end_ms`는 그 근거의 발화 구간(`TranscriptSegment`)에서 읽은 끝 시각입니다. 구간에 끝 시각이 없으면 null입니다. 근거 행에 저장하지 않아 스키마는 그대로입니다. 임시 결정(송유진).
 - `media[]`에는 선택 사진과 근거 미디어의 서명 URL이 들어갑니다(화면 데이터 "근거 클립 재생 URL"). media service 함수로 붙이며, 만료되면 `GET /api/v1/media/{media_id}`로 다시 받습니다. 선택 사진 다음 보여 주는 근거의 미디어 순서로 겹치지 않게 싣고, 교사가 고친 문장의 근거 미디어는 싣지 않습니다.
 - `selected_media_ids`는 선택 사진의 순서입니다. PATCH와 같은 필드입니다. AI가 만든 초안은 근거로 쓴 사진이 기본으로 들어 있고(임시 결정(정은), 테크스펙 §④ DraftDocument), 교사가 PATCH로 더하거나 뺍니다(후보는 §`GET /api/v1/drafts/{draft_id}/selectable-media`). 재생성하면 이미 고른 선택은 두고 새 근거 사진만 뒤에 더하며, 교사가 뺀 사진이 다시 근거가 되면 다시 들어옵니다 — 선택 변경은 RevisionLog에 남지 않아 뺀 것인지 처음부터 없던 것인지 구분할 수 없습니다. 직접 쓴 초안은 빈 배열입니다. 영상도 고를 수 있어 항목의 종류는 `media[]`의 `type`으로 구분합니다.
 - `author_name`은 서버가 `author_teacher_id`로 조회해 붙입니다. LLM에는 보내지 않습니다(FR-26, H-2).

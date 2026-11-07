@@ -62,6 +62,28 @@ function useMediaPages() {
   );
 }
 
+function useDownloadUrls() {
+  const requested: string[] = [];
+  server.use(
+    http.get(apiPath(`/children/${CHILD}/parent-media/:mediaId/download`), ({ params }) => {
+      const mediaId = String(params.mediaId);
+      requested.push(mediaId);
+      return HttpResponse.json({
+        media_id: mediaId,
+        type: "photo",
+        url: `https://s3.example.com/download/${mediaId}`,
+        url_expires_at: "2026-10-20T09:00:00Z",
+        filename: "aidam.jpg",
+      });
+    }),
+  );
+  return requested;
+}
+
+function openedDownloads() {
+  return [...document.querySelectorAll("iframe")].map((frame) => frame.src);
+}
+
 function renderPage() {
   return renderRoute(<ParentMediaPage />, {
     path: "/p/children/:childId/media",
@@ -70,6 +92,10 @@ function renderPage() {
 }
 
 describe("ParentMediaPage", () => {
+  afterEach(() => {
+    document.querySelectorAll("iframe").forEach((frame) => frame.remove());
+  });
+
   it("알림장 날짜별로 사진과 영상을 보여 주고 이전 날짜를 이어 받는다", async () => {
     const user = userEvent.setup();
     useMediaPages();
@@ -99,28 +125,10 @@ describe("ParentMediaPage", () => {
     expect(screen.getByRole("button", { name: /^영상/ })).toBeInTheDocument();
   });
 
-  it("크게 보기에서 저장하면 내려받기 URL을 받아 연다", async () => {
+  it("크게 보기에서 저장하면 내려받기 URL을 받아 보이지 않게 연다", async () => {
     const user = userEvent.setup();
     useMediaPages();
-    const requested: string[] = [];
-    server.use(
-      http.get(apiPath(`/children/${CHILD}/parent-media/:mediaId/download`), ({ params }) => {
-        requested.push(String(params.mediaId));
-        return HttpResponse.json({
-          media_id: params.mediaId,
-          type: "photo",
-          url: "https://s3.example.com/download",
-          url_expires_at: "2026-10-20T09:00:00Z",
-          filename: "aidam.jpg",
-        });
-      }),
-    );
-    const clicked: string[] = [];
-    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
-      this: HTMLAnchorElement,
-    ) {
-      clicked.push(this.href);
-    });
+    const requested = useDownloadUrls();
     renderPage();
 
     const [firstTile] = await screen.findAllByRole("button", { name: /크게 보기/ });
@@ -130,9 +138,27 @@ describe("ParentMediaPage", () => {
     expect(within(viewer).getByText("1 / 2")).toBeInTheDocument();
     await user.click(within(viewer).getByRole("button", { name: "저장" }));
 
-    await vi.waitFor(() => expect(clicked).toEqual(["https://s3.example.com/download"]));
+    await vi.waitFor(() =>
+      expect(openedDownloads()).toEqual([`https://s3.example.com/download/${PHOTO}`]),
+    );
     expect(requested).toEqual([PHOTO]);
-    click.mockRestore();
+    expect(document.querySelector("iframe")).not.toBeVisible();
+  });
+
+  it("모두 저장은 파일마다 따로 열어 앞 파일이 취소되지 않게 한다", async () => {
+    const user = userEvent.setup();
+    useMediaPages();
+    useDownloadUrls();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "모두 저장" }));
+
+    await vi.waitFor(() =>
+      expect(openedDownloads()).toEqual([
+        `https://s3.example.com/download/${PHOTO}`,
+        `https://s3.example.com/download/${VIDEO}`,
+      ]),
+    );
   });
 
   it("받은 사진이 없으면 안내를 보여 준다", async () => {

@@ -1,6 +1,12 @@
-import { X } from "lucide-react";
+import { Pause, Play, X } from "lucide-react";
+import { useRef, useState, type SyntheticEvent } from "react";
 
-import type { EvidenceSourceTypeView, EvidenceView, SentenceView } from "@/api/documents";
+import type {
+  DraftMediaView,
+  EvidenceSourceTypeView,
+  EvidenceView,
+  SentenceView,
+} from "@/api/documents";
 import { formatMediaTime, formatTime } from "@/lib/datetime";
 
 const SOURCE_LABEL_MAP: Record<EvidenceSourceTypeView, string> = {
@@ -13,16 +19,121 @@ const SOURCE_LABEL_MAP: Record<EvidenceSourceTypeView, string> = {
   parent_note: "게시된 알림장",
 };
 
-function EvidenceCard({ evidence }: { evidence: EvidenceView }) {
+/** 근거 구간이 이보다 짧아도 이만큼은 들려줍니다(테크스펙 파이프라인 8단계 "원본 영상 구간 3초 재생"). */
+const MIN_CLIP_MS = 3000;
+
+function findClip(media: readonly DraftMediaView[], evidence: EvidenceView) {
+  return evidence.start_ms === null
+    ? undefined
+    : media.find((item) => item.media_id === evidence.media_id && item.type !== "photo");
+}
+
+interface EvidenceClipProps {
+  clip: DraftMediaView;
+  evidence: EvidenceView;
+  startMs: number;
+  onFailed: () => void;
+}
+
+// 근거를 누르면 원본에서 그 구간만 재생합니다. 파일에 발화가 여럿이어도 구간이 끝나면 멈춥니다.
+// 패널에 문장을 올릴 때마다 원본을 받지 않도록 누르기 전에는 불러오지 않습니다(preload="none").
+function EvidenceClip({ clip, evidence, startMs, onFailed }: EvidenceClipProps) {
+  const mediaRef = useRef<HTMLVideoElement & HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [videoShown, setVideoShown] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const stopAt = Math.max(evidence.end_ms ?? 0, startMs + MIN_CLIP_MS) / 1000;
+
+  async function toggle() {
+    const media = mediaRef.current;
+    if (media === null) return;
+    if (playing) {
+      media.pause();
+      return;
+    }
+    setFailed(false);
+    setVideoShown(true);
+    media.currentTime = startMs / 1000;
+    try {
+      await media.play();
+    } catch (error) {
+      // 재생 중에 멈추면 AbortError로 끝납니다. 실패가 아닙니다.
+      if (!(error instanceof DOMException && error.name === "AbortError")) setFailed(true);
+    }
+  }
+
+  const mediaProps = {
+    ref: mediaRef,
+    src: clip.url,
+    preload: "none",
+    onPlay: () => setPlaying(true),
+    onPause: () => setPlaying(false),
+    onTimeUpdate: (event: SyntheticEvent<HTMLMediaElement>) => {
+      if (event.currentTarget.currentTime >= stopAt) event.currentTarget.pause();
+    },
+    onError: () => {
+      setFailed(true);
+      setPlaying(false);
+      // 재생 URL은 15분이면 만료됩니다. 새 URL을 받아 두면 다시 눌렀을 때 재생됩니다.
+      onFailed();
+    },
+  };
+
+  return (
+    <>
+      {clip.type === "video" ? (
+        <video
+          {...mediaProps}
+          playsInline
+          className={videoShown ? "w-full rounded-sm" : "hidden"}
+        />
+      ) : (
+        <audio {...mediaProps} />
+      )}
+      <button
+        type="button"
+        onClick={() => void toggle()}
+        aria-label={`${evidence.text} ${playing ? "멈추기" : "재생"}`}
+        className="flex items-start gap-1.5 rounded-sm text-left text-label font-bold text-ink outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+      >
+        {playing ? (
+          <Pause aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+        ) : (
+          <Play aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+        )}
+        <span>
+          {formatMediaTime(startMs / 1000)} {evidence.text}
+        </span>
+      </button>
+      {failed ? (
+        <p role="alert" className="text-caption text-destructive">
+          재생하지 못했어요. 다시 눌러 주세요.
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+interface EvidenceCardProps {
+  evidence: EvidenceView;
+  media: readonly DraftMediaView[];
+  onClipFailed: () => void;
+}
+
+function EvidenceCard({ evidence, media, onClipFailed }: EvidenceCardProps) {
   // 영상·음성 근거만 재생 위치가 있습니다. 사진·활동계획은 시간 구간이 없습니다(tools/contracts 규칙).
-  const playAt =
-    evidence.start_ms === null ? null : `▶  ${formatMediaTime(evidence.start_ms / 1000)}`;
+  const clip = findClip(media, evidence);
+  const startMs = evidence.start_ms;
   return (
     <div className="flex flex-col gap-1.5 rounded-md border border-line bg-canvas px-3.5 py-3">
-      <p className="text-label font-bold text-ink">
-        {playAt ? `${playAt}  ` : ""}
-        {evidence.text}
-      </p>
+      {clip && startMs !== null ? (
+        <EvidenceClip clip={clip} evidence={evidence} startMs={startMs} onFailed={onClipFailed} />
+      ) : (
+        <p className="text-label font-bold text-ink">
+          {startMs === null ? "" : `${formatMediaTime(startMs / 1000)} `}
+          {evidence.text}
+        </p>
+      )}
       <p className="text-caption text-ink-muted">
         {SOURCE_LABEL_MAP[evidence.source_type]}
         {evidence.captured_at ? ` · ${formatTime(evidence.captured_at)}` : ""}
@@ -34,10 +145,15 @@ function EvidenceCard({ evidence }: { evidence: EvidenceView }) {
 interface EvidencePanelProps {
   /** 교사가 고른 문장. 고르기 전이면 null. 근거가 있는 문장만 고를 수 있습니다. */
   sentence: SentenceView | null;
+  /** 초안에 실린 미디어. 영상·음성 근거의 재생 URL을 여기서 찾습니다. */
+  media: readonly DraftMediaView[];
+  /** 재생에 실패했을 때 부릅니다. 재생 URL을 새로 받는 데 씁니다. */
+  onClipFailed: () => void;
   onClose: () => void;
 }
 
-export function EvidencePanel({ sentence, onClose }: EvidencePanelProps) {
+export function EvidencePanel({ sentence, media, onClipFailed, onClose }: EvidencePanelProps) {
+  const hasClip = sentence?.evidences.some((evidence) => findClip(media, evidence)) ?? false;
   return (
     <aside className="flex w-58 shrink-0 flex-col gap-5 rounded-xl border border-line bg-paper p-6">
       <div className="flex items-center justify-between">
@@ -70,11 +186,18 @@ export function EvidencePanel({ sentence, onClose }: EvidencePanelProps) {
           <div className="flex flex-col gap-2">
             <p className="text-caption text-ink-muted">근거</p>
             {sentence.evidences.map((evidence) => (
-              <EvidenceCard key={evidence.evidence_id} evidence={evidence} />
+              <EvidenceCard
+                key={evidence.evidence_id}
+                evidence={evidence}
+                media={media}
+                onClipFailed={onClipFailed}
+              />
             ))}
           </div>
           <p className="text-caption text-ink-muted">
-            발화를 다시 들으며 문장이 정확한지 확인해보세요.
+            {hasClip
+              ? "근거를 눌러 원본을 들으며 문장이 정확한지 확인해 보세요."
+              : "문장이 근거와 맞는지 확인해 보세요."}
           </p>
         </>
       )}
