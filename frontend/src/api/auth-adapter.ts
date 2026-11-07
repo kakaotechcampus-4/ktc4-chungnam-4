@@ -7,6 +7,8 @@ import type {
   InviteAccepted,
   Me,
   MeBase,
+  PasswordResetConfirmRequest,
+  PasswordResetRequest,
   SessionCreated,
   SessionRequest,
 } from "@/types/api-draft/auth";
@@ -122,4 +124,15 @@ import type {
   InvitePreviewView,
   InviteAcceptInput,
   InviteAcceptedView,
+  PasswordResetConfirmInput,
+  PasswordResetInput,
 } from "./auth-view";
+
+export function toPasswordResetBody(input: PasswordResetInput): PasswordResetRequest {
+  return { email: input.email };
+}
+export function toPasswordResetConfirmBody(
+  input: PasswordResetConfirmInput,
+): PasswordResetConfirmRequest {
+  return { token: input.token, password: input.password };
+}

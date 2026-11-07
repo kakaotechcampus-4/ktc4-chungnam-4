@@ -1,8 +1,13 @@
 import { http, HttpResponse } from "msw";
 
-import type { Me, SessionCreated, SessionRequest } from "@/types/api-draft/auth";
+import type {
+  Me,
+  PasswordResetConfirmRequest,
+  SessionCreated,
+  SessionRequest,
+} from "@/types/api-draft/auth";
 
-import { PARENT_ME, TEACHER_ME } from "../fixtures/auth";
+import { EXPIRED_RESET_TOKEN, PARENT_ME, TEACHER_ME } from "../fixtures/auth";
 import { apiPath, errorResponse } from "../http";
 import { getMockSession, setMockSession } from "../session";
 
@@ -25,6 +30,20 @@ export const handlers = [
       { account_id: me.account_id, account_type: me.account_type },
       { status: 201 },
     );
+  }),
+  // 가입 여부와 상관없이 항상 204입니다(docs/api/auth.md §비밀번호 재설정).
+  http.post(apiPath("/password-resets"), () => new HttpResponse(null, { status: 204 })),
+  // 목에서는 EXPIRED_RESET_TOKEN만 만료된 링크로 봅니다.
+  http.post(apiPath("/password-resets/confirm"), async ({ request }) => {
+    const body = (await request.json()) as Partial<PasswordResetConfirmRequest>;
+    if (body.token === EXPIRED_RESET_TOKEN) {
+      return errorResponse(
+        410,
+        "RESET_LINK_UNAVAILABLE",
+        "사용할 수 없는 재설정 링크입니다. 비밀번호 찾기를 다시 해 주세요.",
+      );
+    }
+    return new HttpResponse(null, { status: 204 });
   }),
   http.delete(apiPath("/sessions/current"), () => {
     setMockSession("none");

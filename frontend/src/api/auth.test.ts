@@ -1,9 +1,15 @@
 import { QueryClient } from "@tanstack/react-query";
 
 import { ApiError } from "@/lib/api-client";
-import { PARENT_ME, TEACHER_ME } from "@/mocks/fixtures/auth";
+import { EXPIRED_RESET_TOKEN, PARENT_ME, TEACHER_ME } from "@/mocks/fixtures/auth";
 
-import { createSession, deleteCurrentSession, meQueryOptions } from "./auth";
+import {
+  confirmPasswordReset,
+  createSession,
+  deleteCurrentSession,
+  meQueryOptions,
+  requestPasswordReset,
+} from "./auth";
 
 // 기본 목 핸들러(mocks/handlers/auth.ts)와 목 로그인 상태(mocks/session.ts)를 함께 확인합니다.
 // 주소와 탭 저장소는 test/setup.ts가 테스트마다 비웁니다.
@@ -32,6 +38,23 @@ describe("auth 요청", () => {
 
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({ status: 401, code: "INVALID_CREDENTIALS" });
+  });
+
+  it("비밀번호 재설정 요청은 이메일이 무엇이든 성공한다", async () => {
+    await expect(requestPasswordReset({ email: "nobody@example.com" })).resolves.toBeUndefined();
+  });
+
+  it("만료된 재설정 링크는 RESET_LINK_UNAVAILABLE이다", async () => {
+    await expect(
+      confirmPasswordReset({ token: "ok-token", password: "pw" }),
+    ).resolves.toBeUndefined();
+
+    const error = await confirmPasswordReset({
+      token: EXPIRED_RESET_TOKEN,
+      password: "pw",
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ status: 410, code: "RESET_LINK_UNAVAILABLE" });
   });
 
   it("로그아웃하면 /me가 UNAUTHENTICATED다", async () => {

@@ -63,3 +63,13 @@ export interface InviteAcceptRequest {
 export interface InviteAccepted {
   child_id: string;
 }
+
+/** POST /password-resets 요청. 응답은 204(가입 여부와 상관없이 같음) */
+export interface PasswordResetRequest {
+  email: string;
+}
+/** POST /password-resets/confirm 요청. 응답은 204, 실패는 RESET_LINK_UNAVAILABLE 410 */
+export interface PasswordResetConfirmRequest {
+  token: string;
+  password: string;
+}

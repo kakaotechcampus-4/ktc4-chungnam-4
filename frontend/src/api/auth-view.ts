@@ -72,3 +72,13 @@ export interface InviteAcceptInput {
 export interface InviteAcceptedView {
   child_id: string;
 }
+
+/** 비밀번호 찾기 폼 값 */
+export interface PasswordResetInput {
+  email: string;
+}
+/** 비밀번호 재설정 폼 값. token은 메일 링크 주소에서 옵니다. */
+export interface PasswordResetConfirmInput {
+  token: string;
+  password: string;
+}

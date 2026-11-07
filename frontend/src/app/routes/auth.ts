@@ -2,6 +2,7 @@ import { ForbiddenPage } from "@/pages/forbidden/ForbiddenPage";
 import { ForgotPasswordPage } from "@/pages/forgot-password/ForgotPasswordPage";
 import { LandingPage } from "@/pages/landing/LandingPage";
 import { LoginPage } from "@/pages/login/LoginPage";
+import { ResetPasswordPage } from "@/pages/reset-password/ResetPasswordPage";
 import { SettingsPage } from "@/pages/settings/SettingsPage";
 import { SignupPage } from "@/pages/signup/SignupPage";
 
@@ -14,6 +15,7 @@ export const authRoutes: AreaRoutes = {
   public: [
     { path: "login", Component: LoginPage },
     { path: "forgot-password", Component: ForgotPasswordPage },
+    { path: "reset-password/:resetToken", Component: ResetPasswordPage },
   ],
   onboarding: [{ path: "signup", Component: SignupPage }],
   teacher: [

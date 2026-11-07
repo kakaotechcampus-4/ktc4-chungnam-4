@@ -1,7 +1,14 @@
 import { PARENT_ME, TEACHER_ME } from "@/mocks/fixtures/auth";
 import type { Me, SessionCreated } from "@/types/api-draft/auth";
 
-import { isTeacher, toMeView, toSessionBody, toSessionView } from "./auth-adapter";
+import {
+  isTeacher,
+  toMeView,
+  toPasswordResetBody,
+  toPasswordResetConfirmBody,
+  toSessionBody,
+  toSessionView,
+} from "./auth-adapter";
 
 describe("auth adapter", () => {
   it("교사·학부모의 /me는 문서 이름 그대로 옮긴다", () => {
@@ -62,6 +69,14 @@ describe("auth adapter", () => {
     const input = { email: "a@example.com", password: "pw", remember: true };
 
     expect(toSessionBody(input)).toEqual({ email: "a@example.com", password: "pw" });
+  });
+
+  it("비밀번호 재설정 본문에는 문서의 필드만 담는다", () => {
+    const extra = { email: "a@example.com", note: "x" };
+    const confirm = { token: "t", password: "pw", passwordConfirm: "pw" };
+
+    expect(toPasswordResetBody(extra)).toEqual({ email: "a@example.com" });
+    expect(toPasswordResetConfirmBody(confirm)).toEqual({ token: "t", password: "pw" });
   });
 
   it("로그인 응답에도 교사 판정을 쓸 수 있다", () => {

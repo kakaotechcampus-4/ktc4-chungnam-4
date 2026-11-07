@@ -1,9 +1,11 @@
 // Figma: 1:481 (후보 A 1:504 — 미확정)
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { Link } from "react-router";
 import { z } from "zod";
 
+import { requestPasswordReset } from "@/api/auth";
 import { FormField } from "@/components/common/FormField";
 import { Button } from "@/components/ui/button";
 import { emailRule } from "@/lib/form-rules";
@@ -19,11 +21,24 @@ export function ForgotPasswordPage() {
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    setError,
+    clearErrors,
+    formState: { errors, submitCount },
   } = useForm<ForgotPasswordValues>({ resolver: zodResolver(forgotPasswordSchema) });
 
-  // TODO(송유진): POST /password-resets는 API 문서에 경로만 있습니다. 요청·응답과 보낸 뒤 화면이 정해지면 연결합니다.
-  const onSubmit = handleSubmit(() => {});
+  // 서버는 가입 여부와 상관없이 같은 204를 줍니다(docs/api/auth.md §비밀번호 재설정, 임시 결정(정은)).
+  // 그래서 성공해도 "메일을 보냈다"고 단정하지 않고 "가입된 이메일이면"이라고 안내합니다.
+  // Figma에 보낸 뒤 화면이 없어서 알림 한 줄을 폼 안에 둡니다.
+  const sendLink = useMutation({
+    mutationFn: requestPasswordReset,
+    // 요청 실패는 에러 경계로 넘기지 않고 이 화면에서 보여 줍니다.
+    throwOnError: false,
+    onError: (error) => setError("root.server", { message: error.message }),
+  });
+  const onSubmit = handleSubmit((values) => {
+    clearErrors("root.server");
+    sendLink.mutate(values);
+  });
 
   return (
     <div className="flex w-full max-w-form-sm flex-col items-center">
@@ -41,7 +56,17 @@ export function ForgotPasswordPage() {
           error={errors.email?.message}
           {...register("email")}
         />
-        <Button type="submit" size="block">
+        {errors.root?.server ? (
+          <p key={submitCount} role="alert" className="text-label text-destructive">
+            {errors.root.server.message}
+          </p>
+        ) : null}
+        {sendLink.isSuccess ? (
+          <p role="status" className="text-label text-ink">
+            가입된 이메일이면 재설정 링크를 보냈어요. 메일함을 확인해 주세요
+          </p>
+        ) : null}
+        <Button type="submit" size="block" disabled={sendLink.isPending}>
           재설정 링크 보내기
         </Button>
       </form>

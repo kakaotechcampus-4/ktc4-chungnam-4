@@ -3,8 +3,14 @@ import { queryOptions } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import type { Me, SessionCreated } from "@/types/api-draft/auth";
 
-import { toMeView, toSessionBody, toSessionView } from "./auth-adapter";
-import type { LoginInput } from "./auth-view";
+import {
+  toMeView,
+  toPasswordResetBody,
+  toPasswordResetConfirmBody,
+  toSessionBody,
+  toSessionView,
+} from "./auth-adapter";
+import type { LoginInput, PasswordResetConfirmInput, PasswordResetInput } from "./auth-view";
 
 // 화면은 서버 타입 대신 여기서 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
 export { isTeacher } from "./auth-adapter";
@@ -41,7 +47,19 @@ export function deleteCurrentSession() {
   return api.delete("/sessions/current");
 }
 
+/** 비밀번호 재설정 링크 요청. 가입 여부와 상관없이 204라 성공해도 메일이 갔다고 단정하지 않습니다. */
+export function requestPasswordReset(input: PasswordResetInput) {
+  return api.post<void>("/password-resets", toPasswordResetBody(input));
+}
+
+/** 메일 링크의 토큰으로 새 비밀번호 저장. 실패는 ApiError RESET_LINK_UNAVAILABLE(410)입니다. */
+export function confirmPasswordReset(input: PasswordResetConfirmInput) {
+  return api.post<void>("/password-resets/confirm", toPasswordResetConfirmBody(input));
+}
+
 export type {
+  PasswordResetConfirmInput,
+  PasswordResetInput,
   SignupInput,
   SignupView,
   InvitePreviewView,
