@@ -37,11 +37,12 @@ export function evidencesOf(row: ObservationRow): EvidenceView[] {
     seen.add(evidence.evidence_id);
     items.push(evidence);
   }
-  // 날짜 오름차순, 날짜 없는 근거는 뒤로(captured_at은 UTC ISO라 문자열 비교가 시간순입니다)
+  // 날짜 오름차순, 날짜 없는 근거는 뒤로. 서버가 UTC(`Z`)와 KST(`+09:00`) 표기를 섞어 보낼 수 있어
+  // 문자열이 아니라 시각으로 비교합니다.
   return items.sort((a, b) => {
     if (a.captured_at === b.captured_at) return 0;
     if (a.captured_at === null) return 1;
     if (b.captured_at === null) return -1;
-    return a.captured_at.localeCompare(b.captured_at);
+    return Date.parse(a.captured_at) - Date.parse(b.captured_at);
   });
 }
