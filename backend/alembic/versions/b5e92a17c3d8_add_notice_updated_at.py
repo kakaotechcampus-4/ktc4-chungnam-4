@@ -5,7 +5,7 @@
 시각은 만든 시각으로 채웁니다. notices 테이블 자체는 초기 마이그레이션에 이미 있습니다.
 
 Revision ID: b5e92a17c3d8
-Revises: e1fdb8462a4f
+Revises: b924e61fd730
 Create Date: 2026-11-07 10:00:00.000000
 """
 
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "b5e92a17c3d8"
-down_revision: str | Sequence[str] | None = "e1fdb8462a4f"
+down_revision: str | Sequence[str] | None = "b924e61fd730"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
