@@ -47,7 +47,7 @@
 <path d="M 840 730 V 790" fill="none" stroke="#526078" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow)"/>
 <rect x="530" y="790" width="620" height="100" rx="18" fill="#ffffff" stroke="#b9cce5" stroke-width="2"/>
 <text x="840" y="831" font-size="29" fill="#436a9f" style="fill:#436a9f" font-weight="700" text-anchor="middle">하루 일과 / 기간별 관찰 요약</text>
-<text x="840" y="868" font-size="24" fill="#5b697d" style="fill:#5b697d" font-weight="400" text-anchor="middle">사실마다 원본 근거 E1… 참조를 보존</text>
+<text x="840" y="868" font-size="24" fill="#5b697d" style="fill:#5b697d" font-weight="400" text-anchor="middle">참조한 비식별 원문도 작성자에게 전달</text>
 <path d="M 840 890 V 932 H 436 V 1000" fill="none" stroke="#526078" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M 840 932 H 1244 V 1000" fill="none" stroke="#526078" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow)"/>
 <text x="466" y="974" font-size="24" fill="#24795d" style="fill:#24795d" font-weight="700" text-anchor="start">일별 요청</text>
@@ -58,14 +58,14 @@
 <text x="187" y="1059" font-size="33" fill="#278168" style="fill:#278168" font-weight="700" text-anchor="start">알림장 작성</text>
 <text x="128" y="1104" font-size="25" fill="#202d43" style="fill:#202d43" font-weight="400" text-anchor="start">도구 조회: 감정 어휘 · 발달 문안</text>
 <text x="128" y="1141" font-size="25" fill="#202d43" style="fill:#202d43" font-weight="400" text-anchor="start">다정한 문체로 관찰 행동을 작성</text>
-<text x="128" y="1178" font-size="25" fill="#202d43" style="fill:#202d43" font-weight="400" text-anchor="start">요약에 연결된 원본 근거 참조를 유지</text>
+<text x="128" y="1178" font-size="25" fill="#202d43" style="fill:#202d43" font-weight="400" text-anchor="start">요약·원문을 대조하고 근거 참조 유지</text>
 <rect x="904" y="1000" width="680" height="190" rx="18" fill="#f0f5ff" stroke="#416eaf" stroke-width="2"/>
 <circle cx="952" cy="1048" r="27" fill="#416eaf"/>
 <text x="952" y="1059" font-size="31" fill="#ffffff" style="fill:#ffffff" font-weight="700" text-anchor="middle">2</text>
 <text x="995" y="1059" font-size="33" fill="#416eaf" style="fill:#416eaf" font-weight="700" text-anchor="start">관찰일지 작성</text>
 <text x="936" y="1104" font-size="25" fill="#202d43" style="fill:#202d43" font-weight="400" text-anchor="start">도구 조회: 영역 스타일 · 발달 지침</text>
 <text x="936" y="1141" font-size="25" fill="#202d43" style="fill:#202d43" font-weight="400" text-anchor="start">5영역·종합의견 중 근거 있는 영역 작성</text>
-<text x="936" y="1178" font-size="25" fill="#202d43" style="fill:#202d43" font-weight="400" text-anchor="start">격식체로 작성하고 원본 근거 참조를 유지</text>
+<text x="936" y="1178" font-size="25" fill="#202d43" style="fill:#202d43" font-weight="400" text-anchor="start">요약·원문 대조 후 격식체로 작성</text>
 <path d="M 436 1190 V 1222 H 840 V 1260" fill="none" stroke="#526078" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M 1244 1190 V 1222 H 840 V 1260" fill="none" stroke="#526078" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow)"/>
 <rect x="530" y="1260" width="620" height="100" rx="18" fill="#edf2f7" stroke="#c7d2e0" stroke-width="2"/>
