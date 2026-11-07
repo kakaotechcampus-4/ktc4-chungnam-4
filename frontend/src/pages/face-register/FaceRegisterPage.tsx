@@ -1,9 +1,11 @@
 // Figma: 1:3451 (추출본 Untitled 1:1872)
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useRef, useState } from "react";
 import { Link, useLocation } from "react-router";
 
 import { registerFaceEmbedding } from "@/api/face";
+import { mediaKeys } from "@/api/media";
+import { organizationKeys } from "@/api/organization";
 import { FocusCard } from "@/components/common/FocusCard";
 import { PageHeader } from "@/components/common/PageHeader";
 import { PhotoPlaceholder } from "@/components/common/PhotoPlaceholder";
@@ -12,7 +14,7 @@ import { objectUrlFor, useReleaseObjectUrls } from "@/features/classify/object-u
 import { RouteChildFallback } from "@/features/classify/RouteChildFallback";
 import { useRouteChild } from "@/features/classify/use-route-child";
 
-import { extractMockEmbedding } from "./mock-embedding";
+import { extractEmbedding } from "@/workers/face/client";
 
 /** 임시 결정(김동건): 1~3장이면 등록할 수 있습니다. 많을수록 정확하지만 3장을 강제하지 않습니다. */
 const MAX_PHOTOS = 3;
@@ -23,7 +25,13 @@ const EMPTY_SLOTS: Slots = Array.from({ length: MAX_PHOTOS }, () => null);
 
 // 등록 사진은 브라우저에서 임베딩만 뽑고 버립니다. 원본은 서버·S3로 보내지 않습니다(H-3).
 // 미리보기도 이 탭의 메모리(object URL)에만 있고, 등록이 끝나거나 화면을 떠나면 지웁니다.
-// TODO(김동건): 동의 상태·등록 여부 조회 API가 없어 부제와 "등록됨" 줄은 예시 값입니다. 동의가 없으면 등록을 막아야 합니다.
+// TODO(송유진): 동의 상태·등록 여부는 원아 상세(GET /children/{child_id}, docs/api/screens.md)가 생기면
+// 부제와 "등록됨" 줄로 보여 줍니다. 그 전에는 서버 값이 없어 아무것도 보이지 않습니다. 고정 예시 값을 두면
+// 등록하지 않은 원아도 "등록됨"으로 보입니다(10/30 배포 점검). 동의가 없으면 등록을 막아야 합니다.
+// 그 전까지 동의 확인은 서버가 합니다. PUT /children/{child_id}/face-embedding이 ③ 동의가 없으면
+// 403(FACE_CONSENT_REQUIRED)으로 거절하고, 403이라 지금은 이 화면 대신 접근 권한 없음 화면이 뜹니다
+// (frontend/CLAUDE.md §데이터). 원아 등록 화면은 동의 여부를 몰라 이 화면으로 오는 '얼굴 정보 관리'를
+// 잠가 둡니다.
 export function FaceRegisterPage() {
   const route = useRouteChild();
   const location = useLocation();
@@ -31,6 +39,7 @@ export function FaceRegisterPage() {
   const fileInput = useRef<HTMLInputElement>(null);
   // 파일 선택 창을 연 칸. null이면 빈 칸부터 차례로 채웁니다.
   const targetSlot = useRef<number | null>(null);
+  const queryClient = useQueryClient();
   const [slots, setSlots] = useState<Slots>(EMPTY_SLOTS);
   // 칸에서 빼거나 바꾼 사진, 등록한 사진, 화면을 떠날 때의 사진은 미리보기 주소를 지웁니다(#83 리뷰 7).
   useReleaseObjectUrls(slots);
@@ -38,12 +47,30 @@ export function FaceRegisterPage() {
   const photos = slots.filter((file): file is File => file !== null);
 
   const registration = useMutation({
-    mutationFn: async ({ childId, files }: { childId: string; files: File[] }) => {
-      const extracted = await extractMockEmbedding(files);
-      return registerFaceEmbedding(childId, extracted);
+    // classId는 캐시를 비울 때 씁니다 — 응답을 기다리는 사이 화면이 바뀌어도 요청한 반을 비웁니다.
+    mutationFn: async ({ childId, files }: { childId: string; classId: string; files: File[] }) => {
+      const extracted = await extractEmbedding(files);
+      if (extracted.extract_state !== "extracted") {
+        throw new Error(
+          extracted.extract_state === "multiple_faces"
+            ? "한 명만 나온 사진을 골라 주세요."
+            : extracted.extract_state === "no_face"
+              ? "얼굴을 찾지 못했어요. 정면 사진을 골라 주세요."
+              : "얼굴 분석에 실패했어요. 다시 시도해 주세요.",
+        );
+      }
+      return registerFaceEmbedding(childId, extracted.embedding);
     },
-    // 벡터를 보냈으면 사진은 더 들고 있지 않습니다.
-    onSuccess: () => setSlots(EMPTY_SLOTS),
+    onSuccess: async (_result, variables) => {
+      // 벡터를 보냈으면 사진은 더 들고 있지 않습니다.
+      setSlots(EMPTY_SLOTS);
+      // 삭제와 같은 이유로 캐시를 비웁니다(FaceDeletePage 주석). 비우지 않으면 방금 등록한
+      // 아이가 분류에서 빠지고, 원아 등록 화면도 "미등록"으로 남습니다.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: mediaKeys.faceEmbeddings(variables.classId) }),
+        queryClient.invalidateQueries({ queryKey: organizationKeys.children(variables.classId) }),
+      ]);
+    },
   });
 
   function pick(slot: number | null) {
@@ -79,11 +106,7 @@ export function FaceRegisterPage() {
 
   return (
     <div className="pb-10">
-      <PageHeader
-        eyebrow="우리 반 관리 / 얼굴 정보"
-        title={`${child.name} · 얼굴 정보 관리`}
-        subtitle="동의 3 / 3 확인 완료 · 이 기기 등록 상태"
-      />
+      <PageHeader eyebrow="우리 반 관리 / 얼굴 정보" title={`${child.name} · 얼굴 정보 관리`} />
 
       <FocusCard
         className="min-h-140"
@@ -92,7 +115,13 @@ export function FaceRegisterPage() {
             <Button
               className="w-70 border-transparent"
               disabled={photos.length === 0 || registration.isPending}
-              onClick={() => registration.mutate({ childId: child.child_id, files: photos })}
+              onClick={() =>
+                registration.mutate({
+                  childId: child.child_id,
+                  classId: child.class_id,
+                  files: photos,
+                })
+              }
             >
               {registration.isPending ? "등록하는 중…" : "얼굴 정보 등록 · 갱신"}
             </Button>
@@ -162,7 +191,6 @@ export function FaceRegisterPage() {
           <p className="text-label text-ink-muted">
             다시 등록하면 이전에 등록한 얼굴 정보가 이번에 고른 사진으로 모두 바뀌어요.
           </p>
-          <p className="text-label text-ink-muted">등록됨 · 2026. 9. 15. · 김하늘 선생님</p>
           <div aria-live="polite" className="text-body">
             {registration.isSuccess ? (
               <p className="text-brand-ink">얼굴 정보를 등록했어요.</p>

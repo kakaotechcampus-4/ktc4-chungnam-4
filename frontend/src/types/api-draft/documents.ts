@@ -10,7 +10,12 @@ export type DocType = "observation_log" | "parent_note";
 export type DraftStatus = "draft" | "verified" | "approved" | "revoked";
 
 export type EvidenceSourceType =
-  "photo_observation" | "video_speech" | "video_scene" | "teacher_voice_memo" | "activity_plan";
+  | "photo_observation"
+  | "video_speech"
+  | "video_scene"
+  | "teacher_voice_memo"
+  | "teacher_note"
+  | "activity_plan";
 
 /** GET /classes/{class_id}/drafts 한 칸(원아의 문서 하나) */
 export interface DraftSummary {
@@ -70,12 +75,18 @@ export interface DraftDetail {
   sentences: Sentence[];
   /** 선택 사진의 순서 */
   selected_media_ids: string[];
+  /** 분석 실패로 근거에서 제외된 사진. 구버전 서버 응답에는 없을 수 있습니다. */
+  failed_media_ids?: string[];
   /** 선택 사진과 근거 미디어의 서명 URL */
   media: MediaUrl[];
   author_teacher_id: string;
   author_name: string;
   approved_at: string | null;
   published_at: string | null;
+  /** 활성 게시 회차의 회수 기한(게시 + 24시간). 활성 회차가 없으면 `null` */
+  revoke_deadline: string | null;
+  /** 지금 회수할 수 있는가. 기한 이내이고 학부모가 본문을 열기 전이면 참 */
+  can_revoke: boolean;
   /**
    * 게시할 때 사진을 함께 보냈는지. **게시 전에는 `null`** 입니다 — 임시 결정(김진하).
    * `false`면 학부모에게 글만 갔으므로 교사 화면도 사진을 보여 주지 않습니다.
@@ -112,9 +123,22 @@ export interface DraftApproveRequest {
   reviewed: true;
 }
 
-/** POST /drafts/{draft_id}/reopen 요청. 승인을 되돌려 다시 검토합니다(게시 전까지만) */
+/** POST /drafts/{draft_id}/reopen 요청. 승인 또는 회수를 되돌려 다시 검토합니다 */
 export interface DraftReopenRequest {
   expected_version: number;
+}
+
+/** POST /drafts/{draft_id}/revoke 요청. 게시 후 24시간 이내이고 학부모가 열기 전에만 됩니다 */
+export interface DraftRevokeRequest {
+  expected_version: number;
+}
+
+/** POST /drafts/{draft_id}/revoke 응답. 본문은 돌려주지 않고 회수한 회차만 알려 줍니다 */
+export interface DraftRevokeResponse {
+  draft_id: string;
+  publication_id: string;
+  revoked_at: string;
+  version: number;
 }
 
 /** POST /publications 요청(일괄 게시, 건별 결과) */
@@ -173,4 +197,38 @@ export interface ParentNoteDetail {
   /** (제안) 같은 자녀의 이전·다음 게시본 */
   prev: { parent_note_id: string; record_date: string } | null;
   next: { parent_note_id: string; record_date: string } | null;
+}
+
+/** GET /children/{child_id}/parent-media 항목(학부모용). 음성메모는 오지 않습니다. */
+export interface ParentMediaItem {
+  media_id: string;
+  type: "photo" | "video";
+  captured_at: string;
+  url: string;
+  url_expires_at: string;
+}
+
+/** 알림장 한 건에 함께 보낸 사진·영상. 교사가 고른 순서입니다. */
+export interface ParentMediaDay {
+  parent_note_id: string;
+  record_date: string;
+  items: ParentMediaItem[];
+}
+
+/** GET /children/{child_id}/parent-media 응답(학부모용, FR-10). 승인·게시된 알림장에 교사가 고른 것만 옵니다. */
+export interface ParentMediaList {
+  days: ParentMediaDay[];
+  next_cursor: string | null;
+  /** 쪽 나누기와 무관한 전체 개수 */
+  photo_count: number;
+  video_count: number;
+}
+
+/** GET /children/{child_id}/parent-media/{media_id}/download 응답. 열면 브라우저가 파일로 저장합니다. */
+export interface ParentMediaDownload {
+  media_id: string;
+  type: "photo" | "video";
+  url: string;
+  url_expires_at: string;
+  filename: string;
 }

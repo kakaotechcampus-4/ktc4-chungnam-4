@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
 import { FACE_DESCRIPTOR_LENGTH } from "./types";
 
-import { FACE_MODEL_BASE_PATH, FACE_MODEL_VERSION } from "./model-manifest";
+import { FACE_MODEL_BASE_PATH, FACE_MODEL_BYTES, FACE_MODEL_VERSION } from "./model-manifest";
 
 // model-manifest.ts는 생성 파일이고 git에 들어 있습니다. 받은 직후에 타입 검사와 테스트가
 // 돌아야 해서인데, 그러면 모델을 바꾸고 스크립트를 안 돌렸을 때 옛 값이 남습니다.
@@ -47,6 +47,18 @@ describe("얼굴 모델 manifest", () => {
     const fromVersion = FACE_MODEL_VERSION.replace("human-face-", "");
 
     expect(FACE_MODEL_BASE_PATH).toBe(`/models/${fromVersion}/`);
+  });
+
+  // 내려받는 양도 모델에서 나옵니다. 화면이 숫자를 직접 들고 있으면 모델을 바꿀 때 같이
+  // 안 고쳐지는데, 실제로 Figma 문구 "200 MB"가 iris를 뺀 뒤에도 남아 9MB를 받으면서
+  // 200MB 눈금을 보여 줬습니다. 해시와 달리 크기는 파일이 바뀌어도 같을 수 있어 따로 봅니다.
+  it("FACE_MODEL_BYTES가 복사하는 파일 전부의 크기 합과 맞는다", () => {
+    const bytes = MODEL_FILES.reduce(
+      (sum, name) => sum + statSync(join(modelsDir(), name)).size,
+      0,
+    );
+
+    expect(FACE_MODEL_BYTES).toBe(bytes);
   });
 
   // 벡터 길이도 모델에서 나옵니다. 모델을 바꾸면 길이가 달라질 수 있는데, 서버는 길이를

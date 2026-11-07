@@ -108,6 +108,11 @@ export interface ChildUpsertRequest {
   class_id: string;
 }
 
+/** POST /children/{child_id}/consents/revoke. 1단계는 ③ 얼굴 특징정보만 철회합니다(#225 ⑥, FR-22) */
+export interface ConsentRevokeRequest {
+  consent_type: "face_feature";
+}
+
 /** 누리과정 5영역. 가정: 원아 개인 페이지의 레이더 차트, 교육 계획의 관련 영역 */
 export type NuriDomain = "physical" | "communication" | "social" | "art" | "nature";
 
@@ -126,7 +131,7 @@ export interface ChildNoteSummary {
  */
 export interface ChildOverview {
   recent_notes: ChildNoteSummary[];
-  domain_counts: Record<NuriDomain, number>;
+  domain_counts: Record<NuriDomain, number> | null;
 }
 
 /**

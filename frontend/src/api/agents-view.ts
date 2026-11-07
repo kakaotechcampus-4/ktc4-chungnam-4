@@ -12,10 +12,16 @@ export type JobStageView = "transcribing" | "collecting_evidence" | "generating"
 /** succeeded일 때만. 미분류는 예외가 아니라 정상 종료입니다. */
 export type JobOutcomeView = "drafted" | "unclassified";
 
-export type UnclassifiedReasonView = "no_speech" | "verification_failed" | "insufficient_evidence";
+export type UnclassifiedReasonView =
+  | "no_speech"
+  | "verification_failed"
+  | "insufficient_evidence"
+  | "no_consent"
+  | "photo_analysis_failed";
 
 /** failed일 때만. 화면 문구는 코드를 보고 만듭니다. */
-export type JobErrorCodeView = "STT_FAILED" | "LLM_TIMEOUT" | "LLM_CALL_FAILED" | "INTERNAL_ERROR";
+export type JobErrorCodeView =
+  "STT_FAILED" | "LLM_TIMEOUT" | "LLM_CALL_FAILED" | "DRAFT_VERSION_CONFLICT" | "INTERNAL_ERROR";
 
 export type DraftDocTypeView = "observation_log" | "parent_note";
 
@@ -70,7 +76,7 @@ export interface JobCreateInput {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 추가 근거(④ 아이별 하루 확인) — 김동건. 가정 API입니다(types/api-draft/agents.ts 아래쪽).
+// 추가 근거(④ 아이별 하루 확인) — 김동건. 서버 API가 있습니다(types/api-draft/agents.ts 아래쪽).
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** 교사가 남긴 그날의 추가 근거(아이마다 최대 한 건) */

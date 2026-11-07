@@ -13,14 +13,30 @@ from core.base import Base
 from core.database import get_db
 from domains.auth.middleware import get_current_user
 from domains.auth.service import ParentProfile, TeacherProfile
+from domains.face.models import FaceEmbedding
 from domains.organization.models import Center, Child, Klass
+from domains.organization.models import ConsentRecord as RosterConsent
+from domains.organization.models import ParentChildRelation as RosterParent
 from main import app
+
+ROSTER_DEFAULTS = {
+    "age_group": "만 4세",
+    "consent_agreed_count": 0,
+    "consent_total": 3,
+    "is_face_registered": False,
+    "face_feature_agreed": False,
+    "face_photo_count": None,
+    "parent_linked": False,
+}
 
 
 @pytest.fixture
 def db() -> Iterator[Session]:
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(
+        engine, tables=[FaceEmbedding.__table__, RosterConsent.__table__, RosterParent.__table__]
     )
     Base.metadata.create_all(engine, tables=[Center.__table__, Klass.__table__, Child.__table__])
     session = sessionmaker(bind=engine)()
@@ -123,8 +139,18 @@ def test_반_원아_명단은_재원_원아만_이름순이다(client: TestClien
     assert response.status_code == 200
     assert response.json() == {
         "items": [
-            {"child_id": str(first), "class_id": str(class_id), "name": "김도윤"},
-            {"child_id": str(second), "class_id": str(class_id), "name": "이하준"},
+            {
+                "child_id": str(first),
+                "class_id": str(class_id),
+                "name": "김도윤",
+                **ROSTER_DEFAULTS,
+            },
+            {
+                "child_id": str(second),
+                "class_id": str(class_id),
+                "name": "이하준",
+                **ROSTER_DEFAULTS,
+            },
         ],
         "next_cursor": None,
     }
@@ -139,7 +165,8 @@ def test_원아_명단_응답에_생년월일이_없다(client: TestClient, db: 
 
     [item] = client.get(f"/api/v1/classes/{class_id}/children").json()["items"]
 
-    assert set(item) == {"child_id", "class_id", "name"}
+    assert set(item) == {"child_id", "class_id", "name", *ROSTER_DEFAULTS}
+    assert "birth_date" not in item
 
 
 def test_없는_반의_명단은_404(client: TestClient, db: Session):

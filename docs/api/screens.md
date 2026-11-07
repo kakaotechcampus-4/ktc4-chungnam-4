@@ -46,7 +46,7 @@
 | ③ 정은 | 대시보드 | `GET /classes/{class_id}/drafts?record_date=`(승인 완료·검토 필요·생성 중·기록 전, 알림장 기준), `GET /classes/{class_id}/children`(명단, 동의·얼굴 필드는 확장(경로만)). "오늘의 기록 이어하기"는 jobs를 조회하지 않고 `/t/today`로 보내고, "기록하기"는 초안 검토 화면으로 보냄 — 임시 결정(정은) | 둘 다 |
 | ④ 김동건 | 얼굴 분류 · 결과 확인 | `GET /classes/{class_id}/children`("전체 5명"), `GET /media/{media_id}/transcript-segments`("발화 N개", 상세 작성·임시 결정(김동건)), 추가 근거 표시는 `GET /classes/{class_id}/evidence?record_date=`(제안, agents.md 하단). 사진 분류는 브라우저 안에서, 영상·음성은 이 화면 전에 먼저 올림(제안, media-face.md 하단 §6). 사진 귀속과 `llm_allowed`(확인 체크)는 서버 전송 때 보냄 | 둘 다 |
 | ④ 김동건 | 수동 분류 / 사진 | `GET /classes/{class_id}/children`(원아 선택지). 귀속은 서버 전송 때 보냄. 아이 카드의 사진을 눌러 아이를 바꾸는 화면(Figma 없음)도 같은 호출 | 상세 작성 |
-| ④ 김동건 | 수동 분류 / 발화 | `GET /classes/{class_id}/children`, `GET /media/{media_id}/transcript-segments`, `PATCH /transcript-segments/{segment_id}`(아이 연결·화자·문장 수정·제외, 상세 작성·임시 결정(김동건)) | 상세 작성 |
+| ④ 김동건 | 수동 분류 / 발화 | `GET /classes/{class_id}/children`, `GET /media/{media_id}/transcript-segments`, `PATCH /transcript-segments/{segment_id}`(화자·문장 수정·제외), `PUT /media/{media_id}/child-links`(파일마다 아이 고르기, 10/29 #163). 상세 작성·임시 결정(김동건) | 상세 작성 |
 | ④ 김동건 | 아이별 하루 확인(하루 정리 확인 + 추가 근거 작성) | 전송 전 자료로 그림: 이 기기의 사진, `GET /media/{media_id}/transcript-segments`·`PATCH /transcript-segments/{segment_id}`(발화 빼기), `GET /classes/{class_id}/evidence?record_date=`·`PUT /children/{child_id}/evidence/{record_date}`(추가 근거, 제안, agents.md 하단). "초안 만들기" 없음 — 전송은 분류 결과에서(#83 리뷰) | 둘 다 |
 | ④ 김동건 | 얼굴 정보 등록 | `PUT /children/{child_id}/face-embedding`(상세 작성, 임시 결정(김동건)), `GET /children/{child_id}`(동의·등록 상태, 경로만) | 둘 다 |
 | ④ 김동건 | 얼굴 정보 삭제 확인 | 얼굴 정보 등록의 호출 그대로, `DELETE /children/{child_id}/face-embedding`(상세 작성, 임시 결정(김동건)), `POST /children/{child_id}/consents/revoke`(동의 철회, 경로만) | 둘 다 |
@@ -66,7 +66,7 @@
 - **계정 · 설정**: 알림 설정 3개(초안 준비 완료 알림, 학부모 확인 알림, 주간 요약 메일)를 읽고 저장할 곳. `GET /me`·`PATCH /me`에 넣을지 정해야 합니다. (auth)
 - **학부모 초대 링크**: 지금 쓰는 초대 링크 조회. "초대 링크 복사"에 필요합니다. 경로만 정한 API에는 만들기(`POST`)만 있습니다. (organization) → 임시 결정(이한나): `GET /children/{child_id}/parent-invites` 추가. 반영: organization.md §② 화면용으로 채운 엔드포인트
 - **원아 개인 페이지**: 이번 달 기록 수와 누리과정 5영역별 기록 수. (documents)
-- **추가 근거 작성**: 교사가 쓴 관찰 메모(연결할 아이, 활동 시각, 음성, 관련 사진)를 그날 근거로 저장. (agents 또는 media · face) → 글만 받는 모양으로 제안: agents.md 하단 §상의 필요 2
+- **추가 근거 작성**: 교사가 쓴 관찰 메모(연결할 아이, 활동 시각, 음성, 관련 사진)를 그날 근거로 저장. (agents 또는 media · face) → 글만 받는 모양으로 제안: agents.md 하단 §상의 필요 2. **11/6 디스코드에서 구현으로 결정**(정은·엄태은, 글만)
 - **알림장 상세**: 게시한 알림장의 "수정하기". `reopen`은 게시 전까지만 적혀 있습니다. (documents)
 - **관찰일지 목록**: 반 전체 관찰일지를 기간(이번 주·이번 달·전체)으로 한 번에 받는 목록. 경로만 정한 API에는 원아별 목록만 있습니다. (documents)
 

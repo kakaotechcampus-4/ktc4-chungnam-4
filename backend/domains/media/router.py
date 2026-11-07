@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from http import HTTPStatus
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Response
@@ -19,13 +19,22 @@ from domains.auth.middleware import CurrentTeacher
 from domains.media import service
 from domains.media.schemas import (
     ChildLinkBody,
+    ChildLinksRequest,
+    ChildLinksResponse,
     MediaAssetResponse,
     MediaCompleteRequest,
     MediaUrlResponse,
+    TranscriptSegmentItem,
+    TranscriptSegmentsResponse,
+    TranscriptSegmentUpdateRequest,
     UploadUrlResponseItem,
     UploadUrlsRequest,
     UploadUrlsResponse,
 )
+from domains.media.tasks import enqueue_transcription
+
+if TYPE_CHECKING:
+    from domains.media.models import TranscriptSegment
 
 router = APIRouter(tags=["media"])
 
@@ -79,6 +88,7 @@ def complete_upload(
     )
     # 이 응답이 ack입니다. FE는 이걸 받고 원본을 지우므로 커밋이 끝난 뒤에 돌려줍니다
     db.commit()
+    enqueue_transcription(result.to_transcribe)
     response.status_code = _STATUS_BY_CREATED[result.created]
     asset = result.asset
     return MediaAssetResponse(
@@ -90,6 +100,31 @@ def complete_upload(
         size_bytes=asset.size_bytes,
         llm_allowed=asset.llm_allowed,
         child_links=_links(result.child_links),
+        attributed_at=asset.attributed_at,
+    )
+
+
+@router.put("/media/{media_id}/child-links", response_model=ChildLinksResponse)
+def save_child_links(
+    media_id: UUID,
+    body: ChildLinksRequest,
+    db: Annotated[Session, Depends(get_db)],
+    teacher: CurrentTeacher,
+) -> ChildLinksResponse:
+    """교사가 고른 귀속과 `llm_allowed`를 전체 교체로 저장합니다. 주로 영상·음성 (FR-04, FR-14)."""
+    asset, links = service.save_child_links(
+        db,
+        media_id=media_id,
+        center_id=teacher.center_id,
+        attributions=body.to_attributions(),
+        llm_allowed=body.llm_allowed,
+    )
+    # agents가 attributed_at으로 Job 시작을 판정하므로 커밋이 끝난 뒤에 돌려줍니다
+    db.commit()
+    return ChildLinksResponse(
+        media_id=asset.id,
+        llm_allowed=asset.llm_allowed,
+        child_links=_links(links),
         attributed_at=asset.attributed_at,
     )
 
@@ -116,3 +151,58 @@ def reissue_media_url(
         url=signed.url,
         url_expires_at=signed.url_expires_at,
     )
+
+
+def _segment_item(segment: TranscriptSegment) -> TranscriptSegmentItem:
+    return TranscriptSegmentItem(
+        segment_id=segment.id,
+        media_id=segment.media_id,
+        source=segment.source,
+        start_time=segment.start_time,
+        end_time=segment.end_time,
+        raw_text=segment.raw_text,
+        text=service.transcript_text_of(segment),
+        speaker=segment.speaker,
+        excluded=segment.excluded,
+        reviewed_at=segment.reviewed_at,
+    )
+
+
+@router.get("/media/{media_id}/transcript-segments", response_model=TranscriptSegmentsResponse)
+def list_transcript_segments(
+    media_id: UUID,
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+    teacher: CurrentTeacher,
+) -> TranscriptSegmentsResponse:
+    """영상·음성의 발화 구간. 화면은 STT가 끝날 때까지 2초마다 부릅니다 (FR-14, FR-27)."""
+    view = service.list_transcript_segments(
+        db, media_id=media_id, teacher_id=teacher.teacher_id, center_id=teacher.center_id
+    )
+    # 열람 기록(AccessLog)이 커밋된 뒤에만 발화 원문을 내보냅니다 (NFR-05)
+    db.commit()
+    # 실명 호명이 섞인 원문이 디스크·프록시 캐시에 남지 않게 합니다
+    response.headers["Cache-Control"] = "no-store"
+    return TranscriptSegmentsResponse(
+        media_id=view.asset.id,
+        transcript_status=view.transcript_status,
+        child_links=_links(view.child_links),
+        llm_allowed=view.asset.llm_allowed,
+        attributed_at=view.asset.attributed_at,
+        items=[_segment_item(segment) for segment in view.segments],
+    )
+
+
+@router.patch("/transcript-segments/{segment_id}", response_model=TranscriptSegmentItem)
+def update_transcript_segment(
+    segment_id: UUID,
+    body: TranscriptSegmentUpdateRequest,
+    db: Annotated[Session, Depends(get_db)],
+    teacher: CurrentTeacher,
+) -> TranscriptSegmentItem:
+    """발화의 화자·문장을 고치거나 근거에서 뺍니다. 보낸 칸만 바꿉니다 (FR-14, FR-27)."""
+    segment = service.update_transcript_segment(
+        db, segment_id=segment_id, center_id=teacher.center_id, changes=body.changes()
+    )
+    db.commit()
+    return _segment_item(segment)

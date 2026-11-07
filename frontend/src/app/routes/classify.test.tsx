@@ -1,8 +1,24 @@
+// 클립을 지원하는 화면 흐름의 회귀 검증. 사진 전용 배포 차단은 photo-only.test.ts에서 별도 검증합니다.
+vi.mock("@/features/upload-queue/media-capabilities", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/features/upload-queue/media-capabilities")>()),
+  CLIPS_ENABLED: true,
+}));
+
+vi.mock("@/workers/face/client", () => ({
+  extractEmbedding: vi.fn(async () => ({
+    extract_state: "extracted",
+    embedding: { embedding: Array(1024).fill(0.1), model_version: "human-face-test" },
+  })),
+  prepareFaceModels: vi.fn(async () => true),
+  classifyPhoto: vi.fn(),
+}));
+
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { File as NodeFile } from "node:buffer";
 import { http, HttpResponse } from "msw";
 
+import { mediaKeys } from "@/api/media";
 import { routes } from "@/app/router";
 import {
   isPhoto,
@@ -20,6 +36,7 @@ import { server } from "@/mocks/server";
 import { renderRoutes } from "@/test/render";
 import type { TranscriptSegmentsResponse } from "@/types/api-draft/media";
 
+const SUNNY_CLASS = fixtureId("class", 1);
 const DOYUN = fixtureId("child", 1);
 const HAJUN = fixtureId("child", 2);
 const JIWOO = fixtureId("child", 4);
@@ -69,6 +86,15 @@ function photo(n: number): LocalPhoto {
   const found = photos().find((item) => item.client_id === fixtureId("clientPhoto", n));
   if (!found) throw new Error(`사진 ${n}번이 큐에 없습니다.`);
   return found;
+}
+
+/** 몸체 없는 조회 요청을 셉니다. 캐시를 비웠는지는 "다시 받았는지"로만 밖에서 볼 수 있습니다. */
+function countGets(matches: (url: string) => boolean) {
+  const urls: string[] = [];
+  server.events.on("request:start", ({ request }) => {
+    if (request.method === "GET" && matches(request.url)) urls.push(request.url);
+  });
+  return urls;
 }
 
 function capture(method: string, matches: (url: string) => boolean) {
@@ -126,6 +152,18 @@ describe("분류 결과", () => {
       "href",
       `/t/today/children/${DOYUN}/summary`,
     );
+  });
+
+  // 직접 작성 화면은 두지 않기로 했습니다(10/06 회의). 없는 화면으로 가는 링크를 두면 404가 뜹니다.
+  it("자료 없는 원아는 없는 화면으로 가는 링크 대신 초안 검토에서 쓸 수 있다고 알린다", async () => {
+    seedQueue();
+    renderAt("/t/today/classification");
+
+    await findResultList();
+    expect(screen.queryByRole("link", { name: /직접 기록/ })).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/자료 없는 원아 \d+명은 초안 검토에서 직접 쓸 수 있어요/),
+    ).toBeVisible();
   });
 
   it("확인 체크를 해야 넘어가고, 넘어가면 확실한 사진만 확정해 전송 단계로 간다", async () => {
@@ -295,6 +333,28 @@ describe("수동 분류 · 사진", () => {
     expect(screen.getByText("확인 필요 4개")).toBeVisible();
   });
 
+  // 테크스펙 H-2 판정 경로: 자동으로 못 맞힌 사진도 교사가 아이를 고르면 귀속이 끝납니다(FR-14).
+  it("수동 분류한 사진도 확인 체크 뒤에는 LLM을 허용해 보낸다", async () => {
+    seedQueue();
+    const user = userEvent.setup();
+    renderAt("/t/today/manual-sort");
+
+    expect(
+      await screen.findByText(/명단에 없는 사람이 나오면 이 자료를 제외해 주세요/),
+    ).toBeVisible();
+    await user.click(await screen.findByRole("checkbox", { name: "최지우" }));
+    await user.click(screen.getByRole("button", { name: "선택한 아이에게 연결" }));
+    await waitForSpeech();
+    await user.click(screen.getByRole("checkbox", { name: "아이 분류를 확인했어요" }));
+    await user.click(screen.getByRole("button", { name: "확인한 자료로 계속" }));
+
+    expect(photo(5)).toMatchObject({
+      review_state: "확정",
+      assigned_child_ids: [JIWOO],
+      llm_allowed: true,
+    });
+  });
+
   it("제외한 사진은 업로드 목록에서 빠진다", async () => {
     seedQueue();
     const user = userEvent.setup();
@@ -368,12 +428,28 @@ describe("수동 분류 · 발화", () => {
     expect(screen.getByText("처리 1 / 4개")).toBeVisible();
     expect(patched).toEqual([
       {
-        child_ids: [DOYUN],
         speaker: "together",
         excluded: false,
         text: "내가 제일 높이 쌓아 볼게!",
       },
     ]);
+  });
+
+  // 고르지 않은 화자를 "아이"로 채우면 교사의 말이 아이가 한 말로 생성 근거에 들어갑니다.
+  // null로 저장해야 서버가 근거에서 뺍니다(#232 리뷰, FR-06).
+  it("화자를 고르지 않고 연결하면 화자를 비운 채 저장한다", async () => {
+    const patched = capture("PATCH", (url) => url.includes("/transcript-segments/"));
+    seedQueue();
+    const user = userEvent.setup();
+    renderAt("/t/today/manual-sort?tab=speech");
+
+    expect(await screen.findByText("“내가 더 높이 쌓아 볼게!”")).toBeVisible();
+    for (const radio of screen.getAllByRole("radio")) expect(radio).not.toBeChecked();
+    await user.click(await screen.findByRole("checkbox", { name: "김도윤" }));
+    await user.click(screen.getByRole("button", { name: "선택한 아이에게 연결" }));
+
+    expect(await screen.findByText("“탑이 무너졌네. 다시 해 볼까?”")).toBeVisible();
+    expect(patched).toEqual([{ speaker: null, excluded: false }]);
   });
 
   it("발화를 다 처리하면 분류 결과로 돌아가고, 연결한 발화는 아이 카드에 센다", async () => {
@@ -387,10 +463,14 @@ describe("수동 분류 · 발화", () => {
     // 저장 → 다음 발화로 이동을 세 번 거쳐서, 전체 테스트가 함께 돌 때는 기본 대기(1초)를 넘길 수 있습니다.
     for (let i = 0; i < 3; i += 1) {
       await screen.findByText(`처리 ${i + 1} / 4개`, undefined, { timeout: 5000 });
-      await user.click(screen.getByRole("button", { name: "이 자료 제외" }));
+      const exclude = screen.getByRole("button", { name: "이 자료 제외" });
+      await waitFor(() => expect(exclude).toBeEnabled());
+      await user.click(exclude);
     }
 
-    await waitFor(() => expect(router.state.location.pathname).toBe("/t/today/classification"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/t/today/classification"), {
+      timeout: 5000,
+    });
     expect(await screen.findByText("미분류 발화를 모두 정리했어요.")).toBeVisible();
     const list = await findResultList();
     const hajunCard = await waitFor(() => {
@@ -399,7 +479,7 @@ describe("수동 분류 · 발화", () => {
       return card;
     });
     expect(hajunCard).toBeInTheDocument();
-  });
+  }, 15_000);
 
   it("발화 저장에 실패하면 화면에 남아 이유를 보여 준다", async () => {
     server.use(
@@ -513,6 +593,25 @@ describe("아이별 하루 확인", () => {
     expect(screen.getByRole("button", { name: "근거 저장" })).toBeDisabled();
   });
 
+  it("추가 근거는 고른 활동 날짜로 저장한다", async () => {
+    useUploadQueue.getState().setRecordDate("2026-09-01");
+    const saved: string[] = [];
+    server.events.on("request:start", ({ request }) => {
+      if (request.method === "PUT" && request.url.includes("/evidence/")) saved.push(request.url);
+    });
+    const user = userEvent.setup();
+    renderAt(`/t/today/children/${DOYUN}/summary`);
+
+    const textbox = await screen.findByRole("textbox", { name: "관찰 내용" });
+    await waitFor(() => expect(textbox).toBeEnabled());
+    await user.type(textbox, "나뭇잎을 비교했어요.");
+    await user.click(screen.getByRole("button", { name: "근거 저장" }));
+
+    expect(await screen.findByText("저장했어요.")).toBeVisible();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toContain(`/children/${DOYUN}/evidence/2026-09-01`);
+  });
+
   it("추가 근거 저장에 실패하면 이유를 보여 준다", async () => {
     server.use(
       http.put(apiPath("/children/:childId/evidence/:recordDate"), () =>
@@ -555,6 +654,39 @@ describe("얼굴 정보", () => {
     expect(screen.queryByRole("img", { name: "고른 사진 1" })).not.toBeInTheDocument();
     // H-3: 사진이 아니라 벡터와 모델 버전만 보냅니다.
     expect(Object.keys(requests[0] as object).sort()).toEqual(["embedding", "model_version"]);
+    expect((requests[0] as { embedding: number[] }).embedding).toHaveLength(1024);
+  });
+
+  // 삭제와 반대 방향의 같은 문제입니다. 비우지 않으면 방금 등록한 아이가 분류에서 빠지고,
+  // 원아 등록 화면도 "미등록"으로 남습니다.
+  it("얼굴 정보를 등록해도 반 임베딩과 명단 캐시를 비운다", async () => {
+    const user = userEvent.setup();
+    const rosterFetches = countGets(
+      (url) => url.includes("/classes/") && url.endsWith("/children"),
+    );
+    const { queryClient } = renderAt(`/t/children/${DOYUN}/face`);
+    const embeddings = mediaKeys.faceEmbeddings(SUNNY_CLASS);
+    queryClient.setQueryData(embeddings, []);
+
+    await user.upload(
+      await screen.findByLabelText("등록할 사진"),
+      new File(["face"], "face.jpg", { type: "image/jpeg" }),
+    );
+    const before = rosterFetches.length;
+    await user.click(screen.getByRole("button", { name: "얼굴 정보 등록 · 갱신" }));
+
+    expect(await screen.findByText("얼굴 정보를 등록했어요.")).toBeVisible();
+    await waitFor(() => expect(queryClient.getQueryState(embeddings)?.isInvalidated).toBe(true));
+    await waitFor(() => expect(rosterFetches.length).toBeGreaterThan(before));
+  });
+
+  // 동의·등록 상태 조회 API가 아직 없습니다. 고정 예시 값을 두면 등록하지 않은 원아도 "등록됨"으로 보입니다.
+  it("서버 값이 없는 동안에는 예시 등록 상태를 보이지 않는다", async () => {
+    renderAt(`/t/children/${DOYUN}/face`);
+
+    await screen.findByRole("button", { name: "얼굴 정보 등록 · 갱신" });
+    expect(screen.queryByText(/등록됨 ·/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/동의 3 \/ 3/)).not.toBeInTheDocument();
   });
 
   it("등록 전에는 칸마다 사진을 뺄 수 있다", async () => {
@@ -622,6 +754,38 @@ describe("얼굴 정보", () => {
 
     await waitFor(() => expect(router.state.location.pathname).toBe(`/t/children/${DOYUN}/face`));
     expect(await screen.findByText("얼굴 정보를 삭제했어요.")).toBeVisible();
+  });
+
+  // 얼굴 특징정보는 서버에 저장하고 서버에서 지웁니다. '이 기기에 저장된'이라고 하면 개인정보를
+  // 어디서 처리하는지 잘못 알립니다(10/30 배포 점검 8번).
+  it("삭제 화면은 얼굴 특징정보를 서버에서 지운다고 안내한다", async () => {
+    renderAt(`/t/children/${DOYUN}/face/delete`);
+
+    expect(await screen.findByText(/서버에 저장된 얼굴 특징정보를 삭제해요/)).toBeVisible();
+    expect(screen.getByText(/서버에 저장된 자동 분류용 정보/)).toBeVisible();
+    expect(screen.queryByText(/이 기기/)).not.toBeInTheDocument();
+  });
+
+  // 지운 벡터를 캐시가 들고 있으면 교사가 삭제를 누른 뒤에도 그 얼굴로 분류가 돕니다. 기본
+  // staleTime이 30초이고 처리 화면은 창을 다시 띄워도 새로 받지 않게 꺼 두어서, 비우지 않으면
+  // 그 사이 올린 사진이 지운 정보로 분류됩니다. 명단도 "얼굴 정보 등록됨"으로 남습니다.
+  it("얼굴 정보를 삭제하면 반 임베딩과 명단 캐시를 비운다", async () => {
+    const user = userEvent.setup();
+    const rosterFetches = countGets(
+      (url) => url.includes("/classes/") && url.endsWith("/children"),
+    );
+    const { queryClient } = renderAt(`/t/children/${DOYUN}/face/delete`);
+    // 처리 화면을 다녀와 임베딩 캐시가 차 있는 상태를 만듭니다.
+    const embeddings = mediaKeys.faceEmbeddings(SUNNY_CLASS);
+    queryClient.setQueryData(embeddings, []);
+    const deleteButton = await screen.findByRole("button", { name: "얼굴 정보 삭제" });
+    const before = rosterFetches.length;
+
+    await user.click(deleteButton);
+
+    // 임베딩은 이 화면이 보고 있지 않아 "비었다" 표시만 남고, 명단은 보고 있어 다시 받습니다.
+    await waitFor(() => expect(queryClient.getQueryState(embeddings)?.isInvalidated).toBe(true));
+    await waitFor(() => expect(rosterFetches.length).toBeGreaterThan(before));
   });
 
   it("삭제에 실패하면 화면에 남아 이유를 보여 준다", async () => {

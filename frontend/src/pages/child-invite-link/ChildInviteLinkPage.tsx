@@ -1,14 +1,9 @@
 // Figma: 1:1945
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useParams } from "react-router";
 
-import {
-  childInviteQueryOptions,
-  childQueryOptions,
-  organizationKeys,
-  regenerateChildInvite,
-} from "@/api/organization";
+import { childQueryOptions, regenerateChildInvite } from "@/api/organization";
 import { FocusCard } from "@/components/common/FocusCard";
 import { PageHeader } from "@/components/common/PageHeader";
 import {
@@ -24,7 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 
-// TODO(이한나): ⛔ #39 초대 링크의 발급 주체·형식·만료가 정해지지 않았습니다. 정해지면 문구와 동작을 맞춥니다.
+// FR-28, #225: 토큰은 해시만 보관하므로 발급한 화면에서만 복사할 수 있습니다.
 
 const EYEBROW = "우리 반 관리 / 학부모 연결";
 const TITLE = "학부모 초대 링크";
@@ -51,34 +46,29 @@ function maskInviteUrl(inviteUrl: string) {
 
 export function ChildInviteLinkPage() {
   const { childId = "" } = useParams();
-  const queryClient = useQueryClient();
   const childQuery = useQuery(childQueryOptions(childId));
-  const inviteQuery = useQuery(childInviteQueryOptions(childId));
   const [copyState, setCopyState] = useState<CopyState>("idle");
 
   const regenerate = useMutation({
     mutationFn: () => regenerateChildInvite(childId),
-    onSuccess: async () => {
-      setCopyState("idle");
-      await queryClient.invalidateQueries({ queryKey: organizationKeys.childInvite(childId) });
-    },
+    onSuccess: () => setCopyState("idle"),
   });
 
   const child = childQuery.data;
-  const invite = inviteQuery.data;
+  const invite = regenerate.data;
   const subtitle = child ? `${child.name} · ${child.class_name}` : undefined;
 
   async function copyLink() {
     if (!invite) return;
     try {
-      await navigator.clipboard.writeText(invite.invite_url);
+      await navigator.clipboard.writeText(new URL(invite.invite_url, window.location.origin).href);
       setCopyState("copied");
     } catch {
       setCopyState("failed");
     }
   }
 
-  const error = childQuery.error ?? inviteQuery.error;
+  const error = childQuery.error;
 
   return (
     <>
@@ -87,7 +77,7 @@ export function ChildInviteLinkPage() {
         <p role="alert" className="text-body text-destructive">
           {error.message}
         </p>
-      ) : !child || !invite ? (
+      ) : !child ? (
         <p role="status" className="text-body text-ink-muted">
           초대 링크를 불러오고 있어요.
         </p>
@@ -97,20 +87,21 @@ export function ChildInviteLinkPage() {
             className="min-h-140 justify-between"
             footer={
               <>
-                <Button className="w-57.5" onClick={copyLink}>
+                <Button className="w-57.5" onClick={copyLink} disabled={!invite}>
                   {copyState === "copied" ? "복사했어요" : "초대 링크 복사"}
                 </Button>
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button className="w-57.5" disabled={regenerate.isPending}>
-                      링크 다시 만들기
+                      {invite ? "링크 다시 만들기" : "초대 링크 만들기"}
                     </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
                       <AlertDialogTitle>링크를 다시 만들까요?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        새 링크를 만들면 이전 링크는 사용할 수 없어요.
+                        링크는 7일 동안 한 번만 사용할 수 있어요. 새로 만들면 이전 링크는 무효가
+                        됩니다.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -131,16 +122,20 @@ export function ChildInviteLinkPage() {
               <p className="text-nav text-ink-muted">
                 이 아이의 알림장을 확인할 보호자에게 링크를 전달해 주세요.
               </p>
-              <p className="text-lead font-bold text-ink">{maskInviteUrl(invite.invite_url)}</p>
+              <p className="text-lead font-bold text-ink">
+                {invite
+                  ? maskInviteUrl(new URL(invite.invite_url, window.location.origin).href)
+                  : "아래 버튼으로 초대 링크를 만들어 주세요."}
+              </p>
               <p className="flex gap-3 text-body text-ink-muted">
                 <span>연결 상태</span>
                 <span aria-hidden="true">·</span>
                 <span>
-                  {invite.parent_linked ? "보호자가 연결됐어요" : "아직 연결된 보호자가 없어요"}
+                  {child.parent_linked ? "보호자가 연결됐어요" : "아직 연결된 보호자가 없어요"}
                 </span>
               </p>
               <p className="text-label text-ink-muted">
-                새 링크를 만들면 이전 링크는 사용할 수 없어요.
+                링크는 7일 동안 한 번만 사용할 수 있어요. 새로 만들면 이전 링크는 무효가 됩니다.
               </p>
               {copyState === "copied" ? (
                 <p role="status" className="text-label text-brand-ink">

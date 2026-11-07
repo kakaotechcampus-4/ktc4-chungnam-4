@@ -26,7 +26,10 @@ describe("ChildInviteLinkPage", () => {
 
     expect(await screen.findByText("서아의 보호자를 초대해요")).toBeInTheDocument();
     expect(screen.getByText("박서아 · 햇살반")).toBeInTheDocument();
-    expect(screen.getByText("aidam.test/invite/••••••••")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "초대 링크 복사" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "초대 링크 만들기" }));
+    await user.click(await screen.findByRole("button", { name: "다시 만들기" }));
+    expect(await screen.findByText("aidam.test/invite/••••••••")).toBeInTheDocument();
     expect(screen.getByText("보호자가 연결됐어요")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "초대 링크 복사" }));
@@ -41,7 +44,7 @@ describe("ChildInviteLinkPage", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(await screen.findByRole("button", { name: "링크 다시 만들기" }));
+    await user.click(await screen.findByRole("button", { name: "초대 링크 만들기" }));
     await user.click(await screen.findByRole("button", { name: "다시 만들기" }));
 
     expect(await screen.findByText("새 링크를 만들었어요.")).toBeInTheDocument();

@@ -47,3 +47,28 @@ export interface LoginInput {
   email: string;
   password: string;
 }
+
+export interface SignupInput extends LoginInput {
+  name: string;
+  center_code?: string;
+  new_center?: { name: string; address: string };
+}
+export interface SignupView {
+  center_code: string | null;
+}
+export interface InvitePreviewView {
+  child_name: string;
+  class_name: string;
+  center_name: string;
+  expires_at: string;
+}
+export interface InviteAcceptInput {
+  email?: string;
+  password?: string;
+  name?: string;
+  is_legal_guardian: boolean;
+  consents: { personal_info: boolean; activity_media: boolean; face_feature: boolean };
+}
+export interface InviteAcceptedView {
+  child_id: string;
+}

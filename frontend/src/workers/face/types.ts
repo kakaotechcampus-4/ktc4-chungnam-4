@@ -4,9 +4,7 @@
 // ExtractedEmbedding을, 처리 중(정은)은 ClassificationResult를 받습니다. 모양을 먼저 못
 // 박아 두면 두 화면이 구현을 기다려야 합니다.
 //
-// 검출·벡터 추출·대조 구현은 같은 폴더의 detector·embedding·matcher가 맡고, 지금은
-// pages/face-register/mock-embedding.ts와 pages/processing/fake-classify.ts가 가짜로
-// 대신하고 있습니다. 구현이 들어오는 PR에서 그 두 파일을 지웁니다.
+// client가 Web Worker를 호출하고 detector·matcher가 실제 모델 계산을 맡습니다.
 //
 // H-3: 얼굴 검출·벡터 계산은 전부 브라우저 안에서 끝납니다. 등록 사진 원본은 서버·S3로
 // 나가지 않고, 서버로 보내는 것은 등록 때의 embedding과 model_version뿐입니다.
@@ -45,6 +43,27 @@ export interface DetectedFace {
    * 이름은 테크스펙 §온디바이스 모델의 `confidence`를 따릅니다(#121 리뷰 송유진 님).
    */
   confidence: number;
+  /**
+   * 정렬(FaceMesh) 점수(0~1). "눈·코·입을 제대로 잡았나"입니다 — HUMAN의 `faceScore`.
+   *
+   * `confidence`와 다릅니다. 그쪽은 검출·정렬을 **합친** 값이라 옆모습도 검출이 잘되면
+   * 함께 올라갑니다. 기준값을 정하려면 정렬 점수만 따로 봐야 합니다.
+   *
+   * `usable`이 이 값으로 갈립니다. 판정 결과만으로는 "기준을 얼마로 할지"를 잴 수 없어
+   * 점수 자체를 함께 내보냅니다(확인 도구가 분포를 그립니다).
+   */
+  meshScore: number;
+  /**
+   * **벡터를 믿을 수 있는가.** 거짓이면 "얼굴이 있다"는 것만 쓰고 대조에는 넣지 않습니다.
+   *
+   * 옆모습처럼 정렬(FaceMesh)이 제대로 안 된 얼굴입니다. HUMAN 기본값은 이런 얼굴을 아예
+   * 버리는데, 그러면 사진에 **없는 사람**이 되어 미동의 원아가 미식별로도 안 잡힙니다(H-2).
+   * `keepInvalid`로 받아 두고 여기서 가릅니다.
+   *
+   * **길이가 아니라 정렬 점수로 가릅니다** — `keepInvalid`로 남긴 얼굴도 faceres가 1024
+   * 벡터를 만들어 내므로 길이로는 걸러지지 않습니다(#226 재리뷰 송유진 님).
+   */
+  usable: boolean;
 }
 
 /**
@@ -167,7 +186,7 @@ export type MatchFace = (
  * 사진 한 장을 분류한 결과입니다. 처리 중 화면이 그대로 씁니다.
  *
  * 모양을 새로 만들지 않고 upload-queue-store의 것을 그대로 내보냅니다 — 지금
- * fake-classify.ts가 돌려주는 것과 같아야 화면을 고치지 않고 진짜 구현으로 바꿀 수 있습니다.
+ * 처리 화면과 Worker 사이에 같은 분류 결과 계약을 사용합니다.
  */
 export type { ChildCandidate, ClassificationResult };
 

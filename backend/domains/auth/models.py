@@ -82,3 +82,17 @@ class Parent(Base):
     phone = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
+
+
+class ParentInvite(Base):
+    """원문 없이 보관하는 일회용 초대 (FR-28, #225)."""
+
+    __tablename__ = "parent_invites"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    child_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    created_by_teacher_id = Column(UUID(as_uuid=True), nullable=False)
+    token_hash = Column(String(64), nullable=False, unique=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    consumed_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)

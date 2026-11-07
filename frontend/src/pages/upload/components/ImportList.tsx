@@ -15,7 +15,11 @@ const KIND_LABEL_MAP: Record<MediaKind, string> = {
   voice_memo: "녹음",
 };
 
+// 1MB보다 작으면 KB로 씁니다. MB 소수 한 자리만 쓰면 51KB보다 작은 파일이 '0.0MB'로 보입니다.
+// KB는 올림이라 1MB 바로 아래 파일은 '1024KB'가 되므로, 그때부터 MB로 씁니다.
 function formatSize(bytes: number) {
+  const kilobytes = Math.ceil(bytes / 1024);
+  if (kilobytes < 1024) return `${String(kilobytes)}KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 }
 

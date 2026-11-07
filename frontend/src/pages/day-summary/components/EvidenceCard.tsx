@@ -101,7 +101,7 @@ export function EvidenceCard({ child, recordDate }: EvidenceCardProps) {
         <div className="flex items-center justify-between gap-3">
           <p aria-live="polite" className="text-caption text-ink-muted">
             {savedNow ? "저장했어요." : null}
-            {!savedNow && editing ? "저장하면 오늘 남긴 근거가 이 내용으로 바뀌어요." : null}
+            {!savedNow && editing ? "저장하면 남겨 둔 근거가 이 내용으로 바뀌어요." : null}
           </p>
           <Button type="submit" disabled={!canSave}>
             {saving.isPending ? "저장하는 중…" : editing ? "근거 수정" : "근거 저장"}

@@ -9,7 +9,7 @@
 (막힘)은 정해져야 FE 목(MSW)과 BE schemas를 만들 수 있는 항목입니다. 막히면 작업하는 사람이 정하고 진행합니다. 정한 값은 같은 PR에서 이 파일에 반영하고, 항목을 `[x]`로 바꾼 뒤 `임시 결정(이름)`과 반영한 곳을 적습니다([README](README.md) §이 문서를 읽는 법). 담당의 답은 이슈 #58 댓글이나 이 파일을 고치는 PR로 받습니다.
 
 - [x] (막힘) `get_consented_children` 구현(이슈 #31 → #105). face 임베딩 캐시와 `llm_allowed` 판정이 이 함수를 기다림 → 구현(이한나, #134). 반영: `backend/domains/organization/service.py`
-- [x] `age_group` 값 형식("만 4세" vs "만 3~5세"), 코드와 표시 라벨을 나눌지 → 임시 결정(이한나): 코드 `age_band`(`infant`·`preschool`)와 표시 `age_group`("만 4세")을 나눔. 에이전트는 `age_band`로 교육과정을 고름. 반영: §② 화면용으로 채운 엔드포인트의 `ClassSummary`
+- [x] `age_group` 값 형식("만 4세" vs "만 3~5세"), 코드와 표시 라벨을 나눌지 → 확정(팀 결정): 코드 `age_band`(`infant`·`preschool`)와 표시 `age_group`("만 4세")을 나눔. 에이전트는 `age_band`로 교육과정을 고름. 반영: §② 화면용으로 채운 엔드포인트의 `ClassSummary`
 - [ ] 필수 동의 ①② 기록이 없는 원아를 명단에서 뺄지(김동건과 함께)
 - [ ] NFR-03 만료 자녀를 `access_expired: true`로 남기는 안
 - [ ] `class_teacher_name` 조인 방식(`Class.teacher_id` → auth의 `Teacher.name`)
@@ -21,12 +21,12 @@
 - [ ] develop(PR #14)의 학부모 알림장 API는 `child_id` 없이 로그인한 학부모 기준이라, W3 자녀 칩 전환과 `access_expired` 자녀의 `CHILD_ACCESS_EXPIRED` 차단을 어떻게 할지(한상균과 함께)
 - [x] `organization/CLAUDE.md`의 `/organization` 표기 수정 → 수정(이한나, #146)
 - [ ] 학부모 초대 링크의 만료 기한(7일 제안)과 보호자 여러 명이 한 링크를 쓸지(엄태은·송유진과 함께)
-- [ ] 교사 정보 입력의 가입 완료: 문서는 `POST /accounts`(auth)로 이메일 가입과 합쳐 보냄. FE는 #65와 맞추기 전까지 임시 경로 `PUT /teachers/me/profile`(`{ "name", "center_id" }`)을 목으로 씀(엄태은·송유진과 함께)
+- [x] 교사 정보 입력의 가입 완료: 문서는 `POST /accounts`(auth)로 이메일 가입과 합쳐 보냄. FE는 #65와 맞추기 전까지 임시 경로 `PUT /teachers/me/profile`(`{ "name", "center_id" }`)을 목으로 씀(엄태은·송유진과 함께) → `POST /accounts`로 합침, 임시 경로는 만들지 않음 (임시 결정(엄태은), 송유진 #221 리뷰 동의). 반영: `docs/api/auth.md` §교사 회원가입
 - [ ] 원아 개인 페이지의 이번 달 기록 수·누리과정 5영역별 수(documents). FE는 정해지기 전까지 임시 경로 `GET /children/{child_id}/overview`를 목으로 씀. 응답은 §② 화면용으로 채운 엔드포인트의 `ChildOverview`(김진하·한상균과 함께)
 
 ## 이 도메인의 규칙
 
-organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. 교사의 반 목록, 반 원아 명단, 학부모의 자녀 목록입니다. 반·원아·동의를 만들거나 바꾸는 엔드포인트는 모두 경로만 정했습니다.
+organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. 교사의 반 목록, 반 원아 명단, 학부모의 자녀 목록입니다. 온보딩의 반 고르기·반 만들기·원아 등록과 교육 계획 5개는 아래 §② 화면용으로 채운 엔드포인트의 모양대로 구현했습니다. 원아 상세·수정과 학부모 초대(auth)도 #232로 구현됐습니다. 엔드포인트마다 어디까지 됐는지는 아래 §경로만 정한 엔드포인트 표의 "단계"에 있습니다.
 
 ## 상세 작성 엔드포인트
 
@@ -56,10 +56,10 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 ```
 
 - `center_name`(제안)은 헤더에 쓰려고 `Center.name`을 붙인 값입니다.
-- 교사의 소속 어린이집이 아직 없으면(`center_id`가 null) `items: []`입니다. 소속은 있는데 반이 아직 없는 어린이집도 `items: []`이므로, FE는 두 경우를 `GET /me`의 `center_id`로 구분합니다 — null이면 가입 코드 입력, 있으면 반 만들기·고르기(FR-25). 온보딩 API는 경로만 정했습니다.
+- 교사의 소속 어린이집이 아직 없으면(`center_id`가 null) `items: []`입니다. 소속은 있는데 반이 아직 없는 어린이집도 `items: []`이므로, FE는 두 경우를 `GET /me`의 `center_id`로 구분합니다 — 있으면 반 만들기·고르기(FR-25). 회원가입이 소속을 정해야 끝나므로(`POST /accounts`) null은 `--center-id` 없이 만든 시드 계정뿐입니다. 반 고르기·만들기 API는 아래 §② 화면용으로 채운 엔드포인트에 있습니다.
 - 구현됨(#146): 서버는 위 기본 필드만 돌려줍니다. §② `ClassSummary`의 확장 필드(`age_band`·`child_count`·`is_favorite`·`needs_record_today`)는 아직 없습니다.
 - 에러: 공통 에러만
-- `age_group` 값 형식 → 임시 결정(이한나): 표시용 문자열로 두고, 교육과정은 새 필드 `age_band`로 고릅니다. 이 응답에 더하는 필드는 아래 §② 화면용으로 채운 엔드포인트의 `ClassSummary`에 있습니다.
+- `age_group` 값 형식 → 확정(팀 결정): 표시용 문자열로 두고, 교육과정은 새 필드 `age_band`로 고릅니다. 이 응답에 더하는 필드는 아래 §② 화면용으로 채운 엔드포인트의 `ClassSummary`에 있습니다.
 - 담당교사 개념 폐지로 원장·담임 구분 없이 같은 어린이집 교사는 모든 반을 봅니다.
 
 ### `GET /api/v1/classes/{class_id}/children` — 반의 재원 원아 명단(교사 화면 원아 이름의 유일한 출처)
@@ -187,6 +187,7 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 }
 ```
 
+- 사진 통합 PR에서 명단의 `age_group`·동의 수·`face_feature_agreed`·`is_face_registered`·`parent_linked`를 실제 DB로 채웁니다. 등록 원본을 저장하지 않으므로 `face_photo_count`는 알 수 없어 `null`입니다. 명단에는 생년월일·얼굴 벡터를 넣지 않습니다.
 - 화면의 얼굴 상태는 FE가 만듭니다: `face_feature_agreed`가 false면 "등록 잠김", 아니면 `is_face_registered`로 "등록됨/미등록".
 - `?status=`는 아직 쓰는 화면이 없어 채우지 않았습니다(재원만 돌려줌).
 
@@ -231,7 +232,8 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 
 - `plan_type`: `weekly` / `monthly`(FR-20, FR-21). 월간은 `daily_activities`가 `{}`입니다.
 - `domains`: 누리과정 5영역 `physical`(신체운동·건강) · `communication`(의사소통) · `social`(사회관계) · `art`(예술경험) · `nature`(자연탐구).
-- BE 모델(`EducationPlan`)에는 `title`·`content`만 있어 `goal`·`daily_activities`·`domains`를 더해야 합니다.
+- `goal`은 BE 모델의 `content` 컬럼에 저장합니다. `daily_activities`·`domains`·`updated_at`은 컬럼을 더했습니다(마이그레이션 `3c7e1a9d4f20`).
+- 서버가 막는 조합(422 `VALIDATION_ERROR`) → 임시 결정(이한나): `end_date`가 `start_date`보다 앞, 월간인데 `daily_activities`가 있음, `domains` 중복. 기간이 겹치는 계획은 막지 않습니다.
 
 ### 어린이집·반
 
@@ -240,11 +242,15 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 | `GET /centers?center_code=` | 쿼리 `center_code` | `200 { "center_id", "name" }` | `CENTER_NOT_FOUND`(404). 가입 중이라 권한 검사 없음 |
 | `POST /centers` | `{ "name", "address" }` | `201 { "center_id", "name" }` | 가입 중이라 권한 검사 없음 |
 | `GET /centers/{center_id}/classes` | — | `200 { items: ClassSummary[], next_cursor: null }` | 공통 |
-| `POST /classes` | `{ "center_id", "name", "age_band" }` | `201 ClassSummary`. 만든 교사를 담임으로 배정 | 공통 |
+| `POST /classes` | `{ "center_id", "name", "age_band" }` | `201 ClassSummary`. 만든 교사는 `Klass.teacher_id`에 기록만(담임 배정 없음) | 공통 |
 | `POST /classes/{class_id}/assign` | 없음 | `200 ClassSummary` | `CLASS_NOT_FOUND`(404) |
 | `PATCH /classes/{class_id}/favorite` **(추가)** | `{ "is_favorite": true }` | `200 ClassSummary` | `CLASS_NOT_FOUND`(404) |
 
 - 반 선택 화면의 `center_id`는 `GET /me`(교사)의 `center_id`를 씁니다.
+- 구현: `GET /centers/{center_id}/classes`, `POST /classes`. 소속이 아닌 어린이집(소속이 없는 교사 포함)은 403 `CENTER_ACCESS_DENIED`입니다 → 임시 결정(이한나). 다른 어린이집이 있는지 없는지는 알려 주지 않습니다.
+- `POST /classes`는 담당교사 폐지로 담임 배정을 하지 않고 만든 교사만 `Klass.teacher_id`에 남깁니다. 표시용 `age_group`은 `infant` → "만 0~2세", `preschool` → "만 3~5세"로 채웁니다 → 임시 결정(이한나). 같은 이름의 반은 막지 않습니다. `POST /classes/{class_id}/assign`은 담당교사 폐지로 만들지 않았습니다.
+- `ClassSummary`의 `is_favorite`·`needs_record_today`는 아직 항상 `false`입니다(즐겨찾기 저장소 없음, 오늘 기록 여부는 media·documents 데이터).
+- `POST /centers`는 HTTP 경로 없이 service 함수 `create_center`만 만들었습니다. 교사 소속 저장(auth)과 한 트랜잭션이어야 해서 `POST /accounts`(엄태은)가 부릅니다. 계약 상태는 `trial`로 시작합니다(FR-24). 가입 코드는 대문자·숫자 8자리(헷갈리는 0·O·1·I 제외)로 서버가 발급하고, 겹치면 다시 뽑습니다(#225 ⑦). 재발급은 하지 않고, 같은 이름·주소의 어린이집 중복 등록도 막지 않습니다 → 확정(#225 B). `GET /centers?center_code=` 조회(`find_center_by_code`)는 입력의 앞뒤 공백을 지우고 대문자로 바꿔 비교합니다.
 
 ### 원아
 
@@ -254,6 +260,8 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 | `GET /children/{child_id}` | — | `200 ChildDetail` | `CHILD_NOT_FOUND`(404) |
 | `PATCH /children/{child_id}` | `{ "name", "birth_date", "class_id" }` | `200 ChildDetail` | `CHILD_NOT_FOUND`(404) |
 | `GET /children/{child_id}/overview` **(임시 경로)** | — | `200 ChildOverview` | `CHILD_NOT_FOUND`(404) |
+
+- 구현: `POST /classes/{class_id}/children`. 재원(`enrolled`)·입소일 오늘(KST)로 만들고, 응답의 동의·얼굴·기록 값은 모두 빈 상태입니다. 본문 `class_id`가 경로와 다르거나 `birth_date`가 오늘 이후면 422 `VALIDATION_ERROR`입니다 → 임시 결정(이한나). 없는 반 404 `CLASS_NOT_FOUND`, 다른 어린이집 반 403 `CLASS_ACCESS_DENIED`.
 
 `ChildOverview` — 원아 개인 페이지의 최근 알림장과 누리과정 5영역별 기록 수
 
@@ -271,7 +279,7 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 }
 ```
 
-- `recent_notes`는 `record_date` 최신순 최대 4개입니다. 필드 이름은 documents(`parent_note_id`, 게시 여부)와 맞췄습니다. `published`는 학부모에게 게시됐는지입니다.
+- `recent_notes`는 `record_date` 최신순 최대 10개입니다. `summary`는 다른 목록의 `preview`와 같은 규칙(100자, 문장 경계)입니다. 필드 이름은 documents(`parent_note_id`, 게시 여부)와 맞췄습니다. `published`는 학부모에게 게시됐는지입니다.
 - `domain_counts`의 키는 위 `EducationPlan.domains`와 같은 누리과정 5영역 코드입니다.
 - 임시 경로입니다. 알림장 목록은 documents의 `GET /children/{child_id}/drafts?doc_type=parent_note`로 옮기고, 5영역 수를 어느 도메인이 줄지는 위 체크리스트에 있습니다.
 
@@ -279,48 +287,69 @@ organization의 상세 작성 엔드포인트는 읽기 전용 3개입니다. �
 
 | 요청 | 본문 | 응답 | 에러 |
 |---|---|---|---|
-| `GET /children/{child_id}/parent-invites` **(추가)** | — | `200 { "invite_url", "parent_linked" }`. 지금 쓸 수 있는 링크 | `CHILD_NOT_FOUND`(404) |
 | `POST /children/{child_id}/parent-invites` | 없음 | `201 { "invite_url", "parent_linked" }`. 이전 링크는 바로 무효 | `CHILD_NOT_FOUND`(404) |
 
 - `invite_url`은 `https://<서비스 도메인>/invite/<무작위 토큰>`입니다(목은 `aidam.test`). 토큰에 원아 이름·id를 넣지 않습니다(H-2, H-4). FE는 토큰을 가려서 보여 주고 복사할 때만 원문을 씁니다.
 - 만료 기한, 보호자 여러 명 사용 여부는 아직 정하지 않았습니다(위 체크리스트).
 
+### 동의 철회
+
+| 요청 | 본문 | 응답 | 에러 |
+|---|---|---|---|
+| `POST /children/{child_id}/consents/revoke` | `{ "consent_type": "face_feature" }` | `204` 본문 없음 | `CHILD_NOT_FOUND`(404), `CHILD_ACCESS_DENIED`(403), `VALIDATION_ERROR`(422) |
+
+- 구현(FR-22). 범위는 #225 ⑥ 합의대로 **1단계 교사 철회, 대상은 ③ 얼굴 특징정보만**입니다. 같은 어린이집 교사만 부를 수 있고, 학부모 계정은 403입니다. 학부모 본인 철회(2단계)는 같은 service 함수를 씁니다.
+- `consent_type`이 `face_feature`가 아니면 422입니다. 본문으로 종류를 받는 것은 2단계에서 대상이 늘어도 경로를 바꾸지 않기 위해서입니다 → 임시 결정(이한나).
+- 한 트랜잭션: 유효한 `face_feature` 동의 행 전부(보호자가 여럿이면 각자의 행)에 `revoked_at`을 채우고 `status`를 `revoked`로 바꾼 뒤, 같은 Session으로 face의 `delete_embedding(reason="consent_revoked")`를 불러 임베딩 물리 삭제·`EmbeddingLifecycleLog`·`DeletionLog`를 남기고 organization이 커밋합니다(#225 ⑥, #74). 하나라도 실패하면 전부 되돌립니다.
+- 응답은 `204`입니다. 바뀐 동의·얼굴 등록 상태는 FE가 원아 상세(`GET /children/{child_id}`)와 명단을 다시 불러 확인합니다 → 임시 결정(이한나). 이미 철회됐거나 동의가 없던 원아도 `204`입니다(다시 눌러도 결과가 같음).
+- 철회 뒤에는 얼굴 등록이 `FACE_CONSENT_REQUIRED`로 막히고, `collect_media_for_llm`이 근거를 모을 때 동의를 다시 확인하므로 이 원아가 귀속된 사진은 LLM 입력에서 빠집니다(H-2, `docs/api/media-face.md` §3).
+
 ### 교육 계획
+
+서버에 구현했습니다. 다른 어린이집 반의 계획은 403 `CLASS_ACCESS_DENIED`, 없는 반은 404 `CLASS_NOT_FOUND`입니다.
 
 | 요청 | 본문·파라미터 | 응답 | 에러 |
 |---|---|---|---|
 | `GET /classes/{class_id}/education-plans` | 쿼리 `plan_type`(없으면 전체) | `200 { items: EducationPlan[], next_cursor: null }`. 시작일 최신순 | 공통 |
-| `POST /classes/{class_id}/education-plans` | `plan_type`·`start_date`·`end_date`·`title`·`goal`·`daily_activities`·`domains` | `201 EducationPlan` | `VALIDATION_ERROR`(422) |
+| `POST /classes/{class_id}/education-plans` | `plan_type`·`start_date`·`end_date`·`title`·`goal`·`daily_activities`(생략 시 `{}`)·`domains`(생략 시 `[]`) | `201 EducationPlan` | `VALIDATION_ERROR`(422) |
 | `GET /education-plans/{plan_id}` **(추가)** | — | `200 EducationPlan` | `PLAN_NOT_FOUND`(404) |
-| `PATCH /education-plans/{plan_id}` | POST와 같음 | `200 EducationPlan` | `PLAN_NOT_FOUND`(404) |
+| `PATCH /education-plans/{plan_id}` | POST와 같은 필드. **보낸 필드만 바꿉니다**(`null`은 422) → 임시 결정(이한나) | `200 EducationPlan` | `PLAN_NOT_FOUND`(404), `VALIDATION_ERROR`(422) |
 | `DELETE /education-plans/{plan_id}` **(추가)** | — | `204` | `PLAN_NOT_FOUND`(404) |
 
 ## 경로만 정한 엔드포인트
 
-경로만 정했습니다. 요청·응답은 그 화면을 만들 때 이 파일에 먼저 채웁니다(PR). ② 화면이 쓰는 것은 위 §② 화면용으로 채운 엔드포인트에 채웠습니다. 어느 화면이 쓰는지는 [screens.md](screens.md)에 있습니다. "확장(경로만)"은 위 상세 작성 엔드포인트에 필드나 파라미터를 더하는 것입니다.
+처음에 경로만 정한 엔드포인트와 지금 단계입니다. **"단계"가 `구현`이면 서버에 있습니다.** `경로만`인 것만 아직 없습니다. 요청·응답은 그 화면을 만들 때 이 파일에 먼저 채웁니다(PR). ② 화면이 쓰는 것은 위 §② 화면용으로 채운 엔드포인트에 채웠습니다. 어느 화면이 쓰는지는 [screens.md](screens.md)에 있습니다. "확장(경로만)"은 위 상세 작성 엔드포인트에 필드나 파라미터를 더하는 것입니다.
 
 | 메서드·경로 | 하는 일 | 단계 | BE 담당 |
 |---|---|---|---|
-| `GET /api/v1/centers?center_code=` | 가입 코드로 어린이집 찾기 | 경로만 | 이한나 |
-| `POST /api/v1/centers` | 어린이집 새로 등록 | 경로만 | 이한나 |
-| `GET /api/v1/centers/{center_id}/classes` | 어린이집의 반 목록(반 고르기) | 경로만 | 이한나 |
-| `POST /api/v1/classes` | 반 만들기 | 경로만 | 이한나 |
-| `POST /api/v1/classes/{class_id}/assign` | 그 반의 담임으로 배정 | 경로만 | 이한나 |
-| `POST /api/v1/classes/{class_id}/children` | 원아 등록 | 경로만 | 이한나 |
-| `PATCH /api/v1/children/{child_id}` | 원아 정보 수정 | 경로만 | 이한나 |
-| `GET /api/v1/classes/{class_id}/children` | `?status=`, 동의·얼굴 등록(`is_face_registered`)·보호자 연결 필드 추가 | 확장(경로만) | 이한나 |
-| `GET /api/v1/children/{child_id}` | 원아 한 명 상세 | 경로만 | 이한나 |
-| `GET /api/v1/children/{child_id}/consents` | 원아의 동의 현황 | 경로만 | 이한나 |
-| `POST /api/v1/children/{child_id}/consents` | 동의 결과 기록 | 경로만 | 이한나 |
-| `POST /api/v1/children/{child_id}/consents/revoke` | 동의 철회 | 경로만 | 이한나(임베딩 삭제는 김동건) |
-| `GET /api/v1/me/children` | 그대로 W5 자녀 전환에도 씁니다 | 확장(경로만) | 이한나 |
-| `GET /api/v1/classes/{class_id}/education-plans` | 반의 교육 계획 목록 | 경로만 | 이한나 |
-| `POST /api/v1/classes/{class_id}/education-plans` | 교육 계획 만들기 | 경로만 | 이한나 |
-| `PATCH /api/v1/education-plans/{plan_id}` | 교육 계획 수정 | 경로만 | 이한나 |
-| `GET /api/v1/education-plans/{plan_id}` | 교육 계획 하나(수정 화면) | 추가(임시 결정) | 이한나 |
-| `DELETE /api/v1/education-plans/{plan_id}` | 교육 계획 삭제 | 추가(임시 결정) | 이한나 |
-| `PATCH /api/v1/classes/{class_id}/favorite` | 반 즐겨찾기 | 추가(임시 결정) | 이한나 |
-| `GET /api/v1/children/{child_id}/parent-invites` | 지금 쓰는 초대 링크(복사용) | 추가(임시 결정) | 이한나·엄태은 |
-| `POST /api/v1/children/{child_id}/parent-invites` | 학부모 초대 링크 만들기 | 경로만 | 이한나·엄태은 |
-| `GET /api/v1/parent-invites/{token}` | 초대 링크 열기(아이·반·어린이집 정보) | 경로만 | 이한나·엄태은 |
-| `POST /api/v1/parent-invites/{token}/accept` | 초대를 받아 학부모 계정을 만들고 자녀와 잇기 | 경로만 | 이한나·엄태은 |
+| `GET /api/v1/centers?center_code=` | 가입 코드로 어린이집 찾기 | service 함수만(`find_center_by_code`, auth `POST /accounts`에서 호출). HTTP 경로 없음 | 이한나 |
+| `POST /api/v1/centers` | 어린이집 새로 등록 | service 함수만(auth 가입에서 호출) | 이한나 |
+| `GET /api/v1/centers/{center_id}/classes` | 어린이집의 반 목록(반 고르기) | 구현 | 이한나 |
+| `POST /api/v1/classes` | 반 만들기 | 구현 | 이한나 |
+| `POST /api/v1/classes/{class_id}/assign` | 그 반의 담임으로 배정 | 만들지 않음(담당교사 개념 폐지) | 이한나 |
+| `POST /api/v1/classes/{class_id}/children` | 원아 등록 | 구현 | 이한나 |
+| `PATCH /api/v1/children/{child_id}` | 원아 정보 수정 | 구현(#232) | 이한나 |
+| `GET /api/v1/classes/{class_id}/children` | `?status=`, 동의·얼굴 등록(`is_face_registered`)·보호자 연결 필드 추가 | 구현(#232). `?status=`만 아직 없음 | 이한나 |
+| `GET /api/v1/children/{child_id}` | 원아 한 명 상세 | 구현(#232) | 이한나 |
+| `GET /api/v1/children/{child_id}/consents` | 원아의 동의 현황 | 만들지 않음. 원아 상세·명단의 `consent_agreed_count`·`face_feature_agreed`로 봅니다 | 이한나 |
+| `POST /api/v1/children/{child_id}/consents` | 동의 결과 기록 | 만들지 않음. 학부모 초대 수락(`POST /parent-invites/{token}/accept`)에서 기록합니다(#225) | 이한나 |
+| `POST /api/v1/children/{child_id}/consents/revoke` | 동의 철회(1단계: 교사, ③만) | 구현 | 이한나(임베딩 삭제는 김동건) |
+| `GET /api/v1/me/children` | 그대로 W5 자녀 전환에도 씁니다 | 구현(바꿀 것 없음) | 이한나 |
+| `GET /api/v1/classes/{class_id}/education-plans` | 반의 교육 계획 목록 | 구현 | 이한나 |
+| `POST /api/v1/classes/{class_id}/education-plans` | 교육 계획 만들기 | 구현 | 이한나 |
+| `PATCH /api/v1/education-plans/{plan_id}` | 교육 계획 수정 | 구현 | 이한나 |
+| `GET /api/v1/education-plans/{plan_id}` | 교육 계획 하나(수정 화면) | 구현(추가, 임시 결정) | 이한나 |
+| `DELETE /api/v1/education-plans/{plan_id}` | 교육 계획 삭제 | 구현(추가, 임시 결정) | 이한나 |
+| `PATCH /api/v1/classes/{class_id}/favorite` | 반 즐겨찾기 | 경로만(추가, 임시 결정). 화면에서도 뺐습니다 | 이한나 |
+| `POST /api/v1/children/{child_id}/parent-invites` | 학부모 초대 링크 만들기 | 구현(auth, #232) | 이한나·엄태은 |
+| `GET /api/v1/parent-invites/{token}` | 초대 링크 열기(아이·반·어린이집 정보) | 구현(auth, #232) | 이한나·엄태은 |
+| `POST /api/v1/parent-invites/{token}/accept` | 초대를 받아 학부모 계정을 만들고 자녀와 잇기 | 구현(auth, #232). 계약은 [auth](auth.md#학부모-초대-수락-fr-28-225) | 이한나·엄태은 |
+
+#225 반영: 초대 토큰은 해시만 저장하므로 재조회 API를 제거합니다. 발급·수락 계약은 [auth](auth.md#학부모-초대-수락-fr-28-225)입니다. 원아 상세 GET·PATCH는 같은 어린이집 교사에게만 허용하고 동의는 학부모 초대 수락에서 기록합니다.
+
+### #231 통합 구현 보충 — 원아 상세·기록 요약
+
+- `GET /children/{child_id}`와 `PATCH /children/{child_id}`는 같은 어린이집 교사만 사용할 수 있습니다. 수정 본문은 원아 등록과 같은 `{class_id, name, birth_date}`입니다.
+- `GET /children/{child_id}/overview`: 최근 알림장 10건(`recent_notes`)과 `domain_counts`를 반환합니다. 목록은 documents의 실제 초안/게시 상태를 읽습니다. 아직 구현되지 않은 누리과정 통계는 `null`로 내려 화면에 준비 중이라고 표시합니다.
+- 상세의 `month_record_count`는 KST 이번 달 알림장 수, `today_note_sent`는 오늘 알림장의 활성 게시 여부입니다. 개인정보 열람은 교사 ID·원아 ID만 audit에 기록합니다.
+- 반 선택은 현재 작업할 반을 바꾸는 동작이며, 다른 교사를 담임에서 해제하지 않습니다. 서버에 없는 즐겨찾기 버튼은 온보딩에서 제공하지 않습니다.

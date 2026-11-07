@@ -176,15 +176,21 @@ export function faceEmbeddingsQueryOptions(classId: string) {
 export function transcriptQueryOptions(mediaId: string) {
   return queryOptions({
     queryKey: mediaKeys.transcript(mediaId),
-    queryFn: async ({ signal }) =>
-      toTranscriptView(
+    queryFn: async ({ signal }) => {
+      const result = toTranscriptView(
         await api.get<TranscriptSegmentsResponse>(
           `/media/${encodeURIComponent(mediaId)}/transcript-segments`,
           { signal },
         ),
-      ),
+      );
+      if (result.transcript_status === "unknown")
+        throw new Error("발화 처리 상태를 확인할 수 없어요. 새로고침 후 다시 시도해 주세요.");
+      return result;
+    },
     refetchInterval: (query) =>
-      isTranscriptPending(query.state.data) ? TRANSCRIPT_POLL_INTERVAL_MS : false,
+      !query.state.error && isTranscriptPending(query.state.data)
+        ? TRANSCRIPT_POLL_INTERVAL_MS
+        : false,
   });
 }
 

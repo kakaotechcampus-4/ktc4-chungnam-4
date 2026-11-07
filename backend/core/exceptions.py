@@ -102,6 +102,34 @@ class DraftAlreadyPublished(AidamError):
     status_code = 409
 
 
+class DraftNotPublished(AidamError):
+    """활성 게시 회차가 없는 초안을 회수하려 한 경우. 게시 전이거나 이미 회수했다."""
+
+    code = "DRAFT_NOT_PUBLISHED"
+    status_code = 409
+
+
+class DraftAlreadyViewed(AidamError):
+    """학부모가 본문을 연 알림장을 회수하려 한 경우 (테크스펙 파이프라인 9단계)."""
+
+    code = "DRAFT_ALREADY_VIEWED"
+    status_code = 409
+
+
+class RevokeDeadlinePassed(AidamError):
+    """회수 기한(게시 후 24시간)이 지난 알림장을 회수하려 한 경우 (테크스펙 파이프라인 9단계)."""
+
+    code = "REVOKE_DEADLINE_PASSED"
+    status_code = 409
+
+
+class DraftRevoked(AidamError):
+    """회수한 알림장을 바로 고치려 한 경우. reopen으로 검토 대기로 돌린 뒤 고친다."""
+
+    code = "DRAFT_REVOKED"
+    status_code = 409
+
+
 class NoLinkedParent(AidamError):
     """알림장을 받을 보호자가 연결되지 않은 원아. 게시 결과에 건별로만 실린다 (FR-09)."""
 
@@ -179,6 +207,17 @@ class InvalidCredentials(AidamError):
     status_code = 401
 
 
+class AccountAlreadyExists(AidamError):
+    """이 이메일로 가입한 계정이 이미 있습니다 (회원가입).
+
+    로그인과 달리 가입은 이유를 알려야 다음 행동(로그인·비밀번호 찾기)으로 갈 수 있어 구분합니다.
+    메시지에 이메일을 넣지 않습니다 (H-4).
+    """
+
+    code = "ACCOUNT_ALREADY_EXISTS"
+    status_code = 409
+
+
 class InvalidToken(AidamError):
     """토큰이 위조됐거나 만료됐습니다. 사유를 구분하지 않습니다."""
 
@@ -236,6 +275,20 @@ class MediaDeleted(AidamError):
 
     code = "MEDIA_DELETED"
     status_code = 409
+
+
+class MediaHasNoAudio(AidamError):
+    """사진처럼 소리가 없는 미디어의 발화를 찾았습니다. 발화는 영상·음성메모에만 있습니다."""
+
+    code = "MEDIA_HAS_NO_AUDIO"
+    status_code = 400
+
+
+class TranscriptSegmentNotFound(AidamError):
+    """알 수 없는 발화 구간입니다."""
+
+    code = "TRANSCRIPT_SEGMENT_NOT_FOUND"
+    status_code = 404
 
 
 class DuplicateChildLink(AidamError):
@@ -366,9 +419,29 @@ class CenterNotFound(AidamError):
     status_code = 404
 
 
+class CenterAccessDenied(AidamError):
+    """교사가 소속되지 않은 어린이집입니다. 소속이 없는 교사도 여기에 걸립니다."""
+
+    code = "CENTER_ACCESS_DENIED"
+    status_code = 403
+
+
+class PlanNotFound(AidamError):
+    """교육 계획이 없습니다."""
+
+    code = "PLAN_NOT_FOUND"
+    status_code = 404
+
+
 class RequestValidationFailed(AidamError):
     """요청 값의 조합이 맞지 않습니다. 필드 하나의 형식 오류는 Pydantic이 422로 막고,
     이 예외는 서비스가 판단하는 조합 조건에 씁니다 (테크스펙 §공통 API 규약 VALIDATION_ERROR)."""
 
     code = "VALIDATION_ERROR"
     status_code = 422
+
+
+class InviteUnavailable(AidamError):
+    code = "INVITE_UNAVAILABLE"
+    status_code = 410
+    message = "사용할 수 없는 초대 링크입니다. 선생님께 새 링크를 요청해 주세요."

@@ -10,7 +10,7 @@
 
 - [x] (막힘) child-links를 전체 교체(PUT)로 할지(PR #13 리뷰 [must]) → 임시 결정(김동건): 전체 교체. 보낸 목록이 최종 상태이고 빠진 원아의 링크는 지웁니다. 반영: 이 파일 `PUT /media/{media_id}/child-links` 절, backend `media/service.py`의 `save_attributions`(develop 반영)
 - [ ] (막힘) `llm_allowed` 최종값 계산 주체와 규칙(정은과 함께). 제안: 사진은 "교사 확인 AND ③ 동의", 영상·음성은 교사 확인값 → 하단 §상의 필요 3
-- [x] (막힘) 영상·음성메모도 child-links로 수동 귀속(정은과 함께). 음성메모 근거가 초안에 들어가기 위한 전제 → 임시 결정(김동건): 영상·음성은 `PUT child-links`로, 발화에 연결한 아이들을 모두 넣음. 사진은 완료 통지에서 귀속까지 저장. 반영: 이 파일 `POST /media`·`PUT child-links` 절
+- [x] (막힘) 영상·음성메모도 child-links로 수동 귀속(정은과 함께). 음성메모 근거가 초안에 들어가기 위한 전제 → 임시 결정(김동건): 영상·음성은 `PUT child-links`로, 교사가 파일마다 고른 아이를 넣음(10/29 #163 파일 단위. 이전엔 발화에 연결한 아이 전부). 사진은 완료 통지에서 귀속까지 저장. 반영: 이 파일 `POST /media`·`PUT child-links` 절
 - [ ] `attributed_at` 추가와, 이를 쓰는 Job의 `MEDIA_NOT_READY` 판정(정은과 함께)
 - [ ] 업로드 한도, 허용 MIME, URL 만료(예시 PUT 15분·GET 5분), 멀티파트 필요 여부
 - [ ] 파생본이 없어 HEIC·MOV가 안 보이는 문제. 데모 자료를 JPG·MP4로 제한할지
@@ -127,7 +127,7 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 - 권한: 교사 — 담당 반만. `teacher_id`는 세션에서 채웁니다.
 - 요청: 파일 하나당 한 번 부릅니다.
   - `client_photo_id`·`class_id`·`type`은 URL 발급 때와 같은 값입니다.
-  - `captured_at`은 촬영 시각(UTC)으로, EXIF나 파일 메타데이터에서 읽습니다.
+  - `captured_at`은 촬영 시각(UTC)입니다. 지금 FE는 EXIF를 읽지 않고, 파일 수정 시각의 KST 날짜가 교사가 고른 활동 날짜와 같으면 그 시각을, 다르면 활동 날짜 정오(KST)를 보냅니다(임시 결정(엄태은), 테크스펙 §사진 통합 임시 구현).
   - `model_version`은 사진만 채우고 영상·음성은 null입니다.
   - **귀속은 종류에 따라 다릅니다**(임시 결정(김동건)).
     - **사진**: `child_links`·`llm_allowed`가 **필수**입니다. 사진은 교사 확정 뒤에만 올라오므로(H-3) 완료 통지와 귀속을 한 번에 저장합니다. 규칙은 아래 `PUT child-links` 절과 같습니다(전체 교체, 빈 배열이면 미분류).
@@ -190,7 +190,7 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 - 요청:
   - `llm_allowed`: 필수이고 기본값이 없습니다. 얼굴 분류 · 결과 확인 화면의 확인 체크에서 옵니다.
   - `child_links[]`: 각 항목은 `child_id`, `method`, `confidence_score`입니다. `confidence_score`는 `face_recognition`일 때만 채우고, `manual`이면 null입니다.
-  - 영상·음성은 `method: "manual"`로, **발화에 연결한 아이들을 모두** 넣습니다(임시 결정(김동건)). 근거 수집 함수 `collect_media_for_llm(child_id, …)`는 파일 귀속으로 원아를 찾으므로, 발화에만 연결하고 파일 귀속을 비우면 그 영상·음성은 어떤 원아의 근거로도 수집되지 않습니다. 발화마다 다른 아이만 고르는 처리는 수집 쪽에서 합니다(media 후속, #103).
+  - 영상·음성은 `method: "manual"`로, **교사가 그 파일에 나온다고 고른 아이들을** 넣습니다. 귀속은 파일 단위입니다(10/29 #163, 테크스펙 파이프라인 2단계) — 발화마다 아이를 고르지 않습니다. 근거 수집 함수 `collect_media_for_llm(child_id, …)`도 파일 귀속으로 원아를 찾습니다.
   - `llm_allowed`와 `child_links`는 **둘 다 필수**이고 함께 바뀝니다. 한쪽만 바꾸는 요청은 받지 않습니다 — 귀속은 그대로인데 `llm_allowed`만 바뀌면 빼야 할 사진이 LLM으로 갑니다(PR #13 리뷰).
   - 빈 배열을 보내면 서버에 미분류로 남습니다.
   - 전체 교체 방식입니다(임시 결정(김동건)). 보낸 목록이 최종 상태이고, 목록에 없는 기존 링크는 지웁니다. 같은 본문을 다시 보내도 결과가 같습니다. 검사에 걸리면 기존 링크를 그대로 둡니다.
@@ -229,6 +229,7 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
   - `DUPLICATE_CHILD_LINK` (400) — 같은 `child_id`가 목록에 두 번 있을 때
   - `CHILD_NOT_IN_CLASS` (400) — 미디어가 속한 반의 원아가 아닐 때
   - `CLASS_ACCESS_DENIED` (403) — 담당 반이 아닐 때
+  - `MEDIA_DELETED` (409) — 보관 기간이 끝나 파기된 미디어일 때. 근거로 쓸 수 없어 귀속도 받지 않습니다 — 임시 결정(김동건)
 - [확인 필요: 김동건·정은] `llm_allowed` 최종값을 누가 계산할지 정해야 합니다. 제안은 두 가지입니다.
   - 사진: 서버가 "교사 확인 AND 귀속 원아 전원 ③ 동의"로 계산해 저장합니다.
   - 영상·음성메모: 교사 확인값을 그대로 저장합니다.
@@ -348,18 +349,29 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 
 ### `GET /api/v1/media/{media_id}/transcript-segments` — 영상·음성의 발화 구간(서버 STT 결과)
 
-> 임시 결정(김동건): 경로만이던 것을 분류 확인·수동 분류(발화) 화면을 만들며 채웠습니다(#83 리뷰). 응답의 `text`·`speaker`·`child_ids`·`excluded`·`reviewed_at`은 테크스펙 `TranscriptSegment`에 없는 필드라 하단 §상의 필요 6의 제안입니다.
+> 임시 결정(김동건): 경로만이던 것을 분류 확인·수동 분류(발화) 화면을 만들며 채웠습니다(#83 리뷰). 응답의 `text`·`speaker`·`excluded`·`reviewed_at`은 테크스펙 `TranscriptSegment`에 없는 필드라 하단 §상의 필요 6의 제안입니다.
 
 - 쓰는 화면: 분류 결과 — "발화 N개", 수동 분류 — 발화 탭, 아이별 하루 확인
 - 요구사항: FR-14, FR-27, 파이프라인 1-B
 - 권한: 교사 — 담당 반의 미디어만
 - 요청: 경로 `media_id`(영상·음성메모). STT가 끝날 때까지 2초마다 부릅니다(제안).
 - 응답 `200`: `transcript_status`가 `pending`이면 아직 STT 중, `failed`면 발화 없음(교사는 발화 없이 넘어갈 수 있음)입니다. `items`는 `done`일 때만 채우고 시작 시각 순입니다.
+  - 업로드 확인(`MediaUpload.verified_at`) 1시간 뒤에도 `pending`이면 이 조회나 worker 시작 때 `failed`로 닫습니다. 큐 대기를 포함한 상한이고, 접수 시각이 없는 과거 자료는 추측하지 않습니다. 늦게 끝난 worker는 `failed`를 `done`으로 되살리지 않습니다(임시 결정(엄태은)).
+  - `child_links`·`llm_allowed`·`attributed_at`은 그 파일의 현재 귀속입니다. 저장은 `PUT /media/{media_id}/child-links`가 하고, 모양은 그 절과 같습니다. 귀속 전에는 `[]`·`false`·`null`입니다.
 
 ```json
 {
   "media_id": "3ed1a000-0000-4000-8000-000000000046",
   "transcript_status": "done",
+  "child_links": [
+    {
+      "child_id": "c1d00000-0000-4000-8000-000000000001",
+      "method": "manual",
+      "confidence_score": null
+    }
+  ],
+  "llm_allowed": true,
+  "attributed_at": "2026-10-30T03:10:00Z",
   "items": [
     {
       "segment_id": "5e900000-0000-4000-8000-000000000001",
@@ -370,9 +382,9 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
       "raw_text": "내가 더 높이 쌓아 볼게!",
       "text": "내가 더 높이 쌓아 볼게!",
       "speaker": null,
-      "child_ids": [],
       "excluded": false,
-      "reviewed_at": null
+      "reviewed_at": null,
+      "child_ids": []
     }
   ]
 }
@@ -380,24 +392,24 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 
 - `start_time`·`end_time`은 파일 처음부터의 초입니다. `raw_text`는 STT 원문이고 `text`는 교사가 고친 문장입니다(고치지 않았으면 같음).
 - `raw_text`·`text`에는 실명 호명이 그대로 있습니다. 교사에게만 보여 주고, LLM으로 보내기 전 비식별화(3단계)를 거칩니다(H-2). 로그에 남기지 않습니다(H-4).
-- 발화는 자동 귀속하지 않습니다(파이프라인 2단계: 호명은 귀속에 쓰지 않음). 처음에는 `child_ids`가 비어 있고 교사가 연결합니다.
+- 발화에는 아이를 붙이지 않습니다. 귀속은 파일 단위로, 교사가 그 영상·음성에 나오는 아이를 골라 `PUT /media/{media_id}/child-links`로 저장합니다(10/29 #163, 테크스펙 파이프라인 2단계). 호명은 귀속에 쓰지 않습니다.
+  - `child_ids`는 **항상 빈 배열**입니다. FE 어댑터가 아직 이 필드를 읽어서 호환용으로 남겨 둡니다. FE가 파일 단위로 바뀌면 뺍니다 → 임시 결정(김동건), #230 리뷰(엄태은).
 - 에러:
   - `MEDIA_ASSET_NOT_FOUND` (404) — 없는 미디어일 때
   - `CLASS_ACCESS_DENIED` (403) — 담당 반의 미디어가 아닐 때
   - `MEDIA_HAS_NO_AUDIO` (400) — 사진일 때
 
-### `PATCH /api/v1/transcript-segments/{segment_id}` — 발화를 아이에게 연결·제외·수정
+### `PATCH /api/v1/transcript-segments/{segment_id}` — 발화의 화자·문장 수정·제외
 
-> 임시 결정(김동건): 위와 같습니다.
+> 임시 결정(김동건): 위와 같습니다. 10/29(#163) 파일 단위 귀속으로 `child_ids`를 뺐습니다.
 
-- 쓰는 화면: 수동 분류 — 발화 탭의 "선택한 아이에게 연결"·"이 자료 제외", 아이별 하루 확인의 "빼기"·"되돌리기"
+- 쓰는 화면: 수동 분류 — 발화 탭의 화자·문장 저장·"이 자료 제외", 아이별 하루 확인의 "빼기"·"되돌리기"
 - 요구사항: FR-14, FR-27
 - 권한: 교사 — 담당 반의 미디어만
-- 요청: 보낸 필드만 바꿉니다. `child_ids`는 전체 교체입니다(child-links와 같음). `speaker`는 `child`(아이의 말) / `teacher_observation`(교사의 관찰) / `together`(함께 한 말) / `null`입니다.
+- 요청: 보낸 필드만 바꿉니다. `speaker`는 `child`(아이의 말) / `teacher_observation`(교사의 관찰) / `together`(함께 한 말) / `null`입니다.
 
 ```json
 {
-  "child_ids": ["c41d0000-0000-4000-8000-000000000001"],
   "speaker": "together",
   "excluded": false,
   "text": "내가 제일 높이 쌓아 볼게!"
@@ -405,12 +417,10 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 ```
 
 - 응답 `200`: 바뀐 발화 하나(위 `items[]`와 같은 모양). `reviewed_at`을 지금으로 바꿉니다.
-- 뺀 발화(`excluded: true`)와 아이가 없는 발화는 초안 근거에서 빠집니다.
+- 뺀 발화(`excluded: true`)와 화자가 없는 영상 발화는 초안 근거에서 빠집니다. 파일 귀속이 없는 영상·음성은 발화 전체가 빠집니다. 교사가 손대지 않은 발화(`reviewed_at: null`)는 빼지 않습니다 — `reviewed_at`은 마지막으로 손댄 시각이지 검수 완료 표시가 아닙니다.
 - 에러:
   - `TRANSCRIPT_SEGMENT_NOT_FOUND` (404) — 없는 발화일 때
   - `CLASS_ACCESS_DENIED` (403) — 담당 반의 미디어가 아닐 때
-  - `CHILD_NOT_IN_CLASS` (400) — 이 반의 원아가 아닐 때
-  - `DUPLICATE_CHILD_LINK` (400) — 같은 원아가 두 번 있을 때
   - 422 — `text`를 비웠거나 `speaker` 값이 틀렸을 때(공통 검증 오류)
 
 ## 경로만 정한 엔드포인트
@@ -442,7 +452,7 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 
 - **영상**: 사진처럼 교사가 아이를 고릅니다(`method: "manual"`, 여러 명 가능). LLM 허용은 사진과 같은 확인 체크를 따릅니다.
 - **음성메모**: 귀속을 붙일 예정이지만, AI 쪽에서 음성 근거를 어떻게 쓸지 결론이 나지 않았습니다. 정해지기 전까지 빈 귀속(`child_links: []`, 서버에 미분류)으로 올립니다.
-- #83 리뷰 흐름(§6)을 받으면 영상·음성은 **파일이 아니라 발화 단위로** 교사가 아이에게 연결합니다. 그러면 파일 단위 child-links는 빈 채로 두어도 되고, 위 두 줄은 §6으로 대신합니다.
+- ~~#83 리뷰 흐름(§6)을 받으면 영상·음성은 **파일이 아니라 발화 단위로** 교사가 아이에게 연결합니다.~~ → **10/29(#163) 파일 단위로 정했습니다.** 영상·음성도 교사가 파일마다 나오는 아이를 골라 `PUT child-links`로 저장하고, 발화에서는 화자·문장·제외만 확인합니다.
 - 충돌: 테크스펙 데이터 모델 ⑧(09/14)과 `frontend/CLAUDE.md` §온디바이스는 "영상·음성메모는 로컬 분류·검수 없이 업로드 큐만"입니다. 영상 수동 귀속을 하려면 테크스펙을 먼저 고쳐야 합니다. 지금 FE 코드(업로드 큐, 수동 분류)는 테크스펙대로 사진만 검수합니다.
 
 ### 3. `llm_allowed`와 동의 철회 (정은과 함께)
@@ -471,11 +481,10 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
 - **업로드 시점**: 영상·음성은 처리 중(분류) 화면에서 바로 upload-urls → S3 PUT → ack까지 합니다(`features/classify/clip-upload.ts`). 귀속 저장(child-links)은 서버 전송 단계에서 합니다. 사진은 지금처럼 교사 확정 뒤에만 올립니다(H-3 그대로).
   - 영상·음성은 원래도 검수 없이 업로드 대상이라(`uploadTargets`, 테크스펙 ⑧) 올리는 **때**만 앞당깁니다.
   - 교사가 전송 전에 취소하면 올라간 영상·음성이 남습니다. 파기 규칙(흐름 F)에 넣을지 정해야 합니다.
-- **STT 시작**: 서버가 ack를 받으면 STT를 시작합니다. 지금 본문 체크리스트의 "STT를 어디서 시작할지(동기 vs Celery)"와 같은 질문입니다. 분류 결과 화면은 STT가 끝나야(`pending`이 없어야) 확인을 마칠 수 있고, `failed`면 발화 없이 넘어갑니다.
-- **발화 확인**: `TranscriptSegment`에 `text`(교사 수정), `speaker`, `child_ids`, `excluded`, `reviewed_at`을 더하자고 제안합니다(위 두 절). Figma 수동 분류 · 발화(1:3064)의 아이 연결·화자·문장 수정에 맞춘 것입니다.
+- **STT 시작**: 서버가 ack를 받으면 Celery worker에서 STT를 시작합니다(본문 체크리스트, #185). 분류 결과 화면은 STT가 끝나야(`pending`이 없어야) 확인을 마칠 수 있고, `failed`면 발화 없이 넘어갑니다.
+- **발화 확인**: `TranscriptSegment`에 `text`(교사 수정), `speaker`, `excluded`, `reviewed_at`을 더하자고 제안합니다(위 두 절). Figma 수동 분류 · 발화(1:3064)의 화자·문장 수정에 맞춘 것입니다. 발화별 `child_ids`는 10/29(#163) 파일 단위 귀속으로 뺐습니다.
 - 충돌하는 곳(받으면 같이 고칠 곳):
   - 테크스펙 흐름 표 C(C-3 STT가 업로드 구간 끝), 데이터 모델 ③ `TranscriptSegment` 필드, ⑧ 부근의 "음성 메모는 교사 검수 대상이 아닙니다"
   - `frontend/CLAUDE.md` §온디바이스(영상·음성은 검수 없이 업로드 큐만) — 로컬 검수는 여전히 사진만이라 문구는 그대로 둘 수 있습니다
   - `docs/open-questions.md` §C "STT·사진 분류 UI를 프론트 어느 화면에 둘지"
   - agents.md §상의 필요 1(하루 정리 확인을 전송 전으로)
-

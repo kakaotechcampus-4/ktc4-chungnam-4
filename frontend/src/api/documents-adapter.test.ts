@@ -4,6 +4,7 @@ import type {
   DraftStatus,
   DraftSummary,
   Evidence,
+  ParentMediaList,
   PublicationResult,
   Sentence,
 } from "@/types/api-draft/documents";
@@ -12,11 +13,14 @@ import type { MediaUrl } from "@/types/api-draft/media";
 import {
   canApprove,
   canReopen,
+  canSaveParentMedia,
+  toParentMediaListView,
   didSendPhotos,
   isNotReady,
   isPublishTarget,
   needsReview,
   isPublished,
+  selectablePhotos,
   selectedPhotos,
   sentPhotos,
   toClassDraftView,
@@ -72,6 +76,8 @@ function detail(over: Partial<DraftDetail> = {}): DraftDetail {
     author_name: "김하늘",
     approved_at: null,
     published_at: null,
+    revoke_deadline: null,
+    can_revoke: false,
     include_photos: null,
     updated_at: "2026-10-06T06:40:00Z",
     ...over,
@@ -133,23 +139,59 @@ describe("판정 함수", () => {
   });
 
   // 게시한 뒤에는 학부모가 이미 봤으므로 되돌릴 수 없고 회수가 따로 필요합니다(H-1).
-  it("승인했고 아직 게시하지 않은 초안만 되돌릴 수 있다", () => {
+  it("승인했고 아직 게시하지 않은 초안은 되돌릴 수 있다", () => {
     const approved = detail({ status: "approved" });
     expect(canReopen(toDraftView(approved))).toBe(true);
     expect(canReopen(toDraftView({ ...approved, published_at: "2026-10-06T08:40:00Z" }))).toBe(
       false,
     );
     expect(canReopen(toDraftView(detail({ status: "verified" })))).toBe(false);
-    expect(canReopen(toDraftView(detail({ status: "revoked" })))).toBe(false);
+  });
+
+  // 전에는 회수본도 잠갔습니다 — 다시 다루는 흐름이 없어서였습니다. 회수 화면이 생겨 흐름이
+  // 정해졌으므로 엽니다. 서버 reopen_draft도 "승인 또는 회수를 되돌려 다시 검토하게 한다"로
+  // 두 상태를 모두 받습니다. 잠가 두면 교사가 회수한 알림장을 영영 고칠 수 없습니다.
+  it("회수한 알림장도 되돌려 다시 검토할 수 있다", () => {
+    expect(canReopen(toDraftView(detail({ status: "revoked" })))).toBe(true);
   });
 });
 
 describe("사진", () => {
+  it("분석 실패 사진은 표시용으로 남기고 선택 사진에 자동 추가하지 않는다", () => {
+    const failed = { ...PHOTO, media_id: "failed-photo" };
+    const view = toDraftView(
+      detail({ failed_media_ids: [failed.media_id], media: [PHOTO, failed] }),
+    );
+    expect(view.failed_media_ids).toEqual([failed.media_id]);
+    expect(view.media).toContainEqual(failed);
+    expect(selectedPhotos(view)).toEqual([PHOTO]);
+    expect(toDraftView(detail()).failed_media_ids).toEqual([]);
+  });
   // 초안 검토 화면은 게시 전 초안을 다루므로 교사가 고른 사진을 그대로 봅니다.
   it("고른 사진은 게시 여부와 무관하게 나온다", () => {
     expect(selectedPhotos(toDraftView(detail()))).toEqual([PHOTO]);
     expect(selectedPhotos(toDraftView(detail({ include_photos: false })))).toEqual([PHOTO]);
     expect(selectedPhotos(undefined)).toEqual([]);
+  });
+
+  // 9주차 리뷰 4번: 교사가 보낼 사진을 고를 수 있어야 합니다. 후보는 초안 상세가 싣는 사진뿐입니다.
+  it("고를 수 있는 사진은 아직 안 고른 사진이고, 영상·음성은 뺀다", () => {
+    const other = { ...PHOTO, media_id: "other-photo" };
+    const failed = { ...PHOTO, media_id: "failed-photo" };
+    const video = { ...PHOTO, media_id: "video-1", type: "video" as const };
+    const voice = { ...PHOTO, media_id: "voice-1", type: "voice_memo" as const };
+    const view = toDraftView(
+      detail({
+        failed_media_ids: [failed.media_id],
+        media: [PHOTO, other, failed, video, voice],
+      }),
+    );
+    // 이미 고른 PHOTO는 후보에서 빠지고, 분석 실패 사진은 교사가 눈으로 보고 고를 수 있다.
+    expect(selectablePhotos(view).map((media) => media.media_id)).toEqual([
+      "other-photo",
+      "failed-photo",
+    ]);
+    expect(selectablePhotos(undefined)).toEqual([]);
   });
 
   // 알림장 상세는 "학부모가 받은 것"을 보는 자리라 실제로 나간 사진만 봅니다.
@@ -361,5 +403,39 @@ describe("사진을 보냈는지", () => {
     // 게시 전에는 아직 모릅니다. 모르면 "보냈다"고 하지 않습니다(#89 리뷰).
     expect(didSendPhotos(toDraftView(detail({ include_photos: null })))).toBe(false);
     expect(didSendPhotos(undefined)).toBe(false);
+  });
+});
+
+describe("toParentMediaListView", () => {
+  it("모르는 미디어 종류는 unknown으로 두고 저장을 잠근다", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const raw = {
+      days: [
+        {
+          parent_note_id: fixtureId("draft", 1),
+          record_date: "2026-10-20",
+          items: [
+            {
+              media_id: fixtureId("media", 1),
+              type: "voice_memo",
+              captured_at: "2026-10-20T01:00:00Z",
+              url: "https://s3.example.com/a",
+              url_expires_at: "2026-10-20T02:00:00Z",
+            },
+          ],
+        },
+      ],
+      next_cursor: null,
+      photo_count: 0,
+      video_count: 0,
+    } as unknown as ParentMediaList;
+
+    const item = toParentMediaListView(raw).days[0]?.items[0];
+    if (item === undefined) throw new Error("변환 결과에 항목이 없습니다");
+
+    expect(item.type).toBe("unknown");
+    expect(canSaveParentMedia(item)).toBe(false);
+    expect(warn).toHaveBeenCalledWith("모르는 미디어 종류", "voice_memo");
+    warn.mockRestore();
   });
 });

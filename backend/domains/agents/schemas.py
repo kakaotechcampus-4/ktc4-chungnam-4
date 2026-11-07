@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class EvidenceBundleResponse(BaseModel):
@@ -86,7 +86,14 @@ class ChildJobResponse(BaseModel):
     stage: JobStage | None = None
     outcome: Literal["drafted", "unclassified"] | None = None
     unclassified_reason: (
-        Literal["no_speech", "verification_failed", "insufficient_evidence"] | None
+        Literal[
+            "no_speech",
+            "verification_failed",
+            "insufficient_evidence",
+            "no_consent",
+            "photo_analysis_failed",
+        ]
+        | None
     ) = None
     failed_stage: JobStage | None = None
     error_code: str | None = None
@@ -105,3 +112,41 @@ class GenerationJobResponse(BaseModel):
     children: list[ChildJobResponse]
     created_at: datetime
     updated_at: datetime
+
+
+# --- 추가 근거(교사 관찰 메모) API (docs/api/agents.md §추가 근거) ---
+
+
+class TeacherEvidenceSaveRequest(BaseModel):
+    """PUT /children/{child_id}/evidence/{record_date} 본문. 글만 받는다(음성·사진 제외).
+
+    TODO(eun): text 길이 상한과 activity_time 필수 여부는 스펙에 없어 정하지 않았다
+    (테크스펙 §④ TeacherEvidence 미정). 지금은 비어 있지 않으면 받고 시각 형식만 본다.
+    """
+
+    activity_time: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    text: str
+
+    @field_validator("text")
+    @classmethod
+    def text_must_not_be_blank(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("추가 근거 내용이 비어 있습니다.")
+        return stripped
+
+
+class TeacherEvidenceResponse(BaseModel):
+    evidence_id: UUID
+    child_id: UUID
+    record_date: date
+    activity_time: str
+    text: str
+    source: Literal["teacher_note"] = "teacher_note"
+    created_at: datetime
+
+
+class TeacherEvidenceListResponse(BaseModel):
+    items: list[TeacherEvidenceResponse]
+    # 반 한 곳·하루 치라 최대 반 원아 수만큼이다. 다음 쪽은 없다.
+    next_cursor: str | None = None

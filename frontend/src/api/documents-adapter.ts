@@ -2,9 +2,15 @@ import type {
   ChildDraftItem,
   ClassDraftItem,
   DraftDetail,
+  DraftRevokeResponse,
   DraftStatus,
   DraftSummary,
   Evidence,
+  ParentMediaDownload,
+  ParentMediaItem,
+  ParentMediaList,
+  ParentNoteDetail,
+  ParentNoteList,
   PublicationResult,
   Sentence,
 } from "@/types/api-draft/documents";
@@ -18,8 +24,15 @@ import type {
   DraftSummaryView,
   DraftView,
   EvidenceView,
+  ParentMediaDownloadView,
+  ParentMediaItemView,
+  ParentMediaListView,
+  ParentMediaTypeView,
+  ParentNoteDetailView,
+  ParentNoteListView,
   PublicationResultView,
   PublicationStatusView,
+  RevokedPublicationView,
   RosterStatusView,
   SentenceView,
 } from "./documents-view";
@@ -125,8 +138,11 @@ export function toDraftView(raw: DraftDetail): DraftView {
     title: raw.title,
     sentences: raw.sentences.map(toSentenceView),
     selected_media_ids: raw.selected_media_ids,
+    failed_media_ids: raw.failed_media_ids ?? [],
     media: raw.media.map(toDraftMediaView),
     published_at: raw.published_at,
+    revoke_deadline: raw.revoke_deadline,
+    can_revoke: raw.can_revoke,
     include_photos: raw.include_photos,
   };
 }
@@ -151,6 +167,28 @@ function toPublicationStatusView(value: PublicationResult["status"]): Publicatio
   }
 }
 
+export function toRevokedPublicationView(raw: DraftRevokeResponse): RevokedPublicationView {
+  return { draft_id: raw.draft_id, revoked_at: raw.revoked_at };
+}
+
+/**
+ * 회수 기한. 서버 `_REVOKE_WINDOW`(24시간)를 옮긴 값입니다 — 게시가 **끝난** 시각부터입니다.
+ *
+ * 목 핸들러에도 같은 값이 따로 있습니다. 한 곳에서 가져다 쓰면 값이 틀려도 둘이 나란히
+ * 틀려서 테스트가 못 잡습니다.
+ *
+ * **이 값으로 버튼을 열고 닫을 뿐 회수 가능 여부를 판정하지는 않습니다.** 학부모가 열었는지는
+ * 반·날짜 목록에 실려 오지 않아 화면이 알 수 없고, 최종 판정은 서버가 합니다(409).
+ */
+export const REVOKE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** 게시한 알림장의 회수 기한. 게시 전이면 `null`입니다. */
+export function revokeDeadlineOf(publishedAt: string | null): Date | null {
+  if (publishedAt === null) return null;
+  const published = Date.parse(publishedAt);
+  return Number.isNaN(published) ? null : new Date(published + REVOKE_WINDOW_MS);
+}
+
 export function toPublicationResultView(raw: PublicationResult): PublicationResultView {
   return {
     draft_id: raw.draft_id,
@@ -159,6 +197,51 @@ export function toPublicationResultView(raw: PublicationResult): PublicationResu
     parent_note_id: raw.parent_note_id,
     error_code: raw.error_code,
   };
+}
+
+function toParentMediaTypeView(value: ParentMediaItem["type"]): ParentMediaTypeView {
+  switch (value) {
+    case "photo":
+      return "photo";
+    case "video":
+      return "video";
+    default: {
+      const unexpected: never = value;
+      return warnUnknownStatus("모르는 미디어 종류", unexpected);
+    }
+  }
+}
+
+function toParentMediaItemView(raw: ParentMediaItem): ParentMediaItemView {
+  return {
+    media_id: raw.media_id,
+    type: toParentMediaTypeView(raw.type),
+    captured_at: raw.captured_at,
+    url: raw.url,
+    url_expires_at: raw.url_expires_at,
+  };
+}
+
+export function toParentMediaListView(raw: ParentMediaList): ParentMediaListView {
+  return {
+    days: raw.days.map((day) => ({
+      parent_note_id: day.parent_note_id,
+      record_date: day.record_date,
+      items: day.items.map(toParentMediaItemView),
+    })),
+    next_cursor: raw.next_cursor,
+    photo_count: raw.photo_count,
+    video_count: raw.video_count,
+  };
+}
+
+export function toParentMediaDownloadView(raw: ParentMediaDownload): ParentMediaDownloadView {
+  return { media_id: raw.media_id, url: raw.url, filename: raw.filename };
+}
+
+/** 학부모가 저장할 수 있는 미디어인지. 모르는 종류는 잠급니다. */
+export function canSaveParentMedia(item: ParentMediaItemView): boolean {
+  return item.type !== "unknown";
 }
 
 /**
@@ -173,6 +256,19 @@ export function selectedPhotos(draft: DraftView | undefined): DraftMediaView[] {
   return draft.selected_media_ids
     .map((id) => draft.media.find((media) => media.media_id === id))
     .filter((media): media is DraftMediaView => media !== undefined && media.type === "photo");
+}
+
+/**
+ * 교사가 아직 고르지 않았지만 보낼 사진으로 고를 수 있는 사진입니다. 초안 상세가 싣는 사진
+ * (문장 근거, 분석 실패)에서만 고릅니다 — 반·날짜의 사진 전체를 주는 API가 아직 경로만 있어서
+ * (docs/api/media-face.md) 거기까지는 보여 줄 수 없습니다. 서버는 고른 사진이 그 원아·그
+ * 날짜에 학부모에게 보여도 되는 것인지 다시 확인합니다(`PATCH /drafts/{draft_id}`).
+ */
+export function selectablePhotos(draft: DraftView | undefined): DraftMediaView[] {
+  if (draft === undefined) return [];
+  return draft.media.filter(
+    (media) => media.type === "photo" && !draft.selected_media_ids.includes(media.media_id),
+  );
 }
 
 /**
@@ -202,10 +298,17 @@ export function canApprove(draft: { status: DraftStatusView } | null | undefined
   return draft?.status === "review";
 }
 
-/** 승인을 되돌릴 수 있는지. 게시한 뒤에는 회수가 따로 필요합니다(H-1). */
+/**
+ * 승인이나 회수를 되돌려 다시 검토할 수 있는지.
+ *
+ * `approved`는 **게시 전까지만** 됩니다 — 이미 나갔으면 회수가 먼저입니다(H-1).
+ * `revoked`는 회수로 학부모에게서 내려온 상태라 바로 되돌립니다. 서버 `reopen_draft`도
+ * 두 상태를 모두 받습니다("승인 또는 회수를 되돌려 다시 검토하게 한다").
+ */
 export function canReopen(
   draft: { status: DraftStatusView; published_at: string | null } | null | undefined,
 ): boolean {
+  if (draft?.status === "revoked") return true;
   return draft?.status === "approved" && draft.published_at === null;
 }
 
@@ -261,4 +364,40 @@ export function isNotReady(row: PublishRow): boolean {
  */
 export function isUnpublishedDraft(row: PublishRow): boolean {
   return row.note !== null && row.note.published_at === null;
+}
+
+export function toParentNoteListView(raw: ParentNoteList): ParentNoteListView {
+  return {
+    items: raw.items.map((item) => ({
+      parent_note_id: item.parent_note_id,
+      record_date: item.record_date,
+      preview: item.preview,
+      is_read: item.is_read,
+      photos: item.photos.map((photo) => ({
+        media_id: photo.media_id,
+        type: photo.type,
+        url: photo.url,
+        url_expires_at: photo.url_expires_at,
+      })),
+    })),
+    next_cursor: raw.next_cursor,
+    unread_count: raw.unread_count,
+    this_month_count: raw.this_month_count,
+  };
+}
+
+export function toParentNoteDetailView(raw: ParentNoteDetail): ParentNoteDetailView {
+  return {
+    parent_note_id: raw.parent_note_id,
+    child_id: raw.child_id,
+    record_date: raw.record_date,
+    content: raw.content,
+    author_name: raw.author_name,
+    photos: raw.photos.map((photo) => ({
+      media_id: photo.media_id,
+      type: photo.type,
+      url: photo.url,
+      url_expires_at: photo.url_expires_at,
+    })),
+  };
 }

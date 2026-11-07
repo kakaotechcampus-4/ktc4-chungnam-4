@@ -10,12 +10,13 @@ from datetime import datetime
 from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, Field, field_validator, model_validator
 
 from domains.media.service import Attribution, AttributionInput, UploadRequestItem
 
 MediaType = Literal["photo", "video", "voice_memo"]
 AttributionMethod = Literal["face_recognition", "manual"]
+Speaker = Literal["child", "teacher_observation", "together"]
 
 
 class ErrorBody(BaseModel):
@@ -92,8 +93,8 @@ class ChildLinkBody(BaseModel):
 class MediaCompleteRequest(BaseModel):
     """업로드 완료 통지. 사진은 귀속이 필수, 영상·음성은 귀속을 받지 않습니다.
 
-    영상·음성은 교사 확인 전에 먼저 올라오므로 귀속을 나중에 따로 저장합니다. 그 방식
-    (파일 단위 선택 / 발화 연결로 계산)은 BE·AI 회의에서 정합니다(#142).
+    영상·음성은 교사 확인 전에 먼저 올라오므로 귀속을 나중에 `PUT /media/{id}/child-links`로
+    파일 단위로 저장합니다(10/29 #163).
     """
 
     client_photo_id: UUID
@@ -137,6 +138,28 @@ class MediaAssetResponse(BaseModel):
     attributed_at: datetime | None
 
 
+# ---- PUT /media/{media_id}/child-links ----
+
+
+class ChildLinksRequest(BaseModel):
+    """교사가 확정한 귀속. 둘 다 필수입니다 — 한쪽만 바뀌면 빼야 할 미디어가 LLM으로 갑니다(#13)."""
+
+    llm_allowed: bool
+    child_links: list[ChildLinkBody]
+
+    def to_attributions(self) -> list[Attribution]:
+        return [link.to_attribution() for link in self.child_links]
+
+
+class ChildLinksResponse(BaseModel):
+    """저장 후 이 미디어의 귀속 전체."""
+
+    media_id: UUID
+    llm_allowed: bool
+    child_links: list[ChildLinkBody]
+    attributed_at: datetime | None
+
+
 # ---- GET /media/{media_id} ----
 
 
@@ -148,3 +171,57 @@ class MediaUrlResponse(BaseModel):
     captured_at: datetime
     url: str
     url_expires_at: datetime
+
+
+# ---- GET /media/{media_id}/transcript-segments · PATCH /transcript-segments/{segment_id} ----
+
+
+class TranscriptSegmentItem(BaseModel):
+    """발화 구간 하나. raw_text·text에는 실명 호명이 그대로 있어 교사에게만 보여 줍니다 (H-2, H-4)."""
+
+    segment_id: UUID
+    media_id: UUID
+    source: Literal["video_audio", "voice_memo"]
+    start_time: float | None  # 파일 처음부터의 초. "멘트 없음"은 null
+    end_time: float | None
+    raw_text: str
+    text: str  # 교사가 고친 문장. 고치지 않았으면 raw_text와 같음
+    speaker: Speaker | None
+    excluded: bool
+    reviewed_at: datetime | None
+    # 항상 빈 배열. 귀속은 파일 단위(10/29 #163)지만 FE 어댑터가 아직 이 필드를 펼쳐 읽어서,
+    # 빼면 발화 화면이 멈춥니다. FE가 파일 단위로 바뀌면 지웁니다 (#230 리뷰 엄태은)
+    child_ids: list[UUID] = []
+
+
+class TranscriptSegmentsResponse(BaseModel):
+    """`items`는 `done`일 때만 채웁니다. `failed`면 발화 없이 넘어갈 수 있습니다."""
+
+    media_id: UUID
+    transcript_status: Literal["pending", "done", "failed"]
+    child_links: list[ChildLinkBody] = Field(default_factory=list)
+    llm_allowed: bool = False
+    attributed_at: datetime | None = None
+    items: list[TranscriptSegmentItem]
+
+
+class TranscriptSegmentUpdateRequest(BaseModel):
+    """보낸 칸만 바꿉니다(`model_fields_set`). `speaker: null`은 "화자 지우기"입니다.
+
+    예전 화면이 보내는 `child_ids`는 받지 않고 버립니다 — 귀속은 파일 단위로 바뀌었고(#163),
+    FE 발화 탭을 파일 단위로 바꿀 때 함께 뺍니다 — 임시 결정(김동건).
+    """
+
+    speaker: Speaker | None = None
+    excluded: bool = False
+    text: str = ""
+
+    @field_validator("text")
+    @classmethod
+    def text_is_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("문장을 비울 수 없어요.")
+        return value
+
+    def changes(self) -> dict[str, object]:
+        return {name: getattr(self, name) for name in self.model_fields_set}

@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -79,6 +80,8 @@ class Job(Base):
     target_date = Column(DateTime(timezone=True), nullable=False)
     status = Column(String, nullable=False, default=JobStatus.PENDING.value)
     retry_count = Column(Integer, nullable=False, default=0)
+    error_code = Column(String, nullable=True)
+    unclassified_reason = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
     updated_at = Column(
         DateTime(timezone=True),
@@ -96,6 +99,8 @@ class EvidenceBundle(Base):
     date = Column(DateTime(timezone=True), nullable=False)
     media_refs = Column(JSON, nullable=False)
     transcript_refs = Column(JSON, nullable=False)
+    # 분석 응답 오류로 근거에서 제외된 사진. 교사 안내용이며 생성 입력에는 넣지 않는다.
+    failed_photo_ids = Column(JSON, nullable=False, default=list, server_default="[]")
     # 09/19 결정: developmental_guideline·teacher_persona 두 고정 키를 갖는 JSON
     # (teacher_persona는 09/22 이슈 #16 코멘트 반영해 persona에서 개명 — 원아 성향이
     # 아니라 교사 문체). 키를 고정해야 에이전트2·3이 조회 결과를 구조로 읽는다.
@@ -135,6 +140,38 @@ class SentenceEvidence(Base):
         Float, nullable=True
     )  # 사진 근거는 시간 구간이 없을 수 있음 (PR #7 계약)
     source_text = Column(String, nullable=False)
+
+
+class TeacherEvidence(Base):
+    """교사가 아이·날짜별로 직접 남긴 관찰 메모 — "추가 근거" (FR-05, 테크스펙 데이터 모델 ④).
+
+    사진·영상·음성에 담기지 않은 일을 교사가 글로 적어 두는 초안 생성 재료다. 아이·날짜당
+    1건이고 다시 저장하면 덮어쓴다. 이번 범위는 글만이다(음성·관련 사진 제외).
+
+    child_id·author_teacher_id는 organization·auth 도메인 소유라 계층 규칙(backend/CLAUDE.md)에
+    따라 UUID 컬럼만 두고 ForeignKey 제약은 걸지 않는다. text에는 실명이 들어갈 수 있어
+    LLM에 보내기 전에 CHILD_A 토큰으로 바꾼다(H-2) — 로그에 찍지 않는다(H-4).
+    """
+
+    __tablename__ = "teacher_evidences"
+    __table_args__ = (
+        UniqueConstraint("child_id", "record_date", name="uq_teacher_evidences_child_date"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    child_id = Column(UUID(as_uuid=True), nullable=False)
+    record_date = Column(Date, nullable=False)
+    # "HH:MM"(교사가 입력한 활동 시각). 초안 근거에는 넣지 않고 교사 화면에만 보인다.
+    activity_time = Column(String, nullable=False)
+    text = Column(Text, nullable=False)
+    author_teacher_id = Column(UUID(as_uuid=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
 
 
 class DraftDecisionLog(Base):

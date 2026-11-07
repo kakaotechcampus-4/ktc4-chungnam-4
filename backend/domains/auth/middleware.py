@@ -85,3 +85,15 @@ def get_current_parent(
 CurrentUser = Annotated[TeacherProfile | ParentProfile, Depends(get_current_user)]
 CurrentTeacher = Annotated[TeacherProfile, Depends(get_current_teacher)]
 CurrentParent = Annotated[ParentProfile, Depends(get_current_parent)]
+
+
+def get_optional_user(
+    db: Annotated[Session, Depends(get_db)],
+    session_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE_NAME)] = None,
+) -> TeacherProfile | ParentProfile | None:
+    if not session_token:
+        return None
+    return get_current_user(db, session_token)
+
+
+OptionalUser = Annotated[TeacherProfile | ParentProfile | None, Depends(get_optional_user)]

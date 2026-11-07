@@ -9,10 +9,11 @@
  * - `review` — 교사가 보고 승인할 수 있습니다
  * - `approved` — 교사가 승인했습니다
  * - `generating` — 아직 만드는 중입니다. 기다리면 됩니다
- * - `revoked` — 게시를 회수했습니다. 다시 다루는 흐름이 정해질 때까지 잠급니다
+ * - `revoked` — 게시를 회수했습니다. 승인·게시는 잠그고 `canReopen`으로만 엽니다 —
+ *   되돌려 다시 검토한 뒤 고쳐서 새로 게시합니다
  * - `unknown` — 서버가 보낸 값을 화면이 모릅니다
  *
- * 뒤 셋은 모두 잠급니다. 모르는 값을 `review`로 두면 승인 버튼이 열려 미완성 글이
+ * 뒤 셋은 승인을 모두 잠급니다. 모르는 값을 `review`로 두면 승인 버튼이 열려 미완성 글이
  * 그대로 나갑니다. 애매하면 잠그는 쪽이 맞습니다(H-1, #96 규칙과 같은 방향) —
  * 이슈 #106 정은 님 지적.
  *
@@ -69,7 +70,12 @@ export type DocTypeView = "observation_log" | "parent_note";
 
 /** 근거가 어디서 왔는지. 근거 패널이 출처 이름으로 바꿔 보여 줍니다. */
 export type EvidenceSourceTypeView =
-  "photo_observation" | "video_speech" | "video_scene" | "teacher_voice_memo" | "activity_plan";
+  | "photo_observation"
+  | "video_speech"
+  | "video_scene"
+  | "teacher_voice_memo"
+  | "teacher_note"
+  | "activity_plan";
 
 /** 문장 하나의 근거 */
 export interface EvidenceView {
@@ -117,9 +123,17 @@ export interface DraftView {
   sentences: SentenceView[];
   /** 교사가 고른 미디어의 id. 어느 것이 사진인지는 `selectedPhotos`가 가립니다. */
   selected_media_ids: string[];
+  /** 분석 실패로 근거에서 제외된 사진. 구버전 서버 응답에 없으면 adapter가 빈 배열로 채웁니다. */
+  failed_media_ids: string[];
   /** 선택 미디어와 근거 미디어 전부. 근거 패널이 씁니다. */
   media: DraftMediaView[];
   published_at: string | null;
+  /**
+   * 회수 기한(게시 + 24시간)과 지금 회수할 수 있는지. **둘 다 서버가 판정한 값입니다** —
+   * 학부모가 본문을 열었는지는 화면이 알 수 없어 직접 계산하지 않습니다.
+   */
+  revoke_deadline: string | null;
+  can_revoke: boolean;
   /** 게시할 때 사진을 함께 보냈는지. 게시 전에는 `null`입니다. */
   include_photos: boolean | null;
 }
@@ -135,6 +149,17 @@ export interface DraftView {
  */
 export type PublicationStatusView = "published" | "failed" | "unknown";
 
+/**
+ * 게시를 회수한 결과. 회차 id는 화면이 쓰지 않아 옮기지 않습니다.
+ *
+ * 회수할 수 있는지(기한 이내·학부모 열람 전)는 **서버가 판정합니다.** 화면은 게시 시각으로
+ * 버튼을 열고 닫을 뿐이고, 어긋나면 서버가 409로 막습니다.
+ */
+export interface RevokedPublicationView {
+  draft_id: string;
+  revoked_at: string;
+}
+
 /** POST /publications 한 건의 결과 */
 export interface PublicationResultView {
   draft_id: string;
@@ -145,4 +170,64 @@ export interface PublicationResultView {
   parent_note_id: string | null;
   /** 실패했을 때 서버가 준 사유 코드 */
   error_code: string | null;
+}
+
+/**
+ * 학부모 사진·영상 한 건의 종류. `unknown`은 서버 값에 없습니다 — 모르는 종류를 사진으로 그리면
+ * 깨진 이미지가 되고, 저장 버튼이 열리면 무엇을 받는지 알 수 없어서 잠급니다(H-1 방향).
+ */
+export type ParentMediaTypeView = "photo" | "video" | "unknown";
+
+/** GET /children/{child_id}/parent-media 한 건(학부모용, FR-10) */
+export interface ParentMediaItemView {
+  media_id: string;
+  type: ParentMediaTypeView;
+  captured_at: string;
+  /** 화면 표시·재생용 서명 URL. 저장은 `requestParentMediaDownload`로 따로 받습니다. */
+  url: string;
+  url_expires_at: string;
+}
+
+/** 알림장 한 건에 함께 받은 사진·영상(교사가 고른 순서) */
+export interface ParentMediaDayView {
+  parent_note_id: string;
+  record_date: string;
+  items: ParentMediaItemView[];
+}
+
+/** GET /children/{child_id}/parent-media 한 쪽 */
+export interface ParentMediaListView {
+  days: ParentMediaDayView[];
+  next_cursor: string | null;
+  photo_count: number;
+  video_count: number;
+}
+
+/** GET /children/{child_id}/parent-media/{media_id}/download — 원본을 파일로 받는 URL */
+export interface ParentMediaDownloadView {
+  media_id: string;
+  url: string;
+  filename: string;
+}
+
+export interface ParentNoteSummaryView {
+  photos: DraftMediaView[];
+  parent_note_id: string;
+  record_date: string;
+  preview: string;
+  is_read: boolean;
+}
+export interface ParentNoteListView {
+  items: ParentNoteSummaryView[];
+  next_cursor: string | null;
+  unread_count: number;
+  this_month_count: number;
+}
+export interface ParentNoteDetailView {
+  parent_note_id: string;
+  child_id: string;
+  record_date: string;
+  content: string;
+  photos: DraftMediaView[];
+  author_name: string;
 }

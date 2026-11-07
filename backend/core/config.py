@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
 
@@ -50,16 +50,26 @@ class Settings(BaseSettings):
     upload_max_video_bytes: int = Field(default=300 * 1024 * 1024, gt=0)  # 1080p 2~5분, 4K 1분 안팎
     upload_max_voice_memo_bytes: int = Field(default=100 * 1024 * 1024, gt=0)  # WAV 10분
 
-    # TODO(태은): AI 기능 배포 전에는 키 누락을 차단하도록 필수값 검증을 추가합니다.
-    # Redis·worker 연습은 AI 호출 없이 실행하므로 현재는 빈 값을 허용합니다.
+    # production에서는 아래 키·주소가 비어 있으면 앱이 뜨지 않습니다(require_ai_settings_in_production).
+    # 로컬·테스트는 AI 호출 없이 다른 도메인을 개발할 수 있게 빈 값을 허용합니다.
     anthropic_api_key: SecretStr = SecretStr("")
     # agents(초안 생성·Critic)용 게이트웨이. 기수·팀별 주소라 반드시 .env에서 설정합니다.
     llm_gateway_base_url: str = ""
-    # 테크스펙의 에이전트 모델(Claude Sonnet 계열).
-    anthropic_model: str = "anthropic/claude-sonnet-5"
+    # 테크스펙의 에이전트 모델(Claude Sonnet 계열). 엘리스 게이트웨이는 "anthropic/claude-sonnet-5"를
+    # 400 "not allowed"로 거절한다. /v1/models에 나오는 이 ID를 쓴다(접두어 없는 "claude-sonnet-5-5"도
+    # 받는다, 11/03 확인).
+    anthropic_model: str = "anthropic/claude-sonnet-5-5"
     # 사진 분석용 게이트웨이는 agents와 분리합니다 (09/23 결정, #98).
     vision_gateway_base_url: str = ""
-    vision_model: str = "glm-5.3-flash"
+    vision_model: str = "zai-org/GLM-5.3-Flash"
+    # 영상·음성메모 STT(엘리스 Whisper). 사진 분석과 주소·키를 따로 받습니다 (#142).
+    # TODO(donggeon): 서버가 캠퍼스 공통 키(ANTHROPIC_API_KEY)로 Whisper를 부를 수 있는지 확인 전이라
+    # production 필수 목록에 넣지 않았습니다. 비어 있으면 STT만 failed로 끝나고 앱은 뜹니다.
+    stt_gateway_base_url: str = ""
+    stt_api_key: SecretStr = SecretStr("")
+    stt_model: str = "whisper-large-v3"
+    # 영상 하나 안에서 조각을 동시에 보내는 수 (10/30 김동건). 많이 두면 엘리스가 429·504로 막습니다
+    stt_max_concurrency: int = Field(default=4, ge=1, le=16)
 
     # 로그인 토큰 서명 키. 없으면 앱은 뜨지만 로그인만 실패합니다 — 다른 도메인
     # 개발이 키 때문에 막히지 않게 하기 위함입니다 (face_embedding_key와 같은 방식).
@@ -99,6 +109,26 @@ class Settings(BaseSettings):
             raise ValueError("Generate a database password with scripts/init_env.py")
         return value
 
+    @model_validator(mode="after")
+    def require_ai_settings_in_production(self) -> "Settings":
+        """배포 서버에서 AI 키가 빠진 채로 뜨면 초안 생성 Job이 전부 실패로 끝납니다.
+
+        헬스 체크는 AI 설정을 보지 않아 배포는 초록불이 되므로, 뜨는 시점에 막습니다.
+        `.env.example`의 예시 값이 그대로 남은 것도 빈 값으로 봅니다. 메시지에는 키 이름만
+        넣고 값은 넣지 않습니다 (H-4).
+        """
+        if self.app_env != "production":
+            return self
+        required = {
+            "ANTHROPIC_API_KEY": self.anthropic_api_key.get_secret_value(),
+            "LLM_GATEWAY_BASE_URL": self.llm_gateway_base_url,
+            "VISION_GATEWAY_BASE_URL": self.vision_gateway_base_url,
+        }
+        missing = [name for name, value in required.items() if _is_unset(value)]
+        if missing:
+            raise ValueError(f"APP_ENV=production requires: {', '.join(missing)}")
+        return self
+
     @property
     def database_url(self) -> URL:
         return URL.create(
@@ -109,6 +139,11 @@ class Settings(BaseSettings):
             port=self.postgres_port,
             database=self.postgres_db,
         )
+
+
+def _is_unset(value: str) -> bool:
+    # .env.example의 예시 값(replace-with-…, https://<gateway-address>/v1)을 그대로 복사한 경우
+    return not value.strip() or value.startswith("replace-with-") or "<" in value
 
 
 @lru_cache

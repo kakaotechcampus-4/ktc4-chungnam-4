@@ -2,6 +2,7 @@ from collections.abc import Sequence
 
 import openai
 from openai import OpenAI
+from openai.types.chat import ChatCompletion
 
 from core.config import get_settings
 
@@ -13,10 +14,6 @@ RETRYABLE_LLM_ERRORS: tuple[type[Exception], ...] = (
     openai.RateLimitError,
     openai.InternalServerError,
 )
-
-# 테크스펙엔 "Claude Sonnet 계열"이라고만 되어 있고, 나중에 모델명이 바뀔 수 있음
-# 게이트웨이의 모델 ID 형식(제공자/모델명)을 그대로 사용
-_MODEL = get_settings().anthropic_model
 
 # SDK 기본값(10분)이면 Celery soft_time_limit(180초)이 먼저 끊어 버림
 # 1회 호출 상한을 둬서 느린 호출은 SDK가 끊고 오류로 올림 (테크스펙 파이프라인 4단계)
@@ -31,21 +28,61 @@ _SDK_MAX_RETRIES = 0
 # (#179 리뷰, 유진). 과금은 실제 출력 토큰 기준이라 상한을 올려도 평소 비용은 같다.
 _VISION_MAX_TOKENS = 2048
 
+# 초안 생성·Critic 응답 상한. 1024에서 응답이 중간에 잘려 JSON이 깨진 사례가 있어(4명 중 2명 실패,
+# 11/2 로컬 실행) 올렸다. 엘리스 Claude 게이트웨이는 스트리밍이 아닌 호출에 2000까지만 받고 2048이면
+# 400을 돌려줘서(11/03 실측), 아래 표에 없는 모델은 2000으로 둔다. 모르는 ID에 큰 값을 보내 모든
+# 호출이 400으로 끝나는 것보다 낫다. 사진 분석은 GLM 주소로만 가서 2048을 그대로 둔다.
+# 과금은 실제 출력 토큰 기준이라 상한을 올려도 평소 비용은 같다.
+_TEXT_MAX_TOKENS = 2000
 
-def call_claude(prompt: str) -> str:
+# GLM 주소에는 2000 상한이 없다. GLM은 추론 토큰을 많이 써서, 근거 28개 합성 사례에서 2000이면
+# 초안 3번 중 2번이 잘렸고 4096이면 8번 모두 끝났다(최대 2884토큰·14초, 11/05 실측).
+_TEXT_MAX_TOKENS_BY_MODEL = {"zai-org/GLM-5.3-Flash": 4096}
+
+# 추론 토큰이 응답에는 안 보이지만 출력 토큰(max_tokens)을 같이 쓰는 모델. low로 낮춰 추론만 하다
+# 출력 한도·30초 제한을 소진하는 일을 줄인다.
+# - GLM-5.3-Flash: 추론 끄기를 지원하지 않아 공식 모델 정보의 low를 쓴다.
+# - Claude Sonnet 5.5(엘리스): 근거 28개 사례에서 2000토큰으로도 잘렸다. 문장 수 상한과 함께
+#   low를 넣으면 초안 약 650토큰·Critic 약 1050토큰으로 3번 모두 끝났다(11/03 합성 사례 실측).
+#   게이트웨이가 접두어 없는 ID도 받아서 둘 다 둔다.
+_LOW_REASONING_MODELS = frozenset(
+    {"zai-org/GLM-5.3-Flash", "anthropic/claude-sonnet-5-5", "claude-sonnet-5-5"}
+)
+
+
+def _complete(*, endpoint: str, model: str, messages: list[dict], max_tokens: int) -> str | None:
+    """설정된 API base URL 또는 완전한 chat/completions 주소를 사용한다(FR-05).
+
+    필요한 API 버전 경로(/v1 등)는 환경설정에 포함한다. 호스트별로 추정하지 않는다.
+    SDK의 인증·시간 초과·재시도 예외 계약은 유지한다.
+    """
     settings = get_settings()
-    client = OpenAI(
+    endpoint = endpoint.rstrip("/")
+    is_complete_url = endpoint.endswith("/chat/completions")
+    with OpenAI(
         api_key=settings.anthropic_api_key.get_secret_value(),
-        base_url=settings.llm_gateway_base_url,
+        base_url=endpoint,
         timeout=_TIMEOUT_SECONDS,
         max_retries=_SDK_MAX_RETRIES,
-    )
-    response = client.chat.completions.create(
-        model=_MODEL,
-        max_tokens=1024,
+    ) as client:
+        body = {"model": model, "max_tokens": max_tokens, "messages": messages}
+        if model in _LOW_REASONING_MODELS:
+            body["reasoning_effort"] = "low"
+        if is_complete_url:
+            response = client.post(endpoint, cast_to=ChatCompletion, body=body)
+        else:
+            response = client.chat.completions.create(**body)
+        return response.choices[0].message.content if response.choices else None
+
+
+def call_claude(prompt: str) -> str | None:
+    settings = get_settings()
+    return _complete(
+        endpoint=settings.llm_gateway_base_url,
+        model=settings.anthropic_model,
+        max_tokens=_TEXT_MAX_TOKENS_BY_MODEL.get(settings.anthropic_model, _TEXT_MAX_TOKENS),
         messages=[{"role": "user", "content": prompt}],
     )
-    return response.choices[0].message.content
 
 
 def call_vision(instructions: str, image_urls: Sequence[str]) -> str | None:
@@ -60,20 +97,14 @@ def call_vision(instructions: str, image_urls: Sequence[str]) -> str | None:
     data URL로 바꾼다. HEIC는 모델이 읽지 못할 수 있어 JPEG 변환이 필요하다(Pillow, 팀 확인).
     """
     settings = get_settings()
-    client = OpenAI(
-        api_key=settings.anthropic_api_key.get_secret_value(),
-        base_url=settings.vision_gateway_base_url,
-        timeout=_TIMEOUT_SECONDS,
-        max_retries=_SDK_MAX_RETRIES,
-    )
     content: list[dict] = [{"type": "text", "text": instructions}]
     content += [{"type": "image_url", "image_url": {"url": url}} for url in image_urls]
-    response = client.chat.completions.create(
+    return _complete(
+        endpoint=settings.vision_gateway_base_url,
         model=settings.vision_model,
         max_tokens=_VISION_MAX_TOKENS,
         messages=[{"role": "user", "content": content}],
     )
-    return response.choices[0].message.content
 
 
 if __name__ == "__main__":

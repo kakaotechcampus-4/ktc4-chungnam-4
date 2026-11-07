@@ -20,10 +20,14 @@ describe("검수 규칙", () => {
     expect(clips.map(needsManualReview)).toEqual([false, false]);
   });
 
-  it("확인 체크는 확실한 사진과 교사가 고른 사진만 확정하고 LLM 허용을 켠다", () => {
+  it("확인 체크 뒤에는 교사가 아이를 고른 사진까지 LLM을 허용하고, 고르지 않은 사진은 빠진다", () => {
     expect(confirmReview(classified!)).toMatchObject({ review_state: "확정", llm_allowed: true });
+    expect(confirmReview({ ...classified!, ...assignResult(["c"]) })).toMatchObject({
+      llm_allowed: true,
+    });
     // 수동 확인을 안 한 사진은 그대로 미검수라 업로드 목록에서 빠집니다(H-3).
     expect(confirmReview(unidentified!)).toBeNull();
+    // 자동으로 못 맞힌 얼굴도 교사가 아이를 고르면 귀속이 끝납니다(테크스펙 H-2 판정 경로, FR-14).
     expect(confirmReview({ ...unidentified!, ...assignResult(["c"]) })).toMatchObject({
       assigned_child_ids: ["c"],
       llm_allowed: true,

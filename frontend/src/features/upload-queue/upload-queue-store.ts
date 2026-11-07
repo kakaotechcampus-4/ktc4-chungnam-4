@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { kstToday, type DateOnly } from "@/lib/datetime";
+import { CLIPS_ENABLED } from "./media-capabilities";
 
 // 오늘 올릴 자료의 로컬 상태입니다(테크스펙 데이터 모델 ⑧ LocalBatch·LocalPhoto).
 // 자료 올리기 → 처리 중 → 얼굴 분류(④)가 함께 씁니다. 서버에서 받은 데이터는 여기에 두지 않습니다.
@@ -78,8 +80,9 @@ const KIND_BY_EXTENSION: Record<string, MediaKind> = {
 };
 
 /** 파일 선택 창에 거는 확장자 목록 */
-export const ACCEPTED_EXTENSIONS = Object.keys(KIND_BY_EXTENSION)
-  .map((extension) => `.${extension}`)
+export const ACCEPTED_EXTENSIONS = Object.entries(KIND_BY_EXTENSION)
+  .filter(([, kind]) => CLIPS_ENABLED || kind === "photo")
+  .map(([extension]) => `.${extension}`)
   .join(",");
 
 /** 지원하지 않는 형식이면 null. HEIC는 브라우저가 MIME을 비워 주는 경우가 있어 확장자로 봅니다. */
@@ -119,9 +122,16 @@ export const IMPORT_TICK_MS = 150;
 export const IMPORT_TICK_AMOUNT = 10;
 
 interface UploadQueueState {
+  /** 교사가 확인한 활동 날짜. 업로드·초안 생성·검토에서 같은 날짜를 사용합니다. */
+  recordDate: DateOnly;
+  setRecordDate: (date: DateOnly) => void;
   items: LocalMedia[];
-  /** 지원하는 형식만 담습니다. 형식이 안 맞는 파일 안내는 업로드 실패 화면(1:2520)이 맡습니다. */
+  /** 형식이 안 맞아 담지 않은 파일 이름. 같은 이름은 한 번만 둡니다. 서버로는 보내지 않습니다. */
+  rejected: string[];
+  /** 지원하는 형식만 담고, 나머지는 rejected에 남겨 업로드 실패 화면(1:2520)이 안내합니다. */
   addFiles: (files: readonly File[]) => void;
+  /** 안내를 본 교사가 형식 오류 파일을 목록에서 뺄 때 씁니다. */
+  removeRejected: (fileName: string) => void;
   /**
    * 불러오기를 amount만큼 진행합니다.
    * TODO(정은): IndexedDB에 실제로 쓰는 코드가 생기면 진행 값은 그쪽에서 받습니다. 지금은 흉내만 냅니다.
@@ -135,17 +145,23 @@ interface UploadQueueState {
 }
 
 export const useUploadQueue = create<UploadQueueState>()((set) => ({
+  recordDate: kstToday(),
+  setRecordDate: (recordDate) => set({ recordDate }),
   items: [],
+  rejected: [],
   addFiles: (files) =>
-    set((state) => ({
-      items: [
-        ...state.items,
-        ...files.flatMap((file) => {
-          const kind = mediaKindOf(file.name);
-          return kind ? [toLocalMedia(file, kind)] : [];
-        }),
-      ],
-    })),
+    set((state) => {
+      const accepted: LocalMedia[] = [];
+      const rejected = new Set(state.rejected);
+      for (const file of files) {
+        const kind = mediaKindOf(file.name);
+        if (kind && (CLIPS_ENABLED || kind === "photo")) accepted.push(toLocalMedia(file, kind));
+        else rejected.add(file.name);
+      }
+      return { items: [...state.items, ...accepted], rejected: [...rejected] };
+    }),
+  removeRejected: (fileName) =>
+    set((state) => ({ rejected: state.rejected.filter((name) => name !== fileName) })),
   advanceImport: (amount) =>
     set((state) => {
       let slots = IMPORT_CONCURRENCY;
@@ -181,7 +197,7 @@ export const useUploadQueue = create<UploadQueueState>()((set) => ({
           : item,
       ),
     })),
-  reset: () => set({ items: [] }),
+  reset: () => set({ items: [], rejected: [], recordDate: kstToday() }),
 }));
 
 export function isPhoto(item: LocalMedia): item is LocalPhoto {
@@ -190,6 +206,16 @@ export function isPhoto(item: LocalMedia): item is LocalPhoto {
 
 export function isImportDone(items: readonly LocalMedia[]) {
   return items.length > 0 && items.every((item) => item.import_progress >= 100);
+}
+
+/**
+ * 큐가 아직 불러오기 단계인지. 업로드가 전부 대기이고 사진이 분류 전일 때만 참입니다(빈 큐도 참).
+ * 분류 화면으로 넘어간 큐에 오늘의 기록이 업로드 중·실패 화면을 띄우지 않게 가립니다.
+ */
+export function isImportStage(items: readonly LocalMedia[]) {
+  return items.every(
+    (item) => item.upload_state === "대기" && (!isPhoto(item) || item.classify_state === "pending"),
+  );
 }
 
 /** 남은 불러오기 시간(초) 어림 */
@@ -201,10 +227,10 @@ export function remainingImportSeconds(items: readonly LocalMedia[]) {
 }
 
 /**
- * 서버로 보낼 자료. H-3의 마지막 관문입니다.
+ * 서버로 보낼 자료. H-3의 마지막 관문입니다. 클립은 해당 API가 포함된 배포에서만 보냅니다.
  * 사진은 교사가 확정(review_state == 확정)한 것만 들어갑니다. 분류 실패분을 자동으로 넣지 않습니다.
  * 미동의 원아가 찍힌 사진도 확정했다면 보냅니다 — 보호는 서버가 LLM 경로에서 뺍니다(H-2).
  */
 export function uploadTargets(items: readonly LocalMedia[]): LocalMedia[] {
-  return items.filter((item) => !isPhoto(item) || item.review_state === "확정");
+  return items.filter((item) => (isPhoto(item) ? item.review_state === "확정" : CLIPS_ENABLED));
 }

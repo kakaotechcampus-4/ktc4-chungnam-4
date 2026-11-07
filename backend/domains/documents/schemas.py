@@ -50,6 +50,10 @@ class DraftSaveInput(BaseModel):
     sentences: list[DraftSentenceInput] = Field(min_length=1)
     ai_version: int = Field(ge=1)
     evidence_bundle_id: UUID | None = None
+    # AI가 근거로 쓴 사진. 알림장에 보낼 사진의 기본 선택이다(교사가 PATCH로 바꾼다). 처음 저장하면
+    # 그대로 넣고, 재생성이면 교사가 이미 고른 선택 뒤에 새 사진만 더한다. 공개가 아니라 후보라서
+    # 학부모에게는 승인과 게시의 include_photos를 거쳐야 나간다(H-1).
+    selected_media_ids: list[UUID] = Field(default_factory=list)
 
     @field_validator("sentences")
     @classmethod
@@ -59,6 +63,14 @@ class DraftSaveInput(BaseModel):
         if len(ids) != len(set(ids)):
             raise ValueError("duplicate sentence_id")
         return sentences
+
+    @field_validator("selected_media_ids")
+    @classmethod
+    def _unique_media_ids(cls, media_ids: list[UUID]) -> list[UUID]:
+        # PATCH(DraftUpdateRequest)와 같은 규칙이다. 같은 사진이 두 번 저장되지 않게 입구에서 막는다.
+        if len(media_ids) != len(set(media_ids)):
+            raise ValueError("duplicate media_id")
+        return media_ids
 
 
 class DraftVersionInfo(BaseModel):
@@ -74,6 +86,8 @@ class DraftVersionInfo(BaseModel):
 
     draft_id: UUID
     version: int
+    # 잠금 버전과 구분해 다음 AI 검증 회차를 이어간다 (#257).
+    ai_version: int = 1
     status: DraftStatus
     has_teacher_edits: bool
 
@@ -102,8 +116,7 @@ class ClassDraftItem(BaseModel):
     child_id: UUID
     observation_log: DraftSummary | None = None
     parent_note: DraftSummary | None = None
-    # TODO(한상균): 초안 없이 미분류로 끝난 원아의 사유. agents가 미분류를 기록하고
-    #   (_send_to_unclassified) 원아·날짜로 찾을 길이 생기면 채운다. 그전까지 항상 null.
+    # 해당 원아·날짜에 알림장이 없고 열린 생성 실패가 있을 때 사유를 담는다 (#196).
     unclassified: UnclassifiedSummary | None = None
 
 
@@ -174,6 +187,7 @@ class DraftDetailResponse(BaseModel):
     title: str | None
     sentences: list[DraftSentenceView]
     selected_media_ids: list[UUID]
+    failed_media_ids: list[UUID] = Field(default_factory=list)
     media: list[MediaUrl]
     author_teacher_id: UUID
     author_name: str
@@ -181,6 +195,10 @@ class DraftDetailResponse(BaseModel):
     # 활성 게시 회차의 게시 시각. 게시 전이면 null이다 (승인·게시 분리).
     published_at: datetime | None
     include_photos: bool | None
+    # 활성 게시 회차의 회수 기한. 활성 회차가 없으면 null이다.
+    revoke_deadline: datetime | None
+    # 지금 회수할 수 있는가 (기한 이내이고 학부모가 본문을 열기 전).
+    can_revoke: bool
     updated_at: datetime
 
 
@@ -363,3 +381,41 @@ class ParentNoteDetailResponse(BaseModel):
     # 같은 자녀의 이전(더 오래된)·다음(더 최근) 게시본 (제안)
     prev: ParentNoteLink | None
     next: ParentNoteLink | None
+
+
+class ParentMediaItem(BaseModel):
+    """학부모가 보는 사진·영상 한 건. 서명 URL은 화면 표시용(재생)이다."""
+
+    media_id: UUID
+    type: Literal["photo", "video"]
+    captured_at: datetime
+    url: str
+    url_expires_at: datetime
+
+
+class ParentMediaDay(BaseModel):
+    """알림장 한 건에 함께 보낸 사진·영상. 교사가 고른 순서다."""
+
+    parent_note_id: UUID
+    record_date: date
+    items: list[ParentMediaItem]
+
+
+class ParentMediaListResponse(BaseModel):
+    """학부모 사진·영상 모아 보기 (FR-10). 승인·게시된 알림장에 교사가 고른 것만 싣는다 (H-1)."""
+
+    days: list[ParentMediaDay]
+    next_cursor: str | None
+    # 게이트를 통과한 전체 개수(쪽 나누기와 무관)
+    photo_count: int
+    video_count: int
+
+
+class ParentMediaDownloadResponse(BaseModel):
+    """원본을 파일로 내려받는 서명 URL. 열면 브라우저가 저장한다 (Content-Disposition)."""
+
+    media_id: UUID
+    type: Literal["photo", "video"]
+    url: str
+    url_expires_at: datetime
+    filename: str

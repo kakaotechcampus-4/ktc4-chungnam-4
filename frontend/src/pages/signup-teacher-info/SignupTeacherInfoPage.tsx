@@ -1,18 +1,13 @@
 // Figma: 1:434 (후보 A 1:2470)
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation } from "@tanstack/react-query";
-import { CheckCircle2Icon } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
-import { useNavigate } from "react-router";
+import { Navigate, useNavigate } from "react-router";
+import { createAccount, meQueryOptions } from "@/api/auth";
+import { useSignupCredentials } from "@/features/auth/signup-credentials";
 import { z } from "zod";
 
-import {
-  type CenterSummaryView,
-  createCenter,
-  findCenterByCode,
-  saveTeacherProfile,
-} from "@/api/organization";
 import { FormField } from "@/components/common/FormField";
 import { Stepper } from "@/components/common/Stepper";
 import { Button } from "@/components/ui/button";
@@ -60,17 +55,18 @@ type TeacherInfoValues = z.infer<typeof teacherInfoSchema>;
 // 값은 Figma 실측입니다(카드 760 · 안쪽 44, 단계 → 제목 24, 설명 → 입력 28, 칸 사이 28, 버튼 위 30).
 export function SignupTeacherInfoPage() {
   const navigate = useNavigate();
-  // 코드로 확인한 어린이집. 코드를 고치면 다시 확인해야 합니다.
-  const [verifiedCenter, setVerifiedCenter] = useState<CenterSummaryView | null>(null);
+  const credentials = useSignupCredentials((state) => state.credentials);
+  const clearCredentials = useSignupCredentials((state) => state.set);
+  const queryClient = useQueryClient();
+  const [signedUp, setSignedUp] = useState(false);
+  const [issuedCode, setIssuedCode] = useState<string | null>(null);
 
   const {
     register,
     handleSubmit,
     setValue,
-    control,
-    getValues,
-    setError,
     clearErrors,
+    control,
     formState: { errors },
   } = useForm<TeacherInfoValues>({
     resolver: zodResolver(teacherInfoSchema),
@@ -78,52 +74,40 @@ export function SignupTeacherInfoPage() {
   });
   const mode = useWatch({ control, name: "mode" });
 
-  const findCenter = useMutation({
-    mutationFn: findCenterByCode,
-    onSuccess: (center) => {
-      setVerifiedCenter(center);
-      clearErrors("centerCode");
-    },
-    // CENTER_NOT_FOUND를 포함해 서버 문구를 그대로 보여 줍니다.
-    onError: (error) => setError("centerCode", { message: error.message }),
-  });
-
   const complete = useMutation({
-    mutationFn: async (values: TeacherInfoValues) => {
-      const centerId =
-        values.mode === "code"
-          ? verifiedCenter?.center_id
-          : (await createCenter({ name: values.centerName, address: values.centerAddress }))
-              .center_id;
-      if (!centerId) throw new Error("어린이집 코드를 확인해 주세요.");
-      await saveTeacherProfile({ name: values.name, center_id: centerId });
+    mutationFn: (values: TeacherInfoValues) => {
+      if (!credentials) throw new Error("이메일 가입부터 다시 진행해 주세요.");
+      return createAccount({
+        ...credentials,
+        name: values.name,
+        ...(values.mode === "code"
+          ? { center_code: values.centerCode.replace(/\s/g, "").toUpperCase() }
+          : { new_center: { name: values.centerName, address: values.centerAddress } }),
+      });
     },
-    onSuccess: () => navigate("/onboarding/class"),
-  });
-
-  const checkCode = () => {
-    const code = getValues("centerCode").trim();
-    if (!code) {
-      setError("centerCode", { message: "어린이집 코드를 입력해 주세요." });
-      return;
-    }
-    findCenter.mutate(code);
-  };
-
-  const onSubmit = handleSubmit((values) => {
-    if (values.mode === "code" && !verifiedCenter) {
-      setError("centerCode", { message: "코드 옆 '확인'을 눌러 어린이집을 확인해 주세요." });
-      return;
-    }
-    complete.mutate(values);
-  });
-
-  const centerCodeField = register("centerCode", {
-    onChange: () => {
-      setVerifiedCenter(null);
-      findCenter.reset();
+    onSuccess: async (result) => {
+      setSignedUp(true);
+      if (result.center_code) setIssuedCode(result.center_code);
+      queryClient.clear();
+      await queryClient.prefetchQuery(meQueryOptions());
+      if (!result.center_code) navigate("/onboarding/class", { replace: true });
+      clearCredentials(null);
     },
   });
+  const onSubmit = handleSubmit((values) => complete.mutate(values));
+  const centerCodeField = register("centerCode");
+  if (issuedCode)
+    return (
+      <div className="flex max-w-form-md flex-col gap-5 rounded-xl bg-paper p-8">
+        <h1 className="text-h2 font-bold">가입이 완료됐어요</h1>
+        <p>다른 선생님이 가입할 때 사용할 어린이집 코드예요. 지금 복사해 보관해 주세요.</p>
+        <code className="select-all text-h2">{issuedCode}</code>
+        <Button onClick={() => navigate("/onboarding/class", { replace: true })}>
+          반 준비하기
+        </Button>
+      </div>
+    );
+  if (!credentials && !signedUp) return <Navigate to="/signup" replace />;
 
   return (
     <div className="flex w-full max-w-reading flex-col items-center rounded-xl bg-paper p-11 shadow-xs">
@@ -181,24 +165,7 @@ export function SignupTeacherInfoPage() {
                   className="flex-1"
                   {...centerCodeField}
                 />
-                <Button
-                  type="button"
-                  className="h-13.5 w-19"
-                  disabled={findCenter.isPending}
-                  onClick={checkCode}
-                >
-                  확인
-                </Button>
               </div>
-              {verifiedCenter ? (
-                <p
-                  role="status"
-                  className="flex items-center gap-1.5 text-body font-bold text-brand-ink"
-                >
-                  <CheckCircle2Icon aria-hidden="true" className="size-4" />
-                  {verifiedCenter.name}
-                </p>
-              ) : null}
               <p className="text-caption text-ink-muted">
                 어린이집에서 받은 코드를 입력해주세요. 코드가 없다면 &apos;새로 등록하기&apos;에서
                 어린이집 정보를 직접 입력할 수 있어요.

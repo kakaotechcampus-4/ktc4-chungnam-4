@@ -29,12 +29,22 @@ function slot(name: keyof AreaRoutes): RouteObject[] {
 
 // 학부모 라우트가 하나도 없을 때 "p"를 빈 children으로 걸면 /p가 빈 화면이 됩니다.
 const parentChildren = [...slot("parentPublic"), ...slot("parent")];
+const teacherOnboarding = slot("onboardingTeacher");
 
 const areaRoutes: RouteObject[] = [
   ...slot("standalone"),
   {
     Component: PublicLayout,
-    children: [...slot("public"), ...slot("onboarding"), { path: "*", Component: NotFoundPage }],
+    children: [
+      ...slot("public"),
+      ...slot("onboarding"),
+      // 반 고르기는 교사의 첫 화면이라 /t와 같은 가드를 씌웁니다. 로그인이 풀렸으면 로그인 화면으로,
+      // 다른 역할이면 접근 권한 없음으로 보냅니다. 틀은 공개 레이아웃 그대로입니다.
+      ...(teacherOnboarding.length > 0
+        ? [{ element: <RequireRole role="teacher" />, children: teacherOnboarding }]
+        : []),
+      { path: "*", Component: NotFoundPage },
+    ],
   },
   {
     // 교사 영역: 가드 → 교사 틀 → 화면. 요청이 401·403이면 가까운 에러 경계가 받습니다.
@@ -59,7 +69,18 @@ const areaRoutes: RouteObject[] = [
       },
     ],
   },
-  ...(parentChildren.length > 0 ? [{ path: "p", children: parentChildren }] : []),
+  // /p 아래 없는 주소는 공개 틀의 404로 받습니다. 없으면 /p 묶음이 빈 화면을 그립니다.
+  ...(parentChildren.length > 0
+    ? [
+        {
+          path: "p",
+          children: [
+            { element: <RequireRole role="parent" />, children: parentChildren },
+            { Component: PublicLayout, children: [{ path: "*", Component: NotFoundPage }] },
+          ],
+        },
+      ]
+    : []),
 ];
 
 // 맨 바깥 경계: 어느 영역에서든 받지 못한 오류를 여기서 받습니다. 401은 로그인, 403은 내비 없이 접근 권한 없음,

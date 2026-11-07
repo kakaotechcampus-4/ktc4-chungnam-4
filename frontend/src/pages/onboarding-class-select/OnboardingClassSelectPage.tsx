@@ -1,14 +1,9 @@
 // Figma: 1:499
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Flower, Flower2, Plus, Sprout, Star, Sun, type LucideIcon } from "lucide-react";
+import { Flower, Flower2, Plus, Sprout, Sun, type LucideIcon } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 
-import {
-  assignClass,
-  type ClassSummaryView,
-  organizationKeys,
-  setClassFavorite,
-} from "@/api/organization";
+import { type ClassSummaryView, organizationKeys } from "@/api/organization";
 import { selectClass } from "@/features/class-context/current-class-store";
 import { useTeacherCenter } from "@/features/organization/use-teacher-center";
 import { cn } from "@/lib/utils";
@@ -36,15 +31,9 @@ export function OnboardingClassSelectPage() {
       queryClient.invalidateQueries({ queryKey: organizationKeys.centerClasses(centerId ?? "") }),
     ]);
 
-  const favorite = useMutation({
-    mutationFn: ({ classId, isFavorite }: { classId: string; isFavorite: boolean }) =>
-      setClassFavorite(classId, isFavorite),
-    onSuccess: refreshClasses,
-  });
-
-  // 반을 고르면 그 반의 담임으로 배정한 뒤 들어갑니다.
+  // 같은 어린이집 교사는 반 전체에 접근합니다. 선택은 현재 화면의 반만 바꿉니다.
   const assign = useMutation({
-    mutationFn: assignClass,
+    mutationFn: async (classId: string) => classId,
     onSuccess: async (_saved, classId) => {
       // 고른 반을 현재 반으로 둡니다(#85).
       selectClass(classId);
@@ -62,7 +51,7 @@ export function OnboardingClassSelectPage() {
     <div className="flex w-full max-w-245 flex-col py-16">
       <h1 className="text-h2 font-bold text-ink">{title}</h1>
       <p className="mt-2 text-nav text-ink-muted">
-        어떤 반으로 들어갈까요? 즐겨찾기한 반이 먼저 보여요
+        어떤 반으로 들어갈까요? 반이 없다면 먼저 추가해 주세요.
       </p>
 
       {isPending ? (
@@ -75,9 +64,9 @@ export function OnboardingClassSelectPage() {
         </p>
       ) : (
         <>
-          {favorite.isError || assign.isError ? (
+          {assign.isError ? (
             <p role="alert" className="mt-4 text-label text-destructive">
-              {(favorite.error ?? assign.error)?.message}
+              {assign.error?.message}
             </p>
           ) : null}
           <ul className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -92,22 +81,6 @@ export function OnboardingClassSelectPage() {
                     <span className="flex size-11 items-center justify-center rounded-md bg-canvas text-brand-ink">
                       <Icon aria-hidden="true" className="size-5" />
                     </span>
-                    {/* 카드 전체가 링크라 별 버튼은 링크 위로 올립니다. */}
-                    <button
-                      type="button"
-                      aria-label={`${klass.name} 즐겨찾기`}
-                      aria-pressed={klass.is_favorite}
-                      disabled={favorite.isPending}
-                      onClick={() =>
-                        favorite.mutate({ classId: klass.class_id, isFavorite: !klass.is_favorite })
-                      }
-                      className="relative z-10 rounded-xs text-ink outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-                    >
-                      <Star
-                        aria-hidden="true"
-                        className={cn("size-5", klass.is_favorite ? "fill-current" : "text-line")}
-                      />
-                    </button>
                   </div>
                   <Link
                     to="/t/today"

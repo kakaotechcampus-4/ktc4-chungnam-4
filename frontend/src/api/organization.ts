@@ -10,6 +10,7 @@ import type {
   ClassChild,
   ClassFavoriteRequest,
   ClassSummary,
+  ConsentRevokeRequest,
   EducationPlan,
   MyChild,
 } from "@/types/api-draft/organization";
@@ -223,6 +224,15 @@ export async function updateChild(childId: string, input: ChildInput) {
   return toChildDetailView(
     await api.patch<ChildDetail>(`/children/${enc(childId)}`, toChildBody(input)),
   );
+}
+
+/**
+ * ③ 얼굴 특징정보 동의 철회(FR-22). 서버가 철회와 얼굴 임베딩 삭제를 한 번에 처리하고 204를 줍니다.
+ * 바뀐 동의·등록 상태는 원아 상세와 명단을 다시 불러 확인합니다(docs/api/organization.md §동의 철회).
+ */
+export function revokeFaceConsent(childId: string) {
+  const body: ConsentRevokeRequest = { consent_type: "face_feature" };
+  return api.post<void>(`/children/${enc(childId)}/consents/revoke`, body);
 }
 
 /** 초대 링크 다시 만들기. 이전 링크는 쓸 수 없게 됩니다 */

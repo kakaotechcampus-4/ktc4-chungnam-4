@@ -10,7 +10,7 @@ from datetime import date
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
 from core.database import get_db
@@ -24,6 +24,8 @@ from domains.documents.schemas import (
     DraftCreateRequest,
     DraftDetailResponse,
     DraftUpdateRequest,
+    ParentMediaDownloadResponse,
+    ParentMediaListResponse,
     ParentNoteDetailResponse,
     ParentNoteListResponse,
     PublishRequest,
@@ -34,10 +36,6 @@ from domains.documents.schemas import (
 )
 
 router = APIRouter(tags=["documents"])
-
-
-def get_current_teacher_id(teacher: CurrentTeacher) -> UUID:
-    return teacher.teacher_id
 
 
 def get_current_parent_id(parent: CurrentParent) -> UUID:
@@ -154,12 +152,13 @@ def revoke_letter(
     draft_id: UUID,
     body: RevokeRequest,
     db: Annotated[Session, Depends(get_db)],
-    teacher_id: Annotated[UUID, Depends(get_current_teacher_id)],
+    teacher: CurrentTeacher,
 ) -> RevokeResponse:
     return service.revoke_publication(
         db,
         draft_id=draft_id,
-        teacher_id=teacher_id,
+        teacher_id=teacher.teacher_id,
+        center_id=teacher.center_id,
         expected_version=body.expected_version,
     )
 
@@ -201,3 +200,38 @@ def get_parent_note(
     parent_id: Annotated[UUID, Depends(get_current_parent_id)],
 ) -> ParentNoteDetailResponse:
     return service.get_letter_for_parent(db, letter_id=parent_note_id, parent_id=parent_id)
+
+
+@router.get("/children/{child_id}/parent-media", response_model=ParentMediaListResponse)
+def list_parent_media(
+    child_id: UUID,
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+    parent_id: Annotated[UUID, Depends(get_current_parent_id)],
+    limit: Annotated[int, Query(ge=1, le=service.MEDIA_NOTES_PER_PAGE_MAX)] = 10,
+    cursor: str | None = None,
+) -> ParentMediaListResponse:
+    """학부모 사진·영상 모아 보기 (FR-10). 승인·게시된 알림장에 교사가 고른 것만."""
+    # 서명 URL이 디스크·프록시 캐시에 남지 않게 합니다
+    response.headers["Cache-Control"] = "no-store"
+    return service.list_media_for_parent(
+        db, child_id=child_id, parent_id=parent_id, limit=limit, cursor=cursor
+    )
+
+
+@router.get(
+    "/children/{child_id}/parent-media/{media_id}/download",
+    response_model=ParentMediaDownloadResponse,
+)
+def get_parent_media_download(
+    child_id: UUID,
+    media_id: UUID,
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+    parent_id: Annotated[UUID, Depends(get_current_parent_id)],
+) -> ParentMediaDownloadResponse:
+    """학부모가 사진·영상 원본을 내려받는 URL (FR-10). 열람 기록을 남긴 뒤에만 줍니다."""
+    response.headers["Cache-Control"] = "no-store"
+    return service.get_media_download_for_parent(
+        db, child_id=child_id, media_id=media_id, parent_id=parent_id
+    )

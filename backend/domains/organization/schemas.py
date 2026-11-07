@@ -6,9 +6,12 @@ ORM 모델을 그대로 응답하지 않고 화면에 필요한 필드만 옮깁
 
 from __future__ import annotations
 
+from datetime import date, datetime
+from enum import StrEnum
+from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StringConstraints
 
 
 class ClassItem(BaseModel):
@@ -33,6 +36,13 @@ class ClassChildItem(BaseModel):
     child_id: UUID
     class_id: UUID
     name: str
+    age_group: str | None = None
+    consent_agreed_count: int = 0
+    consent_total: int = 3
+    is_face_registered: bool = False
+    face_feature_agreed: bool = False
+    face_photo_count: int | None = None
+    parent_linked: bool = False
 
 
 class ClassChildListResponse(BaseModel):
@@ -62,3 +72,164 @@ class MyChildItem(BaseModel):
 class MyChildListResponse(BaseModel):
     items: list[MyChildItem]
     next_cursor: str | None = None
+
+
+class AgeBand(StrEnum):
+    """연령 구분 코드. 표시용 `age_group`과 나눕니다 (docs/api/organization.md, 임시 결정(이한나))."""
+
+    INFANT = "infant"  # 만 0~2세, 표준보육과정
+    PRESCHOOL = "preschool"  # 만 3~5세, 누리과정
+
+
+NonBlankName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class ClassSummary(BaseModel):
+    """반 고르기 카드 한 개 (`GET /centers/{center_id}/classes`, `POST /classes`)."""
+
+    class_id: UUID
+    center_id: UUID
+    center_name: str
+    name: str
+    age_group: str
+    age_band: AgeBand
+    child_count: int
+    # TODO(이한나): 교사별 즐겨찾기를 저장할 곳이 아직 없어 항상 false입니다.
+    is_favorite: bool = False
+    # TODO(이한나): 오늘 기록 여부는 media·documents 데이터라 어느 도메인이 줄지 정해지면 채웁니다.
+    needs_record_today: bool = False
+
+
+class ClassSummaryListResponse(BaseModel):
+    items: list[ClassSummary]
+    next_cursor: str | None = None
+
+
+class ClassCreateRequest(BaseModel):
+    center_id: UUID
+    name: NonBlankName
+    age_band: AgeBand
+
+
+class ChildCreateRequest(BaseModel):
+    """원아 등록 본문. `class_id`는 경로와 같아야 합니다(FE가 수정과 같은 본문을 씀)."""
+
+    name: NonBlankName
+    birth_date: date
+    class_id: UUID
+
+
+class ConsentRevokeRequest(BaseModel):
+    """동의 철회 본문. 1단계는 ③ 얼굴 특징정보만 철회합니다(#225 ⑥). 다른 값은 422입니다.
+
+    종류를 본문으로 받아, 2단계에서 철회 대상이 늘어도 경로를 바꾸지 않게 합니다.
+    """
+
+    consent_type: Literal["face_feature"]
+
+
+class ConsentItem(BaseModel):
+    consent_type: str
+    agreed: bool
+
+
+class ChildDetail(BaseModel):
+    """원아 한 명 상세 (원아 추가·수정 화면). 지금은 원아 등록 응답에서만 씁니다."""
+
+    child_id: UUID
+    class_id: UUID
+    name: str
+    birth_date: date
+    age_group: str
+    consent_agreed_count: int
+    consent_total: int
+    is_face_registered: bool
+    face_feature_agreed: bool
+    face_photo_count: int | None
+    parent_linked: bool
+    class_name: str
+    consents: list[ConsentItem]
+    consent_checked_at: date | None
+    consent_checked_by: str | None
+    month_record_count: int
+    today_note_sent: bool
+
+
+class PlanType(StrEnum):
+    """교육 계획 종류 (FR-20, FR-21)."""
+
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
+
+
+class NuriDomain(StrEnum):
+    """누리과정 5영역 코드. 화면 이름(신체운동·건강 등)은 FE가 붙입니다."""
+
+    PHYSICAL = "physical"
+    COMMUNICATION = "communication"
+    SOCIAL = "social"
+    ART = "art"
+    NATURE = "nature"
+
+
+Weekday = Literal["mon", "tue", "wed", "thu", "fri"]
+PlanTitle = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+PlanGoal = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+# 요일별 놀이 한 칸. 비운 요일은 값을 빈 문자열로 두지 않고 키를 뺍니다(FE plan-form-schema).
+DailyActivity = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class EducationPlanItem(BaseModel):
+    """교육 계획 목록 항목과 단건. 작성 교사(`teacher_id`)는 화면에 쓰지 않아 싣지 않습니다."""
+
+    plan_id: UUID
+    class_id: UUID
+    plan_type: PlanType
+    start_date: date
+    end_date: date
+    title: str
+    goal: str
+    daily_activities: dict[Weekday, str]
+    domains: list[NuriDomain]
+    created_at: datetime
+    updated_at: datetime
+
+
+class EducationPlanListResponse(BaseModel):
+    items: list[EducationPlanItem]
+    # 반의 계획 수가 적어 지금은 항상 null입니다.
+    next_cursor: str | None = None
+
+
+class EducationPlanCreateRequest(BaseModel):
+    plan_type: PlanType
+    start_date: date
+    end_date: date
+    title: PlanTitle
+    goal: PlanGoal
+    daily_activities: dict[Weekday, DailyActivity] = Field(default_factory=dict)
+    domains: list[NuriDomain] = Field(default_factory=list)
+
+
+class EducationPlanUpdateRequest(BaseModel):
+    """보낸 필드만 바꿉니다. 기간·종류처럼 서로 얽힌 조건은 합친 뒤 service가 확인합니다."""
+
+    plan_type: PlanType | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    title: PlanTitle | None = None
+    goal: PlanGoal | None = None
+    daily_activities: dict[Weekday, DailyActivity] | None = None
+    domains: list[NuriDomain] | None = None
+
+
+class ChildNoteSummary(BaseModel):
+    parent_note_id: UUID
+    record_date: date
+    published: bool
+    summary: str
+
+
+class ChildOverview(BaseModel):
+    recent_notes: list[ChildNoteSummary]
+    domain_counts: dict[str, int] | None = None

@@ -1,5 +1,6 @@
 import type {
   ChildDetail,
+  ClassChild,
   ClassSummary,
   ChildOverview,
   EducationPlan,
@@ -105,6 +106,24 @@ describe("organization adapter", () => {
 
   it("원아 상세는 문서 이름 그대로 옮긴다", () => {
     expect(toChildDetailView(CHILD)).toEqual(CHILD);
+  });
+
+  // 서버 명단(#146)은 아직 기본 필드만 보냅니다. 없는 값을 채워 넣으면 '동의 0 / 0 완료'처럼
+  // 동의를 받은 것으로, '얼굴 정보 등록 0명'처럼 아무도 등록하지 않은 것으로 읽힐 수 있어
+  // 모르는 값은 null로 받습니다.
+  it("서버 명단에 연령·동의 수·얼굴 정보가 없으면 null로 받는다", () => {
+    const view = toClassChildView({
+      child_id: "k1",
+      class_id: "c1",
+      name: "원아A",
+    } as unknown as ClassChild);
+
+    expect(view.age_group).toBeNull();
+    expect(view.consent_agreed_count).toBeNull();
+    expect(view.consent_total).toBeNull();
+    expect(view.is_face_registered).toBeNull();
+    expect(view.face_feature_agreed).toBeNull();
+    expect(view.face_photo_count).toBeNull();
   });
 
   it("명단 항목에는 상세 필드를 싣지 않는다", () => {

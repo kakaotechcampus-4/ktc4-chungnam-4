@@ -10,9 +10,9 @@ from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from core.database import SessionLocal
 from core.exceptions import (
@@ -30,12 +30,15 @@ from domains.agents.models import (
     GenerationJob,
     Job,
     JobStatus,
+    TeacherEvidence,
 )
 from domains.agents.models import SentenceEvidence as SentenceEvidenceRow
 from domains.agents.models import VerificationResult as VerificationResultRow
+from domains.audit import service as audit_service
 from domains.documents import service as documents
-from domains.documents.schemas import DraftSaveInput, DraftSentenceInput
+from domains.documents.schemas import DraftSaveInput, DraftSentenceInput, DraftStatus
 from domains.media import service as media_service
+from domains.organization import service as organization_service
 from domains.organization.service import ensure_class_access
 from prompts.generation.draft import DraftFeedback, build_draft_prompt
 from prompts.perception.photo_analysis import build_single_photo_prompt
@@ -44,8 +47,16 @@ from tools import contracts
 from tools.evidence.builder import build_evidence
 from tools.generation.draft import DraftResponseError, parse_draft_response
 from tools.generation.pseudonymize import pseudonymize_evidence, restore_names
+from tools.perception.merge import failed_photo_ids, merge_perception_results
 from tools.perception.photo import parse_single_photo_analysis
-from tools.perception.types import ChildLink, PerceptionResult, PerceptionStatus, PhotoInput
+from tools.perception.transcript import normalize_transcript
+from tools.perception.types import (
+    ChildLink,
+    PerceptionResult,
+    PerceptionStatus,
+    PhotoInput,
+    TranscriptSegmentInput,
+)
 from tools.verification.critic_result import parse_critic_response
 from tools.verification.decision import MAX_REGENERATIONS, decide
 from tools.verification.references import validate_references
@@ -102,6 +113,8 @@ class ChildJobStatus:
     # succeeded일 때만 채운다. 초안이 있으면 drafted, 없으면 unclassified (docs/api/agents.md).
     outcome: str | None = None
     drafts: tuple[JobDraft, ...] = ()
+    unclassified_reason: str | None = None
+    error_code: str | None = None
 
 
 @dataclass(frozen=True)
@@ -135,7 +148,7 @@ def start_generation_job(
 ) -> StartedGenerationJob:
     """서버 전송을 마친 반·날짜의 초안 생성 작업을 만든다 (FR-05, FR-06, FR-26).
 
-    대상 원아는 그 날짜에 귀속된 자료가 있는 원아 전원이다. ③ 미동의 원아도 빼지 않고,
+    대상 원아는 그 날짜에 귀속된 자료나 추가 근거가 있는 원아 전원이다. ③ 미동의 원아도 빼지 않고,
     그 원아가 귀속된 사진만 근거 수집에서 빠진다(H-2·H-3). 커밋과 큐 넣기는 호출자가 한다.
     """
     ensure_class_access(db, class_id, center_id)
@@ -175,7 +188,7 @@ def start_generation_job(
             "아직 서버 전송이 끝나지 않은 자료가 있습니다.",
             detail={"media_ids": [str(media_id) for media_id in unready]},
         )
-    child_ids = media_service.get_attributed_children(db, class_id, record_date)
+    child_ids = _draft_target_children(db, class_id, record_date)
     if not child_ids:
         raise NoTargetChildren("이 날짜에 원아에게 연결된 자료가 없습니다.")
 
@@ -236,6 +249,27 @@ def _job_status(db: Session, generation_job: GenerationJob) -> GenerationJobStat
     jobs = db.scalars(
         select(Job).where(Job.generation_job_id == generation_job.id).order_by(Job.child_id)
     ).all()
+    now = datetime.now(UTC)
+    expired = False
+    for job in jobs:
+        updated = (
+            job.updated_at.replace(tzinfo=UTC) if job.updated_at.tzinfo is None else job.updated_at
+        )
+        timeout = (
+            _STALE_PENDING_JOB_AFTER if job.status == JobStatus.PENDING.value else _STALE_JOB_AFTER
+        )
+        if (
+            job.status in {state.value for state in _UNFINISHED_STATUSES}
+            and now - updated > timeout
+        ):
+            db.execute(
+                update(Job)
+                .where(Job.id == job.id, Job.status == job.status, Job.updated_at == job.updated_at)
+                .values(status=JobStatus.FAILED.value, error_code="LLM_TIMEOUT")
+            )
+            expired = True
+    if expired:
+        db.commit()
     children = [_child_status(db, job, generation_job.record_date) for job in jobs]
     finished = sum(child.status not in _UNFINISHED_STATUSES for child in children)
     # TODO(eun): 문서의 진행률은 원아별로 끝낸 단계 수로 세지만 Job에 단계 컬럼이 없다.
@@ -248,26 +282,35 @@ def _job_status(db: Session, generation_job: GenerationJob) -> GenerationJobStat
         finished_children=finished,
         children=children,
         # 원아별 Job이 바뀌어도 부모 행은 갱신되지 않으므로 가장 늦은 시각을 쓴다.
-        updated_at=max([generation_job.updated_at, *(job.updated_at for job in jobs)]),
+        updated_at=max(
+            t if t.tzinfo else t.replace(tzinfo=UTC)
+            for t in [generation_job.updated_at, *(job.updated_at for job in jobs)]
+        ),
     )
 
 
 def _child_status(db: Session, job: Job, record_date: date) -> ChildJobStatus:
-    """원아별 상태. 성공한 원아는 그날 초안이 있는지로 결과를 정한다.
-
-    Job에 결과 컬럼이 없어도 초안은 원아·종류·날짜당 하나라서 찾을 수 있다. FE는 drafts로 초안
-    검토 화면에 넘어간다 (docs/api/agents.md). 같은 날 앞선 작업이 만든 초안이 있으면 이번 작업이
-    미분류로 끝났어도 drafted로 보인다 — 재생성 규칙(get_draft_version)을 붙일 때 함께 다룬다.
-    TODO(eun): 미분류 사유(unclassified_reason)·단계는 Job 결과 컬럼이 생기면 채운다.
-    """
+    """이번 작업의 실패·미분류를 먼저 보고, 저장까지 끝난 경우만 초안으로 안내한다 (#257)."""
     status = JobStatus(job.status)
     if status != JobStatus.SUCCEEDED:
-        return ChildJobStatus(child_id=job.child_id, status=status)
+        return ChildJobStatus(child_id=job.child_id, status=status, error_code=job.error_code)
+    if job.unclassified_reason is not None:
+        return ChildJobStatus(
+            child_id=job.child_id,
+            status=status,
+            outcome="unclassified",
+            unclassified_reason=job.unclassified_reason,
+        )
     draft = documents.get_draft_version(
         db, child_id=job.child_id, doc_type=DAILY_DOC_TYPE, record_date=record_date
     )
     if draft is None:
-        return ChildJobStatus(child_id=job.child_id, status=status, outcome="unclassified")
+        return ChildJobStatus(
+            child_id=job.child_id,
+            status=status,
+            outcome="unclassified",
+            unclassified_reason=job.unclassified_reason,
+        )
     return ChildJobStatus(
         child_id=job.child_id,
         status=status,
@@ -293,11 +336,141 @@ def _overall_status(children: Sequence[ChildJobStatus]) -> JobStatus:
 
 
 # ---------------------------------------------------------------------------
+# 추가 근거(교사 관찰 메모) 읽기·저장 (GET /classes/{class_id}/evidence,
+# PUT /children/{child_id}/evidence/{record_date}) — FR-05, 2026-11-06 구현 결정
+# ---------------------------------------------------------------------------
+
+# 근거 ID 접두. 문장별 근거 행에는 출처 종류가 없어서, 미디어가 없는 근거 중 활동계획(`plan:`)과
+# 교사 메모를 이 접두로 가른다.
+TEACHER_NOTE_EVIDENCE_PREFIX = "note:"
+
+
+@dataclass(frozen=True)
+class SavedTeacherEvidence:
+    evidence: TeacherEvidence
+    # 처음 저장이면 True(201), 덮어썼으면 False(200)
+    created: bool
+
+
+def _draft_target_children(db: Session, class_id: UUID, record_date: date) -> list[UUID]:
+    """초안 생성 대상. 그날 귀속된 자료가 있거나 추가 근거를 남긴 반 원아다.
+
+    화면이 자료 없는 아이에게도 메모를 남기라고 안내하므로, 메모만 있어도 초안을 만든다
+    (임시 결정(송유진), 이전에는 자료가 있는 원아만이었다).
+    """
+    attributed = media_service.get_attributed_children(db, class_id, record_date)
+    class_children = list(organization_service.get_class_child_names(db, class_id))
+    noted = db.scalars(
+        select(TeacherEvidence.child_id).where(
+            TeacherEvidence.child_id.in_(class_children),
+            TeacherEvidence.record_date == record_date,
+        )
+    ).all()
+    return sorted({*attributed, *noted}, key=str)
+
+
+def list_teacher_evidence(
+    db: Session,
+    *,
+    class_id: UUID,
+    record_date: date,
+    teacher_id: UUID,
+    center_id: UUID | None,
+) -> list[TeacherEvidence]:
+    """그날 반 원아들의 추가 근거를 돌려준다 (아이마다 최대 한 건).
+
+    같은 어린이집 교사만 본다(FR-25). 메모에는 아이 이름이 들어갈 수 있어 열람마다
+    AccessLog를 남긴다(NFR-05, H-4) — 로그에는 ID만 둔다. 기록하지 못하면 응답하지 않는다.
+    """
+    ensure_class_access(db, class_id, center_id)
+    child_ids = list(organization_service.get_class_child_names(db, class_id))
+    if not child_ids:
+        return []
+    rows = list(
+        db.scalars(
+            select(TeacherEvidence)
+            .where(
+                TeacherEvidence.child_id.in_(child_ids),
+                TeacherEvidence.record_date == record_date,
+            )
+            .order_by(TeacherEvidence.created_at, TeacherEvidence.id)
+        )
+    )
+    for row in rows:
+        audit_service.record_access(
+            db,
+            actor_type="teacher",
+            actor_id=teacher_id,
+            target_type="teacher_evidence",
+            target_id=row.id,
+            action="view_list",
+        )
+    db.commit()
+    return rows
+
+
+def save_teacher_evidence(
+    db: Session,
+    *,
+    child_id: UUID,
+    record_date: date,
+    activity_time: str,
+    text: str,
+    teacher_id: UUID,
+    center_id: UUID | None,
+) -> SavedTeacherEvidence:
+    """아이·날짜의 추가 근거를 저장한다. 이미 있으면 덮어쓴다 (아이·날짜당 1건).
+
+    같은 어린이집 원아만 쓸 수 있다(FR-25). 마지막으로 쓴 교사가 작성자가 된다.
+    임시 결정(정은): 오늘(KST)보다 뒤 날짜는 초안 생성과 같게 `INVALID_RECORD_DATE`로 막는다.
+    """
+    organization_service.ensure_child_access(db, child_id, center_id)
+    if record_date > datetime.now(_KST).date():
+        raise InvalidRecordDate("오늘보다 뒤 날짜의 추가 근거는 남길 수 없습니다.")
+
+    def apply(row: TeacherEvidence) -> None:
+        row.activity_time = activity_time
+        row.text = text
+        row.author_teacher_id = teacher_id
+
+    def find() -> TeacherEvidence | None:
+        return db.scalar(
+            select(TeacherEvidence).where(
+                TeacherEvidence.child_id == child_id,
+                TeacherEvidence.record_date == record_date,
+            )
+        )
+
+    row = find()
+    created = row is None
+    if row is None:
+        row = TeacherEvidence(id=uuid4(), child_id=child_id, record_date=record_date)
+        apply(row)
+        db.add(row)
+    else:
+        apply(row)
+    try:
+        db.commit()
+    except IntegrityError:
+        # 같은 아이·날짜를 두 곳에서 처음 저장한 경우다. 먼저 들어간 행을 덮어쓴다.
+        db.rollback()
+        row = find()
+        if row is None:
+            raise
+        apply(row)
+        created = False
+        db.commit()
+    db.refresh(row)
+    return SavedTeacherEvidence(evidence=row, created=created)
+
+
+# ---------------------------------------------------------------------------
 # 문장별 근거 조회 (documents의 교사용 초안 상세가 부른다)
 # ---------------------------------------------------------------------------
 
 # 근거 행에 출처 종류를 저장하지 않아 미디어 종류로 정한다. 영상은 발화만 근거로 쓰므로
-# (테크스펙 §요청사항 2) video_speech다. 미디어가 없으면 활동계획이다.
+# (테크스펙 §요청사항 2) video_speech다. 미디어가 없으면 근거 ID 접두로 교사 메모와
+# 활동계획을 가른다.
 _SOURCE_TYPE_BY_MEDIA_TYPE = {
     "photo": contracts.SourceType.PHOTO_OBSERVATION,
     "voice_memo": contracts.SourceType.TEACHER_VOICE_MEMO,
@@ -347,11 +520,12 @@ def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[Sente
     result: dict[str, list[SentenceEvidenceView]] = {}
     for row in rows:
         meta = media.get(row.source_media_id) if row.source_media_id is not None else None
-        source_type = (
-            _SOURCE_TYPE_BY_MEDIA_TYPE[meta.type]
-            if meta is not None
-            else contracts.SourceType.ACTIVITY_PLAN
-        )
+        if meta is not None:
+            source_type = _SOURCE_TYPE_BY_MEDIA_TYPE[meta.type]
+        elif row.evidence_id.startswith(TEACHER_NOTE_EVIDENCE_PREFIX):
+            source_type = contracts.SourceType.TEACHER_NOTE
+        else:
+            source_type = contracts.SourceType.ACTIVITY_PLAN
         result.setdefault(row.sentence_id, []).append(
             SentenceEvidenceView(
                 evidence_id=row.evidence_id,
@@ -380,6 +554,12 @@ def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[Sente
     return result
 
 
+def list_failed_photo_ids(session: Session, bundle_id: UUID | None) -> list[UUID]:
+    """권한을 확인한 교사 초안 상세가 쓰는 분석 제외 사진 목록(#155)."""
+    bundle = session.get(EvidenceBundle, bundle_id) if bundle_id else None
+    return [UUID(media_id) for media_id in bundle.failed_photo_ids] if bundle else []
+
+
 def orchestrate_drafts(job_id: str, child_id: str) -> None:
     """원아 한 명의 초안을 만든다. 초안 저장이나 미분류로 끝나면 Job을 SUCCEEDED로 둔다.
 
@@ -388,7 +568,27 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
     """
     with SessionLocal() as session:
         job = _get_job(session, job_id)
+        if job.status in {JobStatus.SUCCEEDED.value, JobStatus.FAILED.value}:
+            return
         _set_job_status(session, job, JobStatus.RUNNING)
+        # 사진 분석을 포함한 외부 호출 전에 보호 여부와 잠금 버전을 읽는다 (#75·#257).
+        existing = documents.get_draft_version(
+            session,
+            child_id=UUID(child_id),
+            doc_type=DAILY_DOC_TYPE,
+            record_date=(
+                job.target_date if job.target_date.tzinfo else job.target_date.replace(tzinfo=UTC)
+            )
+            .astimezone(_KST)
+            .date(),
+        )
+        if existing is not None and (
+            existing.status != DraftStatus.VERIFIED or existing.has_teacher_edits
+        ):
+            _finish_draft_conflict(session, job)
+            return
+        expected_version = existing.version if existing else None
+        # 중복 전달 또는 시간 초과로 이미 종료된 작업은 다시 생성하지 않는다.
         bundle = _collect_evidence(session, child_id, job.target_date)
 
         # 재생성 상한은 tools/verification/decision.py의 decide()가 판정한다
@@ -396,21 +596,30 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
         # NEEDS_TEACHER_REVIEW를 낼 때까지 regeneration_count를 그대로 늘려서 넘긴다.
         regeneration_count = 0
         # 재생성은 같은 초안의 새 버전이다 (documents DraftDocument 설계).
-        # TODO(eun): 같은 원아·종류·날짜 문서가 이미 있으면 get_draft_version(#140)으로
-        #   draft_id·버전을 이어받는다 (#133 리뷰). 지금은 Job마다 새 초안으로 시작한다.
-        draft_id = str(uuid4())
-        version = 1
+        draft_id = str(existing.draft_id) if existing else str(uuid4())
+        version = existing.ai_version + 1 if existing else 1
         previous: contracts.DraftDocument | None = None
         issues: list[contracts.VerificationIssue] = []
         # 인식 결과(사진 분석 LLM 포함)는 재생성마다 다시 만들지 않는다. 루프 안에서 부르면
         # 재생성 2회에 사진 호출이 최대 3배가 된다 (#137 리뷰, 송유진).
-        inputs = _load_generation_inputs(bundle)
+        reason = "verification_failed"
+        try:
+            inputs = _load_generation_inputs(bundle)
+        except PhotoAnalysisFailed:
+            _send_to_unclassified(session, job_id, child_id, reason="photo_analysis_failed")
+            _commit_job_succeeded(session, job)
+            return
         while True:
             try:
                 generated = _generate_draft(
                     inputs, draft_id=draft_id, version=version, previous=previous, issues=issues
                 )
             except InsufficientEvidence:
+                reason = (
+                    "insufficient_evidence"
+                    if organization_service.has_consent(session, UUID(child_id), "face_feature")
+                    else "no_consent"
+                )
                 # 빈 초안을 정상 결과로 내지 않는다 (ai-data-contract.md "근거 부족").
                 break
             except DraftResponseError as error:
@@ -440,13 +649,17 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
             )
 
             if decision_result.decision == contracts.Decision.PASS:
-                _save_passed_draft(
+                saved = _save_passed_draft(
                     session,
                     job,
                     bundle,
                     _restore_names(generated),
                     generated.source_evidence_by_id,
+                    expected_version=expected_version,
                 )
+                if saved is False:
+                    _finish_draft_conflict(session, job)
+                    return
                 _commit_job_succeeded(session, job)
                 return
             if decision_result.decision == contracts.Decision.NEEDS_TEACHER_REVIEW:
@@ -456,8 +669,23 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
             regeneration_count += 1
             version += 1
 
-        _send_to_unclassified(session, job_id, child_id)
+        _send_to_unclassified(session, job_id, child_id, reason=reason)
         _commit_job_succeeded(session, job)
+
+
+def _finish_draft_conflict(session: Session, job: Job) -> None:
+    """기존 문서를 보존한 요청은 새 생성 성공으로 알리지 않는다 (FR-05, #257)."""
+    job_id = job.id
+    session.rollback()
+    changed = session.execute(
+        update(Job)
+        .where(Job.id == job_id, Job.status == JobStatus.RUNNING.value)
+        .values(status=JobStatus.FAILED.value, error_code="DRAFT_VERSION_CONFLICT")
+    )
+    if changed.rowcount:
+        job.status = JobStatus.FAILED.value
+        job.error_code = "DRAFT_VERSION_CONFLICT"
+    session.commit()
 
 
 def _commit_job_succeeded(session: Session, job: Job) -> None:
@@ -466,6 +694,15 @@ def _commit_job_succeeded(session: Session, job: Job) -> None:
     미분류도 예외가 아니라 정상 종료다 (docs/api/agents.md 상태값). 따로 커밋하면 초안은
     저장됐는데 상태 커밋만 실패해 Job이 FAILED로 끝날 수 있다 (#102 리뷰, 엄태은).
     """
+    # 조회 중 제한 시간을 넘겨 실패로 종료된 작업을 늦은 worker가 되살리지 않는다.
+    changed = session.execute(
+        update(Job)
+        .where(Job.id == job.id, Job.status != JobStatus.FAILED.value)
+        .values(status=JobStatus.SUCCEEDED.value)
+    )
+    if changed.rowcount == 0:
+        session.rollback()
+        return
     job.status = JobStatus.SUCCEEDED.value
     session.commit()
 
@@ -484,22 +721,21 @@ def record_job_retry(job_id: str) -> None:
         session.commit()
 
 
-def mark_job_failed(job_id: str) -> None:
+def mark_job_failed(job_id: str, *, error_code: str = "INTERNAL_ERROR") -> None:
     """재시도를 다 쓰거나 재시도 대상이 아닌 오류로 끝났을 때 부른다.
 
     이미 SUCCEEDED로 커밋된 Job은 덮어쓰지 않는다. 시간 제한이 커밋 직후에 터지는 것처럼
     성공 뒤에 실패 훅이 오는 경우가 있다 (#102 리뷰, 엄태은). 읽고 쓰는 사이에 상태가
     바뀌지 않게 조건을 UPDATE 한 문장에 건다.
 
-    TODO(eun): docs/api/agents.md의 error_code·failed_stage를 채울 컬럼이 Job에 없다.
-    agents 모델 후속 마이그레이션에서 추가한 뒤 여기서 함께 남긴다.
+    오류 원문 대신 화면에서 안내할 error_code만 남긴다. 단계별 기록은 후속 과제다.
     """
     with SessionLocal() as session:
         job = _get_job(session, job_id)
         session.execute(
             update(Job)
             .where(Job.id == job.id, Job.status != JobStatus.SUCCEEDED.value)
-            .values(status=JobStatus.FAILED.value)
+            .values(status=JobStatus.FAILED.value, error_code=error_code)
         )
         session.commit()
 
@@ -545,7 +781,7 @@ def _verify_with_critic_retry(
 
 
 def _get_job(session: Session, job_id: str) -> Job:
-    job = session.get(Job, job_id)
+    job = session.get(Job, UUID(job_id))
     if job is None:
         raise ValueError(f"Job {job_id} not found")
     return job
@@ -559,8 +795,7 @@ def _collect_evidence(session: Session, child_id: str, target_date: datetime) ->
     여기서 하지 않는다 — 매핑을 적용한 입력 가공은 AI 쪽 담당이다 (ai-data-contract.md
     "내부 ID와 LLM 입력").
 
-    TODO(eun): 근거가 하나도 없을 때 미분류함으로 보내는 기준은 "근거 부족 상태 계약"
-      (ai-data-contract.md, 태은님과 합의)이 정해지면 연결한다. 지금은 빈 Bundle을 저장한다.
+    빈 Bundle도 저장하며, 생성에 쓸 관찰 근거가 없으면 orchestrate_drafts가 미분류로 끝낸다.
     """
     media = _cap_photos(media_service.collect_media_for_llm(session, UUID(child_id), target_date))
     bundle = EvidenceBundle(
@@ -612,7 +847,9 @@ def _photo_inputs(media: Sequence[media_service.MediaEvidence]) -> list[PhotoInp
     return [
         PhotoInput(
             media_id=str(item.media_id),
-            captured_at=item.captured_at,
+            captured_at=item.captured_at
+            if item.captured_at.tzinfo
+            else item.captured_at.replace(tzinfo=UTC),
             links=tuple(
                 ChildLink(child_id=str(link.child_id), method=link.method)
                 for link in item.child_links
@@ -653,6 +890,10 @@ def _analyze_photos(
     return results
 
 
+class PhotoAnalysisFailed(Exception):
+    """사진 분석 형식 오류로 사용할 관찰이 남지 않았다."""
+
+
 class InsufficientEvidence(Exception):
     """생성에 쓸 관찰 근거가 없다. 미분류함으로 보낸다."""
 
@@ -686,20 +927,103 @@ class GeneratedDraft:
 
 
 def _load_generation_inputs(bundle: EvidenceBundle) -> GenerationInputs:
-    """Bundle의 미디어를 근거(EvidenceItem)로 바꾸고 반 원아 이름을 모은다.
-
-    orchestrate_drafts가 재생성 루프 전에 한 번만 부른다 — 사진 분석 LLM이 재생성마다
-    다시 돌지 않게 하기 위함이다 (#137 리뷰).
-
-    TODO(eun): 인식 결과 병합(#128, 송유진)이 develop에 들어오면 bundle.media_refs의
-      사진 분석·발화 정규화 결과를 합쳐 evidence로 넘긴다. GenerationRequest.class_id도
-      그때 Child에서 채운다. merged.status가 응답 오류면 근거 부족(InsufficientEvidence)과
-      구분해 다룬다 — 둘 다 items가 비어 같은 길로 떨어지면 #128에서 나눈 상태가 사라진다.
-    TODO(이한나): 반 원아 전체의 이름 목록(호칭·성명·이름)을 주는 organization 함수가
-      필요하다. 이름 없이 보내면 발화 속 호명이 LLM에 그대로 가므로(H-2) 비워 두고
-      진행하지 않는다 — tools/generation/pseudonymize.py가 이름이 빠진 원아를 거부한다.
-    """
-    raise NotImplementedError("인식 결과 병합(#128)과 원아 이름 조회 연결 후 동작합니다.")
+    """동의 게이트를 다시 통과한 사진만 분석해 실제 생성 입력으로 연결한다(H-2, FR-05)."""
+    session = object_session(bundle)
+    if session is None:
+        raise ValueError("EvidenceBundle must belong to a session")
+    target_date = bundle.date
+    if target_date.tzinfo is None:
+        target_date = target_date.replace(tzinfo=UTC)
+    record_date = target_date.astimezone(_KST).date()
+    class_id = organization_service.get_child_class_id(session, bundle.child_id)
+    names = organization_service.get_class_child_names(session, class_id)
+    # 수집 이후 동의가 철회되었거나 자료가 바뀐 경우에도 외부 호출 전에 제외한다.
+    allowed = media_service.collect_media_for_llm(session, bundle.child_id, record_date)
+    media = [item for item in allowed if str(item.media_id) in bundle.media_refs]
+    segments = [
+        TranscriptSegmentInput(
+            segment_id=str(segment.segment_id),
+            media_id=str(item.media_id),
+            source=segment.source or ("video_audio" if item.type == "video" else "voice_memo"),
+            captured_at=item.captured_at
+            if item.captured_at.tzinfo
+            else item.captured_at.replace(tzinfo=UTC),
+            start_time=segment.start_time,
+            end_time=segment.end_time,
+            raw_text=segment.raw_text,
+            text=segment.text if segment.text is not None else segment.raw_text,
+            speaker=segment.speaker,
+            child_ids=tuple(str(link.child_id) for link in item.child_links),
+            excluded=False,
+        )
+        for item in media
+        if item.type in {"video", "voice_memo"}
+        for segment in item.transcript
+        if segment.segment_id is not None
+    ]
+    merged = merge_perception_results(
+        normalize_transcript(
+            segments, target_child_id=str(bundle.child_id), record_date=record_date
+        ),
+        _analyze_photos(
+            session,
+            _photo_inputs([item for item in media if item.type == "photo"]),
+            target_child_id=str(bundle.child_id),
+            record_date=record_date,
+        ),
+        target_child_id=str(bundle.child_id),
+        record_date=record_date,
+    )
+    bundle.failed_photo_ids = failed_photo_ids(merged)
+    if merged.status == PerceptionStatus.RESPONSE_ERROR:
+        raise PhotoAnalysisFailed
+    evidence = list(merged.items)
+    # 교사가 글로 남긴 추가 근거는 그 아이·그날의 관찰이다(FR-05). 생성 때마다 새로 읽으므로
+    # 저장 뒤 다음 생성부터 반영되고, 이미 만든 초안은 바뀌지 않는다.
+    for note in session.scalars(
+        select(TeacherEvidence).where(
+            TeacherEvidence.child_id == bundle.child_id,
+            TeacherEvidence.record_date == record_date,
+        )
+    ):
+        evidence.append(
+            contracts.EvidenceItem(
+                evidence_id=f"{TEACHER_NOTE_EVIDENCE_PREFIX}{note.id}",
+                source_type=contracts.SourceType.TEACHER_NOTE,
+                child_ids=[str(bundle.child_id)],
+                observed_date=record_date,
+                text=note.text,
+                assignment_status=contracts.AssignmentStatus.TEACHER_CONFIRMED,
+            )
+        )
+    # FR-05: 다른 요일의 계획을 해당 날짜의 관찰 맥락으로 섞지 않는다.
+    weekday = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")[record_date.weekday()]
+    for plan in organization_service.get_activity_plans_for_date(session, class_id, record_date):
+        evidence.append(
+            contracts.EvidenceItem(
+                evidence_id=f"plan:{plan.plan_id}",
+                source_type=contracts.SourceType.ACTIVITY_PLAN,
+                child_ids=[str(bundle.child_id)],
+                observed_date=record_date,
+                text=" / ".join(
+                    part
+                    for part in [plan.title, plan.goal, plan.daily_activities.get(weekday, "")]
+                    if part
+                ),
+                assignment_status=contracts.AssignmentStatus.TEACHER_CONFIRMED,
+            )
+        )
+    return GenerationInputs(
+        request=contracts.GenerationRequest(
+            request_id=str(bundle.id),
+            class_id=str(class_id),
+            child_id=str(bundle.child_id),
+            record_date=record_date,
+            evidence_ids=[item.evidence_id for item in evidence],
+        ),
+        evidence=evidence,
+        names_by_child_id={str(key): value for key, value in names.items()},
+    )
 
 
 def _generate_draft(
@@ -783,7 +1107,7 @@ def _record_draft_response_error(
     checked_at = datetime.now(UTC)
     session.add(
         VerificationResultRow(
-            draft_id=draft_id,
+            draft_id=UUID(draft_id),
             doc_version=version,
             check_type=issue.check_type.value,
             sentence_id=None,
@@ -794,7 +1118,7 @@ def _record_draft_response_error(
     )
     session.add(
         DraftDecisionLog(
-            draft_id=draft_id,
+            draft_id=UUID(draft_id),
             doc_version=version,
             decision=decision.value,
             reason=issue.reason,
@@ -882,7 +1206,7 @@ def _verify_and_record(
     _record_verification_issues(session, document, stage_results)
     session.add(
         DraftDecisionLog(
-            draft_id=document.draft_id,
+            draft_id=UUID(document.draft_id),
             doc_version=document.version,
             decision=decision_result.decision.value,
             reason=decision_result.reason,
@@ -902,7 +1226,9 @@ def _save_passed_draft(
     bundle: EvidenceBundle,
     document: contracts.DraftDocument,
     evidence_by_id: dict[str, contracts.EvidenceItem],
-) -> None:
+    *,
+    expected_version: int | None = None,
+) -> bool:
     """PASS한 초안을 documents에 저장하고, 문장별 근거를 같은 트랜잭션에 남긴다 (FR-05, FR-07).
 
     커밋은 하지 않는다 — orchestrate_drafts가 Job 성공 상태와 함께 한 번에 커밋한다
@@ -910,12 +1236,12 @@ def _save_passed_draft(
     저장되지 않은 draft_id나 반영되지 않은 AI 초안을 가리키는 근거가 남지 않게 한다
     (#75 3번). 검증 기록은 _verify_and_record가 이미 커밋해서 되돌려지지 않는다.
 
-    충돌하면 교사 문서를 그대로 두고 돌아온다. 원아 Job은 성공으로 끝내고 미분류함에는
-    보내지 않는다 (#75 6번).
+    충돌하면 교사 문서를 그대로 두고 False를 반환한다. 호출자가 실패 안내로 종료하며
+    미분류함에는 보내지 않는다 (#257).
     """
     data = DraftSaveInput(
         # agents가 만든 draft_id로 저장해야 검증 기록과 문서가 서로를 찾는다 (#75 2번).
-        draft_id=document.draft_id,
+        draft_id=UUID(document.draft_id),
         child_id=document.child_id,
         author_teacher_id=_author_teacher_id(session, job),
         doc_type=document.doc_type.value,
@@ -927,14 +1253,20 @@ def _save_passed_draft(
         ],
         ai_version=document.version,
         evidence_bundle_id=bundle.id,
+        # 근거로 쓴 사진을 보낼 사진의 기본 선택으로 넘긴다. 비어 있으면 교사가 매번 골라야 하고
+        # 게시해도 글만 나간다(9주차 #257 리뷰 4번). 근거 사진은 collect_media_for_llm을 거친
+        # 그 원아의 사진이라 학부모에게 보여도 되는 범위 안이다. 공개는 승인·게시가 따로 정한다(H-1).
+        selected_media_ids=_photo_media_ids(evidence_by_id),
     )
     try:
-        # TODO(eun): 같은 원아·종류·날짜 문서가 이미 있으면 documents의 get_draft_version
-        #   (#75 5번, 한상균)으로 버전을 읽어 재생성으로 저장한다. 교사가 수정·승인한 문서면
-        #   건너뛴다(#75 6-1). 그 함수가 생기기 전에는 항상 최초 저장으로 보내므로, 이미 있는
-        #   문서는 충돌로 거부되고 그대로 남는다.
-        documents.save_draft(session, data, expected_version=None)
+        documents.save_draft(session, data, expected_version=expected_version)
+        if expected_version is not None:
+            # sentence_id를 재사용하므로 이전 본문의 근거도 같은 트랜잭션에서 교체한다.
+            session.execute(
+                delete(SentenceEvidenceRow).where(SentenceEvidenceRow.draft_id == data.draft_id)
+            )
         _record_sentence_evidence(session, document, evidence_by_id)
+        return True
     except DraftVersionConflict:
         session.rollback()
         # 검증 PASS 기록은 남았는데 문서가 없는 이유를 나중에 추적하려고 남긴다 (#90).
@@ -945,6 +1277,18 @@ def _save_passed_draft(
             job.id,
             document.draft_id,
         )
+        return False
+
+
+def _photo_media_ids(evidence_by_id: dict[str, contracts.EvidenceItem]) -> list[UUID]:
+    """생성에 쓴 근거 중 사진의 media_id. 근거 순서(촬영 시각 순)를 지키고 중복은 한 번만 쓴다."""
+    return list(
+        dict.fromkeys(
+            UUID(item.media_id)
+            for item in evidence_by_id.values()
+            if item.source_type == contracts.SourceType.PHOTO_OBSERVATION and item.media_id
+        )
+    )
 
 
 def _author_teacher_id(session: Session, job: Job) -> UUID:
@@ -1026,7 +1370,7 @@ def _record_verification_issues(
         for issue in stage_result.issues:
             session.add(
                 VerificationResultRow(
-                    draft_id=document.draft_id,
+                    draft_id=UUID(document.draft_id),
                     doc_version=document.version,
                     check_type=issue.check_type.value,
                     sentence_id=issue.sentence_id,
@@ -1062,10 +1406,10 @@ def _record_sentence_evidence(
             evidence = evidence_by_id[evidence_id]
             session.add(
                 SentenceEvidenceRow(
-                    draft_id=document.draft_id,
+                    draft_id=UUID(document.draft_id),
                     sentence_id=sentence.sentence_id,
                     evidence_id=evidence_id,
-                    source_media_id=evidence.media_id,
+                    source_media_id=UUID(evidence.media_id) if evidence.media_id else None,
                     source_timestamp=(
                         evidence.start_ms / 1000 if evidence.start_ms is not None else None
                     ),
@@ -1074,7 +1418,18 @@ def _record_sentence_evidence(
             )
 
 
-def _send_to_unclassified(session: Session, job_id: str, child_id: str) -> None:
-    # TODO(eun): documents 도메인의 UnclassifiedItem이 준비되면 여기로 기록합니다.
-    # 재시도 상한을 넘겨도 예외로 터뜨리지 않고 이 함수로 떨어뜨립니다 (CLAUDE.md 규칙).
-    pass
+def _send_to_unclassified(
+    session: Session, job_id: str, child_id: str, *, reason: str = "verification_failed"
+) -> None:
+    job = _get_job(session, job_id)
+    target = job.target_date
+    if target.tzinfo is None:
+        target = target.replace(tzinfo=UTC)
+    job.unclassified_reason = reason
+    documents.record_unclassified(
+        session,
+        child_id=UUID(child_id),
+        record_date=target.astimezone(_KST).date(),
+        reason=reason,
+        job_id=UUID(job_id),
+    )

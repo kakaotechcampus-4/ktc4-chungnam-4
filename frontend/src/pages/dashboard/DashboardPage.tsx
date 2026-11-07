@@ -75,7 +75,9 @@ export function DashboardPage() {
       subtitle={subtitle}
       actions={
         <Button asChild size="lg" className="w-60">
-          <Link to="/t/today">오늘의 기록 이어하기</Link>
+          <Link to={currentClass ? "/t/today" : "/onboarding/class"}>
+            {currentClass ? "오늘의 기록 이어하기" : "반 준비하기"}
+          </Link>
         </Button>
       }
     />

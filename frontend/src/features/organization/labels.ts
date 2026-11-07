@@ -65,7 +65,7 @@ export const WEEKDAY_LABEL_MAP: Record<WeekdayView, string> = {
   fri: "금",
 };
 
-/** 얼굴 특징정보 처리 동의 전이면 잠김, 아니면 등록 여부 */
+/** 얼굴 특징정보 처리 동의 전이거나 동의 여부를 모르면(null) 잠김, 아니면 등록 여부 */
 export function faceStatus(
   child: Pick<ClassChildView, "is_face_registered" | "face_feature_agreed">,
 ): FaceStatusView {
@@ -73,7 +73,11 @@ export function faceStatus(
   return child.is_face_registered ? "registered" : "unregistered";
 }
 
-/** "동의 3 / 3 완료", 덜 됐으면 "동의 2 / 3 확인" */
-export function consentSummary(agreed: number, total: number) {
+/**
+ * "동의 3 / 3 완료", 덜 됐으면 "동의 2 / 3 확인". 서버가 동의 수를 주지 않으면 null입니다 —
+ * 둘 다 없을 때 같은 값으로 보고 '완료'를 내면, 동의를 받지 않은 원아도 완료로 보입니다.
+ */
+export function consentSummary(agreed: number | null, total: number | null) {
+  if (agreed === null || total === null) return null;
   return `동의 ${agreed} / ${total} ${agreed === total ? "완료" : "확인"}`;
 }

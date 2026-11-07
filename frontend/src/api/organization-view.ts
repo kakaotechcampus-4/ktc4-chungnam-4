@@ -66,13 +66,17 @@ export interface ClassChildView {
   class_id: string;
   name: string;
   birth_date: DateOnly;
-  age_group: string;
-  consent_agreed_count: number;
-  consent_total: number;
-  is_face_registered: boolean;
-  face_feature_agreed: boolean;
+  /**
+   * 연령·동의 수·얼굴 정보는 서버 명단(#146)이 아직 보내지 않아 null일 수 있습니다. 값이 없을 때
+   * '동의 완료'나 '얼굴 정보 등록 0명'으로 보이면 사실과 다르게 읽히므로, 모르는 값은 null로 둡니다.
+   */
+  age_group: string | null;
+  consent_agreed_count: number | null;
+  consent_total: number | null;
+  is_face_registered: boolean | null;
+  face_feature_agreed: boolean | null;
   /** 등록된 얼굴 사진 수. 0이면 미등록 */
-  face_photo_count: number;
+  face_photo_count: number | null;
   parent_linked: boolean;
 }
 
@@ -108,7 +112,7 @@ export interface ChildNoteSummaryView {
 /** 가정: GET /children/{child_id}/overview */
 export interface ChildOverviewView {
   recent_notes: ChildNoteSummaryView[];
-  domain_counts: Record<NuriDomainView, number>;
+  domain_counts: Record<NuriDomainView, number> | null;
 }
 
 /** GET·POST /children/{child_id}/parent-invites */

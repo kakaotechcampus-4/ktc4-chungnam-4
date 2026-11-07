@@ -22,7 +22,10 @@ const TITLE = "아이를 등록하고, 동의를 확인해 주세요";
 // 카드 아래 상태 안내 문구입니다. 문구는 Figma 그대로입니다.
 function faceGuide(child: ClassChildView) {
   if (faceStatus(child) === "registered") {
-    return `사진 ${child.face_photo_count}장 기준으로 등록했어요.`;
+    // 사진 수를 모르면 '사진 null장'이 되지 않게, 장수 없이 등록 화면의 완료 문구로 알립니다.
+    return child.face_photo_count === null
+      ? "얼굴 정보를 등록했어요."
+      : `사진 ${child.face_photo_count}장 기준으로 등록했어요.`;
   }
   if (faceStatus(child) === "unregistered") return "얼굴 사진 3장을 등록해 주세요.";
   if (child.consent_agreed_count === 0) return "보호자가 초대 링크로 동의하면 등록할 수 있어요.";
@@ -32,13 +35,18 @@ function faceGuide(child: ClassChildView) {
 function ChildSetupCard({ child }: ChildSetupCardProps) {
   const base = `/t/children/${child.child_id}`;
   const locked = faceStatus(child) === "locked";
+  const consent = consentSummary(child.consent_agreed_count, child.consent_total);
 
   return (
     <li className="flex flex-col gap-4 rounded-2xl bg-paper p-6">
       <h2 className="text-h3 font-bold text-ink">{child.name}</h2>
       <p className="flex gap-3 text-label text-ink-muted">
-        <span>{consentSummary(child.consent_agreed_count, child.consent_total)}</span>
-        <span aria-hidden="true">·</span>
+        {consent ? (
+          <>
+            <span>{consent}</span>
+            <span aria-hidden="true">·</span>
+          </>
+        ) : null}
         <span>{FACE_STATUS_LABEL_MAP[faceStatus(child)]}</span>
       </p>
       <div className="flex gap-3">
@@ -101,12 +109,26 @@ export function ChildrenSetupPage() {
   }
 
   const children = childrenQuery.data;
+  // 동의 수나 얼굴 정보를 모르는 원아가 있으면 '동의 완료 N명'·'얼굴 정보 등록 N명'을 셀 수 없어
+  // 빼고 보여 줍니다.
+  const consentKnown = children?.every(
+    (c) => c.consent_agreed_count !== null && c.consent_total !== null,
+  );
+  const faceKnown = children?.every(
+    (c) => c.face_feature_agreed !== null && c.is_face_registered !== null,
+  );
   const subtitle = children
     ? [
         `원아 ${children.length}명`,
-        `동의 완료 ${children.filter((c) => c.consent_agreed_count === c.consent_total).length}명`,
-        `얼굴 정보 등록 ${children.filter((c) => faceStatus(c) === "registered").length}명`,
-      ].join(" · ")
+        consentKnown
+          ? `동의 완료 ${children.filter((c) => c.consent_agreed_count === c.consent_total).length}명`
+          : null,
+        faceKnown
+          ? `얼굴 정보 등록 ${children.filter((c) => faceStatus(c) === "registered").length}명`
+          : null,
+      ]
+        .filter((part) => part !== null)
+        .join(" · ")
     : undefined;
 
   return (
