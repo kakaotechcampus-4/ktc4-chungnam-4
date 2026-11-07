@@ -131,6 +131,31 @@ class ClassDraftListResponse(BaseModel):
     next_cursor: str | None = None
 
 
+class ObservationLogSummary(BaseModel):
+    """그 달 관찰일지 한 건. 본문은 싣지 않는다."""
+
+    draft_id: UUID
+    status: DraftStatus
+    # 처음 만든 시각. 교사가 고쳐도 바뀌지 않는다(updated_at과 다름).
+    created_at: datetime
+
+
+class ClassObservationLogItem(BaseModel):
+    """원아 한 명의 그 달 관찰일지 현황 (#225 ⑱)."""
+
+    child_id: UUID
+    # 그 달(record_date 기준)에 지금 게시 중인 알림장 수. 0이면 화면이 생성을 막는다(#225 ⑫).
+    published_note_count: int
+    observation_log: ObservationLogSummary | None
+
+
+class ClassObservationLogListResponse(BaseModel):
+    """GET /api/v1/classes/{class_id}/observation-logs. 반 단위라 페이지를 나누지 않는다."""
+
+    month: str
+    items: list[ClassObservationLogItem]
+
+
 class ChildDraftItem(DraftSummary):
     """원아별 문서 목록 한 줄. 날짜 이동에 필요한 값만 싣는다 — 임시 결정(김진하)."""
 
@@ -208,6 +233,8 @@ class DraftDetailResponse(BaseModel):
     revoke_deadline: datetime | None
     # 지금 회수할 수 있는가 (활성 게시 회차가 있고 기한 이내. 학부모가 열어 봤어도 된다, #266).
     can_revoke: bool
+    # 처음 만든 시각. 교사가 고쳐도 바뀌지 않는다 — 관찰일지 생성 결과 화면의 부제(#263).
+    created_at: datetime
     updated_at: datetime
 
 
