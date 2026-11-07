@@ -8,9 +8,6 @@ Critic 호출 자체의 실패(타임아웃·API 오류)는 이 함수의 범위
 
 from __future__ import annotations
 
-import json
-import re
-
 from pydantic import ValidationError
 
 from tools.contracts import (
@@ -21,30 +18,21 @@ from tools.contracts import (
     VerificationResult,
     VerificationStage,
 )
-
-# GLM은 JSON만 내라고 해도 ```json 코드 블록으로 감쌀 때가 있다(11/05 실측에서 형식 오류 13번 중 3번,
-# 원인을 남긴 1번이 코드 블록, #258). 초안 파서(tools/generation/draft.py)와 같은 식으로 응답
-# 전체를 감싼 블록만 벗긴다.
-_CODE_FENCE = re.compile(r"\A```(?:json)?\s*(.*?)\s*```\Z", re.DOTALL)
+from tools.json_response import parse_json_response
 
 
 def parse_critic_response(raw_response: str | None, document: DraftDocument) -> VerificationResult:
     """Critic 응답 문자열을 VerificationResult로 정규화한다.
 
-    - 응답 전체를 감싼 코드 블록은 벗기고 읽는다. 블록 밖에 다른 말이 있으면 그대로 형식 오류다.
+    - 앞 설명·코드 블록 처리는 수집·작성과 같은 공통 파서를 따른다(#259 리뷰).
     - JSON이 아니거나 배열이 아니면 문서 전체 실패(CRITIC_RESPONSE_ERROR).
     - 문서의 모든 sentence_id가 응답에 등장하지 않으면 실패 — 누락은 통과가 아니다.
     - 존재하지 않는 sentence_id를 가리키거나 verdict가 pass/fail이 아니면 그 항목만 오류.
     - 모든 문장이 유효하게 판정되고 전부 pass여야 문서 전체 pass.
     """
-    text = (raw_response or "").strip()
-    fenced = _CODE_FENCE.match(text)
-    if fenced:
-        text = fenced.group(1)
-
     try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError:
+        parsed = parse_json_response(raw_response)
+    except (ValueError, TypeError):
         return _error_result(document, "Critic 응답이 JSON 형식이 아닙니다.")
 
     if not isinstance(parsed, list):

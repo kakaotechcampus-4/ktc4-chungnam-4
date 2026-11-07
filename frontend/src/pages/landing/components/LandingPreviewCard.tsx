@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
+import blocksImage from "@/assets/landing/blocks.webp";
+import pictureBookImage from "@/assets/landing/picture-book.webp";
+import sandboxImage from "@/assets/landing/sandbox.webp";
 import { cn } from "@/lib/utils";
 
 interface Sample {
   title: string;
   lines: readonly [string, string];
+  image: string;
+  // 사진이 뜨기 전에 보이는 바탕색입니다.
   tone: string;
 }
 
@@ -13,16 +18,19 @@ const SAMPLES: readonly Sample[] = [
   {
     title: "작은 블록으로 만든 커다란 하루",
     lines: ["도윤이는 색색의 블록을 쌓으며", "높이와 모양을 하나씩 살펴보았어요."],
+    image: blocksImage,
     tone: "bg-neutral-soft",
   },
   {
     title: "모래 놀이터에서 찾은 보물",
     lines: ["서아는 친구와 함께 모래를 파며", "작은 조개껍데기를 하나씩 모았어요."],
+    image: sandboxImage,
     tone: "bg-oat/40",
   },
   {
     title: "그림책 속 토끼처럼",
     lines: ["하준이는 그림책의 토끼를 따라", "깡충깡충 뛰며 소리 내어 웃었어요."],
+    image: pictureBookImage,
     tone: "bg-coral-soft",
   },
 ];
@@ -58,7 +66,7 @@ function usePrefersReducedMotion() {
 // - 마우스를 올리거나 점에 포커스가 있으면 막대가 그 자리에서 멈추고, 벗어나면 이어서 찹니다.
 // - 점은 8px로 보이지만 누르는 칸은 24px입니다(WCAG 2.5.8).
 // - OS의 '동작 줄이기'가 켜져 있으면 자동으로 넘기지 않고 바꿀 때 움직임도 없앱니다.
-// Figma의 사진은 실제 아이 사진이라 쓰지 않습니다(원아 사진 커밋 금지). 합성 이미지가 정해지기 전까지 빈 면으로 둡니다.
+// Figma의 사진은 실제 아이 사진이라 쓰지 않습니다(원아 사진 커밋 금지). 대신 얼굴·글자가 없는 AI 생성 이미지를 씁니다.
 export function LandingPreviewCard() {
   const [active, setActive] = useState(0);
   const [changedBy, setChangedBy] = useState<keyof typeof CHANGED_BY_CLASS_MAP>("auto");
@@ -117,8 +125,13 @@ export function LandingPreviewCard() {
               index === active ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0",
             )}
           >
-            {/* TODO(송유진): 합성 이미지나 라이선스를 확인한 이미지가 정해지면 넣습니다. */}
-            <div className={cn("h-landing-media w-full rounded-lg", sample.tone)} />
+            {/* 사진 내용은 아래 제목·문장이 전하므로 장식으로 둡니다(alt=""). */}
+            <img
+              src={sample.image}
+              alt=""
+              decoding="async"
+              className={cn("h-landing-media w-full rounded-lg object-cover", sample.tone)}
+            />
             <p className="text-caption text-ink-muted">햇살반 · 오늘의 기록</p>
             <h2 className="text-h3 font-bold text-ink">{sample.title}</h2>
             <p className="text-nav text-ink">

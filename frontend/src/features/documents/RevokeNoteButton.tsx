@@ -85,8 +85,8 @@ export function RevokeNoteButton({
         <AlertDialogHeader>
           <AlertDialogTitle>{childName} 알림장을 회수할까요?</AlertDialogTitle>
           <AlertDialogDescription>
-            보호자가 더는 볼 수 없게 되고, 다시 검토해 고친 뒤 새로 게시해야 해요. 보호자가 이미
-            열어 봤다면 회수할 수 없어요.
+            보호자가 더는 볼 수 없게 되고, 다시 검토해 고친 뒤 새로 게시해야 해요. 다시 게시하면
+            보호자에게 &quot;선생님이 내용을 고쳤어요&quot;가 보여요.
           </AlertDialogDescription>
         </AlertDialogHeader>
         {revocation.isError ? (

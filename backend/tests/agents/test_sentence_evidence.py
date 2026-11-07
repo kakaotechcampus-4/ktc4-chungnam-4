@@ -15,7 +15,7 @@ from core.base import Base
 from core.exceptions import MediaAssetNotFound
 from domains.agents.models import SentenceEvidence
 from domains.agents.service import list_sentence_evidences
-from domains.media.models import MediaAsset
+from domains.media.models import MediaAsset, TranscriptSegment
 
 DRAFT_ID = uuid.uuid4()
 CLASS_ID = uuid.uuid4()
@@ -26,7 +26,10 @@ MORNING = datetime(2026, 9, 15, 1, 10, tzinfo=UTC)
 @pytest.fixture
 def db() -> Session:
     engine = create_engine("sqlite://")
-    Base.metadata.create_all(engine, tables=[SentenceEvidence.__table__, MediaAsset.__table__])
+    Base.metadata.create_all(
+        engine,
+        tables=[SentenceEvidence.__table__, MediaAsset.__table__, TranscriptSegment.__table__],
+    )
     with sessionmaker(bind=engine)() as session:
         yield session
 
@@ -97,6 +100,40 @@ def test_근거를_문장별로_묶고_미디어_종류로_출처를_정한다(d
     assert by_id["plan:1"].media_id is None
     assert by_id["plan:1"].captured_at is None
     assert all(item.end_ms is None for item in by_id.values())
+
+
+# 끝 시각이 없으면 화면이 3초만 재생해 4초짜리 발화가 끊겼습니다(11/07 로컬 통합 시험).
+def test_발화_근거의_끝_시각은_발화_구간에서_읽는다(db: Session) -> None:
+    video = _media(db, "video")
+    with_end, without_end = uuid.uuid4(), uuid.uuid4()
+    db.add_all(
+        [
+            TranscriptSegment(
+                id=with_end,
+                media_id=video,
+                start_time=2.6,
+                end_time=4.25,
+                raw_text="합성 발화",
+                source="video_audio",
+            ),
+            TranscriptSegment(
+                id=without_end,
+                media_id=video,
+                start_time=5.0,
+                end_time=None,
+                raw_text="합성 발화",
+                source="video_audio",
+            ),
+        ]
+    )
+    db.flush()
+    _evidence(db, "s1", f"seg:{with_end}", video, timestamp=2.6)
+    _evidence(db, "s1", f"seg:{without_end}", video, timestamp=5.0)
+
+    views = {item.evidence_id: item for item in list_sentence_evidences(db, DRAFT_ID)["s1"]}
+
+    assert views[f"seg:{with_end}"].end_ms == 4250
+    assert views[f"seg:{without_end}"].end_ms is None
 
 
 def test_근거가_없는_초안은_빈_결과다(db: Session) -> None:

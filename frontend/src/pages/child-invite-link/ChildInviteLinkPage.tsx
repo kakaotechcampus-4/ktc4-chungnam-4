@@ -98,7 +98,9 @@ export function ChildInviteLinkPage() {
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>링크를 다시 만들까요?</AlertDialogTitle>
+                      <AlertDialogTitle>
+                        {invite ? "링크를 다시 만들까요?" : "초대 링크를 만들까요?"}
+                      </AlertDialogTitle>
                       <AlertDialogDescription>
                         링크는 7일 동안 한 번만 사용할 수 있어요. 새로 만들면 이전 링크는 무효가
                         됩니다.
@@ -107,7 +109,7 @@ export function ChildInviteLinkPage() {
                     <AlertDialogFooter>
                       <AlertDialogCancel>취소</AlertDialogCancel>
                       <AlertDialogAction onClick={() => regenerate.mutate()}>
-                        다시 만들기
+                        {invite ? "다시 만들기" : "만들기"}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>

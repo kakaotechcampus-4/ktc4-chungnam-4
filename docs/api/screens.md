@@ -50,14 +50,14 @@
 | ④ 김동건 | 아이별 하루 확인(하루 정리 확인 + 추가 근거 작성) | 전송 전 자료로 그림: 이 기기의 사진, `GET /media/{media_id}/transcript-segments`·`PATCH /transcript-segments/{segment_id}`(발화 빼기), `GET /classes/{class_id}/evidence?record_date=`·`PUT /children/{child_id}/evidence/{record_date}`(추가 근거, 제안, agents.md 하단). "초안 만들기" 없음 — 전송은 분류 결과에서(#83 리뷰) | 둘 다 |
 | ④ 김동건 | 얼굴 정보 등록 | `PUT /children/{child_id}/face-embedding`(상세 작성, 임시 결정(김동건)), `GET /children/{child_id}`(동의·등록 상태, 경로만) | 둘 다 |
 | ④ 김동건 | 얼굴 정보 삭제 확인 | 얼굴 정보 등록의 호출 그대로, `DELETE /children/{child_id}/face-embedding`(상세 작성, 임시 결정(김동건)), `POST /children/{child_id}/consents/revoke`(동의 철회, 경로만) | 둘 다 |
-| ⑤ 김진하 | 초안 검토 / 왼쪽 원아 목록 | `GET /classes/{class_id}/children`·`GET /classes/{class_id}/drafts`(레일), `GET /drafts/{draft_id}`, `PATCH /drafts/{draft_id}`, `POST /children/{child_id}/drafts`(자료 없는 원아에게 직접 작성), `POST /drafts/{draft_id}/approve`, `POST /drafts/{draft_id}/reopen`(게시 전까지 다시 검토), `GET /media/{media_id}`(URL 만료 시), `POST /drafts/{draft_id}/revision-requests`(AI에게 다듬기 요청). "사진과 본문을 확인했어요" 체크가 `approve`의 `reviewed`로 들어감 — **별도 승인 확인 모달 없이 이 화면의 체크와 버튼으로 승인합니다**(임시 결정(김진하)) | 둘 다 |
+| ⑤ 김진하 | 초안 검토 / 왼쪽 원아 목록 | `GET /classes/{class_id}/children`·`GET /classes/{class_id}/drafts`(레일), `GET /drafts/{draft_id}`, `PATCH /drafts/{draft_id}`, `GET /drafts/{draft_id}/selectable-media`("사진 추가" 대화상자, 임시 결정(송유진)), `POST /children/{child_id}/drafts`(자료 없는 원아에게 직접 작성), `POST /drafts/{draft_id}/approve`, `POST /drafts/{draft_id}/reopen`(게시 전까지 다시 검토), `GET /media/{media_id}`(URL 만료 시), `POST /drafts/{draft_id}/revision-requests`(AI에게 다듬기 요청). "사진과 본문을 확인했어요" 체크가 `approve`의 `reviewed`로 들어감 — **별도 승인 확인 모달 없이 이 화면의 체크와 버튼으로 승인합니다**(임시 결정(김진하)) | 둘 다 |
 | ⑤ 김진하 | 전체 게시 확인 모달 | 초안 검토 / 왼쪽 원아 목록의 호출 그대로, `POST /publications`(승인한 원아 중 교사가 뺀 아이를 제외하고 보냄), 학부모 알림 발송은 `POST /publications` 확장(경로만). **개편 전 "알림장 올리기" 화면을 대신합니다** — 게시는 반 전체·하루 한 번이라 별도 화면 없이 오버레이로 확인합니다(임시 결정(김진하), [documents.md](documents.md) §`POST /api/v1/publications`) | 둘 다 |
 | ⑤ 김진하 | 알림장 발행 완료 | `POST /publications` 결과, `GET /classes/{class_id}/drafts`(미작성 원아 보기) | 상세 작성 |
 | ⑤ 김진하 | 알림장 게시판 | `GET /classes/{class_id}/drafts?doc_type=parent_note&published=true`(확장(경로만)), `GET /classes/{class_id}/children`(미작성 카드) | 둘 다 |
 | ⑤ 김진하 | 알림장 목록(원아별) | `GET /children/{child_id}/drafts?doc_type=parent_note&published=true`(최신순, `preview`), `GET /classes/{class_id}/children`(아이 이름). **Figma 없음** — 알림장 게시판에서 바로 상세로 보내면 ‹ › 로 한 칸씩만 움직일 수 있어 기록이 쌓이면 못 찾습니다(임시 결정(김진하), #89 리뷰) | 상세 작성 |
 | ⑤ 김진하 | 알림장 상세 | `GET /drafts/{draft_id}`, `GET /drafts/{draft_id}/read-receipts`(보호자 확인 수), (목록에 없음: 게시한 알림장 수정) | 둘 다 |
 | ⑤ 김진하 | 관찰일지 · 아이 목록 (159:3788) | `GET /classes/{class_id}/observation-logs?month=YYYY-MM`(#225 ⑱), `POST /children/{child_id}/observation-jobs`(생성하기) | 상세 작성 |
-| ⑤ 김진하 | 관찰일지 · 생성 결과 (159:3882) | `GET /drafts/{draft_id}`, `PATCH /drafts/{draft_id}`(교사 수정), (목록에 없음: 근거의 알림장 날짜, 양식의 칸 목록·순서, 생성 시각, 다시 생성, 파일 내려받기) | 둘 다 |
+| ⑤ 김진하 | 관찰일지 · 생성 결과 (159:3882) | `GET /drafts/{draft_id}`(내용·근거 조회). #284 제안을 반영한 #259 임시 화면은 직접 작성·수정·승인·승인 되돌리기를 제공하지 않음. 공용 서버 API는 유지. 근거의 알림장 날짜·칸 목록/순서·생성 시각・명시적 재생성·내려받기는 후속 계약 확인 필요 | 상세 작성 |
 | ⑤ 김진하 | 관찰일지 · 양식 등록 (159:3735) | #225 ⑧의 2단계라 그 뒤입니다. 양식은 반 단위로 저장합니다(⑬) | 미정 |
 
 ## 목록에 없는 것
@@ -67,7 +67,7 @@
 - **계정 · 설정**: 알림 설정 3개(초안 준비 완료 알림, 학부모 확인 알림, 주간 요약 메일)를 읽고 저장할 곳. `GET /me`·`PATCH /me`에 넣을지 정해야 합니다. (auth)
 - **학부모 초대 링크**: 지금 쓰는 초대 링크 조회. "초대 링크 복사"에 필요합니다. 경로만 정한 API에는 만들기(`POST`)만 있습니다. (organization) → 임시 결정(이한나): `GET /children/{child_id}/parent-invites` 추가. 반영: organization.md §② 화면용으로 채운 엔드포인트
 - **원아 개인 페이지**: 이번 달 기록 수와 누리과정 5영역별 기록 수. (documents)
-- **추가 근거 작성**: 교사가 쓴 관찰 메모(연결할 아이, 활동 시각, 음성, 관련 사진)를 그날 근거로 저장. (agents 또는 media · face) → 글만 받는 모양으로 제안: agents.md 하단 §상의 필요 2
+- **추가 근거 작성**: 교사가 쓴 관찰 메모(연결할 아이, 활동 시각, 음성, 관련 사진)를 그날 근거로 저장. (agents 또는 media · face) → 글만 받는 모양으로 제안: agents.md 하단 §상의 필요 2. **11/6 디스코드에서 구현으로 결정**(정은·엄태은, 글만)
 - **알림장 상세**: 게시한 알림장의 "수정하기". `reopen`은 게시 전까지만 적혀 있습니다. (documents)
 - **관찰일지**: 근거의 알림장 날짜(지금 `captured_at`이 늘 `null`), 양식의 칸 목록·순서(빈 칸을 못 그림), 초안 생성 시각, 이미 만든 관찰일지 다시 생성, 파일 내려받기. (documents · agents) → 반 전체 × 한 달 조회는 #225 ⑱로 정해 documents.md §상세 작성에 적었습니다
 

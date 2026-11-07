@@ -3,12 +3,8 @@ import { useParams } from "react-router";
 
 import { ParentMediaGallery } from "./components/ParentMediaGallery";
 
-// 주소는 /p/children/:childId/media (app/routes/parent.ts). 학부모 레이아웃·가드는 W3 화면과 함께 들어옵니다.
+// 주소는 /p/children/:childId/media (app/routes/parent.ts). 틀과 가드는 라우터의 ParentLayout·RequireRole입니다.
 export function ParentMediaPage() {
   const { childId = "" } = useParams<{ childId: string }>();
-  return (
-    <main className="mx-auto w-full max-w-reading px-4 py-8">
-      <ParentMediaGallery childId={childId} />
-    </main>
-  );
+  return <ParentMediaGallery childId={childId} />;
 }

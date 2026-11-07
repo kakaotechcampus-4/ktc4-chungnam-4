@@ -10,7 +10,13 @@ export type DocType = "observation_log" | "parent_note";
 export type DraftStatus = "draft" | "verified" | "approved" | "revoked";
 
 export type EvidenceSourceType =
-  "photo_observation" | "video_speech" | "video_scene" | "teacher_voice_memo" | "activity_plan";
+  | "photo_observation"
+  | "video_speech"
+  | "video_scene"
+  | "teacher_voice_memo"
+  | "teacher_note"
+  | "activity_plan"
+  | "parent_note";
 
 /** GET /classes/{class_id}/drafts 한 칸(원아의 문서 하나) */
 export interface DraftSummary {
@@ -38,6 +44,7 @@ export interface ChildDraftItem extends DraftSummary {
 
 /** 문장 하나의 근거 */
 export interface Evidence {
+  source_document_id?: string | null;
   /** 초안 안에서만 유일한 불투명 문자열(UUID 규약의 예외) */
   evidence_id: string;
   source_type: EvidenceSourceType;
@@ -50,6 +57,7 @@ export interface Evidence {
 }
 
 export interface Sentence {
+  section?: string | null;
   /** 초안 안에서만 유일한 문자열(AI 문장 `s1`…, 교사가 쓴 문장 `t1`…). FE는 모양을 해석하지 않습니다 */
   sentence_id: string;
   text: string;
@@ -60,6 +68,7 @@ export interface Sentence {
 
 /** GET /drafts/{draft_id} 응답(교사용). PATCH·approve 응답도 같은 모양입니다. */
 export interface DraftDetail {
+  daily_routine?: string[];
   draft_id: string;
   child_id: string;
   doc_type: DocType;
@@ -68,7 +77,7 @@ export interface DraftDetail {
   version: number;
   title: string | null;
   sentences: Sentence[];
-  /** 선택 사진의 순서 */
+  /** 선택 사진·영상의 순서. AI 초안은 근거 사진이 기본으로 들어 있고 교사가 더하거나 뺍니다 */
   selected_media_ids: string[];
   /** 분석 실패로 근거에서 제외된 사진. 구버전 서버 응답에는 없을 수 있습니다. */
   failed_media_ids?: string[];
@@ -88,6 +97,18 @@ export interface DraftDetail {
    */
   include_photos: boolean | null;
   updated_at: string;
+}
+
+/**
+ * GET /drafts/{draft_id}/selectable-media 항목(교사용). 그 원아에게 귀속된 그날 사진·영상이고
+ * 음성메모는 오지 않습니다(테크스펙 D-4). 초안 상세의 `media`에는 없는 후보까지 옵니다.
+ */
+export interface SelectableMedia {
+  media_id: string;
+  type: "photo" | "video";
+  url: string;
+  url_expires_at: string;
+  captured_at: string;
 }
 
 /**
@@ -168,6 +189,8 @@ export interface ParentNoteSummary {
   /** 앞 3장. include_photos=false로 게시했으면 빈 배열 */
   photos: MediaUrl[];
   is_read: boolean;
+  /** 회수한 뒤 다시 보낸 게시본(게시 회차 2회째부터)이면 true. 고치지 않고 다시 보내도 true(#289) */
+  is_resent: boolean;
 }
 
 /** GET /children/{child_id}/parent-notes 응답. 목록 봉투를 확장한 필드가 있습니다(제안). */
@@ -188,7 +211,10 @@ export interface ParentNoteDetail {
   content: string;
   photos: MediaUrl[];
   author_name: string;
+  /** 지금 게시 중인 회차의 시각. 다시 보냈으면 다시 보낸 시각입니다. */
   published_at: string;
+  /** 목록의 is_resent와 같습니다. */
+  is_resent: boolean;
   /** (제안) 같은 자녀의 이전·다음 게시본 */
   prev: { parent_note_id: string; record_date: string } | null;
   next: { parent_note_id: string; record_date: string } | null;

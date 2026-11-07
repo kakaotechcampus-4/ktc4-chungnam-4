@@ -24,14 +24,13 @@ import {
   type ReviewResult,
   useUploadQueue,
 } from "@/features/upload-queue/upload-queue-store";
-import { kstToday } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 import type { ClassChildView } from "@/api/organization";
 
 import { type DayRow, DayTimeline } from "./components/DayTimeline";
 import { EvidenceCard } from "./components/EvidenceCard";
 import { NextOutputs } from "./components/NextOutputs";
-import { nickname } from "./nickname";
+import { nickname } from "@/lib/child-name";
 
 // 아이별 하루 확인(FR-27). 서버 전송 전, 분류 결과의 아이 카드에서 들어옵니다(#83 리뷰, 송유진 님 흐름).
 // 서버가 만든 하루 일과가 아니라 이 기기의 자료(사진)와 서버 STT 발화, 추가 근거로 그립니다.
@@ -82,6 +81,8 @@ export function DaySummaryPage() {
   const route = useRouteChild();
   const items = useUploadQueue((state) => state.items);
   const setReview = useUploadQueue((state) => state.setReview);
+  // 메모는 올리는 자료와 같은 날짜의 근거입니다. 초안 생성과 분류 결과의 배지도 이 날짜를 봅니다.
+  const recordDate = useUploadQueue((state) => state.recordDate);
   const transcripts = useQueueTranscripts();
   const update = useUpdateSegment();
   const [removed, setRemoved] = useState<Record<string, Removed>>({});
@@ -237,7 +238,7 @@ export function DaySummaryPage() {
           />
         </div>
         <div className="flex w-85 shrink-0 flex-col gap-4.5">
-          <EvidenceCard key={child.child_id} child={child} recordDate={kstToday()} />
+          <EvidenceCard key={child.child_id} child={child} recordDate={recordDate} />
           <NextOutputs />
         </div>
       </div>

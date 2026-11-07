@@ -273,6 +273,126 @@ def test_목록은_커서로_이어서_본다(client, db):
     assert second["next_cursor"] is None
 
 
+def _set_body(db: Session, draft: DraftDocument, *texts: str) -> None:
+    """합성 본문으로 바꿉니다. 검색이 미리보기가 아니라 본문 전체를 보는지 확인하는 데 씁니다."""
+    for sentence in db.scalars(select(DraftSentence).where(DraftSentence.draft_id == draft.id)):
+        db.delete(sentence)
+    db.flush()
+    db.add_all(
+        DraftSentence(draft_id=draft.id, sentence_id=f"s{n}", position=n - 1, text=text)
+        for n, text in enumerate(texts, start=1)
+    )
+    db.commit()
+
+
+def _search(client: TestClient, keyword: str, **params: object) -> dict:
+    response = client.get(
+        f"/api/v1/children/{MY_CHILD}/parent-notes", params={"q": keyword, **params}
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def _dates(listed: dict) -> list[str]:
+    return [item["record_date"] for item in listed["items"]]
+
+
+def test_검색은_미리보기_밖의_본문까지_찾는다(client, db):
+    long_first = "가" * 120 + "."
+    found = _note(db, 20)
+    _set_body(db, found, long_first, "모래놀이터에서 조개를 찾았어요.")
+    _note(db, 21)
+
+    listed = _search(client, "조개")
+
+    assert _dates(listed) == ["2026-10-20"]
+    assert "조개" not in listed["items"][0]["preview"]  # 미리보기에 없어도 찾는다
+
+
+def test_검색은_날짜로도_찾고_띄어쓰기와_대소문자를_가리지_않는다(client, db):
+    english = _note(db, 20)  # 2026-10-20은 화요일
+    _set_body(db, english, "블록 쌓기를 하며 Bingo 노래를 불렀어요.")
+    _note(db, 21)
+
+    assert _dates(_search(client, "10월 20일")) == ["2026-10-20"]
+    assert _dates(_search(client, "10월20일")) == ["2026-10-20"]
+    assert _dates(_search(client, "화요일")) == ["2026-10-20"]
+    assert _dates(_search(client, "2026-10-20")) == ["2026-10-20"]
+    assert _dates(_search(client, "블록쌓기")) == ["2026-10-20"]
+    assert _dates(_search(client, "bingo")) == ["2026-10-20"]
+    assert _dates(_search(client, "없는 말")) == []
+
+
+def test_검색은_문장_사이를_이어_찾지_않는다(client, db):
+    """앞 문장 끝과 다음 문장 앞이 붙어 찾히면 글에 없는 말이 찾힙니다(#287 리뷰)."""
+    found = _note(db, 20)
+    _set_body(db, found, "블록을 쌓았어요.", "오늘은 비가 왔어요.")
+    _note(db, 21)
+
+    assert _dates(_search(client, "쌓았어요. 오늘")) == []
+    assert _dates(_search(client, "쌓았어요")) == ["2026-10-20"]
+    assert _dates(_search(client, "오늘은 비가")) == ["2026-10-20"]
+
+
+def test_H1_검색해도_게이트_밖_알림장은_나오지_않는다(client, db):
+    word = "공통낱말"
+    visible = _note(db, 20)
+    hidden = [
+        _note(db, 15, status=DraftStatus.VERIFIED),
+        _note(db, 16, published=False),
+        _note(db, 17, revoked=True),
+        _note(db, 18, doc_type=DocType.OBSERVATION_LOG),
+        _note(db, 19, child_id=OTHER_CHILD),
+    ]
+    for draft in [visible, *hidden]:
+        _set_body(db, draft, f"{word}이 든 문장이에요.")
+
+    assert _dates(_search(client, word)) == ["2026-10-20"]
+    denied = client.get(f"/api/v1/children/{OTHER_CHILD}/parent-notes", params={"q": word})
+    assert denied.status_code == 403
+
+
+def test_검색은_찾은_범위_안에서_커서로_이어_본다(client, db):
+    for day in (17, 18, 19, 20):
+        draft = _note(db, day)
+        if day != 19:
+            _set_body(db, draft, "그림책을 읽었어요.")
+
+    first = _search(client, "그림책", limit=2)
+    second = _search(client, "그림책", limit=2, cursor=first["next_cursor"])
+
+    assert _dates(first) == ["2026-10-20", "2026-10-18"]
+    assert _dates(second) == ["2026-10-17"]
+    assert second["next_cursor"] is None
+
+
+def test_검색해도_안_읽은_수와_이번_달_수는_전체를_세고_담긴_것만_기록한다(client, db):
+    found = _note(db, 20)
+    _set_body(db, found, "그림책을 읽었어요.")
+    other = _note(db, 21)
+
+    listed = _search(client, "그림책")
+
+    assert _dates(listed) == ["2026-10-20"]
+    assert listed["unread_count"] == 2
+    publications = {_publication(db, found).id: "found", _publication(db, other).id: "other"}
+    assert [publications[target] for _, target in _logs(db)] == ["found"]
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_빈_검색어는_전체를_준다(client, db, blank):
+    _note(db, 20)
+    _note(db, 21)
+
+    assert _dates(_search(client, blank)) == ["2026-10-21", "2026-10-20"]
+
+
+def test_너무_긴_검색어는_422(client, db):
+    response = client.get(f"/api/v1/children/{MY_CHILD}/parent-notes", params={"q": "가" * 101})
+
+    assert response.status_code == 422
+
+
 def test_깨진_커서는_400(client, db):
     response = client.get(f"/api/v1/children/{MY_CHILD}/parent-notes", params={"cursor": "!!"})
 

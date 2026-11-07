@@ -307,9 +307,9 @@ def test_회수_기한과_회수_가능_여부를_상세와_같은_규칙으로_
     deadline = (just_now + timedelta(hours=24)).replace(tzinfo=None).isoformat()
     assert by_draft[str(open_.id)]["revoke_deadline"].removesuffix("Z") == deadline
     assert by_draft[str(open_.id)]["can_revoke"] is True
-    # 학부모가 본문을 열었으면 기한 안이어도 회수할 수 없다.
+    # 학부모가 본문을 열었어도 기한 안이면 회수할 수 있다 (#266).
     assert by_draft[str(viewed.id)]["revoke_deadline"].removesuffix("Z") == deadline
-    assert by_draft[str(viewed.id)]["can_revoke"] is False
+    assert by_draft[str(viewed.id)]["can_revoke"] is True
     assert by_draft[str(expired.id)]["revoke_deadline"].removesuffix("Z") == "2026-10-28T08:40:00"
     assert by_draft[str(expired.id)]["can_revoke"] is False
     for draft in (revoked, unpublished):
