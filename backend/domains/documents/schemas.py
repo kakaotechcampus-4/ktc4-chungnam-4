@@ -64,6 +64,14 @@ class DraftSaveInput(BaseModel):
             raise ValueError("duplicate sentence_id")
         return sentences
 
+    @field_validator("selected_media_ids")
+    @classmethod
+    def _unique_media_ids(cls, media_ids: list[UUID]) -> list[UUID]:
+        # PATCH(DraftUpdateRequest)와 같은 규칙이다. 같은 사진이 두 번 저장되지 않게 입구에서 막는다.
+        if len(media_ids) != len(set(media_ids)):
+            raise ValueError("duplicate media_id")
+        return media_ids
+
 
 class DraftVersionInfo(BaseModel):
     """get_draft_version() 결과. agents가 재생성으로 저장할지 건너뛸지 정하는 데 쓴다 (#75 5번).

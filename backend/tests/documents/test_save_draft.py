@@ -119,6 +119,14 @@ def test_사진을_넘기지_않은_최초_저장은_선택_사진이_비어_있
     assert db.get(DraftDocument, draft.id).selected_media_ids == []
 
 
+def test_같은_사진을_두_번_넘기면_입력에서_거부한다():
+    # PATCH(DraftUpdateRequest)와 같은 규칙이다. 같은 사진이 두 번 저장되지 않게 입구에서 막는다.
+    photo = uuid4()
+
+    with pytest.raises(ValidationError):
+        _input(selected_media_ids=[photo, photo])
+
+
 def test_본문은_받은_문장_ID와_순서_그대로_저장된다():
     db = _session()
     sentences = [

@@ -255,6 +255,9 @@ def test_추가_사진으로_같은_초안을_재생성하고_이전_문장근�
     assert result["children"][0]["drafts"][0]["draft_id"] == draft_id
     after = client.get(f"/api/v1/drafts/{draft_id}").json()
     assert after["version"] == before["version"] + 1
+    # 첫 생성의 기본 선택은 두고, 새 근거 사진만 뒤에 더한다
+    assert before["selected_media_ids"] == [str(first_media)]
+    assert after["selected_media_ids"] == [str(first_media), str(second_media)]
     assert "공을 굴리며" in after["sentences"][0]["text"]
     with factory() as db:
         assert db.get(DraftDocument, UUID(draft_id)).ai_version == 5
