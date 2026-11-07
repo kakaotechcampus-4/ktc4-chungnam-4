@@ -124,6 +124,35 @@ describe("DraftReviewPage", () => {
     expect(screen.getByText(/명 검토 완료$/)).toHaveTextContent("2 / 3명 검토 완료");
   });
 
+  // 게시하기가 말없이 꺼져 있어 왜 못 누르는지 알 수 없었습니다(11/07 배포 점검).
+  it("검토할 초안이 남아 게시를 못 하면 누구인지 알려 준다", async () => {
+    await renderAndWait();
+
+    expect(screen.getByRole("button", { name: "게시하기" })).toBeDisabled();
+    expect(screen.getByText("김도윤 검토를 마치면 게시할 수 있어요.")).toBeInTheDocument();
+  });
+
+  it("검토할 아이가 많으면 이름을 줄여 적는다", async () => {
+    updateDb((db) => {
+      for (const id of [fixtureId("draft", 22), fixtureId("draft", 42)]) {
+        const draft = db.drafts[id];
+        if (!draft) throw new Error("어제 알림장이 시드에 없습니다.");
+        draft.status = "verified";
+      }
+    });
+    await renderAndWait();
+
+    expect(screen.getByText("김도윤 외 2명 검토를 마치면 게시할 수 있어요.")).toBeInTheDocument();
+  });
+
+  it("승인한 알림장이 없으면 그렇게 알려 준다", async () => {
+    server.use(http.get(apiPath("/classes/:classId/drafts"), () => listResponse([])));
+    renderPage(fixtureId("child", 5));
+
+    expect(await screen.findByText("승인한 알림장이 있으면 게시할 수 있어요.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "게시하기" })).toBeDisabled();
+  });
+
   // H-1: 교사가 확인하지 않은 초안은 승인되지 않는다 (승인 게이트).
   it("사진과 본문을 확인하기 전에는 승인 버튼이 비활성이다", async () => {
     await renderAndWait();

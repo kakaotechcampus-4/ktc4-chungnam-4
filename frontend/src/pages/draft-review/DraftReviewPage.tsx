@@ -65,6 +65,11 @@ function failureText(error: unknown) {
   return error instanceof ApiError ? error.message : "잠시 후 다시 시도해 주세요.";
 }
 
+/** 게시 안내에 적을 이름. 여럿이면 줄이 길어져 버튼을 밀어내므로 줄여 적습니다. */
+function summarizeNames(names: string[]) {
+  return names.length > 2 ? `${names[0]} 외 ${names.length - 1}명` : names.join(", ");
+}
+
 /** 그 사이 다른 곳에서 초안을 바꿔 서버가 요청을 반영하지 않은 경우입니다. */
 function isVersionConflict(error: unknown) {
   return error instanceof ApiError && error.code === "DRAFT_VERSION_CONFLICT";
@@ -508,6 +513,15 @@ export function DraftReviewPage() {
   // 수정 중에도 게시를 잠급니다. 고치던 초안이 그 사이 다른 곳에서 승인되면 화면에는 저장하지 않은
   // 글이 남는데 승인본이 나갑니다. 승인을 잠그는 것과 같은 이유입니다(H-1).
   const canPublish = publishTargets.length > 0 && !hasUnreviewedDraft && !isEditing;
+  // 게시하기가 왜 꺼져 있는지 적습니다. 수정 중 안내는 아래에 따로 있습니다.
+  const unreviewedNames = rows.filter(needsReview).map((row) => row.child.name);
+  const publishHint = isEditing
+    ? null
+    : unreviewedNames.length > 0
+      ? `${summarizeNames(unreviewedNames)} 검토를 마치면 게시할 수 있어요.`
+      : publishTargets.length === 0
+        ? "승인한 알림장이 있으면 게시할 수 있어요."
+        : null;
 
   function selectChild(id: string) {
     // 지금 원아를 다시 누르면 아무것도 하지 않습니다. 고치던 문장을 지우거나 같은 주소를 이력에 또 쌓지
@@ -908,6 +922,7 @@ export function DraftReviewPage() {
                 : "그 사이 승인돼 더 고칠 수 없어요. 수정을 취소해야 게시할 수 있어요."}
             </p>
           ) : null}
+          {publishHint ? <p className="text-caption text-ink-muted">{publishHint}</p> : null}
           <label className="flex items-center gap-2 text-body text-ink">
             <Checkbox
               checked={confirmed}
