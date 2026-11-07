@@ -247,7 +247,7 @@ export function seedDb(now: Date = new Date()): MockDb {
     evidence: MediaRecord[],
     obs: number,
     note: number,
-  ) =>
+  ): [DraftRecord, DraftRecord] =>
     buildDrafts({
       child: childOf(child),
       recordDate: date,

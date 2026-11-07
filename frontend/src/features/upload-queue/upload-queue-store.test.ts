@@ -2,6 +2,7 @@
 vi.mock("@/features/upload-queue/media-capabilities", () => ({ CLIPS_ENABLED: true }));
 
 import {
+  hasUnsentWork,
   isImportDone,
   isImportStage,
   mediaKindOf,
@@ -16,6 +17,26 @@ function file(name: string) {
 
 describe("업로드 큐", () => {
   afterEach(() => useUploadQueue.getState().reset());
+
+  it("서버가 받았거나 교사가 뺀 자료만 남으면 잃을 작업이 없다", () => {
+    const queue = useUploadQueue.getState();
+    expect(hasUnsentWork(useUploadQueue.getState().items)).toBe(false);
+
+    queue.addFiles([file("IMG_1.jpg"), file("IMG_2.jpg")]);
+    const [sent, excluded] = useUploadQueue.getState().items as [LocalMedia, LocalMedia];
+    expect(hasUnsentWork(useUploadQueue.getState().items)).toBe(true);
+
+    queue.setUploadState(sent.client_id, "확인됨", "media-1");
+    expect(hasUnsentWork(useUploadQueue.getState().items)).toBe(true);
+
+    queue.setReview(excluded.client_id, {
+      review_state: "제외",
+      assigned_child_ids: [],
+      excluded_reason: "기타",
+      llm_allowed: false,
+    });
+    expect(hasUnsentWork(useUploadQueue.getState().items)).toBe(false);
+  });
 
   it("지원하는 형식만 담고, 사진만 분류·검수 상태를 가진다", () => {
     useUploadQueue

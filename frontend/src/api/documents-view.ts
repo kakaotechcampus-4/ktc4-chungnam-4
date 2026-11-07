@@ -121,7 +121,7 @@ export interface DraftView {
   version: number;
   title: string | null;
   sentences: SentenceView[];
-  /** 교사가 고른 미디어의 id. 어느 것이 사진인지는 `selectedPhotos`가 가립니다. */
+  /** 교사가 고른 미디어의 id(고른 순서). 그릴 것은 `selectedPhotos`가 가립니다. */
   selected_media_ids: string[];
   /** 분석 실패로 근거에서 제외된 사진. 구버전 서버 응답에 없으면 adapter가 빈 배열로 채웁니다. */
   failed_media_ids: string[];
@@ -136,6 +136,22 @@ export interface DraftView {
   can_revoke: boolean;
   /** 게시할 때 사진을 함께 보냈는지. 게시 전에는 `null`입니다. */
   include_photos: boolean | null;
+}
+
+/**
+ * 알림장에 고를 수 있는 미디어의 종류. `unknown`은 서버 값에 없습니다 — 모르는 종류를 고르게 하면
+ * 무엇이 학부모에게 나갈지 알 수 없어 잠급니다(`canSelectMedia`, H-1 방향).
+ */
+export type SelectableMediaTypeView = "photo" | "video" | "unknown";
+
+/** GET /drafts/{draft_id}/selectable-media 한 건. 그 원아에게 귀속된 그날 사진·영상입니다(D-4). */
+export interface SelectableMediaView {
+  media_id: string;
+  type: SelectableMediaTypeView;
+  /** 화면 표시·재생용 서명 URL */
+  url: string;
+  url_expires_at: string;
+  captured_at: string;
 }
 
 /**

@@ -6,10 +6,15 @@ import {
   classDraftsQueryOptions,
   createDraft,
   draftQueryOptions,
+  parentMediaInfiniteQueryOptions,
   parentNoteQueryOptions,
   parentNotesQueryOptions,
   patchDraft,
   publishParentNotes,
+  reopenDraft,
+  requestParentMediaDownload,
+  selectableMediaQueryOptions,
+  selectedPhotos,
 } from "@/api/documents";
 import {
   type ChildLinksInput,
@@ -29,7 +34,7 @@ import { kstToday, shiftDate } from "@/lib/datetime";
 import type { ChildLink } from "@/types/api-draft/media";
 import { FACE_DESCRIPTOR_LENGTH } from "@/workers/face/types";
 
-import { updateDb } from "./db";
+import { type MediaRecord, updateDb } from "./db";
 import { fixtureId } from "./fixtures/ids";
 import { SUNSHINE_CLASS } from "./fixtures/organization";
 import { setMockSession } from "./session";
@@ -142,10 +147,18 @@ describe("핵심 흐름 목", () => {
     expect(edited.version).toBe(note.version + 1);
     // 고친 문장은 교사가 쓴 글이라 근거를 끊고 '수정됨'으로 표시합니다.
     expect(edited.sentences[0]).toMatchObject({ is_edited_by_teacher: true, evidences: [] });
+    // AI 초안은 근거 사진이 기본으로 골라져 있습니다(#283). 교사가 그날 후보에서 더하거나 뺍니다.
+    expect(edited.selected_media_ids).toEqual([doyunPhoto.media_id]);
+    const candidates = await client.fetchQuery(selectableMediaQueryOptions(noteId));
+    expect(candidates.map((media) => media.media_id)).toEqual([doyunPhoto.media_id]);
+    const picked = await patchDraft(noteId, {
+      expected_version: edited.version,
+      selected_media_ids: [doyunPhoto.media_id],
+    });
 
     // 4. 승인만으로는 학부모에게 보이지 않고, 게시해야 보입니다(H-1).
     const approved = await approveDraft(noteId, {
-      expected_version: edited.version,
+      expected_version: picked.version,
       reviewed: true,
     });
     expect(approved.status).toBe("approved");
@@ -557,6 +570,171 @@ describe("목의 판정 규칙", () => {
       error_code: "LLM_TIMEOUT",
     });
     expect(job.children[0]).toMatchObject({ status: "failed", drafts: [] });
+  });
+});
+
+// 교사가 고른 것만 승인·게시를 지나 학부모에게 갑니다(FR-10, 테크스펙 D-4, H-1). 후보·저장·학부모 응답이
+// 같은 범위를 쓰는지 서버와 같은 규칙으로 봅니다.
+describe("사진 고르기", () => {
+  const YESTERDAY = shiftDate(kstToday(), -1);
+  const NOTE = fixtureId("draft", 12); // 어제 김도윤 알림장. 검토 대기이고 고른 사진이 없다(version 1)
+  const BLOCKS = fixtureId("media", 41);
+  const SAND = fixtureId("media", 42); // 김도윤·이하준이 함께 찍혔다
+  const VIDEO = fixtureId("media", 45);
+
+  function addMedia(media: Partial<MediaRecord> & { media_id: string }) {
+    updateDb((db) => {
+      db.media[media.media_id] = {
+        client_photo_id: media.media_id,
+        class_id: CLASS_ID,
+        type: "photo",
+        captured_at: `${YESTERDAY}T04:00:00Z`,
+        size_bytes: 3,
+        llm_allowed: false,
+        attributed_at: `${YESTERDAY}T04:00:00Z`,
+        child_links: [manual(DOYUN)],
+        image: 0,
+        ...media,
+      };
+    });
+  }
+
+  /** 교사가 고른 뒤 승인까지 마치고, 게시할 때 넘길 버전을 돌려줍니다. */
+  async function pickAndApprove(mediaIds: string[]) {
+    const picked = await patchDraft(NOTE, { expected_version: 1, selected_media_ids: mediaIds });
+    const approved = await approveDraft(NOTE, {
+      expected_version: picked.version,
+      reviewed: true,
+    });
+    return approved.version;
+  }
+
+  it("고른 사진·영상만 게시 뒤 학부모의 목록·본문·모아 보기·내려받기로 이어진다", async () => {
+    const client = queryClient();
+    addMedia({ media_id: VIDEO, type: "video" });
+
+    const candidates = await client.fetchQuery(selectableMediaQueryOptions(NOTE));
+    expect(candidates.map((media) => [media.media_id, media.type])).toEqual([
+      [BLOCKS, "photo"],
+      [SAND, "photo"],
+      [VIDEO, "video"],
+    ]);
+
+    // 교사가 고른 순서가 그대로 저장되고 학부모에게도 그 순서로 갑니다.
+    const version = await pickAndApprove([VIDEO, BLOCKS]);
+    const shown = await client.fetchQuery(draftQueryOptions(NOTE));
+    expect(selectedPhotos(shown).map((media) => media.media_id)).toEqual([VIDEO, BLOCKS]);
+
+    // 고르고 승인해도 게시 전에는 학부모에게 아무것도 가지 않습니다(H-1).
+    setMockSession("parent");
+    await expect(client.fetchQuery(parentNoteQueryOptions(NOTE))).rejects.toMatchObject({
+      status: 404,
+    });
+    await expect(requestParentMediaDownload(DOYUN, VIDEO)).rejects.toMatchObject({ status: 404 });
+
+    setMockSession("teacher");
+    const [result] = await publishParentNotes({
+      request_id: fixtureId("request", 980),
+      include_photos: true,
+      items: [{ draft_id: NOTE, expected_version: version }],
+    });
+    expect(result).toMatchObject({ status: "published", parent_note_id: NOTE });
+
+    setMockSession("parent");
+    const list = await client.fetchQuery(parentNotesQueryOptions(DOYUN));
+    expect(list.items.find((note) => note.parent_note_id === NOTE)?.photos).toHaveLength(2);
+    const opened = await client.fetchQuery(parentNoteQueryOptions(NOTE));
+    expect(opened.photos.map((media) => [media.media_id, media.type])).toEqual([
+      [VIDEO, "video"],
+      [BLOCKS, "photo"],
+    ]);
+    const gallery = await client.fetchInfiniteQuery(parentMediaInfiniteQueryOptions(DOYUN));
+    const day = gallery.pages[0]?.days.find((item) => item.parent_note_id === NOTE);
+    expect(day?.items.map((item) => item.media_id)).toEqual([VIDEO, BLOCKS]);
+    await expect(requestParentMediaDownload(DOYUN, VIDEO)).resolves.toMatchObject({
+      media_id: VIDEO,
+    });
+    // 고르지 않은 사진은 교사 후보에 있어도 학부모에게 없습니다.
+    await expect(requestParentMediaDownload(DOYUN, SAND)).rejects.toMatchObject({
+      status: 404,
+      code: "MEDIA_ASSET_NOT_FOUND",
+    });
+  });
+
+  it("사진 없이 게시하면 고른 것도 학부모에게 가지 않는다", async () => {
+    const client = queryClient();
+    const version = await pickAndApprove([BLOCKS]);
+    await publishParentNotes({
+      request_id: fixtureId("request", 981),
+      include_photos: false,
+      items: [{ draft_id: NOTE, expected_version: version }],
+    });
+
+    setMockSession("parent");
+    const opened = await client.fetchQuery(parentNoteQueryOptions(NOTE));
+    expect(opened.photos).toEqual([]);
+    await expect(requestParentMediaDownload(DOYUN, BLOCKS)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("후보와 저장은 그 원아에게 귀속된 그날 사진·영상만 받는다", async () => {
+    const otherChild = fixtureId("media", 46);
+    const otherDay = fixtureId("media", 47);
+    const voice = fixtureId("media", 48);
+    addMedia({ media_id: otherChild, child_links: [manual(HAJUN)] });
+    addMedia({ media_id: otherDay, captured_at: `${kstToday()}T01:00:00Z` });
+    addMedia({ media_id: voice, type: "voice_memo" });
+
+    const candidates = await queryClient().fetchQuery(selectableMediaQueryOptions(NOTE));
+
+    expect(candidates.map((media) => media.media_id)).toEqual([BLOCKS, SAND]);
+    for (const mediaId of [otherChild, otherDay, voice]) {
+      await expect(
+        patchDraft(NOTE, { expected_version: 1, selected_media_ids: [mediaId] }),
+      ).rejects.toMatchObject({ status: 400, code: "MEDIA_NOT_LINKED_TO_CHILD" });
+    }
+  });
+
+  // 테크스펙 D-4: 다른 아이·미동의 원아가 함께 찍혀도 보냅니다. ③ 동의와 llm_allowed는 LLM 경로에서만 봅니다.
+  it("다른 아이가 함께 찍히거나 LLM에서 제외된 사진도 고를 수 있다", async () => {
+    const group = fixtureId("media", 49);
+    addMedia({ media_id: group, llm_allowed: false, child_links: [manual(DOYUN), manual(YERIN)] });
+
+    const candidates = await queryClient().fetchQuery(selectableMediaQueryOptions(NOTE));
+    expect(candidates.map((media) => media.media_id)).toContain(SAND);
+    expect(candidates.map((media) => media.media_id)).toContain(group);
+
+    const picked = await patchDraft(NOTE, { expected_version: 1, selected_media_ids: [group] });
+    expect(picked.selected_media_ids).toEqual([group]);
+  });
+
+  it("후보 목록도 권한을 본다: 학부모·없는 초안·관찰일지는 거절한다", async () => {
+    const client = queryClient();
+    await expect(
+      client.fetchQuery(selectableMediaQueryOptions(fixtureId("draft", 11))), // 김도윤 관찰일지
+    ).rejects.toMatchObject({ status: 409, code: "NOT_PARENT_NOTE" });
+    await expect(
+      client.fetchQuery(selectableMediaQueryOptions(fixtureId("draft", 999))),
+    ).rejects.toMatchObject({ status: 404, code: "DRAFT_NOT_FOUND" });
+    setMockSession("parent");
+    await expect(client.fetchQuery(selectableMediaQueryOptions(NOTE))).rejects.toMatchObject({
+      status: 403,
+      code: "ROLE_NOT_ALLOWED",
+    });
+  });
+
+  it("승인한 초안의 사진은 바꿀 수 없고, 다시 검토로 돌리면 바꿀 수 있다", async () => {
+    const version = await pickAndApprove([BLOCKS]);
+    await expect(
+      patchDraft(NOTE, { expected_version: version, selected_media_ids: [] }),
+    ).rejects.toMatchObject({ status: 409, code: "DRAFT_ALREADY_APPROVED" });
+
+    const reopened = await reopenDraft(NOTE, { expected_version: version });
+    const cleared = await patchDraft(NOTE, {
+      expected_version: reopened.version,
+      selected_media_ids: [],
+    });
+
+    expect(cleared.selected_media_ids).toEqual([]);
   });
 });
 

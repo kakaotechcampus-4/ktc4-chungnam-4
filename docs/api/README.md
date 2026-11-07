@@ -92,7 +92,7 @@
 | 7. 분류 확인 | 얼굴 분류·결과 확인, 수동 분류/사진 | 로컬(API 없음). 결과는 8단계에서 보냄 | FE |
 | 8. 서버 전송 | 처리 중/서버 전송 | `POST /api/v1/media/upload-urls` → S3 `PUT` → `POST /api/v1/media` → `PUT /api/v1/media/{media_id}/child-links` | media · face |
 | 9. 초안 생성 | 처리 중/초안 생성 | `POST /api/v1/classes/{class_id}/jobs` → `GET /api/v1/jobs/{job_id}`(2초 폴링) | agents |
-| 10. 초안 검토 | 초안 검토/왼쪽 원아 목록 | `GET /api/v1/classes/{class_id}/drafts`, `GET /api/v1/drafts/{draft_id}`, `PATCH /api/v1/drafts/{draft_id}`, `GET /api/v1/media/{media_id}`(URL 만료 시) | documents, media · face |
+| 10. 초안 검토 | 초안 검토/왼쪽 원아 목록 | `GET /api/v1/classes/{class_id}/drafts`, `GET /api/v1/drafts/{draft_id}`, `GET /api/v1/drafts/{draft_id}/selectable-media`(사진 고르기), `PATCH /api/v1/drafts/{draft_id}`, `GET /api/v1/media/{media_id}`(URL 만료 시) | documents, media · face |
 | 11. 승인 | 초안 검토/왼쪽 원아 목록(체크와 버튼) | `POST /api/v1/drafts/{draft_id}/approve` | documents |
 | 12. 게시 | 전체 게시 확인 모달, 알림장 발행 완료 | `GET /api/v1/classes/{class_id}/drafts`, `POST /api/v1/publications` | documents |
 | 13. 학부모 목록 | 학부모 W3 알림장 목록 | `GET /api/v1/me` → `GET /api/v1/me/children` → `GET /api/v1/children/{child_id}/parent-notes` | auth, organization, documents |
@@ -152,12 +152,16 @@ sequenceDiagram
 | [documents.md](documents.md) | `GET /api/v1/drafts/{draft_id}` | 초안 상세: 문장, 문장별 근거, 사진·음성 URL |
 | [documents.md](documents.md) | `GET /api/v1/children/{child_id}/drafts` | 한 원아의 문서 목록(최신순). 알림장 상세의 ‹ › 날짜 이동에 씁니다 |
 | [documents.md](documents.md) | `POST /api/v1/children/{child_id}/drafts` | 자료가 없는 원아의 초안을 교사가 직접 씁니다. 근거 없이 `verified`로 만듭니다 |
+| [documents.md](documents.md) | `GET /api/v1/drafts/{draft_id}/selectable-media` | 알림장에 고를 수 있는 그 원아의 그날 사진·영상 후보. 서명 URL을 함께 줍니다(임시 결정(송유진)) |
 | [documents.md](documents.md) | `PATCH /api/v1/drafts/{draft_id}` | 문장과 선택 사진을 직접 고칩니다(자동저장) |
 | [documents.md](documents.md) | `POST /api/v1/drafts/{draft_id}/approve` | 초안을 승인합니다. 승인만 해서는 학부모에게 보이지 않습니다 |
 | [documents.md](documents.md) | `POST /api/v1/drafts/{draft_id}/reopen` | 승인을 되돌려 다시 검토합니다. 게시한 뒤에는 막고 회수(revoke)로 넘깁니다 |
 | [documents.md](documents.md) | `POST /api/v1/publications` | (제안) 승인된 parent_note를 골라 한 번에 게시합니다. 결과는 건별로 옵니다 |
+| [documents.md](documents.md) | `POST /api/v1/drafts/{draft_id}/revoke` | 게시한 알림장을 회수합니다. 게시 후 24시간 이내, 학부모가 열기 전까지입니다 |
 | [documents.md](documents.md) | `GET /api/v1/children/{child_id}/parent-notes` | 게시된 알림장 목록(최신순, 커서 방식) |
 | [documents.md](documents.md) | `GET /api/v1/parent-notes/{parent_note_id}` | 알림장 본문. 열람 기록을 먼저 남긴 뒤 돌려줍니다 |
+| [documents.md](documents.md) | `GET /api/v1/children/{child_id}/parent-media` | 자녀가 받은 사진·영상 모아 보기(최신순, 커서 방식) |
+| [documents.md](documents.md) | `GET /api/v1/children/{child_id}/parent-media/{media_id}/download` | 사진·영상 원본을 내려받는 URL. 기록을 남긴 뒤 돌려줍니다 |
 
 ## 근거
 
