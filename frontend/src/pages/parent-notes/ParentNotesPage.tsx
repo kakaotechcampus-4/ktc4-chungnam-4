@@ -1,7 +1,6 @@
 // Figma: 1차 결과본 W3 106:4388 (FR-09 학부모 자녀별 알림장). 값은 그대로 옮기지 않고 서비스 토큰에 맞췄습니다.
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { CalendarClock, CheckCheck, MailOpen, SearchX, Users } from "lucide-react";
-import { useRef } from "react";
 import { useParams, useSearchParams } from "react-router";
 
 import { parentNotesQueryOptions } from "@/api/documents";
@@ -11,6 +10,7 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import { ParentSearchBox } from "@/features/parent/ParentSearchBox";
 import { useParentSearch } from "@/features/parent/use-parent-search";
+import { useRefetchOnExpiry } from "@/features/parent/use-refetch-on-expiry";
 import { nickname } from "@/lib/child-name";
 import { cn } from "@/lib/utils";
 
@@ -46,14 +46,7 @@ export function ParentNotesPage() {
     // 새 결과가 올 때까지 이전 카드를 흐리게 남겨 둡니다. 비웠다가 다시 그리면 화면이 깜박입니다.
     placeholderData: keepPreviousData,
   });
-  // 표시용 URL이 만료되면 사진마다 오류가 나서, 한 번만 새로 받습니다.
-  const refetchedForExpiry = useRef(false);
-
-  function handlePhotoError() {
-    if (refetchedForExpiry.current) return;
-    refetchedForExpiry.current = true;
-    void notes.refetch();
-  }
+  const handlePhotoError = useRefetchOnExpiry(notes.refetch);
 
   // 담임 이름은 서버가 아직 빈 문자열을 줍니다. 비어 있으면 줄에서 뺍니다(docs/api/organization.md).
   const subtitle = child
