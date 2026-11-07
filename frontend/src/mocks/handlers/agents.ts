@@ -123,39 +123,55 @@ function finishObservation(db: MockDb, job: JobRecord, child: JobChildRecord, no
   const source = notes
     .flatMap((note) => note.sentences.map((sentence) => ({ note, sentence })))
     .slice(0, 10);
-  const draft: DraftRecord = existing ?? {
-    ...notes[0]!,
-    draft_id: nextId(db, "draft"),
-    doc_type: "observation_log",
-    record_date: job.record_date,
-    status: "verified",
-    version: 1,
-    title: null,
+  // 승인된 관찰일지는 덮어쓰지 않습니다(H-1). 서버처럼 DRAFT_VERSION_CONFLICT로 끝냅니다.
+  if (existing?.status === "approved") {
+    child.status = "failed";
+    child.error_code = "DRAFT_VERSION_CONFLICT";
+    return;
+  }
+  const sentences = source.map(({ note, sentence }, index) => ({
+    sentence_id: `s${index + 1}`,
+    section: "종합의견",
+    text: sentence.text,
+    is_edited_by_teacher: false,
+    evidences: [
+      {
+        evidence_id: `ev_${index + 1}`,
+        source_document_id: note.draft_id,
+        source_type: "parent_note" as const,
+        text: sentence.text,
+        media_id: null,
+        start_ms: null,
+        end_ms: null,
+        // 근거 알림장의 기록 날짜(한국 정오)를 촬영 시각 자리에 담습니다.
+        captured_at: `${note.record_date}T03:00:00Z`,
+      },
+    ],
+  }));
+  // 서버처럼 다시 만들면 같은 초안의 내용만 새로 바뀌고 version이 오릅니다. 양식 영역은 목이 정한 값입니다.
+  const content = {
     daily_routine: source.map(({ sentence }) => sentence.text),
-    sentences: source.map(({ note, sentence }, index) => ({
-      sentence_id: `s${index + 1}`,
-      section: "종합의견",
-      text: sentence.text,
-      is_edited_by_teacher: false,
-      evidences: [
-        {
-          evidence_id: `ev_${index + 1}`,
-          source_document_id: note.draft_id,
-          source_type: "parent_note",
-          text: sentence.text,
-          media_id: null,
-          start_ms: null,
-          end_ms: null,
-          captured_at: null,
-        },
-      ],
-    })),
-    selected_media_ids: [],
-    approved_at: null,
-    published_at: null,
-    include_photos: false,
+    sentences,
+    sections: ["사회관계", "자연탐구", "종합의견"],
+    created_at: now,
     updated_at: now,
   };
+  const draft: DraftRecord = existing
+    ? { ...existing, ...content, version: existing.version + 1 }
+    : {
+        ...notes[0]!,
+        ...content,
+        draft_id: nextId(db, "draft"),
+        doc_type: "observation_log",
+        record_date: job.record_date,
+        status: "verified",
+        version: 1,
+        title: null,
+        selected_media_ids: [],
+        approved_at: null,
+        published_at: null,
+        include_photos: false,
+      };
   db.drafts[draft.draft_id] = draft;
   child.outcome = "drafted";
   child.drafts = [{ draft_id: draft.draft_id, doc_type: "observation_log" }];
