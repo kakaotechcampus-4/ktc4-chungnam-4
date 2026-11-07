@@ -183,6 +183,29 @@ describe("ObservationLogDetailPage", () => {
     ]);
   });
 
+  // 서버가 UTC(`Z`)와 KST(`+09:00`) 표기를 섞어 보내도 문자열이 아니라 시각 순서로 정렬해야 한다.
+  it("근거의 날짜 표기가 UTC와 KST로 섞여도 시각 순서로 보여 준다", async () => {
+    updateDb((db) => {
+      const [first, second] = db.drafts[DRAFT]!.sentences;
+      first!.evidences = [
+        note("late", "나중에 쓴 알림장", "2026-09-21T20:00:00Z"),
+        note("early", "먼저 쓴 알림장", "2026-09-22T00:30:00+09:00"),
+      ];
+      second!.evidences = [];
+    });
+    const user = userEvent.setup();
+    renderDetail();
+
+    await user.click(await screen.findByRole("button", { name: /자연탐구/ }));
+
+    const panel = screen.getByRole("complementary", { name: "근거 알림장" });
+    const items = within(panel).getAllByRole("listitem");
+    expect(items.map((item) => item.textContent)).toEqual([
+      "9월 22일 (화)먼저 쓴 알림장",
+      "9월 22일 (화)나중에 쓴 알림장",
+    ]);
+  });
+
   it("관찰일지가 아닌 문서는 볼 수 없다고 알린다", async () => {
     updateDb((db) => {
       db.drafts[DRAFT]!.doc_type = "parent_note";
@@ -239,7 +262,9 @@ describe("ObservationLogDetailPage", () => {
         expect(await file?.text).toBe(
           "사회관계\n\n자연탐구\n블록을 쌓았다.\n모래를 모았다.\n\n종합의견\n고루 잘 지냈다.",
         );
-        expect(download.revoked).toEqual(["blob:mock-1"]);
+        // 임시 주소는 다운로드가 끊기지 않도록 잠깐 뒤에 푼다
+        expect(download.revoked).toEqual([]);
+        await waitFor(() => expect(download.revoked).toEqual(["blob:mock-1"]), { timeout: 3000 });
       } finally {
         stop();
       }
@@ -253,6 +278,9 @@ describe("ObservationLogDetailPage", () => {
       try {
         renderDetail();
         await user.click(await screen.findByRole("button", { name: "파일 내려받기" }));
+        // 이미 승인됐으니 "승인 처리돼요"라고 약속하지 않는다
+        expect(screen.getByText(/이미 승인된 관찰일지예요/)).toBeInTheDocument();
+        expect(screen.queryByText(/승인 처리돼요/)).not.toBeInTheDocument();
         await user.click(screen.getByRole("button", { name: "확인했어요, 내려받기" }));
 
         await waitFor(() => expect(download.click).toHaveBeenCalledTimes(1));
@@ -329,58 +357,49 @@ describe("ObservationLogDetailPage", () => {
       }
     });
 
-    it("승인된 초안이면 승인 해제를 알리고, 되돌린 뒤에 작업을 시작한다", async () => {
+    // 서버는 승인·되돌리기 이력이 하나라도 있으면 재생성을 거절한다. 승인을 풀어 봐야 다시 만들 수
+    // 없고 승인만 풀린 채 실패하므로, 승인된 일지는 누르기 전에 막고 승인 되돌리기도 보내지 않는다.
+    it("승인된 초안은 다시 생성이 막히고 이유를 보이며 아무것도 보내지 않는다", async () => {
       seed("approved");
       const user = userEvent.setup();
       const { posts, stop } = recordPosts();
-      server.use(
-        http.post(apiPath("/children/:childId/observation-jobs"), () =>
-          HttpResponse.json(jobResult("succeeded"), { status: 202 }),
-        ),
-      );
       try {
         renderDetail();
-        await user.click(await screen.findByRole("button", { name: "다시 생성" }));
-        expect(screen.getByText(/승인이 되돌려지고 이전 본문은 남지 않아요/)).toBeInTheDocument();
-        await user.click(
-          within(screen.getByRole("alertdialog")).getByRole("button", { name: "다시 생성" }),
-        );
+        const button = await screen.findByRole("button", { name: "다시 생성" });
 
-        await waitFor(() => expect(posts).toHaveLength(2));
-        expect(posts).toEqual([
-          `POST /drafts/${DRAFT}/reopen`,
-          `POST /children/${DOYUN}/observation-jobs`,
-        ]);
+        expect(button).toBeDisabled();
+        expect(screen.getByText("승인한(내려받은) 관찰일지는 다시 만들 수 없어요.")).toBeVisible();
+        expect(button).toHaveAccessibleDescription(
+          "승인한(내려받은) 관찰일지는 다시 만들 수 없어요.",
+        );
+        await user.click(button);
+
+        expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+        expect(posts).toEqual([]);
+        expect(readDb().drafts[DRAFT]!.status).toBe("approved");
       } finally {
         stop();
       }
     });
 
-    it("승인을 되돌리지 못하면 작업을 시작하지 않고 오류를 보여 준다", async () => {
-      seed("approved");
-      const user = userEvent.setup();
-      const { posts, stop } = recordPosts();
-      server.use(
-        http.post(apiPath("/drafts/:draftId/reopen"), () =>
-          errorResponse(
-            409,
-            "DRAFT_ALREADY_PUBLISHED",
-            "게시한 알림장은 회수한 뒤에 고칠 수 있습니다.",
-          ),
-        ),
-      );
-      try {
-        renderDetail();
-        await user.click(await screen.findByRole("button", { name: "다시 생성" }));
-        await user.click(
-          within(screen.getByRole("alertdialog")).getByRole("button", { name: "다시 생성" }),
-        );
+    it("직접 고친 문장이 있으면 다시 생성이 막힌다", async () => {
+      updateDb((db) => {
+        db.drafts[DRAFT]!.sentences[0]!.is_edited_by_teacher = true;
+      });
+      renderDetail();
 
-        expect(await screen.findByRole("alert")).toHaveTextContent("게시한 알림장은 회수한");
-        expect(posts).toEqual([`POST /drafts/${DRAFT}/reopen`]);
-      } finally {
-        stop();
-      }
+      expect(await screen.findByRole("button", { name: "다시 생성" })).toBeDisabled();
+      expect(screen.getByText("직접 수정한 문장이 있어 다시 만들 수 없어요.")).toBeVisible();
+    });
+
+    it("확인 창이 수정·승인 이력이 있으면 만들지 못할 수 있다고 미리 알린다", async () => {
+      const user = userEvent.setup();
+      renderDetail();
+      await user.click(await screen.findByRole("button", { name: "다시 생성" }));
+
+      expect(
+        within(screen.getByRole("alertdialog")).getByText(/직접 수정하거나 승인한 적이 있으면/),
+      ).toBeInTheDocument();
     });
 
     it("기존 일지가 보호되어 실패하면 그 안내를 보여 준다", async () => {

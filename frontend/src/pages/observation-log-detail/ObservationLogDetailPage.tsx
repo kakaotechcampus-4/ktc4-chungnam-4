@@ -4,13 +4,7 @@ import { ChevronLeft } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams } from "react-router";
 
-import {
-  approveDraft,
-  documentsKeys,
-  draftQueryOptions,
-  reopenDraft,
-  type DraftView,
-} from "@/api/documents";
+import { approveDraft, documentsKeys, draftQueryOptions, type DraftView } from "@/api/documents";
 import { classChildrenQueryOptions } from "@/api/organization";
 import { PageHeader } from "@/components/common/PageHeader";
 import {
@@ -64,14 +58,10 @@ export function ObservationLogDetailPage() {
   });
   const draftQuery = useQuery({ ...draftQueryOptions(draftId), enabled: draftId !== "" });
   const generation = useObservationGeneration(classId);
-  // 승인·되돌리기는 교사가 확인 창에서 누른 뒤에만 보냅니다(H-1). 게시 요청은 이 화면에 없습니다.
+  // 승인은 교사가 확인 창에서 누른 뒤에만 보냅니다(H-1). 게시·승인 되돌리기 요청은 이 화면에 없습니다.
   const approve = useMutation({
     mutationFn: (input: { draftId: string; version: number }) =>
       approveDraft(input.draftId, { expected_version: input.version, reviewed: true }),
-  });
-  const reopen = useMutation({
-    mutationFn: (input: { draftId: string; version: number }) =>
-      reopenDraft(input.draftId, { expected_version: input.version }),
   });
 
   const draft = draftQuery.data;
@@ -106,9 +96,17 @@ export function ObservationLogDetailPage() {
     ? `생성됨 · ${formatDate(toKstDate(draft.created_at), { year: false, weekday: false })}`
     : undefined;
 
-  const busy = generation.busy || approve.isPending || reopen.isPending;
+  const busy = generation.busy || approve.isPending;
   const approved = draft.status === "approved";
   const downloadable = approved || draft.status === "review";
+  // 서버는 교사의 수정·승인·승인 되돌리기 이력이 하나라도 있으면 재생성을 거절합니다(documents의
+  // `_has_teacher_edits`). 그래서 승인을 되돌려도 다시 만들 수 없고, 승인만 풀린 채 실패하게 됩니다.
+  // 응답으로 알 수 있는 경우(승인됨, 직접 고친 문장)는 누르기 전에 막고, 그 밖에는 서버의 거절 안내를 보여 줍니다.
+  const regenerateBlockedReason = approved
+    ? "승인한(내려받은) 관찰일지는 다시 만들 수 없어요."
+    : draft.sentences.some((sentence) => sentence.is_edited_by_teacher)
+      ? "직접 수정한 문장이 있어 다시 만들 수 없어요."
+      : null;
 
   async function syncDraft(updated: DraftView) {
     client.setQueryData(documentsKeys.draft(updated.draft_id), updated);
@@ -131,19 +129,9 @@ export function ObservationLogDetailPage() {
     downloadTextFile(`관찰일지_${childName || "원아"}_${month}.txt`, toPlainText(rows));
   }
 
-  // 승인된 관찰일지는 서버가 덮어쓰지 않으므로, 먼저 승인을 되돌린 뒤에만 생성을 시작합니다.
-  async function confirmRegenerate() {
+  // 승인을 건드리지 않고 생성만 시작합니다. 서버가 거절해도 승인 상태는 그대로입니다.
+  function confirmRegenerate() {
     setActionError(null);
-    if (approved) {
-      try {
-        await syncDraft(
-          await reopen.mutateAsync({ draftId: draft!.draft_id, version: draft!.version }),
-        );
-      } catch (error) {
-        setActionError(failureText(error));
-        return;
-      }
-    }
     generation.start(draft!.child_id, month);
   }
 
@@ -156,7 +144,12 @@ export function ObservationLogDetailPage() {
       >
         파일 내려받기
       </Button>
-      <Button variant="outline" disabled={busy} onClick={() => setConfirmOpen(true)}>
+      <Button
+        variant="outline"
+        disabled={busy || regenerateBlockedReason !== null}
+        aria-describedby={regenerateBlockedReason ? "regenerate-blocked" : undefined}
+        onClick={() => setConfirmOpen(true)}
+      >
         다시 생성
       </Button>
     </>
@@ -171,6 +164,11 @@ export function ObservationLogDetailPage() {
         actions={actions}
       />
       {backLink}
+      {regenerateBlockedReason ? (
+        <p id="regenerate-blocked" className="mb-3 text-body text-ink-muted">
+          {regenerateBlockedReason}
+        </p>
+      ) : null}
       {generation.busy && !generation.pollError ? (
         <p role="status" className="mb-3 text-body text-ink-muted">
           {generation.stageLabel}
@@ -232,9 +230,8 @@ export function ObservationLogDetailPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>관찰일지를 다시 생성할까요?</AlertDialogTitle>
             <AlertDialogDescription>
-              {approved
-                ? "승인이 되돌려지고 이전 본문은 남지 않아요. 새로 만든 내용으로 바뀌고 되돌릴 수 없어요."
-                : "지금 내용은 남지 않고 새로 만든 내용으로 바뀌어요. 되돌릴 수 없어요."}
+              지금 내용은 남지 않고 새로 만든 내용으로 바뀌어요. 되돌릴 수 없어요. 직접 수정하거나
+              승인한 적이 있으면 새로 만들지 못할 수 있어요.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -251,7 +248,9 @@ export function ObservationLogDetailPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>관찰일지를 내려받을까요?</AlertDialogTitle>
             <AlertDialogDescription>
-              내려받으려면 내용을 확인했다고 표시해야 해요. 확인하면 이 관찰일지가 승인 처리돼요.
+              {approved
+                ? "이미 승인된 관찰일지예요. 승인은 그대로 두고 파일만 내려받아요."
+                : "내려받으려면 내용을 확인했다고 표시해야 해요. 확인하면 이 관찰일지가 승인 처리돼요."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
