@@ -28,6 +28,7 @@ from domains.media.service import PresignedUpload, SignedMediaUrl, StoredObject
 from domains.organization.models import Klass
 from main import app
 from scripts.seed_photo_demo import PARENT_EMAILS, TEACHER_EMAIL, seed
+from tests.agents.fixtures.native_agent import native_fixture
 
 DAY = date(2026, 10, 30)
 PASSWORD = "photo-test-password-only"
@@ -144,6 +145,9 @@ def flow(monkeypatch: pytest.MonkeyPatch) -> Iterator[Flow]:
 
     monkeypatch.setattr(service, "call_vision", vision)
     monkeypatch.setattr(service, "call_claude", llm)
+    monkeypatch.setattr(
+        service, "call_agent", native_fixture(lambda prompt: service.call_claude(prompt))
+    )
     try:
         with TestClient(app, base_url="https://testserver") as client:
             yield client, factory, klass, children, pending, calls
@@ -965,6 +969,14 @@ def test_추가_근거는_비식별화되어_생성에_들어가고_교사_근�
     login(client, TEACHER_EMAIL)
     with factory() as db:
         names = organization_service.get_class_child_names(db, klass)[children[0]]
+    native_prompts: list[str] = []
+    respond = service.call_agent
+
+    def native(messages: list[dict], tools: list[dict]):
+        native_prompts.append(json.dumps(messages, ensure_ascii=False))
+        return respond(messages, tools)
+
+    monkeypatch.setattr(service, "call_agent", native)
     secret = "우산을 직접 챙겼어요"
     saved = client.put(
         f"/api/v1/children/{children[0]}/evidence/{DAY}",
@@ -1014,6 +1026,11 @@ def test_추가_근거는_비식별화되어_생성에_들어가고_교사_근�
     draft_prompt = next(prompt for prompt in prompts if '"sentence_id"' not in prompt)
     assert secret in draft_prompt
     assert "teacher_note" in draft_prompt
+    # 통합 후에도 collector와 작성 도구 대화 모두 메모를 비식별 상태로 받는다(H-2).
+    assert native_prompts
+    assert all(not any(name in prompt for name in names) for prompt in native_prompts)
+    assert "teacher_note" in native_prompts[0]
+    assert secret in native_prompts[0]
     # FR-07: 교사 근거 패널에는 비식별화 전 원문이 교사 메모 출처로 보인다
     draft_id = result["children"][0]["drafts"][0]["draft_id"]
     with factory() as db:

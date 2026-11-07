@@ -545,6 +545,32 @@ def test_기존_문서를_지키려고_막힌_실패는_다시_돌리지_않는�
     assert _job_row(session_factory, YERIN).status == JobStatus.FAILED.value
 
 
+@pytest.mark.parametrize(
+    "error_code", ["AGENT_INPUT_TOO_LARGE", "AGENT_ROUTINE_MISSING", "AGENT_ROUTINE_INVALID"]
+)
+def test_같은_입력으로_다시_해도_같은_에이전트_오류는_재시도하지_않는다(
+    client: TestClient, session_factory: sessionmaker[Session], enqueued: list, error_code: str
+) -> None:
+    job_id = _started_with_one_failed(client, session_factory, enqueued, error_code)
+
+    response = _retry(client, job_id)
+
+    assert response.status_code == 409
+    assert _error_code(response) == "JOB_NOT_RETRYABLE"
+    assert enqueued == []
+
+
+def test_모델_응답에_따라_달라질_수_있는_에이전트_오류는_다시_시작한다(
+    client: TestClient, session_factory: sessionmaker[Session], enqueued: list
+) -> None:
+    job_id = _started_with_one_failed(client, session_factory, enqueued, "AGENT_RESPONSE_INVALID")
+
+    response = _retry(client, job_id)
+
+    assert response.status_code == 202
+    assert len(enqueued) == 1
+
+
 def test_실패한_원아가_없으면_409(
     client: TestClient, session_factory: sessionmaker[Session], enqueued: list
 ) -> None:

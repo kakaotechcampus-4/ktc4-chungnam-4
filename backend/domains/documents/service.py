@@ -375,6 +375,7 @@ def _sentence_rows(draft_id: UUID, data: DraftSaveInput) -> list[DraftSentence]:
             draft_id=draft_id,
             sentence_id=sentence.sentence_id,
             position=position,
+            section=sentence.section,
             text=sentence.text,
         )
         for position, sentence in enumerate(data.sentences)
@@ -1007,6 +1008,7 @@ def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
     evidences_by_sentence = agents_service.list_sentence_evidences(db, draft_id)
     views = [
         DraftSentenceView(
+            section=sentence.section,
             sentence_id=sentence.sentence_id,
             text=sentence.text,
             is_edited_by_teacher=sentence.is_edited_by_teacher,
@@ -1034,6 +1036,7 @@ def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
         version=draft.version,
         title=None,
         sentences=views,
+        daily_routine=agents_service.get_daily_routine(db, draft.evidence_bundle_id),
         selected_media_ids=selected_media_ids,
         failed_media_ids=failed_media_ids,
         media=_signed_media(
@@ -1729,3 +1732,60 @@ def child_record_summary(db: Session, child_id: UUID, today: date) -> ChildRecor
         today_note_sent=today_sent,
         recent_notes=recent,
     )
+
+
+@dataclass(frozen=True)
+class PublishedEvidence:
+    """agents 내부 조회용. 원아·교사 이름은 메타데이터에 포함하지 않는다."""
+
+    document_id: UUID
+    record_date: date
+    text: str
+    version: int
+
+
+def published_records_for_agents(
+    db: Session, *, child_id: UUID, start_date: date, end_date: date, lock: bool = False
+) -> list[PublishedEvidence]:
+    """Job에 묶인 원아·기간의 현재 게시 알림장만 읽는다(FR-06, #225).
+
+    외부 호출 권한은 Job 생성 API가 확인한다. 승인만 된 문서·회수본·타 원아는 제외한다.
+    """
+    query = (
+        select(DraftDocument)
+        .where(
+            DraftDocument.child_id == child_id,
+            DraftDocument.doc_type == DocType.PARENT_NOTE.value,
+            DraftDocument.record_date.between(start_date, end_date),
+            DraftDocument.status == DraftStatus.APPROVED.value,
+            select(DocumentPublication.id)
+            .where(
+                DocumentPublication.draft_id == DraftDocument.id,
+                _is_active_publication(),
+            )
+            .exists(),
+        )
+        .order_by(DraftDocument.record_date, DraftDocument.id)
+    )
+    if lock:
+        query = query.with_for_update().execution_options(populate_existing=True)
+    rows = db.scalars(query).all()
+    if not rows:
+        return []
+    texts_by_draft: dict[UUID, list[str]] = {row.id: [] for row in rows}
+    sentences = db.execute(
+        select(DraftSentence.draft_id, DraftSentence.text)
+        .where(DraftSentence.draft_id.in_(texts_by_draft))
+        .order_by(DraftSentence.draft_id, DraftSentence.position)
+    )
+    for draft_id, text in sentences:
+        texts_by_draft[draft_id].append(text)
+    return [
+        PublishedEvidence(
+            document_id=row.id,
+            record_date=row.record_date,
+            version=row.version,
+            text="\n".join(texts_by_draft[row.id]),
+        )
+        for row in rows
+    ]

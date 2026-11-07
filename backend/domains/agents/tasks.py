@@ -31,7 +31,9 @@ class _DraftTask(Task):
         service.mark_job_failed(
             _job_id(args, kwargs),
             error_code=(
-                "LLM_TIMEOUT"
+                str(exc)
+                if isinstance(exc, service.AgentExecutionError)
+                else "LLM_TIMEOUT"
                 if isinstance(exc, (SoftTimeLimitExceeded, openai.APITimeoutError))
                 else "LLM_CALL_FAILED"
                 if isinstance(exc, openai.APIError)
@@ -40,8 +42,10 @@ class _DraftTask(Task):
         )
 
 
-# 재시도 상한 2회·타임아웃은 service.JOB_SOFT_TIME_LIMIT_SECONDS — 사진 분석을 포함해 LLM을 최대 약
-# 20회 부르는 경로 기준이다 (테크스펙 파이프라인 4단계는 아직 180초로 적혀 있다).
+# 외부 호출 재시도 2회·worker 실행당 service.JOB_SOFT_TIME_LIMIT_SECONDS(300초). 에이전트의 모든 턴이
+# 완료됨을 보장하는 시간이 아니며 초과하면 LLM_TIMEOUT으로 종료한다. 작업 시간 초과 자체는 재시도하지
+# 않는다. 사진 분석과 에이전트 호출이 늘어 180초에서 올렸고, 초과하면 POST /jobs/{id}/retry로 다시
+# 시작한다 (테크스펙 파이프라인 4단계는 아직 180초로 적혀 있다).
 # retry_backoff: 재시도 간격은 스펙에 없다. Celery 기본값(180초 고정)은 교사가 진행 화면을
 # 보는 동안 너무 길어서 1초부터 늘리는 방식을 임시로 골랐다 — 팀 확인 필요.
 @celery_app.task(

@@ -173,7 +173,8 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
   - 그 작업에서 `failed`인 원아 Job만 `pending`으로 되돌리고 `error_code`·`unclassified_reason`을 비우고 `retry_count`를 0으로 만든 뒤 큐에 다시 넣습니다.
   - `succeeded`인 원아(초안·미분류)는 건드리지 않습니다.
   - 4~7단계가 task 하나라 실패한 단계부터 이어서 하지 않고 그 원아를 처음부터 다시 돌립니다. 그래서 `failed_stage`는 쓰지 않습니다.
-  - `DRAFT_VERSION_CONFLICT`로 실패한 원아는 다시 돌리지 않습니다. 교사 수정·승인·회수 이력이 있는 기존 문서를 보존하려고 막은 것이라 다시 돌려도 같은 이유로 실패합니다.
+  - `DRAFT_VERSION_CONFLICT`로 실패한 원아는 다시 돌리지 않습니다. 교사 수정·승인·회수 이력이 있는 기존 문서를 보존하려고 막은 것이라 다시 돌려도 같은 이유로 실패합니다. 같은 이유로 `AGENT_INPUT_TOO_LARGE`·`AGENT_ROUTINE_MISSING`·`AGENT_ROUTINE_INVALID`(입력 초과, 루틴 없음·오류)도 제외합니다. 그 밖의 `AGENT_*`는 모델 응답에 따라 달라질 수 있어 다시 시작할 수 있습니다.
+  - 진행 중인지 판단하는 범위는 같은 반·날짜·문서 종류(`doc_type`)입니다. 알림장 작업과 관찰일지 작업은 서로 막지 않습니다.
   - 멈춘 채 남은 원아(running 10분·pending 1시간 넘게 갱신 없음)는 먼저 `failed / LLM_TIMEOUT`으로 정리한 뒤 같은 규칙으로 다시 시작합니다.
   - 요청이 겹쳐 와도(두 번 누름) 원아 Job은 한 번만 되돌리고 큐에 넣습니다.
 - 응답 `202`: `GET /jobs/{job_id}`와 같은 모양이고 `Location: /api/v1/jobs/{job_id}` 헤더를 붙입니다. 다시 시작한 원아는 `pending`이라 반 전체 `status`는 `running`입니다. FE는 이어서 2초마다 폴링합니다.
@@ -271,3 +272,31 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 
 - media-face.md §상의 필요 1(완료 통지에 귀속을 합침)은 **사진만** 합치는 것으로 반영했습니다(임시 결정(김동건)). 영상·음성은 그대로 `PUT child-links`로 귀속하므로, 흐름 표 C의 "마지막 귀속 저장이 끝나면"은 바꾸지 않습니다.
 - `MEDIA_NOT_READY`는 보낸 `media_ids`만 봅니다. 업로드에 실패해 아예 안 보낸 파일은 서버가 알 수 없으므로, 업로드 큐에 `확인됨`이 아닌 항목이 남아 있으면 FE가 작업 시작 전에 막거나 경고합니다(#60 김동건 [must]).
+
+
+## 월별 관찰일지 생성 (FR-06, #225)
+
+임시 결정(엄태은), 이번 멀티에이전트 PR의 리뷰 대상입니다.
+`POST /children/{child_id}/observation-jobs` — 교사 전용. 본문은
+`{"request_id":"UUID","month":"YYYY-MM"}`. 해당 원아의 반 접근 권한을 확인하고,
+그 달의 게시 중인 알림장이 없으면 `NO_TARGET_CHILDREN`으로 거절합니다.
+202 응답·Location·폴링은 기존 `GenerationJobResponse`, `GET /jobs/{job_id}`를 재사용합니다.
+`record_date`는 월 1일, 성공한 `drafts[].doc_type`은 `observation_log`입니다.
+같은 request_id는 다시 실행하지 않습니다. 새 request_id라도 같은 원아·월의 유효한 pending/running 작업이 있으면 기존 작업을 반환하고 다시 큐에 넣지 않습니다(#259 리뷰). 완료·실패·타임아웃 작업에는 새 요청이 가능하지만, 기존 교사 수정·승인 문서를 덮지 않습니다.
+
+원아별 `stage`는 collecting_evidence/generating/verifying를 채웁니다.
+`GET /jobs/{job_id}/trace`는 같은 반 접근 권한이 있는 교사에게 원아별 역할·도구명·결과만 제공합니다.
+프롬프트·모델 원문·개인정보는 반환하지 않습니다.
+
+추가 실패 코드는 `AGENT_INPUT_TOO_LARGE`, `AGENT_RESPONSE_INVALID`, `AGENT_TOOL_NOT_ALLOWED`,
+`AGENT_TOOL_ARGUMENTS_INVALID`, `AGENT_TOOL_LIMIT`, `AGENT_STEP_LIMIT`, `AGENT_ROUTINE_MISSING`,
+`AGENT_SOURCE_CHANGED`입니다. 상한 초과·잘못된 도구 요청은 작업을 failed로 끝냅니다.
+요약 JSON/근거 참조 오류와 출력 한도 초과는 2회 재시도 후 `verification_failed` 확인 필요로 끝냅니다.
+
+### 재생성·실행 제한 (#257·#259)
+
+- 일별·월별 모두 외부 AI 호출 전에 같은 원아·문서 종류·기록일의 초안을 확인합니다. 교사 수정이 없는 `verified`만 같은 ID로 재생성하며, 기존 잠금 버전으로 저장합니다. 수정·승인 문서 또는 생성 도중 바뀐 문서는 보존하고 `DRAFT_VERSION_CONFLICT`로 끝냅니다. 성공한 재생성은 이전 문장 근거를 새 근거로 교체합니다(FR-05·FR-06).
+- 이번 작업이 미분류로 끝났으면 기존 초안이 있어도 새 생성 성공으로 표시하지 않습니다.
+- 같은 도구·같은 인자의 중복 요청은 기존 결과를 각 call ID로 반환합니다. 실제 도구 실행은 대화당 한 번이며 인자가 달라지면 `AGENT_TOOL_LIMIT`, 반복 대화 6턴을 넘으면 `AGENT_STEP_LIMIT`입니다.
+- worker 실행당 180초는 최악의 호출 조합이 모두 완료된다는 보장이 아닙니다. 초과 시 `LLM_TIMEOUT`으로 종료하며 이 시간 초과 자체는 재시도하지 않습니다. SDK가 연결 오류로 감싼 경우도 원래 시간 초과로 복원합니다. Celery prefork의 soft time limit이 전제이며 worker 소실은 기존 폴링의 오래된 작업 종료가 처리합니다.
+- 월별 경로는 현재 게시 중인 알림장 **비식별 텍스트**만 사용하고 사진·영상·얼굴 정보를 다시 보내지 않습니다. 따라서 사진 경로의 외부 호출 직전 `face_feature` 동의 필터는 적용하지 않습니다. 게시 상태·버전은 저장 직전 다시 검사합니다. 이는 현재 구현 범위 설명이며 텍스트의 별도 AI 동의 정책을 새로 정한 것은 아닙니다(H-2).

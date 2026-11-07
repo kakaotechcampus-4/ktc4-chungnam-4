@@ -81,6 +81,7 @@ export function buildDrafts({
     picked.map((media, index) => {
       const activity = activityOf(media);
       const evidence: Evidence = {
+        source_document_id: null,
         evidence_id: `ev_${String(index + 1).padStart(3, "0")}`,
         source_type: SOURCE_TYPE[media.type],
         text: activity.evidence,
@@ -97,6 +98,7 @@ export function buildDrafts({
             : activity.note;
       // AI 문장 ID는 서버처럼 s1부터 붙입니다(backend/tools/generation/draft.py).
       return {
+        section: docType === "observation_log" ? "자연탐구" : null,
         sentence_id: `s${index + 1}`,
         text,
         is_edited_by_teacher: false,
@@ -104,6 +106,7 @@ export function buildDrafts({
       };
     });
   const base = {
+    daily_routine: picked.map((media) => activityOf(media).evidence),
     child_id: child.child_id,
     class_id: child.class_id,
     record_date: recordDate,
