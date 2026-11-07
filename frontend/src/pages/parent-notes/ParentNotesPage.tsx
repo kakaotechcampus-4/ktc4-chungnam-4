@@ -53,6 +53,10 @@ export function ParentNotesPage() {
               <Link className="underline" to={`/p/children/${child.child_id}/media`}>
                 사진·영상 모아 보기
               </Link>
+              {/* 공지 게시판(FR-12). 자녀의 반이 올린 공지만 보입니다. */}
+              <Link className="underline" to={`/p/children/${child.child_id}/notices`}>
+                공지사항 보기
+              </Link>
               {notes.isPending ? (
                 <p role="status">알림장을 불러오고 있어요.</p>
               ) : notes.error ? (

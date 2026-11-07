@@ -16,6 +16,9 @@ describe("activeNavItem", () => {
     ["/t/notes/publish", "알림장"],
     ["/t/notes/publish/done", "알림장"],
     ["/t/notes/note-1", "알림장"],
+    ["/t/notices", "공지"],
+    ["/t/notices/new", "공지"],
+    ["/t/notices/notice-1/edit", "공지"],
     ["/t/observations", "관찰일지"],
     ["/t/observations/draft-1", "관찰일지"],
     ["/t/plans", "교육 계획"],
@@ -45,6 +48,7 @@ describe("activeNavItem", () => {
     expect(TEACHER_NAV_ITEMS.map((item) => item.label)).toEqual([
       "오늘의 기록",
       "알림장",
+      "공지",
       "관찰일지",
       "교육 계획",
       "우리 반 관리",

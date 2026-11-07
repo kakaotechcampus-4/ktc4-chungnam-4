@@ -16,6 +16,7 @@ import pytest
         "domains.auth.models",
         "domains.face.models",
         "domains.media.models",
+        "domains.notice.models",
         "domains.organization.models",
     ],
 )

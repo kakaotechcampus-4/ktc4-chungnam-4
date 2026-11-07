@@ -7,6 +7,7 @@ import { TeacherLayout } from "@/app/layouts/TeacherLayout";
 import { authRoutes } from "@/app/routes/auth";
 import { classifyRoutes } from "@/app/routes/classify";
 import { documentsRoutes } from "@/app/routes/documents";
+import { noticeRoutes } from "@/app/routes/notice";
 import { organizationRoutes } from "@/app/routes/organization";
 import { parentRoutes } from "@/app/routes/parent";
 import { recordRoutes } from "@/app/routes/record";
@@ -21,6 +22,7 @@ const AREAS: readonly AreaRoutes[] = [
   recordRoutes,
   classifyRoutes,
   documentsRoutes,
+  noticeRoutes,
 ];
 
 function slot(name: keyof AreaRoutes): RouteObject[] {

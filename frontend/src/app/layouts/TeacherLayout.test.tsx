@@ -23,7 +23,7 @@ function renderAt(path: string) {
 describe("TeacherLayout", () => {
   afterEach(() => useCurrentClassStore.setState({ selectedClassId: null }));
 
-  it("메뉴 다섯 개와 본문을 보여 준다", async () => {
+  it("메뉴 여섯 개와 본문을 보여 준다", async () => {
     renderAt("/t/today");
 
     const menu = await screen.findByRole("navigation", { name: "주 메뉴" });
@@ -31,7 +31,7 @@ describe("TeacherLayout", () => {
       within(menu)
         .getAllByRole("link")
         .map((link) => link.textContent),
-    ).toEqual(["오늘의 기록", "알림장", "관찰일지", "교육 계획", "우리 반 관리"]);
+    ).toEqual(["오늘의 기록", "알림장", "공지", "관찰일지", "교육 계획", "우리 반 관리"]);
     expect(within(screen.getByRole("main")).getByText("본문")).toBeInTheDocument();
   });
 

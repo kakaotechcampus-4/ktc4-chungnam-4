@@ -12,6 +12,7 @@ export interface TeacherNavItem {
 export const TEACHER_NAV_ITEMS: readonly TeacherNavItem[] = [
   { label: "오늘의 기록", to: "/t/today", activeOn: ["/t/today", "/t/dashboard"] },
   { label: "알림장", to: "/t/notes", activeOn: ["/t/notes"] },
+  { label: "공지", to: "/t/notices", activeOn: ["/t/notices"] },
   { label: "관찰일지", to: "/t/observations", activeOn: ["/t/observations"] },
   { label: "교육 계획", to: "/t/plans", activeOn: ["/t/plans"] },
   { label: "우리 반 관리", to: "/t/children", activeOn: ["/t/children"] },

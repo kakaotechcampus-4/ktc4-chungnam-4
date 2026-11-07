@@ -41,6 +41,7 @@
 | [media-face.md](media-face.md) | 업로드 URL·완료 통지·귀속 저장, 재생 URL, 발화 구간, 얼굴 임베딩 캐시·등록·삭제 |
 | [agents.md](agents.md) | 초안 생성 작업(Job) 시작과 진행 조회 |
 | [documents.md](documents.md) | 초안 목록·상세·수정·승인, 게시, 학부모 열람. develop 코드와 다른 점 |
+| [notice.md](notice.md) | 공지 게시판. 교사의 공지 등록·수정·삭제, 학부모의 공지 확인(반 단위, 임시 결정(정은)) |
 | [screens.md](screens.md) | 화면별로 쓰는 API, 목록에 없는 API, 화면·디자인 쪽 확인 |
 
 ## 담당
@@ -158,6 +159,10 @@ sequenceDiagram
 | [documents.md](documents.md) | `POST /api/v1/publications` | (제안) 승인된 parent_note를 골라 한 번에 게시합니다. 결과는 건별로 옵니다 |
 | [documents.md](documents.md) | `GET /api/v1/children/{child_id}/parent-notes` | 게시된 알림장 목록(최신순, 커서 방식) |
 | [documents.md](documents.md) | `GET /api/v1/parent-notes/{parent_note_id}` | 알림장 본문. 열람 기록을 먼저 남긴 뒤 돌려줍니다 |
+| [notice.md](notice.md) | `GET`·`POST /api/v1/classes/{class_id}/notices` | 반의 공지 목록, 공지 등록(교사)(임시 결정(정은)) |
+| [notice.md](notice.md) | `GET`·`PATCH`·`DELETE /api/v1/notices/{notice_id}` | 공지 하나, 수정, 삭제(교사)(임시 결정(정은)) |
+| [notice.md](notice.md) | `GET /api/v1/children/{child_id}/notices` | 학부모의 공지 목록(자녀 반의 공지만, 최신순 커서 방식)(임시 결정(정은)) |
+| [notice.md](notice.md) | `GET /api/v1/children/{child_id}/notices/{notice_id}` | 학부모의 공지 본문. 열람 기록을 남깁니다(임시 결정(정은)) |
 
 ## 근거
 

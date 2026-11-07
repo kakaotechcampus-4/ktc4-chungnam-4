@@ -16,7 +16,6 @@ from domains.documents.models import (
     DraftSentence,
     DraftStatus,
     EditMethod,
-    Notice,
     RevisionAction,
     RevisionLog,
     UnclassifiedItem,
@@ -29,7 +28,6 @@ _TABLES = [
     DocumentPublication.__table__,
     RevisionLog.__table__,
     UnclassifiedItem.__table__,
-    Notice.__table__,
 ]
 
 
@@ -301,21 +299,3 @@ def test_unclassified_item_처리자와_처리시각을_기록할_수_있다():
     row = db.query(UnclassifiedItem).one()
     assert row.status == "resolved"
     assert row.resolved_by == resolver_id
-
-
-def test_notice는_승인_게시_워크플로가_없다():
-    db = _session()
-
-    db.add(
-        Notice(
-            class_id=uuid4(),
-            teacher_id=uuid4(),
-            title="가정통신문",
-            content="다음 주 소풍 안내",
-        )
-    )
-    db.flush()
-
-    row = db.query(Notice).one()
-    assert row.title == "가정통신문"
-    assert not hasattr(row, "published_at")

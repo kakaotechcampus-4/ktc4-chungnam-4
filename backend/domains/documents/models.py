@@ -1,8 +1,8 @@
 """documents 도메인 ORM 모델.
 
-관찰일지·알림장 초안의 검토·승인·게시·회수, 그리고 공지사항을 다룬다. 공통 규칙은
-../../CLAUDE.md, 도메인 규칙은 ./CLAUDE.md 참고. 필드는 docs/테크스펙.md의
-"④ 초안 생성·검증", "⑤ 승인·노출·로그", "⑥ 미정 기능 관련" ERD를 따른다.
+관찰일지·알림장 초안의 검토·승인·게시·회수를 다룬다. 공지사항(Notice)은 domains/notice로
+옮겼다. 공통 규칙은 ../../CLAUDE.md, 도메인 규칙은 ./CLAUDE.md 참고. 필드는 docs/테크스펙.md의
+"④ 초안 생성·검증", "⑤ 승인·노출·로그" ERD를 따른다.
 
 # TODO(한상균): DocumentPublication(게시 회차)은 테크스펙 ERD에 없는 이 도메인의
 #   추가 제안이다. 테크스펙은 승인(approved_at)을 노출 기준 시점으로 보고 회수·재게시를
@@ -266,20 +266,4 @@ class UnclassifiedItem(Base):
     # auth.Teacher 참조 — 직접 작성한 교사. 미해결·AI 자동 해소이면 null.
     resolved_by = Column(UUID(as_uuid=True), nullable=True)
     resolved_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
-
-
-class Notice(Base):
-    """반 단위 공지사항 (FR-11/12, should — 테크스펙 "⑥ 미정 기능 관련"). AI 생성
-    문서와 무관한 교사 직접 작성 글이라 승인·게시 워크플로가 없다."""
-
-    __tablename__ = "notices"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    # organization.Class 참조 — FK 제약 없음 (organization/models.py 미존재).
-    class_id = Column(UUID(as_uuid=True), nullable=False)
-    # auth.Teacher 참조 — FK 제약 없음 (사유 상동).
-    teacher_id = Column(UUID(as_uuid=True), nullable=False)
-    title = Column(String, nullable=False)
-    content = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)

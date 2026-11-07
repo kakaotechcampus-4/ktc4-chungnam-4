@@ -18,6 +18,7 @@ from domains.documents.router import router as documents_router
 from domains.face.router import router as face_router
 from domains.media import service as media_service
 from domains.media.router import router as media_router
+from domains.notice.router import router as notice_router
 from domains.organization.router import router as organization_router
 
 
@@ -47,6 +48,7 @@ app.include_router(organization_router, prefix="/api/v1")
 app.include_router(media_router, prefix="/api/v1")
 app.include_router(face_router, prefix="/api/v1")
 app.include_router(agents_router, prefix="/api/v1")
+app.include_router(notice_router, prefix="/api/v1")
 
 
 @app.exception_handler(AidamError)
