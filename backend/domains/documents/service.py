@@ -515,10 +515,12 @@ def list_class_observation_logs(
     """반 전체의 한 달 관찰일지 현황 — 관찰일지 아이 목록 화면 (FR-06, #225 ⑱, #263).
 
     - 접근 검사와 재원 원아 명단은 organization이 맡는다. 게시 알림장이 없는 원아도 명단
-      순서대로 행을 둔다 — 화면이 그 원아의 「생성하기」를 막아야 해서다(#225 ⑫).
+      순서대로 행을 둔다 — 화면이 그 원아의 「생성하기」를 막아야 해서다(#225 ⑫). 이름은
+      싣지 않는다 — 화면이 명단 API에서 받은 이름을 child_id로 맞춘다(#263).
     - published_note_count는 그 달(record_date 기준, #225 ⑩)에 지금 게시 중인 알림장 수다.
       회수됐거나 승인만 된 알림장은 세지 않는다 — 관찰일지 근거가 될 수 없는 문서다.
-    - 월 관찰일지는 record_date가 그 달 1일인 문서다.
+    - 월 관찰일지는 record_date가 그 달 1일인 문서다. 테크스펙에 아직 관찰일지 주기가 없어
+      #225 ⑩·⑱과 #259를 따른 값이다 — 임시 결정(한상균), #267 리뷰.
     - 미래 월도 막지 않는다. 게시 알림장이 0건이라 화면이 같은 규칙으로 막는다 — 임시
       결정(한상균), #263.
     - 본문을 싣지 않아 열람 기록을 남기지 않는다(원아별 목록과 같은 기준).
@@ -563,7 +565,6 @@ def list_class_observation_logs(
         items=[
             ClassObservationLogItem(
                 child_id=child.child_id,
-                name=child.name,
                 published_note_count=note_counts.get(child.child_id, 0),
                 observation_log=logs.get(child.child_id),
             )

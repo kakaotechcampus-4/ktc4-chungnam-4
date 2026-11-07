@@ -194,7 +194,6 @@ def test_재원_원아_전원을_명단_순서로_담고_그_달_게시_알림�
         "items": [
             {
                 "child_id": str(first),
-                "name": "가나",
                 "published_note_count": 3,
                 "observation_log": {
                     "draft_id": str(log.id),
@@ -204,7 +203,6 @@ def test_재원_원아_전원을_명단_순서로_담고_그_달_게시_알림�
             },
             {
                 "child_id": str(second),
-                "name": "다라",
                 "published_note_count": 0,
                 "observation_log": None,
             },
@@ -224,7 +222,6 @@ def test_미래_월도_막지_않고_0건으로_담는다(client, db):
     assert response.json()["items"] == [
         {
             "child_id": str(child_id),
-            "name": "가나",
             "published_note_count": 0,
             "observation_log": None,
         }
@@ -258,6 +255,28 @@ def test_다른_어린이집_반이면_403_CLASS_ACCESS_DENIED(client, db):
     _, class_id = _class(db)
     db.commit()
     _login_as_teacher(uuid.uuid4())
+
+    response = client.get(PATH.format(class_id=class_id), params={"month": "2026-09"})
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "CLASS_ACCESS_DENIED"
+
+
+def test_없는_반이면_404_CLASS_NOT_FOUND(client, db):
+    center_id, _ = _class(db)
+    db.commit()
+    _login_as_teacher(center_id)
+
+    response = client.get(PATH.format(class_id=uuid.uuid4()), params={"month": "2026-09"})
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "CLASS_NOT_FOUND"
+
+
+def test_소속_어린이집이_없는_교사면_403_CLASS_ACCESS_DENIED(client, db):
+    _, class_id = _class(db)
+    db.commit()
+    _login_as_teacher(None)
 
     response = client.get(PATH.format(class_id=class_id), params={"month": "2026-09"})
 

@@ -131,7 +131,6 @@ class ClassObservationLogItem(BaseModel):
     """원아 한 명의 그 달 관찰일지 현황 (#225 ⑱)."""
 
     child_id: UUID
-    name: str
     # 그 달(record_date 기준)에 지금 게시 중인 알림장 수. 0이면 화면이 생성을 막는다(#225 ⑫).
     published_note_count: int
     observation_log: ObservationLogSummary | None
