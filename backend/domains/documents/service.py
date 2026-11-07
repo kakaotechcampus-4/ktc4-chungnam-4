@@ -1086,6 +1086,11 @@ def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
         status=DraftStatus(draft.status),
         version=draft.version,
         title=None,
+        sections=(
+            agents_service.observation_log_sections()
+            if draft.doc_type == DocType.OBSERVATION_LOG.value
+            else []
+        ),
         sentences=views,
         daily_routine=agents_service.get_daily_routine(db, draft.evidence_bundle_id),
         selected_media_ids=selected_media_ids,

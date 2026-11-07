@@ -56,6 +56,7 @@ from tools.generation.agent_tools import (
     COLLECTOR_TOOLS,
     OBSERVATION_TOOLS,
     PARENT_TOOLS,
+    SECTIONS,
     ToolArguments,
     tool_definitions,
     writing_guidance,
@@ -518,6 +519,15 @@ class SentenceEvidenceView:
     end_ms: int | None
     captured_at: datetime | None
     source_document_id: UUID | None = None
+
+
+def observation_log_sections() -> list[str]:
+    """관찰일지 기본 양식의 영역 이름을 양식 순서대로 돌려준다.
+
+    documents의 초안 상세가 `sections`로 싣는다(#264, 임시 결정(정은)). tools/는 agents만 부를 수
+    있어서 이 함수로 넘긴다. 원별 양식(⑬)이 생기면 출처만 바뀐다.
+    """
+    return list(SECTIONS)
 
 
 def _segment_id(evidence_id: str) -> UUID | None:
