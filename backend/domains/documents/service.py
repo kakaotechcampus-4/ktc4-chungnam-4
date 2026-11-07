@@ -268,6 +268,7 @@ def _insert_draft(db: Session, data: DraftSaveInput) -> DraftDocument:
         status=DraftStatus.VERIFIED.value,
         ai_version=data.ai_version,
         evidence_bundle_id=data.evidence_bundle_id,
+        selected_media_ids=[str(media_id) for media_id in data.selected_media_ids],
     )
     # begin_nested()는 savepoint를 만들기 전에 대기 중인 변경을 먼저 flush한다. 그
     # 오류를 문서 중복으로 오인하지 않도록 호출자의 변경은 여기서 따로 flush한다 —
@@ -340,7 +341,16 @@ def _update_generated_draft(
     db.execute(delete(DraftSentence).where(DraftSentence.draft_id == data.draft_id))
     db.add_all(_sentence_rows(data.draft_id, data))
     db.flush()
-    return db.get(DraftDocument, data.draft_id, populate_existing=True)
+    draft = db.get(DraftDocument, data.draft_id, populate_existing=True)
+    # 이미 고른 사진은 그대로 두고 새 근거 사진만 뒤에 더한다. 교사가 골라 둔 순서를 AI가 바꾸지 않는다.
+    # 임시 결정(정은): 교사가 빼 둔 사진이 다시 근거가 되면 다시 들어온다 — 선택 변경은 RevisionLog에
+    # 남지 않아 뺀 것인지 처음부터 없던 것인지 알 수 없다.
+    kept = list(draft.selected_media_ids)
+    added = [str(m) for m in data.selected_media_ids if str(m) not in kept]
+    if added:
+        draft.selected_media_ids = kept + added
+        db.flush()
+    return draft
 
 
 def _has_teacher_edits() -> ColumnElement[bool]:
