@@ -72,6 +72,81 @@ def test_조각_시작_시각을_더해_원본_기준으로_돌려주고_시각�
     assert request.headers["Authorization"] == "Bearer test-stt-key"
     body = request.content
     assert b"korean" in body and b"return_timestamps" in body and b"whisper-large-v3" in body
+    assert b'name="prompt"' not in body
+
+
+CLASS = [
+    ["서아", "김서아"],
+    ["하준", "이하준"],
+    ["도윤", "박도윤"],
+    ["지우", "최지우"],
+    ["예린", "정예린"],
+]
+
+
+def test_반_원아_이름으로_만든_prompt를_모든_조각_요청에_붙인다(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[bytes] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.content)
+        return _ok((0.0, 1.0, "서아야"))
+
+    _transport(monkeypatch, handler)
+
+    stt.transcribe_chunks([_chunk(0.0, 5.0), _chunk(10.0, 15.0)], names=CLASS[:2])
+
+    assert len(seen) == 2
+    for body in seen:
+        assert b'name="prompt"' in body and "김서아, 서아, 이하준, 하준.".encode() in body
+
+
+def test_원아마다_성명_다음_호칭을_성명_가나다순으로_쉼표로만_잇는다() -> None:
+    # 성명만 있는 원아(외자·복성 등)는 성명 하나만 들어갑니다
+    children = [["하준", "이하준"], [" 서아 ", "김서아"], ["하준", "이하준"], ["이준"], []]
+
+    assert stt.build_name_prompt(children) == "김서아, 서아, 이준, 이하준, 하준."
+
+
+def test_원아가_없으면_prompt를_만들지_않는다() -> None:
+    assert stt.build_name_prompt([]) is None
+    assert stt.build_name_prompt([["", " "], []]) is None
+
+
+def test_원아가_너무_많으면_성명_가나다순_앞부분만_넣는다() -> None:
+    children = [
+        [f"나{chr(0xAC00 + i)}", f"가나{chr(0xAC00 + i)}"]
+        for i in range(stt.MAX_PROMPT_CHILDREN + 5)
+    ]
+
+    prompt = stt.build_name_prompt(children)
+
+    assert prompt is not None
+    full_names = prompt.removesuffix(".").split(", ")[::2]
+    assert full_names == sorted(full for _, full in children)[: stt.MAX_PROMPT_CHILDREN]
+
+
+def test_반_원아_이름만_나열한_구간은_prompt를_읊은_것으로_보고_버린다(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _ok(
+            (0.0, 2.0, "서아, 하준이, 도윤, 지우, 예린."),
+            (3.0, 5.0, "하준아, 블록 정리하자."),
+            (6.0, 7.0, "김서아, 서아야"),
+            (8.0, 9.0, "김서아, 이하준, 박도윤 이리 와."),
+        )
+
+    _transport(monkeypatch, handler)
+
+    segments = stt.transcribe_chunks([_chunk(0.0, 10.0)], names=CLASS)
+
+    assert [s.text for s in segments] == [
+        "하준아, 블록 정리하자.",
+        "김서아, 서아야",
+        "김서아, 이하준, 박도윤 이리 와.",
+    ]
 
 
 def test_일시적인_실패는_그_조각만_다시_보낸다(monkeypatch: pytest.MonkeyPatch) -> None:

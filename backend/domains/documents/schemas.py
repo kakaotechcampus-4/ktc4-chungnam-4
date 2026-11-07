@@ -24,6 +24,7 @@ class DraftSentenceInput(BaseModel):
     model_config = ConfigDict(hide_input_in_errors=True)
 
     sentence_id: str = Field(min_length=1)
+    section: str | None = None
     text: str = Field(min_length=1)
 
 
@@ -103,6 +104,9 @@ class DraftSummary(BaseModel):
     version: int
     # 활성 게시 회차의 게시 시각. 게시 전이면 null이다 (승인·게시 분리).
     published_at: datetime | None
+    # 상세와 같은 값이다. 상세를 미리 받으면 교사 열람 기록이 남아 목록에도 싣는다 (#260).
+    revoke_deadline: datetime | None
+    can_revoke: bool
     preview: str
 
 
@@ -145,6 +149,7 @@ class EvidenceView(BaseModel):
     """문장 하나를 뒷받침하는 근거. 사진·계획 근거는 start_ms·end_ms가 없다."""
 
     evidence_id: str
+    source_document_id: UUID | None = None
     source_type: str
     text: str
     media_id: UUID | None
@@ -154,6 +159,7 @@ class EvidenceView(BaseModel):
 
 
 class DraftSentenceView(BaseModel):
+    section: str | None = None
     sentence_id: str
     text: str
     is_edited_by_teacher: bool
@@ -185,6 +191,7 @@ class DraftDetailResponse(BaseModel):
     version: int
     # AI가 제목을 만들지 않아 지금은 늘 null이다.
     title: str | None
+    daily_routine: list[str] = Field(default_factory=list)
     sentences: list[DraftSentenceView]
     selected_media_ids: list[UUID]
     failed_media_ids: list[UUID] = Field(default_factory=list)
@@ -197,7 +204,7 @@ class DraftDetailResponse(BaseModel):
     include_photos: bool | None
     # 활성 게시 회차의 회수 기한. 활성 회차가 없으면 null이다.
     revoke_deadline: datetime | None
-    # 지금 회수할 수 있는가 (기한 이내이고 학부모가 본문을 열기 전).
+    # 지금 회수할 수 있는가 (활성 게시 회차가 있고 기한 이내. 학부모가 열어 봤어도 된다, #266).
     can_revoke: bool
     updated_at: datetime
 
@@ -370,6 +377,8 @@ class ParentNoteSummary(BaseModel):
     # 앞 3장. "사진도 함께 보내기"를 끄고 게시했으면 빈 배열이다.
     photos: list[MediaUrl]
     is_read: bool
+    # 회수 뒤 고쳐 다시 보낸 알림장. 화면이 "선생님이 내용을 고쳤어요"를 띄운다 (#266, 테크스펙 D-6).
+    is_resent: bool
 
 
 class ParentNoteListResponse(BaseModel):
@@ -396,6 +405,8 @@ class ParentNoteDetailResponse(BaseModel):
     photos: list[MediaUrl]
     author_name: str
     published_at: datetime
+    # 목록의 is_resent와 같다.
+    is_resent: bool
     # 같은 자녀의 이전(더 오래된)·다음(더 최근) 게시본 (제안)
     prev: ParentNoteLink | None
     next: ParentNoteLink | None

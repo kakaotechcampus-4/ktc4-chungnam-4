@@ -19,7 +19,7 @@ function renderLogin() {
       { path: "/login", element: <LoginPage /> },
       { path: "/onboarding/class", element: <p>반 목록</p> },
       { path: "/p", element: <p>학부모 홈</p> },
-      { path: "/forgot-password", element: <p>비밀번호 찾기 화면</p> },
+      { path: "/signup", element: <p>회원가입 화면</p> },
     ],
     { initialEntry: "/login" },
   );
@@ -158,7 +158,7 @@ describe("LoginPage", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("이메일 또는 비밀번호를 확인해 주세요.");
   });
 
-  it("비밀번호 찾기로 갈 때 화면이 겹쳐 바뀌게 한다", async () => {
+  it("회원가입으로 갈 때 화면이 겹쳐 바뀌게 한다", async () => {
     // jsdom에는 화면 전환 API가 없어서 흉내 냅니다. 불렸는지만 확인합니다.
     const startViewTransition = vi.fn((update: () => void) => {
       update();
@@ -172,22 +172,19 @@ describe("LoginPage", () => {
     const { router, user } = renderLogin();
 
     try {
-      await user.click(screen.getByRole("link", { name: "비밀번호 찾기" }));
-      expect(await screen.findByText("비밀번호 찾기 화면")).toBeInTheDocument();
-      expect(router.state.location.pathname).toBe("/forgot-password");
+      await user.click(screen.getByRole("link", { name: "회원가입" }));
+      expect(await screen.findByText("회원가입 화면")).toBeInTheDocument();
+      expect(router.state.location.pathname).toBe("/signup");
       expect(startViewTransition).toHaveBeenCalled();
     } finally {
       Reflect.deleteProperty(document, "startViewTransition");
     }
   });
 
-  it("비밀번호 찾기와 회원가입으로 갈 수 있다", () => {
+  it("회원가입으로 갈 수 있고, 동작하지 않는 비밀번호 찾기 링크는 보이지 않는다", () => {
     renderLogin();
 
-    expect(screen.getByRole("link", { name: "비밀번호 찾기" })).toHaveAttribute(
-      "href",
-      "/forgot-password",
-    );
     expect(screen.getByRole("link", { name: "회원가입" })).toHaveAttribute("href", "/signup");
+    expect(screen.queryByRole("link", { name: "비밀번호 찾기" })).not.toBeInTheDocument();
   });
 });

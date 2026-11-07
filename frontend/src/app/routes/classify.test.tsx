@@ -558,6 +558,9 @@ describe("아이별 하루 확인", () => {
 
     const textbox = await screen.findByRole("textbox", { name: "관찰 내용" });
     const save = screen.getByRole("button", { name: "근거 저장" });
+    expect(textbox).toHaveAccessibleDescription(
+      "학부모 이름·전화번호·주소 같은 개인정보는 적지 마세요. 저장한 내용은 다음 AI 생성부터 반영돼요. 이미 만든 초안은 자동으로 바뀌지 않아요.",
+    );
     expect(save).toBeDisabled();
     await waitFor(() => expect(textbox).toBeEnabled());
     await user.type(textbox, "나뭇잎을 비교했어요.");
