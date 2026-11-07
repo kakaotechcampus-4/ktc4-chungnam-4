@@ -200,6 +200,167 @@ def run(
     return status.json()
 
 
+def test_추가_사진으로_같은_초안을_재생성하고_이전_문장근거를_교체한다(
+    flow: Flow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from domains.agents.models import SentenceEvidence
+
+    client, factory, klass, children, pending, _ = flow
+    login(client, TEACHER_EMAIL)
+    first_media = photo(factory, klass, [children[0]])
+    first = run(client, klass, first_media, pending)
+    draft_id = first["children"][0]["drafts"][0]["draft_id"]
+    before = client.get(f"/api/v1/drafts/{draft_id}").json()
+    second_media = photo(factory, klass, [children[0]])
+    with factory() as db:
+        db.get(MediaAsset, second_media).captured_at = datetime(2026, 10, 30, 4, tzinfo=UTC)
+        # 잠금 버전과 AI 회차는 다르다. 다음 호출은 AI 5회차를 이어가야 한다.
+        db.get(DraftDocument, UUID(draft_id)).ai_version = 4
+        db.commit()
+
+    def vision(prompt: str, images: list[str]) -> str:
+        text = "공을 굴리고 있다." if str(second_media) in images[0] else "블록을 쌓고 있다."
+        return json.dumps(
+            [
+                {
+                    "ref": "P1",
+                    "observations": [{"text": text, "scope": "individual"}],
+                    "no_observation_reason": None,
+                }
+            ]
+        )
+
+    def llm(prompt: str) -> str:
+        if '"sentence_id"' in prompt:
+            return json.dumps(
+                [
+                    {
+                        "sentence_id": "s1",
+                        "verdict": "pass",
+                        "reason_code": "ok",
+                        "detail": "근거와 일치",
+                        "evidence_ids": ["E2"],
+                    }
+                ]
+            )
+        assert "공을 굴리고 있다" in prompt
+        return json.dumps(
+            {"sentences": [{"text": "CHILD_A는 공을 굴리며 놀이했어요.", "evidence_refs": ["E2"]}]}
+        )
+
+    monkeypatch.setattr(service, "call_vision", vision)
+    monkeypatch.setattr(service, "call_claude", llm)
+    result = run(client, klass, second_media, pending)
+    assert result["status"] == "succeeded"
+    assert result["children"][0]["drafts"][0]["draft_id"] == draft_id
+    after = client.get(f"/api/v1/drafts/{draft_id}").json()
+    assert after["version"] == before["version"] + 1
+    assert "공을 굴리며" in after["sentences"][0]["text"]
+    with factory() as db:
+        assert db.get(DraftDocument, UUID(draft_id)).ai_version == 5
+        evidence = db.scalars(
+            select(SentenceEvidence).where(SentenceEvidence.draft_id == UUID(draft_id))
+        ).all()
+        assert len(evidence) == 1
+        assert evidence[0].source_media_id == second_media
+        assert "공을 굴리고" in evidence[0].source_text
+
+
+@pytest.mark.parametrize("action", ["edit", "approve", "revoke"])
+def test_교사가_수정_승인_회수한_초안은_AI_호출_없이_보호한다(flow: Flow, action: str) -> None:
+    client, factory, klass, children, pending, calls = flow
+    login(client, TEACHER_EMAIL)
+    media = photo(factory, klass, [children[0]])
+    first = run(client, klass, media, pending)
+    draft_id = first["children"][0]["drafts"][0]["draft_id"]
+    before = client.get(f"/api/v1/drafts/{draft_id}").json()
+    if action == "edit":
+        response = client.patch(
+            f"/api/v1/drafts/{draft_id}",
+            json={
+                "expected_version": before["version"],
+                "sentences": [{"sentence_id": "s1", "text": "교사가 확인한 내용입니다."}],
+            },
+        )
+        assert response.status_code == 200, response.text
+    else:
+        with factory() as db:
+            db.get(DraftDocument, UUID(draft_id)).status = (
+                "revoked" if action == "revoke" else "approved"
+            )
+            db.commit()
+    protected = client.get(f"/api/v1/drafts/{draft_id}").json()
+    calls.clear()
+    result = run(client, klass, media, pending)
+    assert result["status"] == "failed"
+    assert result["children"][0]["error_code"] == "DRAFT_VERSION_CONFLICT"
+    assert calls == []
+    after = client.get(f"/api/v1/drafts/{draft_id}").json()
+    assert after["sentences"] == protected["sentences"]
+    assert after["version"] == protected["version"]
+    assert after["status"] == protected["status"]
+
+
+@pytest.mark.parametrize("action", ["edit", "approve"])
+def test_재생성_도중_교사_변경은_보존하고_저장충돌을_실패로_안내한다(
+    flow: Flow, monkeypatch: pytest.MonkeyPatch, action: str
+) -> None:
+    client, factory, klass, children, pending, _ = flow
+    login(client, TEACHER_EMAIL)
+    media = photo(factory, klass, [children[0]])
+    first = run(client, klass, media, pending)
+    draft_id = first["children"][0]["drafts"][0]["draft_id"]
+    before = client.get(f"/api/v1/drafts/{draft_id}").json()
+    generate = service._generate_draft
+    protected = []
+
+    def generate_and_edit(*args, **kwargs):
+        result = generate(*args, **kwargs)
+        if action == "edit":
+            response = client.patch(
+                f"/api/v1/drafts/{draft_id}",
+                json={
+                    "expected_version": before["version"],
+                    "sentences": [{"sentence_id": "s1", "text": "생성 도중 교사가 수정했습니다."}],
+                },
+            )
+        else:
+            response = client.post(
+                f"/api/v1/drafts/{draft_id}/approve",
+                json={"expected_version": before["version"], "reviewed": True},
+            )
+        assert response.status_code == 200, response.text
+        protected.append(response.json())
+        return result
+
+    monkeypatch.setattr(service, "_generate_draft", generate_and_edit)
+    result = run(client, klass, media, pending)
+    assert result["status"] == "failed"
+    assert result["children"][0]["error_code"] == "DRAFT_VERSION_CONFLICT"
+    assert result["children"][0]["drafts"] == []
+    after = client.get(f"/api/v1/drafts/{draft_id}").json()
+    assert after["sentences"] == protected[0]["sentences"]
+    assert after["version"] == protected[0]["version"]
+    assert after["status"] == protected[0]["status"]
+
+
+def test_재생성_분석실패를_기존_초안의_생성성공으로_안내하지_않는다(
+    flow: Flow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, factory, klass, children, pending, _ = flow
+    login(client, TEACHER_EMAIL)
+    media = photo(factory, klass, [children[0]])
+    first = run(client, klass, media, pending)
+    draft_id = first["children"][0]["drafts"][0]["draft_id"]
+    before = client.get(f"/api/v1/drafts/{draft_id}").json()
+    monkeypatch.setattr(service, "call_vision", lambda *_: "invalid-json")
+    result = run(client, klass, media, pending)
+    assert result["children"][0]["outcome"] == "unclassified"
+    assert result["children"][0]["unclassified_reason"] == "photo_analysis_failed"
+    assert result["children"][0]["drafts"] == []
+    assert client.get(f"/api/v1/drafts/{draft_id}").json()["sentences"] == before["sentences"]
+
+
 def test_사진부터_교사_검토_게시_자녀_열람까지(flow: Flow) -> None:
     client, _factory, klass, children, pending, calls = flow
     login(client, TEACHER_EMAIL)
@@ -378,16 +539,20 @@ def test_영상음성_업로드_STT_검수_파일귀속_생성_게시_열람(
     monkeypatch.setattr(
         service.media_service, "_speech_chunks", lambda key: [audio.AudioChunk(0, 10, b"RIFF")]
     )
-    monkeypatch.setattr(
-        service.media_service.stt,
-        "transcribe_chunks",
-        lambda chunks: [
+    stt_prompts: list[str | None] = []
+
+    def fake_stt(chunks, names=()):
+        stt_prompts.append(stt.build_name_prompt(names))
+        return [
             stt.SpeechSegment(0, 2, "김도윤은 블록으로 탑을 만들었어요."),
             stt.SpeechSegment(3, 5, "제외할 문장"),
             stt.SpeechSegment(6, 9, "검수하지 않은 문장"),
-        ],
-    )
+        ]
+
+    monkeypatch.setattr(service.media_service.stt, "transcribe_chunks", fake_stt)
     service.media_service.transcribe_media(str(media_id))
+    # STT prompt에는 시드 반 원아의 성명·호칭만 붙습니다(child_id·반 정보 없음, 파이프라인 1-B)
+    assert stt_prompts == ["김도윤, 도윤, 박서아, 서아, 이하준, 하준, 정예린, 예린, 최지우, 지우."]
     result = client.get(f"/api/v1/media/{media_id}/transcript-segments")
     assert result.status_code == 200, result.text
     assert result.json()["transcript_status"] == "done"
@@ -458,7 +623,7 @@ def test_STT_worker가_멈추면_폴링이_failed로_끝내고_늦은_완료는_
         service.media_service, "_speech_chunks", lambda key: [audio.AudioChunk(0, 5, b"RIFF")]
     )
 
-    def late_stt(chunks):
+    def late_stt(chunks, names=()):
         with factory() as db:
             row = db.scalar(select(MediaUpload).where(MediaUpload.media_id == media_id))
             row.verified_at = datetime.now(UTC) - timedelta(hours=2)
@@ -658,7 +823,8 @@ def test_기존_알림장_이후_생성_실패가_확인_필요를_다시_만들
     detail = client.get(f"/api/v1/drafts/{draft['draft_id']}").json()
     assert detail["sentences"] == draft["sentences"]
     with factory() as db:
-        assert db.scalar(select(Job)).unclassified_reason == "photo_analysis_failed"
+        assert db.scalar(select(Job)).error_code == "DRAFT_VERSION_CONFLICT"
+        assert db.scalar(select(Job)).unclassified_reason is None
         assert db.scalar(select(UnclassifiedItem)) is None
 
 

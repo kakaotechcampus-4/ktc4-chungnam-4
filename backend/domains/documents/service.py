@@ -212,6 +212,7 @@ def get_draft_version(
         select(
             DraftDocument.id,
             DraftDocument.version,
+            DraftDocument.ai_version,
             DraftDocument.status,
             _has_teacher_edits().label("has_teacher_edits"),
         ).where(
@@ -225,6 +226,7 @@ def get_draft_version(
     return DraftVersionInfo(
         draft_id=row.id,
         version=row.version,
+        ai_version=row.ai_version,
         status=DraftStatus(row.status),
         has_teacher_edits=row.has_teacher_edits,
     )

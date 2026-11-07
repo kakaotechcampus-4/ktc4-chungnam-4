@@ -363,8 +363,23 @@ def get_class_child_names(db: Session, class_id: UUID) -> dict[UUID, list[str]]:
     첫 값은 승인 전 초안 본문에 되돌려 넣는 호칭이고, 나머지는 본문에서 찾아 바꿀 다른 이름입니다.
     졸업·퇴소 원아도 넣습니다 — 발화에서 불릴 수 있고, 빠뜨리면 실명이 LLM으로 갑니다.
     반이 없거나 원아가 없으면 빈 딕셔너리입니다. 접근 검사는 하지 않습니다(worker가 부르는 내부 함수).
+    이름을 밖으로 보낼 때(외부 STT prompt)는 이 함수 대신 `get_class_enrolled_child_names`를 씁니다.
     """
     rows = db.execute(select(Child.id, Child.name).where(Child.class_id == class_id))
+    return {child_id: _name_variants(name) for child_id, name in rows}
+
+
+def get_class_enrolled_child_names(db: Session, class_id: UUID) -> dict[UUID, list[str]]:
+    """반 재원 원아의 원아 ID → 이름들. 값의 모양은 `get_class_child_names`와 같습니다.
+
+    외부 STT prompt처럼 실명을 밖으로 보낼 때 씁니다. 졸업·퇴소 원아는 뺍니다 — 실명 치환에 쓰는
+    명단은 넓게, 밖으로 보내는 명단은 좁게 잡습니다(#269 리뷰). 접근 검사는 하지 않습니다.
+    """
+    rows = db.execute(
+        select(Child.id, Child.name).where(
+            Child.class_id == class_id, Child.status == CHILD_STATUS_ENROLLED
+        )
+    )
     return {child_id: _name_variants(name) for child_id, name in rows}
 
 

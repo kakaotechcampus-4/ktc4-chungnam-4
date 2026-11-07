@@ -2,7 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
+import { useBlocker, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 
 import {
   approveDraft,
@@ -35,6 +35,8 @@ import { formatDate, isDateOnly, kstToday } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 
 import { EvidencePanel } from "./components/EvidencePanel";
+import { LeaveRevokedDialog } from "./components/LeaveRevokedDialog";
+import { PublishedNoteRow } from "./components/PublishedNoteRow";
 import { PublishConfirmDialog } from "./components/PublishConfirmDialog";
 import { RosterList, type RosterRow } from "./components/RosterList";
 
@@ -106,6 +108,7 @@ export function DraftReviewPage() {
   const { childId } = useParams<{ childId: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
 
   // 기본은 오늘입니다. 지난 날짜는 ?record_date=YYYY-MM-DD로 봅니다(목 데이터 확인용).
@@ -113,7 +116,10 @@ export function DraftReviewPage() {
   const recordDateParam = searchParams.get("record_date");
   const recordDate = isDateOnly(recordDateParam) ? recordDateParam : kstToday();
   // 지난 날짜로 열었는데 '오늘의 기록'이라고 하면 교사가 오늘 것으로 읽습니다. 날짜는 부제가 보여 줍니다.
-  const reviewTitle = recordDate === kstToday() ? "오늘의 기록을 완성해요" : "기록을 완성해요";
+  // 회수본을 고치러 오면 늘 지난 날짜라, 눈썹까지 '오늘의 기록'이면 길을 잘못 든 것처럼 보입니다.
+  const isToday = recordDate === kstToday();
+  const reviewTitle = isToday ? "오늘의 기록을 완성해요" : "기록을 완성해요";
+  const reviewEyebrow = `${isToday ? "오늘의 기록" : "지난 기록"}  /  초안 검토`;
 
   const {
     currentClass,
@@ -170,6 +176,28 @@ export function DraftReviewPage() {
     const item = draftItems.find((draft) => draft.child_id === child.child_id);
     return { child, note: item?.parent_note ?? null, status: pickRosterStatus(item) };
   });
+
+  // 회수한 알림장은 고쳐서 다시 게시할 때까지 보호자에게 보이지 않습니다. 교사가 고치러 왔다가
+  // 그냥 나가면 그대로 묻히므로, 나가기 전에 어디서 다시 찾는지 알려 줍니다.
+  // **자동으로 다시 게시하지는 않습니다** — 승인을 코드가 대신하게 되고(H-1), 틀려서 내린 글이
+  // 교사 뜻과 무관하게 올라갑니다. 알리기만 하고 판단은 교사가 합니다.
+  // **이번에 회수한 초안**을 따로 기억합니다. 상태만 보면 안 됩니다 — 되돌려 승인하면
+  // approved가 되는데, 그건 "오늘 승인만 하고 아직 안 보낸 평범한 초안"과 구분되지 않습니다.
+  // 상태로만 경고하면 평범한 날에도 매번 뜨고, 게시 직후 발행 완료로 가는 길까지 막습니다.
+  // 알림장 상세에서 회수하고 넘어온 경우는 그쪽이 state로 알려 줍니다.
+  const [revokedDraftId, setRevokedDraftId] = useState<string | null>(
+    () => (location.state as { revokedDraftId?: string } | null)?.revokedDraftId ?? null,
+  );
+  // 회수한 그 초안이 아직 안 나갔으면 경고합니다. 고쳐서 게시하면 published_at이 차서 풀립니다.
+  const unsentRow = rows.find(
+    (row) => row.note?.draft_id === revokedDraftId && row.note.published_at === null,
+  );
+  // 레일에서 원아를 바꾸는 것도 주소가 바뀌지만 **이 화면 안**입니다. 경로만 비교하면
+  // 아이를 옮길 때마다 경고가 떠서 아무것도 못 합니다. 검토 화면을 아주 떠날 때만 막습니다.
+  const blocker = useBlocker(
+    ({ nextLocation }) =>
+      unsentRow !== undefined && !nextLocation.pathname.startsWith("/t/today/review/"),
+  );
 
   const selectedChildId = childId ?? rows[0]?.child.child_id ?? "";
   const selectedRow = rows.find((row) => row.child.child_id === selectedChildId);
@@ -343,7 +371,7 @@ export function DraftReviewPage() {
         ),
         ...[...publishedChildIds].map((id) =>
           queryClient.invalidateQueries({
-            queryKey: documentsKeys.childDrafts(id, "parent_note", true),
+            queryKey: documentsKeys.childDraftLists(id, "parent_note"),
           }),
         ),
         // 날짜별 목록과 알림장 명단(publishedNotes)을 함께 비웁니다.
@@ -390,7 +418,7 @@ export function DraftReviewPage() {
   if (classPending) {
     return (
       <>
-        <PageHeader eyebrow="오늘의 기록  /  초안 검토" title={reviewTitle} />
+        <PageHeader eyebrow={reviewEyebrow} title={reviewTitle} />
         <p className="text-body text-ink-muted">반 정보를 불러오는 중이에요.</p>
       </>
     );
@@ -398,7 +426,7 @@ export function DraftReviewPage() {
   if (classError || childrenQuery.isError || draftsQuery.isError) {
     return (
       <>
-        <PageHeader eyebrow="오늘의 기록  /  초안 검토" title={reviewTitle} />
+        <PageHeader eyebrow={reviewEyebrow} title={reviewTitle} />
         <p className="text-body text-ink-muted">
           {failureText(classErrorValue ?? childrenQuery.error ?? draftsQuery.error)}
         </p>
@@ -516,25 +544,45 @@ export function DraftReviewPage() {
   // 게시를 마친 날짜는 다시 열어도 고칠 수 없습니다. 검토 화면을 그대로 보여 주면
   // 교사가 고칠 수 있다고 착각하므로, 화면 전체를 끝난 상태로 바꿉니다.
   if (isDayClosed) {
-    const publishedNames = rows
-      .filter((row) => row.note?.published_at != null)
-      .map((row) => row.child.name);
+    const published = rows.flatMap((row) =>
+      row.note !== null && row.note.published_at !== null
+        ? [{ child: row.child, note: row.note, publishedAt: row.note.published_at }]
+        : [],
+    );
     return (
       <>
         <PageHeader
-          eyebrow="오늘의 기록  /  초안 검토"
+          eyebrow={reviewEyebrow}
           title="게시를 마쳤어요"
           subtitle={`${formatDate(recordDate)}  ·  ${klassName}`}
         />
-        <div className="flex flex-col gap-4 rounded-xl bg-paper p-7">
-          <p className="text-lead text-ink">
-            이 날짜의 알림장 {publishedNames.length}건을 학부모님께 게시했어요.
-          </p>
-          <p className="text-body text-ink-muted">{publishedNames.join(" · ")}</p>
-          {/* TODO(김진하): 게시본을 고치려면 회수(POST /drafts/{draft_id}/revoke)가 필요합니다.
-              명세가 `경로만`이라 이번 범위에서는 안내만 합니다(docs/api/documents.md). */}
-          <p className="text-caption text-ink-muted">게시한 알림장은 이 화면에서 고칠 수 없어요.</p>
+        <div className="flex flex-col gap-5 rounded-xl bg-paper p-7">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-lead font-bold text-ink">
+              학부모님께 알림장 {published.length}건을 보냈어요
+            </h2>
+            {/* 게시본은 바로 고칠 수 없고 회수를 거칩니다(H-1). 회수하면 그 원아의 초안이
+                "안 나간 초안"이 되어 이 날짜가 다시 열리고, 평소처럼 고쳐 승인·게시합니다. */}
+            <p className="text-label text-ink-muted">
+              잘못 나간 알림장은 회수한 뒤에 고칠 수 있어요. 보호자가 열어 보기 전, 게시하고 24시간
+              안에만 됩니다.
+            </p>
+          </div>
+          <ul className="flex flex-col gap-2">
+            {published.map(({ child, note, publishedAt }) => (
+              <PublishedNoteRow
+                key={child.child_id}
+                onRevoked={() => setRevokedDraftId(note.draft_id)}
+                childId={child.child_id}
+                childName={child.name}
+                draftId={note.draft_id}
+                version={note.version}
+                publishedAt={publishedAt}
+              />
+            ))}
+          </ul>
         </div>
+        <LeaveRevokedDialog blocker={blocker} childName={unsentRow?.child.name ?? ""} />
       </>
     );
   }
@@ -542,7 +590,7 @@ export function DraftReviewPage() {
   return (
     <>
       <PageHeader
-        eyebrow="오늘의 기록  /  초안 검토"
+        eyebrow={reviewEyebrow}
         title={reviewTitle}
         subtitle={`${formatDate(recordDate)}  ·  ${klassName}`}
       />
@@ -850,6 +898,8 @@ export function DraftReviewPage() {
           </Button>
         </div>
       </div>
+
+      <LeaveRevokedDialog blocker={blocker} childName={unsentRow?.child.name ?? ""} />
 
       <PublishConfirmDialog
         open={publishOpen}
