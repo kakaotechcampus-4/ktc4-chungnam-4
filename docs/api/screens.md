@@ -56,8 +56,9 @@
 | ⑤ 김진하 | 알림장 게시판 | `GET /classes/{class_id}/drafts?doc_type=parent_note&published=true`(확장(경로만)), `GET /classes/{class_id}/children`(미작성 카드) | 둘 다 |
 | ⑤ 김진하 | 알림장 목록(원아별) | `GET /children/{child_id}/drafts?doc_type=parent_note&published=true`(최신순, `preview`), `GET /classes/{class_id}/children`(아이 이름). **Figma 없음** — 알림장 게시판에서 바로 상세로 보내면 ‹ › 로 한 칸씩만 움직일 수 있어 기록이 쌓이면 못 찾습니다(임시 결정(김진하), #89 리뷰) | 상세 작성 |
 | ⑤ 김진하 | 알림장 상세 | `GET /drafts/{draft_id}`, `GET /drafts/{draft_id}/read-receipts`(보호자 확인 수), (목록에 없음: 게시한 알림장 수정) | 둘 다 |
-| ⑤ 김진하 | 관찰일지 목록 | `GET /classes/{class_id}/children`, `GET /children/{child_id}/drafts?doc_type=observation_log`(원아마다), (목록에 없음: 반 전체 관찰일지를 기간으로 조회) | 둘 다 |
-| ⑤ 김진하 | 관찰일지 생성 결과 | `GET /drafts/{draft_id}`(내용·근거 조회). #284 제안을 반영한 #259 임시 화면은 직접 작성·수정·승인·승인 되돌리기를 제공하지 않음. 공용 서버 API는 유지하며 내려받기는 후속 | 상세 작성 |
+| ⑤ 김진하 | 관찰일지 · 아이 목록 (159:3788) | `GET /classes/{class_id}/observation-logs?month=YYYY-MM`(#225 ⑱), `POST /children/{child_id}/observation-jobs`(생성하기) | 상세 작성 |
+| ⑤ 김진하 | 관찰일지 · 생성 결과 (159:3882) | `GET /drafts/{draft_id}`(내용·근거 조회). #284 제안을 반영한 #259 임시 화면은 직접 작성·수정·승인·승인 되돌리기를 제공하지 않음. 공용 서버 API는 유지. 근거의 알림장 날짜·칸 목록/순서·생성 시각・명시적 재생성·내려받기는 후속 계약 확인 필요 | 상세 작성 |
+| ⑤ 김진하 | 관찰일지 · 양식 등록 (159:3735) | #225 ⑧의 2단계라 그 뒤입니다. 양식은 반 단위로 저장합니다(⑬) | 미정 |
 
 ## 목록에 없는 것
 
@@ -68,7 +69,7 @@
 - **원아 개인 페이지**: 이번 달 기록 수와 누리과정 5영역별 기록 수. (documents)
 - **추가 근거 작성**: 교사가 쓴 관찰 메모(연결할 아이, 활동 시각, 음성, 관련 사진)를 그날 근거로 저장. (agents 또는 media · face) → 글만 받는 모양으로 제안: agents.md 하단 §상의 필요 2
 - **알림장 상세**: 게시한 알림장의 "수정하기". `reopen`은 게시 전까지만 적혀 있습니다. (documents)
-- **관찰일지 목록**: 반 전체 관찰일지를 기간(이번 주·이번 달·전체)으로 한 번에 받는 목록. 경로만 정한 API에는 원아별 목록만 있습니다. (documents)
+- **관찰일지**: 근거의 알림장 날짜(지금 `captured_at`이 늘 `null`), 양식의 칸 목록·순서(빈 칸을 못 그림), 초안 생성 시각, 이미 만든 관찰일지 다시 생성, 파일 내려받기. (documents · agents) → 반 전체 × 한 달 조회는 #225 ⑱로 정해 documents.md §상세 작성에 적었습니다
 
 ## 화면·디자인 쪽 확인 — 송유진
 

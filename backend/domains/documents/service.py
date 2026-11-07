@@ -416,14 +416,18 @@ def list_class_drafts(
     for draft, published_at in db.execute(stmt).tuples():
         latest.setdefault((draft.child_id, draft.doc_type), (draft, published_at))
     previews = _previews(db, [draft.id for draft, _ in latest.values()])
+    publications = _active_publication_rows(db, [draft.id for draft, _ in latest.values()])
 
     documents_by_child: dict[UUID, dict[str, DraftSummary]] = {}
     for (child_id, draft_doc_type), (draft, published_at) in latest.items():
+        publication = publications.get(draft.id)
         documents_by_child.setdefault(child_id, {})[draft_doc_type] = DraftSummary(
             draft_id=draft.id,
             status=DraftStatus(draft.status),
             version=draft.version,
             published_at=published_at,
+            revoke_deadline=publication.revoke_deadline if publication else None,
+            can_revoke=_can_revoke(publication),
             preview=previews.get(draft.id, ""),
         )
     failures = (
@@ -483,6 +487,7 @@ def list_child_drafts(
         stmt = stmt.where(active.c.published_at.is_not(None))
     rows = db.execute(stmt).tuples().all()
     previews = _previews(db, [draft.id for draft, _ in rows])
+    publications = _active_publication_rows(db, [draft.id for draft, _ in rows])
     return ChildDraftListResponse(
         items=[
             ChildDraftItem(
@@ -491,6 +496,10 @@ def list_child_drafts(
                 status=DraftStatus(draft.status),
                 version=draft.version,
                 published_at=published_at,
+                revoke_deadline=(
+                    publications[draft.id].revoke_deadline if draft.id in publications else None
+                ),
+                can_revoke=_can_revoke(publications.get(draft.id)),
                 preview=previews.get(draft.id, ""),
             )
             for draft, published_at in rows
@@ -518,6 +527,26 @@ def _active_publications() -> Subquery:
         .group_by(DocumentPublication.draft_id)
         .subquery()
     )
+
+
+def _active_publication_rows(
+    db: Session, draft_ids: Sequence[UUID]
+) -> dict[UUID, DocumentPublication]:
+    """초안별 활성 게시 회차 행. 여럿이면 _active_publications()처럼 가장 최근 것이다.
+
+    목록의 회수 기한·회수 가능 여부용이다. 한 번에 읽어 목록 길이만큼 쿼리가 늘지 않는다.
+    """
+    if not draft_ids:
+        return {}
+    rows = db.scalars(
+        select(DocumentPublication)
+        .where(DocumentPublication.draft_id.in_(draft_ids), _is_active_publication())
+        .order_by(DocumentPublication.published_at.desc())
+    )
+    latest: dict[UUID, DocumentPublication] = {}
+    for row in rows:
+        latest.setdefault(row.draft_id, row)
+    return latest
 
 
 def _previews(db: Session, draft_ids: Sequence[UUID]) -> dict[UUID, str]:
