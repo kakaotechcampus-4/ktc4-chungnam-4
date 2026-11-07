@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1680" height="2220" viewBox="0 0 1680 2220" role="img" aria-labelledby="title desc">
 <title id="title">아이담 멀티에이전트 구조 — PR 259</title>
-<desc id="desc">일별 알림장은 근거 수집 Agent1에서 요약 후 Agent3로, 월별 관찰일지는 Agent2로 분기한다. 코드 검사를 통과하면 별도 대화의 Agent4 Critic이 요약 전 비식별 원본 근거로 검증한다. 통과한 초안은 교사 검토와 승인을 거친다. 알림장만 게시 후 연결된 학부모가 열람하며 관찰일지는 교사가 승인하고 보관한다. 오류 시 작성은 최대 두 번 재생성하고 Critic 응답 오류는 Critic만 한 번 재시도한다.</desc>
+<desc id="desc">일별 알림장은 근거 수집 Agent1에서 요약 후 Agent3로, 월별 관찰일지는 Agent2로 분기한다. 코드 검사를 통과하면 별도 대화의 Agent4 Critic이 요약 전 비식별 원본 근거로 검증한다. 통과한 알림장은 교사 수정·승인·게시 후 연결된 학부모가 열람한다. 관찰일지 화면은 생성 내용과 근거를 조회하며 수정·승인 버튼을 제공하지 않는다. 내려받기는 후속 작업이다. 오류 시 작성은 최대 두 번 재생성하고 Critic 응답 오류는 Critic만 한 번 재시도한다.</desc>
 <defs>
  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#526078"/></marker>
  <marker id="purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#7b57b0"/></marker>
@@ -98,16 +98,16 @@
 <text x="840" y="1776" font-size="24" fill="#202d43" style="fill:#202d43" font-weight="400" text-anchor="middle">문장 · 영역 · 원본 근거 연결을 함께 저장</text>
 <path d="M 840 1795 V 1840" fill="none" stroke="#526078" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow)"/>
 <rect x="530" y="1840" width="620" height="95" rx="18" fill="#eaf6ee" stroke="#b4d7c1" stroke-width="2"/>
-<text x="840" y="1881" font-size="30" fill="#2b7050" style="fill:#2b7050" font-weight="700" text-anchor="middle">교사 검토 · 수정 · 승인</text>
-<text x="840" y="1916" font-size="24" fill="#3f6950" style="fill:#3f6950" font-weight="400" text-anchor="middle">AI 통과와 교사 승인은 별도 단계</text>
+<text x="840" y="1881" font-size="30" fill="#2b7050" style="fill:#2b7050" font-weight="700" text-anchor="middle">교사: 내용 · 원본 근거 확인</text>
+<text x="840" y="1916" font-size="24" fill="#3f6950" style="fill:#3f6950" font-weight="400" text-anchor="middle">알림장은 수정·승인 / 관찰일지는 조회</text>
 <path d="M 840 1935 V 1960 H 436 V 1995" fill="none" stroke="#526078" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow)"/>
 <path d="M 840 1960 H 1244 V 1995" fill="none" stroke="#526078" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow)"/>
 <rect x="96" y="1995" width="680" height="105" rx="18" fill="#f3faf7" stroke="#bbdccf" stroke-width="2"/>
-<text x="436" y="2038" font-size="29" fill="#24795d" style="fill:#24795d" font-weight="700" text-anchor="middle">알림장: 게시 → 학부모 열람</text>
-<text x="436" y="2075" font-size="24" fill="#202d43" style="fill:#202d43" font-weight="400" text-anchor="middle">승인·게시·해당 자녀 접근 권한 확인</text>
+<text x="436" y="2038" font-size="29" fill="#24795d" style="fill:#24795d" font-weight="700" text-anchor="middle">알림장: 수정 · 승인 · 게시</text>
+<text x="436" y="2075" font-size="24" fill="#202d43" style="fill:#202d43" font-weight="400" text-anchor="middle">승인·게시 후 해당 자녀 학부모만 열람</text>
 <rect x="904" y="1995" width="680" height="105" rx="18" fill="#f2f6fe" stroke="#bfd1ee" stroke-width="2"/>
-<text x="1244" y="2038" font-size="29" fill="#3869aa" style="fill:#3869aa" font-weight="700" text-anchor="middle">관찰일지: 교사 승인 · 보관</text>
-<text x="1244" y="2075" font-size="24" fill="#202d43" style="fill:#202d43" font-weight="400" text-anchor="middle">현재 PR은 교사용 기본 양식까지 지원</text>
+<text x="1244" y="2038" font-size="29" fill="#3869aa" style="fill:#3869aa" font-weight="700" text-anchor="middle">관찰일지: 생성 결과 · 근거 조회</text>
+<text x="1244" y="2075" font-size="24" fill="#202d43" style="fill:#202d43" font-weight="400" text-anchor="middle">별도 수정·승인 없음 / 내려받기는 후속</text>
 <text x="64" y="2145" font-size="22" fill="#5b697d" style="fill:#5b697d" font-weight="400" text-anchor="start">실행 상한: 에이전트 대화 6턴 · 입력 60,000자 · 작업 180초  |  trace에는 역할·도구명·결과만</text>
 <text x="64" y="2185" font-size="21" fill="#798597" style="fill:#798597" font-weight="400" text-anchor="start">PR #259 구현 기준  ·  원별 양식 · 공식 지침 데이터셋 · Langfuse 연동은 후속 작업</text>
 </svg>
