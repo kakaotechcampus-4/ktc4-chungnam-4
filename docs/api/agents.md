@@ -12,6 +12,8 @@
 - [x] (막힘) Job 트리거: FE의 `POST /jobs`(제안) vs media의 `.delay()`(김동건과 함께) → 결정(09/27, #61): 마지막 귀속 저장이 끝나면 FE가 `POST /api/v1/classes/{class_id}/jobs`를 한 번 부름. media 완료 통지는 `.delay()`를 부르지 않음. 반영: 테크스펙 흐름 표 C
 - [x] 근거 범위(날짜 전체 vs `media_ids`), STT 미완료 시 409로 막을지 `transcribing`에서 기다릴지(김동건과 함께) → 임시 결정(정은): 근거는 본문대로 날짜 전체로 모으고, `media_ids`는 준비 확인에만 씀. STT 미완료 확인은 STT 호출(#142)이 생기면 붙임 — 지금은 막지도 기다리지도 않음. 반영: `agents/service.py` `start_generation_job`
 - [x] 반 전체 `status` 규칙, 진행률 계산식, `stage` 4값 → 임시 결정(정은): `status`는 본문 상태값 표대로(모두 대기면 `pending`, 안 끝난 원아가 있으면 `running`, 실패 1명 이상이면 `failed`). Job에 단계 컬럼이 없어 `stage`는 항상 `null`, `progress.percent`는 끝난 원아 비율(끝난 원아 ÷ 전체 × 100, 버림)로 셈. 단계 컬럼이 생기면 본문 계산식으로 바꿈. 반영: `agents/service.py` `_job_status`
+- [x] `POST /jobs/{job_id}/retry`의 범위와 요청·응답 → 임시 결정(정은, 팀 확정 전): 실패한 원아 Job만 pending으로 되돌려 처음부터 다시 돌립니다(원아 단위). 4~7단계가 Celery task 하나라 단계별 이어 하기는 하지 않고, 그래서 `failed_stage` 컬럼도 만들지 않습니다. 반영: 아래 §재시도 엔드포인트, `agents/service.py` `retry_generation_job`
+- [x] task 작업 시간 제한 → 임시 결정(정은, 팀 확정 전): 180초에서 300초로 올립니다. 사진 분석 호출이 최대 10회 늘어 LLM 호출이 약 20회가 됐고(호출 1회 7.6~19.4초 실측), 넘기면 다시 돌리지 않고 `failed / LLM_TIMEOUT`으로 끝나므로 위 재시도로 다시 시작합니다. 테크스펙 파이프라인 4단계의 "타임아웃 180초"(10/02 결정)는 팀 확인 뒤 고칩니다. 반영: `agents/service.py` `JOB_SOFT_TIME_LIMIT_SECONDS`, `agents/tasks.py`
 - [ ] 미분류 사유 코드, 검증 실패로 미분류된 초안의 노출과 근거 저장(한상균과 함께)
 - [x] `SentenceEvidence` 조인 경로(`source_type`·`end_ms`·`captured_at` 없음), `source_text`가 비식별 토큰으로 저장되는지 → 임시 결정(정은): agents `list_sentence_evidences(db, draft_id)`가 문장별로 묶어 줌. `source_type`은 미디어 종류로 정함(사진 `photo_observation`, 음성메모 `teacher_voice_memo`, 영상 `video_speech`, 미디어 없음 `activity_plan`), `captured_at`은 media `get_media_meta`로 붙이고, `end_ms`는 저장하지 않아 `null`. `source_text`는 토큰이 아니라 원문(실명 포함)으로 저장되므로 되살릴 필요 없음 — 교사 화면에만 실음(H-1). 영상 근거를 쓰기 시작하면 `source_type`·`end_ms`를 저장하도록 바꿈. 반영: `agents/service.py` `list_sentence_evidences`
 - [x] `evidence_id`를 불투명 문자열로 둘지, UUID로 바꿀지 → 임시 결정(정은): 불투명 문자열 그대로. 초안 안에서만 유일하면 되고(documents.md), 사진·발화 근거 ID(`photo:…`·`seg:…`)가 어디서 왔는지 드러나 추적이 쉬움
@@ -159,13 +161,34 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 - [확인 필요: 정은] 반 전체 `status` 규칙(일부 원아만 실패해도 `failed`로 볼지), 진행률 계산식, `stage` 4값을 정해야 합니다. `transcribing`을 넣을지는 STT를 누가 실행하느냐에 달려 있습니다.
 - [확인 필요: 정은·한상균] 미분류 사유 코드를 합의해야 합니다. 검증 실패로 미분류된 초안을 `drafts[]`로 보여 줄지도 정해야 합니다.
 
+### `POST /api/v1/jobs/{job_id}/retry` — 실패한 원아만 다시 시작
+
+> 임시 결정(정은, 팀 확정 전). 피그마 "처리 실패 · 단계 재시도" 화면의 버튼이 부릅니다.
+
+- 쓰는 화면: 처리 중 / 처리 실패 · 단계 재시도
+- 요구사항: FR-06
+- 권한: 교사 — 작업이 속한 반의 center 소속 교사만
+- 요청: 경로 `job_id`만 있고 본문은 없습니다.
+- 동작:
+  - 그 작업에서 `failed`인 원아 Job만 `pending`으로 되돌리고 `error_code`·`unclassified_reason`을 비우고 `retry_count`를 0으로 만든 뒤 큐에 다시 넣습니다.
+  - `succeeded`인 원아(초안·미분류)는 건드리지 않습니다.
+  - 4~7단계가 task 하나라 실패한 단계부터 이어서 하지 않고 그 원아를 처음부터 다시 돌립니다. 그래서 `failed_stage`는 쓰지 않습니다.
+  - `DRAFT_VERSION_CONFLICT`로 실패한 원아는 다시 돌리지 않습니다. 교사 수정·승인·회수 이력이 있는 기존 문서를 보존하려고 막은 것이라 다시 돌려도 같은 이유로 실패합니다.
+  - 멈춘 채 남은 원아(running 10분·pending 1시간 넘게 갱신 없음)는 먼저 `failed / LLM_TIMEOUT`으로 정리한 뒤 같은 규칙으로 다시 시작합니다.
+  - 요청이 겹쳐 와도(두 번 누름) 원아 Job은 한 번만 되돌리고 큐에 넣습니다.
+- 응답 `202`: `GET /jobs/{job_id}`와 같은 모양이고 `Location: /api/v1/jobs/{job_id}` 헤더를 붙입니다. 다시 시작한 원아는 `pending`이라 반 전체 `status`는 `running`입니다. FE는 이어서 2초마다 폴링합니다.
+- 에러:
+  - `CLASS_ACCESS_DENIED` (403) — 작업이 속한 반의 center 소속 교사가 아닐 때
+  - `JOB_NOT_FOUND` (404) — 없는 작업일 때
+  - `JOB_ALREADY_RUNNING` (409) — 같은 반·날짜에 진행 중인 원아가 있을 때(아직 안 끝난 원아가 남았거나 이미 다시 시작함). `detail.job_id`로 그 작업을 이어서 폴링합니다.
+  - `JOB_NOT_RETRYABLE` (409) — 다시 시작할 실패 원아가 없을 때(실패한 원아가 없거나 `DRAFT_VERSION_CONFLICT`뿐)
+
 ## 경로만 정한 엔드포인트
 
 경로만 정했습니다. 요청·응답은 그 화면을 만들 때 이 파일에 먼저 채웁니다(PR). 어느 화면이 쓰는지는 [screens.md](screens.md)에 있습니다. "확장(경로만)"은 위 상세 작성 엔드포인트에 필드나 파라미터를 더하는 것입니다.
 
 | 메서드·경로 | 하는 일 | 단계 | BE 담당 |
 |---|---|---|---|
-| `POST /api/v1/jobs/{job_id}/retry` | 실패한 단계 다시 시도 | 경로만 | 정은 |
 | `GET /api/v1/jobs/{job_id}/daily-routines` | 하루 정리(장면) 받기 | 경로만 | 정은 |
 | `POST /api/v1/jobs/{job_id}/resume`(가칭) | 하루 정리를 확인한 뒤 초안 생성 이어 하기 | 경로만 | 정은 |
 | `GET /api/v1/classes/{class_id}/evidence?record_date=`, `PUT /api/v1/children/{child_id}/evidence/{record_date}` | 추가 근거(교사 관찰 메모) 읽기·저장 | 제안(하단 §상의 필요 2) | 정은 |
