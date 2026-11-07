@@ -128,3 +128,53 @@ def test_ㄹ_받침과_서술격_조사도_맞춘다(text, expected):
     names = {"CHILD_A": "하늘", "CHILD_B": "가나", "CHILD_C": "민준"}
 
     assert restore_names(text, names) == expected
+
+
+# 이름 목록은 세 글자 이름만 이름을 따로 담는다(organization). 두 글자·네 글자 이름은 성명뿐이다.
+CALL_NAMES = {"child-1": ["가나"], "child-2": ["다라마바"], "child-3": ["사아자", "아자"]}
+
+
+def _masked(text: str) -> str:
+    evidence = {"ev-1": _speech("ev-1", text, ["child-1"])}
+    result = pseudonymize_evidence(
+        evidence, target_child_id="child-1", names_by_child_id=CALL_NAMES
+    )
+    return result.llm_items[0].text
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("나야, 이리 와", "CHILD_A, 이리 와"),
+        ("나야~ 블록 쌓자", "CHILD_A~ 블록 쌓자"),
+        ("나아 같이 하자", "CHILD_A 같이 하자"),
+        ("가나야 이리 와", "CHILD_A야 이리 와"),
+    ],
+    ids=["호격_야", "호격_야_물결", "호격_아", "성명_뒤_조사는_그대로"],
+)
+def test_두_글자_이름은_이름만_호격으로_부를_때_바꾼다(text, expected):
+    assert _masked(text) == expected
+
+
+def test_두_글자_이름의_뒷글자는_다른_낱말_속이면_바꾸지_않는다():
+    # "하나야"의 "나야"는 낱말 안이라 앞에 한글이 있다.
+    assert _masked("하나야 안녕") == "하나야 안녕"
+    assert _masked("나이가 많다") == "나이가 많다"
+
+
+@pytest.mark.parametrize("text", ["라마바야 이리 와", "마바야 이리 와"])
+def test_네_글자_이름은_성을_뗀_이름_부분도_바꾼다(text):
+    masked = _masked(text)
+
+    assert "마바" not in masked
+    assert masked.startswith("CHILD_B")
+
+
+def test_세_글자_이름은_목록대로만_바꾼다():
+    # 목록에 이름("아자")이 이미 있어 추가 규칙이 없다. "자야"는 건드리지 않는다.
+    assert _masked("사아자랑 아자야 안녕") == "CHILD_C랑 CHILD_C야 안녕"
+    assert _masked("자야 안녕") == "자야 안녕"
+
+
+def test_호칭_보완_패턴이_토큰_다음에_다시_걸려_토큰이_깨지지_않는다():
+    assert _masked("가나랑 나야 놀자") == "CHILD_A랑 CHILD_A 놀자"
