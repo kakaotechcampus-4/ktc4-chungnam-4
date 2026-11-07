@@ -979,6 +979,7 @@
                   photo: file.name,
                   expected: label.expected,
                   usable: face.usable,
+                  meshScore: face.meshScore,
                   angle: face.angle,
                   descriptor: face.descriptor,
                 });
@@ -989,6 +990,7 @@
                   side: label.side,
                   test: label.test,
                   usable: face.usable,
+                  meshScore: face.meshScore,
                   angle: face.angle,
                   descriptor: face.descriptor,
                 });
@@ -1074,6 +1076,305 @@
               sidePortraits.length > 0 && sideUsable === 0,
             ),
           );
+
+          // 1-1. **MIN_MESH_SCORE를 실사진으로 다시 정합니다.** 지금 0.7은 합성 사진 33장으로
+          //      고른 값입니다 — 정면이 전부 1.00, 옆모습이 0.01~0.64로 뚝 떨어져 그 사이를
+          //      골랐습니다. 그런데 정면이 1.00으로 몰린 건 **합성 사진의 특징**입니다. 조명과
+          //      거리가 모두 같아 정렬이 완벽하게 됩니다. `detector.ts` 주석이 "실사진 정면은
+          //      1.00보다 낮게 나올 수 있어 조원 사진으로 확인해야 한다"고 예고해 둔 자리입니다.
+          //
+          //      기준을 올리면 멀쩡한 정면이 버려져 교사 수동 분류로 가고, 내리면 옆모습이 새어
+          //      엉뚱한 아이에게 붙습니다 — 미동의 원아가 LLM으로 갑니다(H-2). 어느 쪽이 더
+          //      나쁜지는 정해져 있으니(H-2 쪽), **겹치면 높은 쪽**입니다.
+          const hasMesh = [...frontPortraits, ...sidePortraits].every(
+            (f) => typeof f.meshScore === "number",
+          );
+          if (!hasMesh && (frontPortraits.length > 0 || sidePortraits.length > 0)) {
+            mineOutEl.append(
+              verdict(
+                "정렬 점수를 읽지 못해 1-1(기준값 다시 정하기)을 건너뜁니다 — 모델 구성에 faceScore가 없습니다.",
+                false,
+              ),
+            );
+          }
+          if (hasMesh && frontPortraits.length > 0 && sidePortraits.length > 0) {
+            const MESH_LIMITS = [0.3, 0.4, 0.5, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95];
+            const frontStat = stats(frontPortraits.map((f) => f.meshScore));
+            const sideStat = stats(sidePortraits.map((f) => f.meshScore));
+            const overlap = frontStat.min <= sideStat.max;
+            const meshRows = MESH_LIMITS.map((v) => ({
+              v,
+              drop: frontPortraits.filter((f) => f.meshScore < v).length,
+              leak: sidePortraits.filter((f) => f.meshScore >= v).length,
+            }));
+            // 옆모습을 다 막는 가장 낮은 기준. 더 올려도 정면만 더 버립니다.
+            const sealed = meshRows.find((r) => r.leak === 0) ?? null;
+            const meshRow = (label, list) => {
+              const st = stats(list.map((f) => f.meshScore));
+              return st === null
+                ? [label, 0, "—", "—", "—"]
+                : [label, st.count, fmt(st.min), fmt(st.mean), fmt(st.max)];
+            };
+            mineOutEl.append(
+              heading("1-1. 정렬 점수 분포 — 기준값을 실사진으로 다시 정하기"),
+              tiles([
+                {
+                  value: fmt(frontStat.min),
+                  label: "정면·45도 최저 점수",
+                  note: "이보다 높게 잡으면 멀쩡한 정면을 버립니다",
+                },
+                {
+                  value: fmt(sideStat.max),
+                  label: "옆모습 최고 점수",
+                  note: "이보다 낮게 잡으면 옆모습이 샙니다",
+                },
+                {
+                  value: overlap ? "겹침" : "안 겹침",
+                  label: "정렬 점수만으로 갈리나",
+                  note: overlap
+                    ? "어떤 값을 골라도 한쪽은 틀립니다"
+                    : `${fmt(sideStat.max)} ~ ${fmt(frontStat.min)} 사이면 됩니다`,
+                  state: overlap ? "bad" : "good",
+                },
+              ]),
+              table(
+                ["묶음", "얼굴", "최저", "평균", "최고"],
+                [
+                  meshRow("정면·45도 초상", frontPortraits),
+                  meshRow("옆모습", sidePortraits),
+                  meshRow("활동 사진 속 얼굴", activity),
+                ],
+              ),
+              table(
+                ["기준값", "버려지는 정면·45도", "통과하는 옆모습"],
+                meshRows.map((r) => [
+                  r.v === MIN_MESH_SCORE ? `${fmt(r.v)} (지금)` : fmt(r.v),
+                  r.drop === 0 ? "0" : `${r.drop} / ${frontPortraits.length}`,
+                  r.leak === 0 ? "0" : `⚠${r.leak} / ${sidePortraits.length}`,
+                ]),
+              ),
+              verdict(
+                overlap
+                  ? `**겹칩니다** — 정면 최저 ${fmt(frontStat.min)} ≤ 옆모습 최고 ${fmt(sideStat.max)}. ` +
+                      "정렬 점수만으로는 옆모습을 가려낼 수 없습니다. 옆모습을 다 막으려면 " +
+                      (sealed
+                        ? `기준을 ${fmt(sealed.v)}까지 올려야 하고, 그러면 정면 ${sealed.drop} / ${frontPortraits.length}장을 버립니다. `
+                        : "이 표의 어떤 값으로도 안 됩니다. ") +
+                      "**얼굴 각도를 따로 보는 검출기(#238)가 필요하다는 근거입니다.**"
+                  : `**안 겹칩니다** — 옆모습 최고 ${fmt(sideStat.max)} < 정면 최저 ${fmt(frontStat.min)}. ` +
+                      `그 사이로 고르면 되고, ${sealed ? fmt(sealed.v) : "—"}가 옆모습을 다 막으면서 정면을 ${sealed ? sealed.drop : "—"}장만 버립니다.`,
+                !overlap,
+              ),
+              verdict(
+                `지금 기준 ${MIN_MESH_SCORE}는 **정면 ${frontPortraits.filter((f) => f.meshScore < MIN_MESH_SCORE).length} / ${frontPortraits.length}장을 버리고 ` +
+                  `옆모습 ${sidePortraits.filter((f) => f.meshScore >= MIN_MESH_SCORE).length} / ${sidePortraits.length}장을 통과시킵니다.** ` +
+                  "합성 사진에서는 둘 다 0이었습니다 — 합성으로 정한 값이 실사진에서 양쪽으로 틀린 것입니다(#237).",
+                false,
+              ),
+            );
+          }
+
+          // 1-2. **얼굴 각도(yaw)로는 갈리나.** 1-1에서 정렬 점수로는 옆모습을 못 가린다는 게
+          //      나왔습니다. 제가 #238에 "faceScore만으로는 부족하고 yaw 기준이 더 필요하다"고
+          //      적어 둔 그 뒤쪽을 여기서 잽니다.
+          //
+          //      yaw는 고개를 좌우로 돌린 각도입니다. 정면이 0도, 완전 옆모습이 90도쯤입니다.
+          //      **45도 사진은 남겨야 합니다** — 등록에서 가장 값어치 있는 사진이라(정면만 36개
+          //      → 세 각도 46개) 같이 버리면 손해가 큽니다. 그래서 "옆모습만 막고 45도는 남기는
+          //      자리가 있는가"가 질문입니다.
+          const yawOf = (f) => (f.angle ? Math.abs(f.angle.yaw) : null);
+          const knownYaw = (list) => list.filter((f) => yawOf(f) !== null);
+          const frontYawFaces = knownYaw(frontPortraits);
+          const sideYawFaces = knownYaw(sidePortraits);
+          if (frontYawFaces.length > 0 && sideYawFaces.length > 0) {
+            const YAW_LIMITS = [20, 30, 40, 50, 55, 60, 65, 70, 80, 90];
+            const named = (list, re) => list.filter((f) => re.test(f.name));
+            const yawRow = (label, list) => {
+              const st = stats(list.map((f) => yawOf(f)));
+              return st === null
+                ? [label, 0, "—", "—", "—"]
+                : [label, st.count, st.min.toFixed(0), st.mean.toFixed(0), st.max.toFixed(0)];
+            };
+            // 지금 대조에 들어가는 활동 사진 얼굴. 각도 기준은 여기에도 걸리므로
+            // 같이 세지 않으면 "옆모습은 막았는데 자동 귀속이 줄었다"를 놓칩니다.
+            const actUsable = activity.filter((f) => f.usable);
+            const yawRows = YAW_LIMITS.map((v) => ({
+              v,
+              drop: frontYawFaces.filter((f) => yawOf(f) > v).length,
+              leak: sideYawFaces.filter((f) => yawOf(f) <= v).length,
+              actDrop: actUsable.filter((f) => yawOf(f) === null || yawOf(f) > v).length,
+              // 지금 정렬 점수 기준과 **같이** 걸었을 때. 둘 중 하나라도 걸리면 버립니다.
+              bothDrop: frontYawFaces.filter((f) => f.meshScore < MIN_MESH_SCORE || yawOf(f) > v)
+                .length,
+              bothLeak: sideYawFaces.filter((f) => f.meshScore >= MIN_MESH_SCORE && yawOf(f) <= v)
+                .length,
+            }));
+            // 옆모습을 다 막는 가장 느슨한 각도(= 정면·45도를 가장 적게 버리는 자리)
+            const sealedYaw = [...yawRows].reverse().find((r) => r.leak === 0) ?? null;
+            const sealedBoth = [...yawRows].reverse().find((r) => r.bothLeak === 0) ?? null;
+            const sideMinYaw = Math.min(...sideYawFaces.map((f) => yawOf(f)));
+            const frontMaxYaw = Math.max(...frontYawFaces.map((f) => yawOf(f)));
+            const yawOverlap = sideMinYaw <= frontMaxYaw;
+            mineOutEl.append(
+              heading("1-2. 얼굴 각도(yaw)로는 갈리나 — 좌우로 돌린 정도"),
+              tiles([
+                {
+                  value: `${frontMaxYaw.toFixed(0)}°`,
+                  label: "정면·45도 중 가장 많이 돌아간 것",
+                  note: "이보다 좁게 막으면 멀쩡한 사진을 버립니다",
+                },
+                {
+                  value: `${sideMinYaw.toFixed(0)}°`,
+                  label: "옆모습 중 가장 덜 돌아간 것",
+                  note: "이보다 넓게 두면 옆모습이 샙니다",
+                },
+                {
+                  value: yawOverlap ? "겹침" : "안 겹침",
+                  label: "각도로 갈리나",
+                  note: yawOverlap
+                    ? "어떤 각도로 막아도 한쪽은 틀립니다"
+                    : `${frontMaxYaw.toFixed(0)}° ~ ${sideMinYaw.toFixed(0)}° 사이면 됩니다`,
+                  state: yawOverlap ? "bad" : "good",
+                },
+              ]),
+              table(
+                ["묶음", "얼굴", "가장 작은 각도", "평균", "가장 큰 각도"],
+                [
+                  yawRow("정면", named(frontYawFaces, /정면|front/i)),
+                  yawRow("45도", named(frontYawFaces, /45/)),
+                  yawRow("정면·45도 전부", frontYawFaces),
+                  yawRow("옆모습", sideYawFaces),
+                ],
+              ),
+              table(
+                [
+                  "각도 한계",
+                  "버려지는 정면·45도",
+                  "통과하는 옆모습",
+                  "정렬 점수와 같이 걸면 (버림 / 샘)",
+                  "대조에서 빠지는 활동 얼굴",
+                ],
+                yawRows.map((r) => [
+                  `${r.v}° 이내만 쓰기`,
+                  r.drop === 0 ? "0" : `${r.drop} / ${frontYawFaces.length}`,
+                  r.leak === 0 ? "0" : `⚠${r.leak} / ${sideYawFaces.length}`,
+                  `${r.bothDrop} / ${r.bothLeak === 0 ? "0" : `⚠${r.bothLeak}`}`,
+                  r.actDrop === 0
+                    ? "0"
+                    : `${r.actDrop} / ${actUsable.length} (${Math.round((r.actDrop / actUsable.length) * 100)}%)`,
+                ]),
+              ),
+              verdict(
+                yawOverlap
+                  ? `**딱 떨어지게 갈리지는 않습니다** — 옆모습 중 가장 덜 돌아간 것이 ${sideMinYaw.toFixed(0)}°인데 ` +
+                      `정면·45도 중 가장 많이 돌아간 것이 ${frontMaxYaw.toFixed(0)}°라 겹칩니다. ` +
+                      "다만 **겹치는 폭이 좁으면 쓸 만한 자리가 있습니다** — 위 격자에서 " +
+                      "「통과하는 옆모습 0」이면서 「버려지는 정면·45도」가 가장 적은 줄을 보세요. " +
+                      (sealedYaw
+                        ? `지금은 ${sealedYaw.v}°가 옆모습을 다 막으면서 정면·45도를 ${sealedYaw.drop}장 버립니다.`
+                        : "지금은 옆모습을 다 막는 각도가 없습니다.")
+                  : `**각도로는 갈립니다** — 정면·45도는 최대 ${frontMaxYaw.toFixed(0)}°, 옆모습은 최소 ${sideMinYaw.toFixed(0)}°입니다. ` +
+                      (sealedYaw
+                        ? `${sealedYaw.v}° 이내만 쓰면 옆모습을 다 막으면서 정면·45도를 ${sealedYaw.drop}장만 버립니다.`
+                        : ""),
+                !yawOverlap,
+              ),
+              verdict(
+                sealedBoth
+                  ? `정렬 점수(${MIN_MESH_SCORE})와 **같이** 걸면 ${sealedBoth.v}° 이내에서 옆모습이 0장 통과하고 ` +
+                      `정면·45도는 ${sealedBoth.bothDrop} / ${frontYawFaces.length}장이 버려집니다. ` +
+                      `각도만 걸었을 때(${sealedYaw ? `${sealedYaw.drop}장` : "—"})와 견줘 보세요 — ` +
+                      "정렬 점수가 버리는 12장은 각도와 상관없이 그대로 버려집니다."
+                  : "정렬 점수와 각도를 같이 걸어도 옆모습을 다 막지는 못합니다.",
+                sealedBoth !== null,
+              ),
+              (() => {
+                // "각도를 모르면 잠근다"(H-2)로 가면 얼마나 더 버리나. 정렬 점수로 이미
+                // 버려지는 얼굴이면 추가 비용이 0입니다 — 그물망을 못 씌우면 각도도 못
+                // 읽을 테니 겹칠 것 같은데, 추측하지 않고 셉니다.
+                const cross = (list) => ({
+                  knownPass: list.filter((f) => yawOf(f) !== null && f.meshScore >= MIN_MESH_SCORE)
+                    .length,
+                  knownDrop: list.filter((f) => yawOf(f) !== null && f.meshScore < MIN_MESH_SCORE)
+                    .length,
+                  unknownPass: list.filter(
+                    (f) => yawOf(f) === null && f.meshScore >= MIN_MESH_SCORE,
+                  ).length,
+                  unknownDrop: list.filter((f) => yawOf(f) === null && f.meshScore < MIN_MESH_SCORE)
+                    .length,
+                });
+                const f = cross(frontPortraits);
+                const s = cross(sidePortraits);
+                const a = cross(activity);
+                return table(
+                  [
+                    "묶음",
+                    "각도 읽음 · 점수 통과",
+                    "각도 읽음 · 점수 탈락",
+                    "각도 못 읽음 · 점수 통과",
+                    "각도 못 읽음 · 점수 탈락",
+                  ],
+                  [
+                    [
+                      "정면·45도",
+                      f.knownPass,
+                      f.knownDrop,
+                      f.unknownPass === 0 ? "0" : `⚠${f.unknownPass}`,
+                      f.unknownDrop,
+                    ],
+                    [
+                      "옆모습",
+                      s.knownPass,
+                      s.knownDrop,
+                      s.unknownPass === 0 ? "0" : `⚠${s.unknownPass}`,
+                      s.unknownDrop,
+                    ],
+                    [
+                      "활동 사진",
+                      a.knownPass,
+                      a.knownDrop,
+                      a.unknownPass === 0 ? "0" : `⚠${a.unknownPass}`,
+                      a.unknownDrop,
+                    ],
+                  ],
+                );
+              })(),
+              (() => {
+                const extra = [...frontPortraits, ...activity].filter(
+                  (f) => yawOf(f) === null && f.meshScore >= MIN_MESH_SCORE,
+                ).length;
+                return verdict(
+                  extra === 0
+                    ? "**각도를 못 읽은 얼굴은 전부 정렬 점수에서 이미 버려집니다.** " +
+                        '"모르면 잠근다"(H-2)로 가도 **추가로 버리는 얼굴이 없습니다** — 공짜입니다.'
+                    : `각도를 못 읽었는데 정렬 점수는 통과하는 얼굴이 **${extra}개** 있습니다. ` +
+                        '"모르면 잠근다"로 가면 이만큼을 더 버리고 교사 수동으로 보냅니다. ' +
+                        "그 대신 각도를 모르는 얼굴이 대조에 들어가지 않습니다(H-2).",
+                  extra === 0,
+                );
+              })(),
+              (() => {
+                // 옆모습을 다 막는 가장 느슨한 각도에서 활동 얼굴을 얼마나 잃는가.
+                // 이게 각도 기준의 진짜 값어치입니다 — 대조에 쓰는 건 활동 얼굴입니다.
+                const pick = sealedBoth ?? sealedYaw;
+                if (!pick)
+                  return verdict("옆모습을 다 막는 각도가 없어 비용을 셀 수 없습니다.", false);
+                const keep = actUsable.length - pick.actDrop;
+                return verdict(
+                  `**${pick.v}°로 막으면 대조에 들어가는 활동 얼굴이 ${actUsable.length}개 → ${keep}개가 됩니다** ` +
+                    `(${pick.actDrop}개가 빠집니다). 옆모습 ${sideYawFaces.length}장은 ${pick.bothLeak === 0 ? "전부 막힙니다" : `${pick.bothLeak}장이 샙니다`}. ` +
+                    "자동 귀속은 남은 얼굴에서만 나오므로, **빠지는 수가 크면 각도 기준이 손해**입니다.",
+                  pick.actDrop <= actUsable.length * 0.1,
+                );
+              })(),
+              verdict(
+                `각도 기준 표는 각도를 읽은 얼굴만 셉니다 — 정면·45도 ${frontYawFaces.length} / ${frontPortraits.length}장, ` +
+                  `옆모습 ${sideYawFaces.length} / ${sidePortraits.length}장.`,
+                frontYawFaces.length === frontPortraits.length &&
+                  sideYawFaces.length === sidePortraits.length,
+              ),
+            );
+          }
 
           // 3) 등록 벡터 — worker와 같은 방식(여러 장 평균). 옆모습·시험용·usable=false는 뺍니다.
           const people = [...new Set(regPortraits.map((p) => p.person))].sort();
@@ -2175,6 +2476,132 @@
                         : `각도를 안 걸러도 ${none.best?.ok ?? 0}건이 최선입니다 — **각도 거르기는 이득이 없습니다.** ` +
                           "위험한 판정이 애초에 기준값에 안 걸리기 때문입니다."),
                     (top.best?.ok ?? 0) > (none.best?.ok ?? 0),
+                  ),
+                ];
+              })(),
+              ...(() => {
+                // 9. **고른 자료로 채점하지 않기.** 8번 격자는 판정 전부로 기준값을 고르고
+                //    **같은 판정으로** "위험 0"을 확인했습니다. 0이 되도록 고른 값이라 0인 게
+                //    당연합니다 — 자랑이 아니라 고른 방식이 만든 결과입니다(#293 엄태은 님 지적).
+                //
+                //    새로 찍은 사진은 마감 안에 못 구하므로, 가진 판정을 **절반으로 갈라**
+                //    한쪽에서 고르고 **고를 때 안 본 나머지 절반**으로 확인합니다. 무작위 분할을
+                //    여러 번 반복해 "처음 보는 판정에서도 위험 0인 비율"을 셉니다.
+                if (trials.length < 20) return [];
+                const REPEATS = 200;
+                // 돌릴 때마다 숫자가 바뀌면 이슈·PR에 적을 수 없어 씨앗을 고정합니다(mulberry32).
+                let seed = 20261108;
+                const rand = () => {
+                  seed = (seed + 0x6d2b79f5) | 0;
+                  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+                  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+                  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+                };
+                const autoOn = (list, s, m) => list.filter((t) => t.score >= s && t.margin >= m);
+                const riskyOn = (list, s, m) => autoOn(list, s, m).filter((t) => t.risk).length;
+                const bestOn = (list) => {
+                  let best = null;
+                  for (const s of SCORES)
+                    for (const m of MARGINS) {
+                      const auto = autoOn(list, s, m);
+                      if (auto.some((t) => t.risk)) continue;
+                      if (!best || auto.length > best.ok) best = { s, m, ok: auto.length };
+                    }
+                  return best;
+                };
+                const picked = new Map();
+                let learnedSafe = 0;
+                let learnedNone = 0;
+                let learnedAuto = 0;
+                let screenSafe = 0;
+                let screenAuto = 0;
+                let codeSafe = 0;
+                let codeAuto = 0;
+                for (let i = 0; i < REPEATS; i += 1) {
+                  const shuffled = [...trials];
+                  for (let j = shuffled.length - 1; j > 0; j -= 1) {
+                    const k = Math.floor(rand() * (j + 1));
+                    [shuffled[j], shuffled[k]] = [shuffled[k], shuffled[j]];
+                  }
+                  const cut = Math.floor(shuffled.length / 2);
+                  const pick = shuffled.slice(0, cut);
+                  const check = shuffled.slice(cut);
+                  const best = bestOn(pick);
+                  if (best === null) learnedNone += 1;
+                  else {
+                    const key = `${best.s} / ${best.m}`;
+                    picked.set(key, (picked.get(key) ?? 0) + 1);
+                    if (riskyOn(check, best.s, best.m) === 0) learnedSafe += 1;
+                    learnedAuto += autoOn(check, best.s, best.m).length;
+                  }
+                  if (riskyOn(check, MATCH_MIN_SCORE, MATCH_MIN_MARGIN) === 0) screenSafe += 1;
+                  screenAuto += autoOn(check, MATCH_MIN_SCORE, MATCH_MIN_MARGIN).length;
+                  if (riskyOn(check, MATCHER_SCORE, MATCHER_MARGIN) === 0) codeSafe += 1;
+                  codeAuto += autoOn(check, MATCHER_SCORE, MATCHER_MARGIN).length;
+                }
+                const learnedRuns = REPEATS - learnedNone;
+                const pct = (n, d) => (d === 0 ? "—" : `${Math.round((n / d) * 100)}%`);
+                const mean = (n, d) => (d === 0 ? "—" : (n / d).toFixed(1));
+                const topPicks = [...picked].sort((a, b) => b[1] - a[1]).slice(0, 5);
+                return [
+                  heading(`9. 고를 때 안 본 절반으로 확인 — ${REPEATS}번 무작위 반반 분할`),
+                  tiles([
+                    {
+                      value: pct(screenSafe, REPEATS),
+                      label: `화면 기준 ${MATCH_MIN_SCORE} / ${MATCH_MIN_MARGIN}`,
+                      note: "안 본 절반에서 틀린 자동이 0건인 비율",
+                      state:
+                        screenSafe === REPEATS
+                          ? "good"
+                          : screenSafe >= REPEATS * 0.95
+                            ? undefined
+                            : "bad",
+                    },
+                    {
+                      value: pct(codeSafe, REPEATS),
+                      label: `지금 코드 ${MATCHER_SCORE} / ${MATCHER_MARGIN}`,
+                      note: "같은 방식으로 잰 비교값",
+                      state: codeSafe === REPEATS ? "good" : undefined,
+                    },
+                    {
+                      value: pct(learnedSafe, learnedRuns),
+                      label: "절반으로 고른 값이 나머지에서 안전",
+                      note: `${learnedRuns}번 중 ${learnedSafe}번 — 고르는 방식 자체를 잽니다`,
+                      state: learnedSafe === learnedRuns ? "good" : undefined,
+                    },
+                  ]),
+                  table(
+                    ["무엇", "틀린 자동 0건", "안 본 절반에서 평균 자동"],
+                    [
+                      [
+                        `화면 ${MATCH_MIN_SCORE} / ${MATCH_MIN_MARGIN}`,
+                        `${screenSafe} / ${REPEATS}`,
+                        mean(screenAuto, REPEATS),
+                      ],
+                      [
+                        `지금 코드 ${MATCHER_SCORE} / ${MATCHER_MARGIN}`,
+                        `${codeSafe} / ${REPEATS}`,
+                        mean(codeAuto, REPEATS),
+                      ],
+                      [
+                        "절반에서 고른 최선",
+                        `${learnedSafe} / ${learnedRuns}`,
+                        mean(learnedAuto, learnedRuns),
+                      ],
+                    ],
+                  ),
+                  table(
+                    ["절반만 보고 고르면 뽑히는 기준값", "뽑힌 횟수"],
+                    topPicks.map(([key, n]) => [key, `${n} / ${learnedRuns}`]),
+                  ),
+                  verdict(
+                    "**새로 찍은 사진이 아닙니다.** 같은 사람·같은 촬영을 둘로 가른 것이라 " +
+                      "새 자료 검증을 대신하지 못합니다. 다만 **고를 때 쓴 판정으로 채점했다는 " +
+                      "부분은 풉니다** — 위 숫자는 전부 고를 때 보지 않은 절반에서 잰 것입니다. " +
+                      (screenSafe === REPEATS
+                        ? `화면 기준 ${MATCH_MIN_SCORE} / ${MATCH_MIN_MARGIN}는 ${REPEATS}번 모두 틀린 자동이 0건이었습니다.`
+                        : `화면 기준 ${MATCH_MIN_SCORE} / ${MATCH_MIN_MARGIN}는 ${REPEATS}번 중 ${REPEATS - screenSafe}번 틀린 자동이 나왔습니다.`),
+                    screenSafe === REPEATS,
                   ),
                 ];
               })(),
