@@ -19,7 +19,7 @@ from pathlib import Path
 from tools.contracts import DocType
 from tools.generation.pseudonymize import LlmEvidence
 
-PROMPT_VERSION = "parent_note.v5"
+PROMPT_VERSION = "parent_note.v9"
 
 _EVIDENCE_SLOT = "{{EVIDENCE_LIST}}"
 _FEEDBACK_SLOT = "{{FEEDBACK}}"
@@ -44,6 +44,8 @@ def build_draft_prompt(
     doc_type: DocType,
     evidence: Sequence[LlmEvidence],
     feedback: Sequence[DraftFeedback] = (),
+    *,
+    routine: str | None = None,
 ) -> str:
     if not evidence:
         raise ValueError("근거가 없으면 초안을 만들지 않습니다.")
@@ -68,7 +70,10 @@ def build_draft_prompt(
         ensure_ascii=False,
         indent=1,
     )
-    values = {_EVIDENCE_SLOT: evidence_list, _FEEDBACK_SLOT: feedback_list}
+    values = {
+        _EVIDENCE_SLOT: routine if routine is not None else evidence_list,
+        _FEEDBACK_SLOT: feedback_list,
+    }
     template = _load_template(_TEMPLATE_BY_DOC_TYPE[doc_type])
     # 한 번에 치환한다. 근거 본문에 슬롯 문자열이 섞여 있어도 다시 치환되지 않는다.
     return _SLOT_PATTERN.sub(lambda match: values[match.group(0)], template)

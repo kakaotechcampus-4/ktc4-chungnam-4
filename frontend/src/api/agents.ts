@@ -1,3 +1,5 @@
+import { toObservationJobBody } from "./agents-adapter";
+import type { ObservationJobInput } from "./agents-view";
 import { queryOptions } from "@tanstack/react-query";
 
 import { api } from "@/lib/api-client";
@@ -103,6 +105,15 @@ export async function saveTeacherEvidence(
     await api.put<TeacherEvidence>(
       `/children/${encodeURIComponent(childId)}/evidence/${encodeURIComponent(recordDate)}`,
       toTeacherEvidenceBody(input),
+    ),
+  );
+}
+
+export async function createObservationJob(childId: string, input: ObservationJobInput) {
+  return toJobView(
+    await api.post<Job>(
+      `/children/${encodeURIComponent(childId)}/observation-jobs`,
+      toObservationJobBody(input),
     ),
   );
 }

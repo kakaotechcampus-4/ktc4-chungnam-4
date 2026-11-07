@@ -45,6 +45,7 @@ from domains.media.models import MediaAsset, MediaChildLink, MediaUpload, Transc
 from domains.organization.service import (
     ensure_children_in_class,
     ensure_class_access,
+    get_class_enrolled_child_names,
     get_consented_children,
 )
 
@@ -1302,11 +1303,14 @@ def transcribe_media(media_id: str) -> None:
         if asset.transcript_status != TRANSCRIPT_PENDING:
             return
         storage_key, source = asset.storage_url, _TRANSCRIPT_SOURCE[asset.type]
+        # 교사가 호칭이나 성명으로 부른 원아 이름을 같은 글자로 받아 적게, 반 재원 원아의 [호칭, 성명]을
+        # 넘깁니다. 졸업·퇴소 원아의 실명은 밖으로 보내지 않습니다(#269 리뷰)
+        names = list(get_class_enrolled_child_names(session, asset.class_id).values())
 
     started = clock.monotonic()
     try:
         chunks = _speech_chunks(storage_key)
-        speech = stt.transcribe_chunks(chunks) if chunks else []
+        speech = stt.transcribe_chunks(chunks, names=names) if chunks else []
     except (audio.AudioExtractionError, stt.SttError, ClientError, BotoCoreError) as error:
         logger.warning("transcription failed for media %s: %s", media_id, type(error).__name__)
         mark_transcription_failed(media_id)

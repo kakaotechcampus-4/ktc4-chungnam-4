@@ -99,11 +99,22 @@ def test_코드_블록으로_감싼_응답도_읽는다():
     assert result.issues == []
 
 
-def test_코드_블록_밖에_다른_말이_있으면_응답_오류로_처리한다():
+def test_앞_설명_뒤의_완전한_코드_블록은_읽는다():
     raw = "판정 결과입니다.\n```json\n" + _all_pass() + "\n```"
-
     result = parse_critic_response(raw, _document())
+    assert result.passed is True
 
+
+def test_코드_블록_뒤에_설명이_붙으면_응답_오류다():
+    raw = "```json\n" + _all_pass() + "\n```\n판정 결과입니다."
+    result = parse_critic_response(raw, _document())
+    assert result.passed is False
+    assert result.issues[0].check_type == VerificationCheckType.CRITIC_RESPONSE_ERROR
+
+
+def test_앞_설명을_읽어도_잘못된_근거는_통과하지_않는다():
+    raw = "판정 결과입니다.\n```json\n" + _all_pass().replace("ev_001", "missing") + "\n```"
+    result = parse_critic_response(raw, _document())
     assert result.passed is False
     assert result.issues[0].check_type == VerificationCheckType.CRITIC_RESPONSE_ERROR
 

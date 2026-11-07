@@ -133,8 +133,14 @@ def _draft(
     return draft
 
 
-def _publish(db: Session, draft: DraftDocument, *, revoked: bool = False) -> datetime:
-    published_at = datetime(2026, 10, 27, 8, 40, tzinfo=UTC)
+def _publish(
+    db: Session,
+    draft: DraftDocument,
+    *,
+    revoked: bool = False,
+    viewed: bool = False,
+    published_at: datetime = datetime(2026, 10, 27, 8, 40, tzinfo=UTC),
+) -> datetime:
     db.add(
         DocumentPublication(
             draft_id=draft.id,
@@ -144,6 +150,7 @@ def _publish(db: Session, draft: DraftDocument, *, revoked: bool = False) -> dat
             published_at=published_at,
             revoke_deadline=published_at + timedelta(hours=24),
             revoked_at=published_at + timedelta(hours=1) if revoked else None,
+            first_viewed_at=published_at + timedelta(minutes=10) if viewed else None,
         )
     )
     db.flush()
@@ -156,6 +163,8 @@ def _summary(draft: DraftDocument, preview: str, published_at: str | None = None
         "status": draft.status,
         "version": draft.version,
         "published_at": published_at,
+        "revoke_deadline": None,
+        "can_revoke": False,
         "preview": preview,
     }
 
@@ -271,6 +280,41 @@ def test_활성_게시_회차가_있으면_게시_시각을_싣고_회수된_회
     # 테스트 DB(SQLite)는 시간대를 저장하지 않아 "Z"가 빠진다. PostgreSQL은 timestamptz라 UTC로 온다.
     assert published_at[0].removesuffix("Z") == "2026-10-27T08:40:00"
     assert published_at[1] is None
+
+
+def test_회수_기한과_회수_가능_여부를_상세와_같은_규칙으로_싣는다(client, db):
+    """게시 완료 화면이 상세를 미리 받지 않고 회수 버튼을 정하게 한다 (#260)."""
+    center_id, class_id = _class(db)
+    just_now = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=1)
+    open_ = _draft(db, _child(db, class_id, "가나"), status=DraftStatus.APPROVED)
+    viewed = _draft(db, _child(db, class_id, "다라"), status=DraftStatus.APPROVED)
+    expired = _draft(db, _child(db, class_id, "마바"), status=DraftStatus.APPROVED)
+    revoked = _draft(db, _child(db, class_id, "사아"), status=DraftStatus.APPROVED)
+    unpublished = _draft(db, _child(db, class_id, "자차"), status=DraftStatus.APPROVED)
+    _publish(db, open_, published_at=just_now)
+    _publish(db, viewed, published_at=just_now, viewed=True)
+    _publish(db, expired)  # 10/27 게시라 기한이 지났다
+    _publish(db, revoked, revoked=True)
+    db.commit()
+    _login_as_teacher(center_id)
+
+    response = client.get(PATH.format(class_id=class_id), params={"record_date": "2026-10-27"})
+
+    by_draft = {
+        item["parent_note"]["draft_id"]: item["parent_note"] for item in response.json()["items"]
+    }
+    # 테스트 DB(SQLite)는 시간대를 저장하지 않아 "Z"가 빠진다. PostgreSQL은 timestamptz라 UTC로 온다.
+    deadline = (just_now + timedelta(hours=24)).replace(tzinfo=None).isoformat()
+    assert by_draft[str(open_.id)]["revoke_deadline"].removesuffix("Z") == deadline
+    assert by_draft[str(open_.id)]["can_revoke"] is True
+    # 학부모가 본문을 열었어도 기한 안이면 회수할 수 있다 (#266).
+    assert by_draft[str(viewed.id)]["revoke_deadline"].removesuffix("Z") == deadline
+    assert by_draft[str(viewed.id)]["can_revoke"] is True
+    assert by_draft[str(expired.id)]["revoke_deadline"].removesuffix("Z") == "2026-10-28T08:40:00"
+    assert by_draft[str(expired.id)]["can_revoke"] is False
+    for draft in (revoked, unpublished):
+        assert by_draft[str(draft.id)]["revoke_deadline"] is None
+        assert by_draft[str(draft.id)]["can_revoke"] is False
 
 
 def test_published면_게시본만_담고_날짜가_없으면_원아마다_가장_최근_게시본_하나다(client, db):

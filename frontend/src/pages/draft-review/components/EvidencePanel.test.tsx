@@ -17,6 +17,7 @@ function evidence(overrides: Partial<EvidenceView> = {}): EvidenceView {
     start_ms: 2600,
     end_ms: 4000,
     captured_at: null,
+    source_document_id: null,
     ...overrides,
   };
 }
@@ -24,6 +25,7 @@ function evidence(overrides: Partial<EvidenceView> = {}): EvidenceView {
 function sentence(evidences: EvidenceView[]): SentenceView {
   return {
     sentence_id: "s1",
+    section: null,
     text: "더 높이 쌓겠다고 말했어요.",
     is_edited_by_teacher: false,
     evidences,
@@ -158,4 +160,22 @@ describe("EvidencePanel 근거 재생", () => {
     expect(screen.queryByRole("button", { name: /재생$/ })).not.toBeInTheDocument();
     expect(screen.getByText("문장이 근거와 맞는지 확인해 보세요.")).toBeInTheDocument();
   });
+});
+
+it("교사가 글로 남긴 메모 근거는 출처를 교사 메모로 보여 준다", () => {
+  renderPanel(
+    [
+      evidence({
+        evidence_id: "note:1",
+        source_type: "teacher_note",
+        text: "비 오는 날 우산을 직접 챙겼어요.",
+        media_id: null,
+        start_ms: null,
+        end_ms: null,
+      }),
+    ],
+    [],
+  );
+
+  expect(screen.getByText("교사 메모")).toBeInTheDocument();
 });

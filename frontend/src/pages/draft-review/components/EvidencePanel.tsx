@@ -16,6 +16,7 @@ const SOURCE_LABEL_MAP: Record<EvidenceSourceTypeView, string> = {
   teacher_voice_memo: "교사 음성 메모",
   teacher_note: "교사 메모",
   activity_plan: "활동 계획",
+  parent_note: "게시된 알림장",
 };
 
 /** 근거 구간이 이보다 짧아도 이만큼은 들려줍니다(테크스펙 파이프라인 8단계 "원본 영상 구간 3초 재생"). */
