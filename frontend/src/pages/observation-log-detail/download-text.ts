@@ -7,7 +7,10 @@ export function toPlainText(rows: readonly ObservationRow[]): string {
     .join("\n\n");
 }
 
-/** 서버를 거치지 않고 브라우저에서 텍스트 파일로 저장합니다. 임시 주소는 쓰고 바로 풉니다. */
+/** 임시 주소를 푸는 시간. `click()` 직후에 풀면 브라우저에 따라 다운로드가 끊길 수 있어 잠깐 둡니다. */
+export const REVOKE_DELAY_MS = 1000;
+
+/** 서버를 거치지 않고 브라우저에서 텍스트 파일로 저장합니다. 임시 주소는 쓰고 잠깐 뒤에 풉니다. */
 export function downloadTextFile(filename: string, text: string) {
   const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
   const anchor = document.createElement("a");
@@ -16,5 +19,5 @@ export function downloadTextFile(filename: string, text: string) {
   document.body.append(anchor);
   anchor.click();
   anchor.remove();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), REVOKE_DELAY_MS);
 }
