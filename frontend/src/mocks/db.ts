@@ -84,6 +84,8 @@ export interface JobChildRecord {
   failed_stage: JobStage | null;
   error_code: JobErrorCode | null;
   drafts: { draft_id: string; doc_type: DocType }[];
+  /** POST /jobs/{job_id}/retry로 다시 시작한 원아. 시나리오가 실패를 되풀이하지 않게 합니다. */
+  retried?: boolean;
 }
 
 export interface JobRecord {

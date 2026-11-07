@@ -124,6 +124,26 @@ def read_generation_job(
 
 
 @router.post(
+    "/jobs/{job_id}/retry",
+    response_model=GenerationJobResponse,
+    status_code=HTTPStatus.ACCEPTED,
+)
+def retry_generation_job(
+    job_id: UUID,
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+    teacher: CurrentTeacher,
+) -> GenerationJobResponse:
+    """실패한 원아만 다시 시작합니다. 성공·미분류 원아의 초안은 그대로 둡니다 (FR-06)."""
+    retried = service.retry_generation_job(db, job_id=job_id, center_id=teacher.center_id)
+    # worker가 Job 행을 읽으므로 커밋한 뒤에 큐에 넣습니다
+    db.commit()
+    enqueue_generate_drafts(retried.to_enqueue)
+    response.headers["Location"] = f"/api/v1/jobs/{job_id}"
+    return _to_response(retried.status)
+
+
+@router.post(
     "/children/{child_id}/observation-jobs",
     response_model=GenerationJobResponse,
     status_code=HTTPStatus.ACCEPTED,

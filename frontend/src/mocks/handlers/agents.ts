@@ -224,7 +224,12 @@ function advance(db: MockDb, job: JobRecord) {
       continue;
     }
     child.steps += 1;
-    if (failsFirstChild && child === job.children[0] && STAGES[child.steps] === "generating") {
+    if (
+      failsFirstChild &&
+      !child.retried &&
+      child === job.children[0] &&
+      STAGES[child.steps] === "generating"
+    ) {
       child.status = "failed";
       child.failed_stage = "generating";
       child.error_code = "LLM_TIMEOUT";
@@ -405,6 +410,50 @@ export const handlers = [
     const classDenied = requireTeacherOfClass(job.class_id);
     if (classDenied) return classDenied;
     return HttpResponse.json<Job>(jobView(job));
+  }),
+
+  // 임시 결정(정은): 실패한 원아만 처음부터 다시 돌립니다(docs/api/agents.md §재시도). 성공·미분류 원아는 그대로 둡니다.
+  http.post(apiPath("/jobs/:jobId/retry"), ({ params }) => {
+    const denied = requireTeacher();
+    if (denied) return denied;
+    const outcome = updateDb((db) => {
+      const found = db.jobs[String(params.jobId)];
+      if (!found) return { error: "not_found" as const };
+      const classDenied = requireTeacherOfClass(found.class_id);
+      if (classDenied) return { error: "denied" as const, response: classDenied };
+      if (found.children.some((child) => !isFinished(child))) {
+        return { error: "running" as const };
+      }
+      const retryable = found.children.filter(
+        (child) => child.status === "failed" && child.error_code !== "DRAFT_VERSION_CONFLICT",
+      );
+      if (retryable.length === 0) return { error: "not_retryable" as const };
+      for (const child of retryable) {
+        child.status = "pending";
+        child.steps = 0;
+        child.failed_stage = null;
+        child.error_code = null;
+        child.retried = true;
+      }
+      found.updated_at = nowIso();
+      return { job: found };
+    });
+    if ("error" in outcome) {
+      if (outcome.error === "denied") return outcome.response;
+      if (outcome.error === "not_found") {
+        return errorResponse(404, "JOB_NOT_FOUND", "작업을 찾을 수 없어요.");
+      }
+      if (outcome.error === "running") {
+        return errorResponse(409, "JOB_ALREADY_RUNNING", "이미 처리하고 있어요.", {
+          job_id: String(params.jobId),
+        });
+      }
+      return errorResponse(409, "JOB_NOT_RETRYABLE", "다시 시도할 수 있는 실패가 없어요.");
+    }
+    return HttpResponse.json<Job>(jobView(outcome.job), {
+      status: 202,
+      headers: { Location: apiPath(`/jobs/${outcome.job.job_id}`) },
+    });
   }),
 
   // (가정) API 문서에는 경로만 있습니다(정은 님이 agents 페이지에 채울 예정). 목은 그 반·날짜의 Job 목록을 최신순으로 줍니다.

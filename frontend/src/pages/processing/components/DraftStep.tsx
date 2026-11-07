@@ -1,8 +1,15 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
-import { createJob, isJobFinished, jobQueryOptions, type JobView } from "@/api/agents";
+import {
+  agentsKeys,
+  createJob,
+  isJobFinished,
+  jobQueryOptions,
+  retryJob,
+  type JobView,
+} from "@/api/agents";
 import { classChildrenQueryOptions } from "@/api/organization";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
 import { uploadTargets, useUploadQueue } from "@/features/upload-queue/upload-queue-store";
@@ -38,6 +45,7 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
     uploadTargets(useUploadQueue.getState().items).flatMap((item) => item.server_media_id ?? []),
   );
   const started = useRef(false);
+  const queryClient = useQueryClient();
 
   const create = useMutation({
     mutationFn: (classId: string) =>
@@ -56,6 +64,18 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
     enabled: jobId !== undefined,
   });
   const job = polled ?? create.data;
+
+  // 실패한 아이만 다시 시작합니다(임시 결정(정은), docs/api/agents.md §재시도). 돌려받은 작업을 캐시에 넣으면
+  // 폴링이 이어져 진행 화면으로 돌아갑니다. DRAFT_VERSION_CONFLICT는 기존 문서를 지키려고 막은 것이라 제외합니다.
+  const retry = useMutation({
+    mutationFn: retryJob,
+    onSuccess: (retried) => queryClient.setQueryData(agentsKeys.job(retried.job_id), retried),
+  });
+  const canRetry = Boolean(
+    job?.children.some(
+      (child) => child.status === "failed" && child.error_code !== "DRAFT_VERSION_CONFLICT",
+    ),
+  );
 
   useEffect(() => {
     if (started.current || currentClass === null) return;
@@ -127,6 +147,17 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
           ) : null}
           {job.children.some((child) => child.unclassified_reason === "no_consent") ? (
             <p>AI 분석 동의가 없는 아이는 자동 생성에서 제외했어요.</p>
+          ) : null}
+          {retry.isError ? <p>{retry.error.message}</p> : null}
+          {canRetry ? (
+            <Button
+              disabled={retry.isPending}
+              onClick={() => {
+                retry.mutate(job.job_id);
+              }}
+            >
+              실패한 아이만 다시 시도
+            </Button>
           ) : null}
           <Button onClick={() => onDone(job)}>결과 확인하기</Button>
         </div>

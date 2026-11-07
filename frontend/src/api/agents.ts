@@ -44,6 +44,14 @@ export async function createJob(classId: string, input: JobCreateInput) {
   );
 }
 
+/**
+ * 실패한 원아만 다시 시작합니다(임시 결정(정은), docs/api/agents.md §재시도). 응답은 GET /jobs와 같은 모양입니다.
+ * 성공하면 돌려받은 작업을 캐시에 넣어 폴링을 이어 가게 하세요.
+ */
+export async function retryJob(jobId: string) {
+  return toJobView(await api.post<Job>(`/jobs/${encodeURIComponent(jobId)}/retry`));
+}
+
 /** 작업 진행 상태. succeeded·failed가 되면 폴링을 멈춥니다. 캐시에는 화면용 모양(JobView)이 들어갑니다. */
 export function jobQueryOptions(jobId: string) {
   return queryOptions({

@@ -13,6 +13,11 @@ from celery.exceptions import SoftTimeLimitExceeded
 from domains.agents import tasks
 
 
+def test_작업_시간_제한은_service_상수를_따른다() -> None:
+    """사진 분석 호출이 늘어 180초에서 300초로 올렸다."""
+    assert tasks.generate_drafts.soft_time_limit == tasks.service.JOB_SOFT_TIME_LIMIT_SECONDS == 300
+
+
 def _retries_on(error_type: type[Exception]) -> bool:
     return any(issubclass(error_type, retryable) for retryable in tasks.RETRYABLE_ERRORS)
 
@@ -173,4 +178,5 @@ def test_에이전트_시간초과는_LLM_TIMEOUT으로_종료한다(monkeypatch
     monkeypatch.setattr(tasks.service, "mark_job_failed", lambda *a, **kw: failures.append(kw))
     tasks.generate_drafts.on_failure(SoftTimeLimitExceeded(), "task", ("job", "child"), {}, None)
     assert failures == [{"error_code": "LLM_TIMEOUT"}]
-    assert tasks.generate_drafts.soft_time_limit == 180
+    # 제한 시간은 service 상수 한 곳에서 정한다(180초에서 300초로 올림, test_작업_시간_제한_...)
+    assert tasks.generate_drafts.soft_time_limit == tasks.service.JOB_SOFT_TIME_LIMIT_SECONDS
