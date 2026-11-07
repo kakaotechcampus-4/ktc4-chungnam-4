@@ -30,7 +30,7 @@ import type { ClassChildView } from "@/api/organization";
 import { type DayRow, DayTimeline } from "./components/DayTimeline";
 import { EvidenceCard } from "./components/EvidenceCard";
 import { NextOutputs } from "./components/NextOutputs";
-import { nickname } from "./nickname";
+import { nickname } from "@/lib/child-name";
 
 // 아이별 하루 확인(FR-27). 서버 전송 전, 분류 결과의 아이 카드에서 들어옵니다(#83 리뷰, 송유진 님 흐름).
 // 서버가 만든 하루 일과가 아니라 이 기기의 자료(사진)와 서버 STT 발화, 추가 근거로 그립니다.

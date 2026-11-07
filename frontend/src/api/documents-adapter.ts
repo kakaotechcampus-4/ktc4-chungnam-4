@@ -402,6 +402,15 @@ export function toParentNoteDetailView(raw: ParentNoteDetail): ParentNoteDetailV
     record_date: raw.record_date,
     content: raw.content,
     author_name: raw.author_name,
+    published_at: raw.published_at,
+    prev: raw.prev && {
+      parent_note_id: raw.prev.parent_note_id,
+      record_date: raw.prev.record_date,
+    },
+    next: raw.next && {
+      parent_note_id: raw.next.parent_note_id,
+      record_date: raw.next.record_date,
+    },
     photos: raw.photos.map((photo) => ({
       media_id: photo.media_id,
       type: photo.type,

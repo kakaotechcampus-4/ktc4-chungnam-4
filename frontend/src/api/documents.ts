@@ -67,6 +67,9 @@ export type {
   ParentMediaItemView,
   ParentMediaListView,
   ParentMediaTypeView,
+  ParentNoteLinkView,
+  ParentNoteListView,
+  ParentNoteSummaryView,
   PublicationResultView,
   PublicationStatusView,
   RevokedPublicationView,
@@ -112,10 +115,16 @@ export const documentsKeys = {
    */
   selectableMedia: (draftId: string) => ["selectable-media", draftId] as const,
   /** 커서도 키에 넣습니다. 페이지마다 캐시가 따로여야 다음 페이지가 첫 페이지를 덮지 않습니다. */
-  parentNotes: (childId: string, cursor: string | null = null) =>
-    ["children", childId, "parent-notes", cursor] as const,
+  parentNotes: (childId: string, cursor: string | null = null, keyword = "") =>
+    keyword
+      ? (["children", childId, "parent-notes", cursor, keyword] as const)
+      : (["children", childId, "parent-notes", cursor] as const),
   parentNote: (parentNoteId: string) => ["parent-notes", parentNoteId] as const,
-  parentMedia: (childId: string) => ["children", childId, "parent-media"] as const,
+  // 검색어 없는 키가 앞부분이라, 이 키로 비우면 검색 결과도 함께 비워집니다.
+  parentMedia: (childId: string, keyword = "") =>
+    keyword
+      ? (["children", childId, "parent-media", keyword] as const)
+      : (["children", childId, "parent-media"] as const),
 };
 
 /** 교사용: 반·날짜별 원아 초안 상태(레일, 게시 대상 고르기). "자료 없음" 행은 명단과 비교해 만듭니다. */
@@ -235,14 +244,14 @@ export async function publishParentNotes(body: PublicationRequest) {
 }
 
 /** 학부모용: 게시된 글만 서버 권한 게이트를 거쳐 조회합니다. */
-export function parentNotesQueryOptions(childId: string, cursor?: string) {
+export function parentNotesQueryOptions(childId: string, cursor?: string, keyword = "") {
   return queryOptions({
-    queryKey: documentsKeys.parentNotes(childId, cursor ?? null),
+    queryKey: documentsKeys.parentNotes(childId, cursor ?? null, keyword),
     queryFn: async ({ signal }) =>
       toParentNoteListView(
         await api.get<ParentNoteList>(`/children/${encodeURIComponent(childId)}/parent-notes`, {
           signal,
-          query: cursor ? { cursor } : undefined,
+          query: { cursor, q: keyword || undefined },
         }),
       ),
   });
@@ -264,15 +273,15 @@ export function parentNoteQueryOptions(parentNoteId: string) {
  * 학부모용: 자녀가 받은 사진·영상(FR-10). 알림장 날짜 최신순으로 몇 건씩 이어 받습니다.
  * 승인·게시된 알림장에 교사가 고른 것만 옵니다(H-1). 받을 때마다 열람 기록이 남습니다(NFR-05).
  */
-export function parentMediaInfiniteQueryOptions(childId: string) {
+export function parentMediaInfiniteQueryOptions(childId: string, keyword = "") {
   return infiniteQueryOptions({
-    queryKey: documentsKeys.parentMedia(childId),
+    queryKey: documentsKeys.parentMedia(childId, keyword),
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam, signal }) =>
       toParentMediaListView(
         await api.get<ParentMediaList>(`/children/${encodeURIComponent(childId)}/parent-media`, {
           signal,
-          query: { cursor: pageParam },
+          query: { cursor: pageParam, q: keyword || undefined },
         }),
       ),
     getNextPageParam: (lastPage) => lastPage.next_cursor,
