@@ -73,10 +73,6 @@ logger = logging.getLogger(__name__)
 # PASS 초안 저장이 교사 문서와 충돌해 건너뛴 경우의 로그 코드. 원인은 세분화하지 않는다 (#75).
 DRAFT_SAVE_CONFLICT = "draft_save_conflict"
 
-# 원아 1명·하루에 LLM으로 보낼 사진 수 상한. agents CLAUDE.md의 "3~5장 권장"에서 위쪽 값을
-# 골랐다. TODO(eun): 정확한 상한과 고르는 기준(지금은 하루 전체에서 고르게)은 확정 예정이다.
-MAX_PHOTOS_PER_CHILD = 5
-
 # 매일 도는 Job이 만드는 문서. 관찰일지는 주기·양식이 원마다 달라 생성 조건이 정해진 뒤
 # 따로 붙인다 (#115, open-questions 32번).
 DAILY_DOC_TYPE = contracts.DocType.PARENT_NOTE
@@ -797,7 +793,7 @@ def _collect_evidence(session: Session, child_id: str, target_date: datetime) ->
 
     빈 Bundle도 저장하며, 생성에 쓸 관찰 근거가 없으면 orchestrate_drafts가 미분류로 끝낸다.
     """
-    media = _cap_photos(media_service.collect_media_for_llm(session, UUID(child_id), target_date))
+    media = media_service.collect_media_for_llm(session, UUID(child_id), target_date)
     bundle = EvidenceBundle(
         id=uuid4(),
         child_id=UUID(child_id),
@@ -813,23 +809,6 @@ def _collect_evidence(session: Session, child_id: str, target_date: datetime) ->
     session.add(bundle)
     session.commit()
     return bundle
-
-
-def _cap_photos(media: list[media_service.MediaEvidence]) -> list[media_service.MediaEvidence]:
-    """사진을 MAX_PHOTOS_PER_CHILD장까지만 남긴다. 영상·음성은 1차 근거라 자르지 않는다
-    (NFR-08).
-
-    collect_media_for_llm이 촬영 시각 순으로 주므로, 앞에서 자르면 오전 사진만 남는다.
-    하루 전체에서 고르게 뽑는다 — 처음·마지막 사진을 포함해 같은 간격으로 고른다
-    (#103 리뷰, 김동건).
-    """
-    photo_positions = [i for i, item in enumerate(media) if item.type == "photo"]
-    if len(photo_positions) <= MAX_PHOTOS_PER_CHILD:
-        return media
-
-    step = (len(photo_positions) - 1) / (MAX_PHOTOS_PER_CHILD - 1)
-    kept = {photo_positions[round(i * step)] for i in range(MAX_PHOTOS_PER_CHILD)}
-    return [item for i, item in enumerate(media) if item.type != "photo" or i in kept]
 
 
 # 사진 분석 응답이 형식을 어기면 그 사진만 이만큼 다시 부른다. 호출 예외는 여기서 잡지 않고
