@@ -515,9 +515,9 @@ def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[Sente
     하기 위함이고, 구간에 끝 시각이 없으면 null이다(임시 결정(송유진)).
 
     임시 결정(정은): 근거 행에 출처 종류를 저장하지 않아서 source_type은 미디어 종류로
-    정하고 end_ms는 null이다. 영상 속 교사 관찰 발화는 생성 때 teacher_voice_memo였어도
-    여기서는 video_speech로 보인다. TODO(eun): 영상 근거를 쓰기 시작하면 SentenceEvidence에
-    source_type·end_ms를 저장한다(테크스펙 먼저).
+    정한다. 영상 속 교사 관찰 발화는 생성 때 teacher_voice_memo였어도 여기서는 video_speech로
+    보인다. TODO(eun): 영상 근거를 쓰기 시작하면 SentenceEvidence에 source_type을 저장한다
+    (테크스펙 먼저).
     """
     rows = db.scalars(
         select(SentenceEvidenceRow)
