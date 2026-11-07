@@ -93,6 +93,14 @@ export function FaceDeletePage() {
             다시 자동 분류하려면 사진을 등록해야 해요.
           </p>
           <p className="text-body text-ink-muted">원아 명단과 작성한 기록은 그대로 유지돼요.</p>
+          {/* 삭제는 동의를 남기고, 철회는 동의까지 없앱니다. 보호자가 철회를 요청한 경우의 길입니다(FR-22). */}
+          <p className="text-body text-ink-muted">
+            보호자가 얼굴 특징정보 동의 철회를 요청했다면{" "}
+            <Link to="../revoke" relative="path" className="font-bold text-ink underline">
+              동의 철회
+            </Link>
+            로 진행해 주세요.
+          </p>
           {removal.error ? (
             <p role="alert" className="text-body text-destructive">
               {removal.error.message}

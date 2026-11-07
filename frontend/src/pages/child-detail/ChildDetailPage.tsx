@@ -1,7 +1,8 @@
 // Figma: 1:703
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft } from "lucide-react";
-import { Link, useParams } from "react-router";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 
 import {
   childOverviewQueryOptions,
@@ -69,6 +70,14 @@ function BackButton() {
 
 export function ChildDetailPage() {
   const { childId = "" } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  // 동의 철회처럼 다른 화면에서 끝낸 일의 결과 안내입니다. 처음 받은 값만 들고 있다가
+  // 기록의 state는 바로 비웁니다. 새로고침·뒤로 가기로 돌아와도 안내가 다시 뜨지 않게 하려는 것입니다(#252 리뷰).
+  const [notice] = useState(() => (location.state as { notice?: string } | null)?.notice);
+  useEffect(() => {
+    if (location.state) void navigate(".", { replace: true, state: null });
+  }, [location.state, navigate]);
   const childQuery = useQuery(childQueryOptions(childId));
   const overviewQuery = useQuery(childOverviewQueryOptions(childId));
   const child = childQuery.data;
@@ -130,6 +139,11 @@ export function ChildDetailPage() {
         ].join(" · ")}
         actions={<BackButton />}
       />
+      {notice ? (
+        <p role="status" className="mb-5 text-body text-brand-ink">
+          {notice}
+        </p>
+      ) : null}
       <div className="flex flex-col gap-5">
         <div className="flex items-start gap-5">
           <section
@@ -221,6 +235,15 @@ export function ChildDetailPage() {
             </span>
             <span aria-hidden="true">·</span>
             <span>{FACE_SHORT_LABEL_MAP[faceStatus(child)]}</span>
+            {/* ③ 동의만 하고 얼굴은 등록하지 않은 원아도 철회할 수 있게 여기서 바로 엽니다(FR-22, #252 리뷰). */}
+            {child.face_feature_agreed ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <Link to={`${base}/face/revoke`} className="font-bold text-ink underline">
+                  얼굴 동의 철회
+                </Link>
+              </>
+            ) : null}
           </p>
         </div>
       </div>
