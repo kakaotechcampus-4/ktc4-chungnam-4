@@ -87,13 +87,13 @@ export interface Job {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 아래는 ④ 아이별 하루 확인 화면(김동건)이 쓰는 가정 API입니다. API 문서에 없고 팀 합의 전입니다.
+// 아래는 ④ 아이별 하루 확인 화면(김동건)이 쓰는 추가 근거 API입니다. 서버 API가 있습니다(docs/api/agents.md §추가 근거, 2026-11-06 구현 결정).
 // 받을 도메인은 agents(정은)로 보고 있습니다. 정해지면 명세를 먼저 고치고 여기를 맞춥니다.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * (가정) 추가 근거: 교사가 직접 쓴 관찰 메모. 아이·날짜마다 한 건이고, 다시 저장하면 덮어씁니다(김동건 09/28).
- * 테크스펙 EvidenceBundle·SentenceEvidence에는 아직 교사 텍스트 근거를 담을 자리가 없습니다.
+ * 추가 근거: 교사가 직접 쓴 관찰 메모. 아이·날짜마다 한 건이고, 다시 저장하면 덮어씁니다.
+ * 초안 생성 때 `source_type=teacher_note` 근거로 들어갑니다(테크스펙 §④ TeacherEvidence).
  * PUT /children/{child_id}/evidence/{record_date} 요청
  */
 export interface TeacherEvidenceUpsertRequest {
@@ -103,7 +103,7 @@ export interface TeacherEvidenceUpsertRequest {
   text: string;
 }
 
-/** (가정) 저장된 추가 근거. GET /classes/{class_id}/evidence?record_date= 목록 항목과 같습니다. */
+/** 저장된 추가 근거. GET /classes/{class_id}/evidence?record_date= 목록 항목과 같습니다. */
 export interface TeacherEvidence {
   evidence_id: string;
   child_id: string;

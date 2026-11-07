@@ -14,6 +14,7 @@ export type EvidenceSourceType =
   | "video_speech"
   | "video_scene"
   | "teacher_voice_memo"
+  | "teacher_note"
   | "activity_plan"
   | "parent_note";
 

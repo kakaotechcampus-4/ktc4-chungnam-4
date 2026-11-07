@@ -20,7 +20,9 @@ export function MediaPanel({ item }: MediaPanelProps) {
       <p className="text-body text-ink-muted">
         {item.review_state === "확정" ? "연결했어요. 다시 고르면 바뀌어요." : null}
         {item.review_state === "제외" ? "제외한 사진이에요. 아이를 고르면 다시 포함돼요." : null}
-        {item.review_state === "미검수" ? "여러 아이가 함께 나오면 모두 선택해 주세요." : null}
+        {item.review_state === "미검수"
+          ? "여러 아이가 함께 나오면 모두 선택해 주세요. 명단에 없는 사람이 나오면 이 자료를 제외해 주세요."
+          : null}
       </p>
     </>
   );

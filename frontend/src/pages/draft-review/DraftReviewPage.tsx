@@ -22,6 +22,7 @@ import {
   patchDraft,
   publishParentNotes,
   reopenDraft,
+  selectablePhotos,
   selectedPhotos,
 } from "@/api/documents";
 import { classChildrenQueryOptions } from "@/api/organization";
@@ -34,6 +35,7 @@ import { ApiError } from "@/lib/api-client";
 import { formatYearMonth, formatDate, isDateOnly, kstToday } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 
+import { DraftPhotos } from "./components/DraftPhotos";
 import { EvidencePanel } from "./components/EvidencePanel";
 import { LeaveRevokedDialog } from "./components/LeaveRevokedDialog";
 import { PublishedNoteRow } from "./components/PublishedNoteRow";
@@ -77,7 +79,8 @@ function isVersionConflict(error: unknown) {
 const EDIT_FIELD_CLASS =
   "min-h-0 resize-none rounded-md border-0 bg-transparent p-0 text-lead whitespace-pre-line shadow-none focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent";
 
-// TODO(김진하): 사진 추가는 업로드 흐름(media, 정은·김동건)이 정해지지 않아 자리만 둡니다.
+// 초안이 아직 없는 원아의 빈 상태에서만 씁니다. 초안이 생겨야 그 아이의 사진을 고를 수 있어 자리만 둡니다.
+// 초안이 있으면 DraftPhotos가 사진을 고릅니다(9주차 리뷰 4번).
 // Figma 타일은 '사진 추가'뿐이지만 '준비 중'을 보이는 글자로도 둡니다. 스크린리더에만 읽히면 화면을 보는
 // 교사는 왜 눌리지 않는지 모릅니다(10/30 배포 점검 25번).
 function AddPhotoTile() {
@@ -354,6 +357,25 @@ export function DraftReviewPage() {
     },
   });
 
+  // 학부모에게 보낼 사진을 고르면 바로 저장합니다. 서버가 그 원아·날짜의 사진인지 다시 확인합니다.
+  const photoMutation = useMutation({
+    mutationFn: (input: { draftId: string; version: number; mediaIds: string[] }) => {
+      if (!canChangeDraft) throw new Error("이 화면에서는 알림장 사진만 바꿀 수 있어요.");
+      return patchDraft(input.draftId, {
+        expected_version: input.version,
+        selected_media_ids: input.mediaIds,
+      });
+    },
+    onSuccess: async (updated) => {
+      // 버전이 오르므로 확인 체크는 아래 shownVersion 규칙대로 풀립니다 — 바뀐 사진을 다시 보게 합니다(H-1).
+      queryClient.setQueryData(documentsKeys.draft(updated.draft_id), updated);
+      await queryClient.invalidateQueries({
+        queryKey: documentsKeys.classDraftLists(classId),
+      });
+    },
+    onError: (error, variables) => refetchOnVersionConflict(error, variables.draftId),
+  });
+
   // 승인은 잠금이지만, 게시 전까지는 교사가 되돌려 다시 고칠 수 있어야 합니다.
   const reopenMutation = useMutation({
     mutationFn: (input: { draftId: string; version: number }) => {
@@ -435,6 +457,7 @@ export function DraftReviewPage() {
       ? createMutation.error
       : null;
   const draftError = errorOnShownDraft(patchMutation) ?? errorOnShownDraft(reopenMutation);
+  const photoError = errorOnShownDraft(photoMutation);
   const publishError =
     publishMutation.variables?.recordDate === recordDate ? publishMutation.error : null;
   // HTTP 200 안에 섞여 오는 건별 실패도 같은 기준으로 그 날짜에서만 보여 줍니다.
@@ -468,6 +491,7 @@ export function DraftReviewPage() {
   // 게시 전 초안이라 교사가 고른 사진을 그대로 보여 줍니다. 게시본을 되짚어 보는 화면은
   // adapter의 sentPhotos를 써서 실제로 나간 사진만 봅니다.
   const photos = selectedPhotos(draft);
+  const photoCandidates = selectablePhotos(draft);
   // 제목의 장수와 실제로 그리는 장수가 어긋나지 않게, 그릴 사진을 먼저 걸러 그 길이로 셉니다.
   // `failed_media_ids`에 있어도 `media`에 없는 id는 그릴 수 없습니다.
   const failedPhotos =
@@ -479,6 +503,20 @@ export function DraftReviewPage() {
   const isEditing = canChangeDraft && editing !== null;
   const isDraftApprovable = canChangeDraft && canApprove(draft);
   const canApproveNow = isDraftApprovable && !isEditing;
+  // 사진은 검토 중인 초안에서만 바꿉니다. 승인한 뒤에는 다시 검토하기로 되돌려야 하고, 수정 중에는 같은
+  // 버전을 쓰는 두 저장이 겹쳐 서로 밀어내므로 잠급니다.
+  const photosLockedReason = isEditing
+    ? "문장을 수정하는 중에는 사진을 바꿀 수 없어요."
+    : draft?.status === "approved"
+      ? "승인한 초안은 ‘다시 검토하기’를 누른 뒤에 사진을 바꿀 수 있어요."
+      : !isDraftApprovable
+        ? "검토할 수 있는 초안에서만 사진을 고를 수 있어요."
+        : null;
+  const photosBusy =
+    photoMutation.isPending ||
+    patchMutation.isPending ||
+    approveMutation.isPending ||
+    reopenMutation.isPending;
   // 게시한 뒤에는 되돌릴 수 없습니다. 이미 학부모에게 나갔으므로 회수가 따로 필요합니다(H-1).
   const canReopenNow = canChangeDraft && canReopen(draft);
   // 게시는 반 전체를 하루 한 번 합니다 — 임시 결정(김진하), docs/api/documents.md §POST /publications.
@@ -708,20 +746,20 @@ export function DraftReviewPage() {
               ) : null}
               {/* 사진이 없는 초안(직접 쓴 글)에서도 추가 자리는 남겨 둡니다. */}
               {!isObservation && (
-                <>
-                  <div className="grid grid-cols-3 gap-4">
-                    {photos.map((photo) => (
-                      <img
-                        key={photo.media_id}
-                        src={photo.url}
-                        alt=""
-                        className="aspect-square w-full rounded-lg object-cover"
-                      />
-                    ))}
-                    <AddPhotoTile />
-                  </div>
-                  <p className="text-caption text-ink-muted">선택 사진 {photos.length}장</p>
-                </>
+                <DraftPhotos
+                  photos={photos}
+                  candidates={photoCandidates}
+                  lockedReason={photosLockedReason}
+                  saving={photosBusy}
+                  error={photoError === null ? null : failureText(photoError)}
+                  onChange={(mediaIds) =>
+                    photoMutation.mutate({
+                      draftId: draft.draft_id,
+                      version: draft.version,
+                      mediaIds,
+                    })
+                  }
+                />
               )}
 
               <div className="flex flex-col gap-3.5 rounded-xl bg-paper p-7">
@@ -841,7 +879,11 @@ export function DraftReviewPage() {
                         type="button"
                         onClick={toggleEditing}
                         // 승인을 기다리는 사이 수정을 시작하면, 승인된 초안에 고치던 칸만 남습니다.
-                        disabled={patchMutation.isPending || approveMutation.isPending}
+                        disabled={
+                          patchMutation.isPending ||
+                          approveMutation.isPending ||
+                          photoMutation.isPending
+                        }
                         className="text-label font-bold text-ink-muted underline-offset-4 outline-none transition-colors hover:text-brand-ink hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
                       >
                         {editing !== null ? "수정 완료" : "직접 수정"}
@@ -945,7 +987,9 @@ export function DraftReviewPage() {
               onClick={() =>
                 draft && approveMutation.mutate({ draftId: draft.draft_id, version: draft.version })
               }
-              disabled={!confirmed || !canApproveNow || approveMutation.isPending}
+              disabled={
+                !confirmed || !canApproveNow || approveMutation.isPending || photoMutation.isPending
+              }
             >
               검토 완료하고 승인하기
             </Button>

@@ -73,7 +73,7 @@ export function classJobsQueryOptions(classId: string, recordDate: string) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 아래는 ④ 아이별 하루 확인 화면(김동건)이 쓰는 가정 API입니다(types/api-draft/agents.ts 아래쪽 참고).
+// 아래는 ④ 아이별 하루 확인 화면(김동건)이 쓰는 추가 근거 API입니다(types/api-draft/agents.ts 아래쪽 참고).
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const evidenceKeys = {
@@ -81,7 +81,7 @@ export const evidenceKeys = {
     ["classes", classId, "evidence", recordDate] as const,
 };
 
-/** (가정) 그날 반에서 남긴 추가 근거(아이마다 최대 한 건). */
+/** 그날 반에서 남긴 추가 근거(아이마다 최대 한 건). */
 export function classEvidenceQueryOptions(classId: string, recordDate: string) {
   return queryOptions({
     queryKey: evidenceKeys.classEvidence(classId, recordDate),
@@ -95,7 +95,7 @@ export function classEvidenceQueryOptions(classId: string, recordDate: string) {
   });
 }
 
-/** (가정) 그날의 추가 근거를 저장합니다. 이미 있으면 덮어씁니다. */
+/** 그날의 추가 근거를 저장합니다. 이미 있으면 덮어씁니다(처음이면 201, 덮어쓰면 200). */
 export async function saveTeacherEvidence(
   childId: string,
   recordDate: string,
