@@ -250,7 +250,7 @@ export function ObservationLogDetailPage() {
             <AlertDialogDescription>
               {approved
                 ? "이미 승인된 관찰일지예요. 승인은 그대로 두고 파일만 내려받아요."
-                : "내려받으려면 내용을 확인했다고 표시해야 해요. 확인하면 이 관찰일지가 승인 처리돼요."}
+                : "내려받으려면 내용을 확인했다고 표시해야 해요. 확인하면 이 관찰일지가 승인 처리돼요. 승인하면 이 관찰일지는 다시 만들 수 없어요."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

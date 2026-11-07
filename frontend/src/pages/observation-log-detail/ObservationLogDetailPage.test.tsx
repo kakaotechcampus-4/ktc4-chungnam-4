@@ -235,6 +235,8 @@ describe("ObservationLogDetailPage", () => {
         await user.click(await screen.findByRole("button", { name: "파일 내려받기" }));
 
         expect(screen.getByText(/확인하면 이 관찰일지가 승인 처리돼요/)).toBeInTheDocument();
+        // 되돌릴 수 없는 동작이라 확인 창이 그 결과를 미리 알린다
+        expect(screen.getByText(/승인하면 이 관찰일지는 다시 만들 수 없어요/)).toBeInTheDocument();
         await user.click(screen.getByRole("button", { name: "취소" }));
 
         expect(posts).toEqual([]);
