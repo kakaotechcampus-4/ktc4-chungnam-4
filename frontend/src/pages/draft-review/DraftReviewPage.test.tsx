@@ -199,14 +199,13 @@ describe("DraftReviewPage", () => {
     expect(screen.getByRole("textbox", { name: "직접 작성" })).toBeInTheDocument();
   });
 
-  // '준비 중'이 스크린리더에만 읽혀, 화면을 보는 교사는 왜 눌리지 않는지 몰랐습니다(10/30 배포 점검 25번).
-  // 초안이 있으면 사진을 고를 수 있어(9주차 리뷰 4번) 이 타일은 초안이 없는 빈 상태에만 남습니다.
-  it("초안이 없는 빈 상태의 사진 추가 타일은 준비 중이라고 화면에도 보여 준다", async () => {
+  // 눌리지 않는 '준비 중' 타일을 두지 않습니다. 글을 저장해 초안이 생기면 사진을 고를 수 있습니다.
+  it("초안이 없는 빈 상태에는 사진 추가 자리 대신 저장 뒤에 고른다고 안내한다", async () => {
     renderPage(fixtureId("child", 5)); // 정예린 — 시드에 초안이 없다
     await screen.findByText("아직 이 아이의 기록이 없어요. 직접 작성할 수 있어요.");
-    const tile = screen.getByRole("button", { name: "사진 추가 (준비 중)" });
-    expect(tile).toBeDisabled();
-    expect(tile).toHaveTextContent("준비 중");
+
+    expect(screen.queryByRole("button", { name: /사진 추가/ })).not.toBeInTheDocument();
+    expect(screen.getByText("저장한 뒤에 보낼 사진을 고를 수 있어요.")).toBeInTheDocument();
   });
 
   // 9주차 리뷰 4번: 사진으로 만든 초안도 보낼 사진을 고를 길이 없어 학부모에게 글만 갔습니다.

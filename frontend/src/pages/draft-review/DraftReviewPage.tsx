@@ -1,6 +1,6 @@
 // Figma: 53:294 (초안 검토 / 왼쪽 원아 목록)
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Info, Plus } from "lucide-react";
+import { Info } from "lucide-react";
 import { useState } from "react";
 import { useBlocker, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 
@@ -78,25 +78,6 @@ function isVersionConflict(error: unknown) {
 // 이 앱에는 다크 토큰이 없어서 OS가 다크면 그 칸만 색이 깔립니다. 그래서 같이 지웁니다.
 const EDIT_FIELD_CLASS =
   "min-h-0 resize-none rounded-md border-0 bg-transparent p-0 text-lead whitespace-pre-line shadow-none focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent";
-
-// 초안이 아직 없는 원아의 빈 상태에서만 씁니다. 초안이 생겨야 그 아이의 사진을 고를 수 있어 자리만 둡니다.
-// 초안이 있으면 DraftPhotos가 사진을 고릅니다(9주차 리뷰 4번).
-// Figma 타일은 '사진 추가'뿐이지만 '준비 중'을 보이는 글자로도 둡니다. 스크린리더에만 읽히면 화면을 보는
-// 교사는 왜 눌리지 않는지 모릅니다(10/30 배포 점검 25번).
-function AddPhotoTile() {
-  return (
-    <button
-      type="button"
-      disabled
-      aria-label="사진 추가 (준비 중)"
-      className="flex aspect-square flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-line text-ink-muted disabled:opacity-60"
-    >
-      <Plus className="size-6" />
-      <span className="text-label">사진 추가</span>
-      <span className="text-caption">준비 중</span>
-    </button>
-  );
-}
 
 /** 교사가 쓴 글을 줄바꿈으로 나눠 문장 배열로 만듭니다(API 문서 §직접 쓴 초안 만들기). */
 function toSentences(text: string) {
@@ -673,9 +654,6 @@ export function DraftReviewPage() {
                   ? "직접 작성할 수 있어요."
                   : "아직 이 아이의 기록이 없어요. 직접 작성할 수 있어요."}
               </p>
-              <div className="grid grid-cols-3 gap-4">
-                <AddPhotoTile />
-              </div>
               <Textarea
                 value={newText}
                 rows={4}
@@ -683,6 +661,7 @@ export function DraftReviewPage() {
                 placeholder="예) 지우가 블록을 쌓는 동안 옆에서 색을 골라 건네주었어요."
                 onChange={(event) => setNewText(event.target.value)}
               />
+              <p className="text-caption text-ink-muted">저장한 뒤에 보낼 사진을 고를 수 있어요.</p>
               {createError ? (
                 <p className="text-caption text-destructive">{failureText(createError)}</p>
               ) : null}
