@@ -43,7 +43,9 @@ describe("ParentInvitePage", () => {
     );
     const user = userEvent.setup();
     renderPage();
-    await screen.findByRole("heading", { name: "합성원아의 보호자 초대" });
+    await screen.findByRole("heading", { name: /성원아의 하루를.*함께 받아 보세요/ });
+    await user.click(screen.getByRole("button", { name: "시작하기" }));
+    await screen.findByRole("heading", { name: "계정 만들기" });
     const submit = screen.getByRole("button", { name: "동의하고 자녀 연결" });
     expect(submit).toBeDisabled();
     expect(screen.getByRole("checkbox", { name: /얼굴 특징/ })).not.toBeChecked();
@@ -86,6 +88,20 @@ describe("ParentInvitePage", () => {
         consents: { personal_info: true, activity_media: true, face_feature: true },
       },
     ]);
+  });
+  it("이미 계정이 있으면 소개 화면에서 로그인 양식으로 바로 간다", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "이미 계정이 있어요" }));
+    expect(await screen.findByRole("heading", { name: "로그인" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("보호자 이름")).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /법정대리인/ })).not.toBeInTheDocument();
+  });
+  it("로그인 전 소개 화면에는 입력 양식과 동의가 없다", async () => {
+    renderPage();
+    await screen.findByRole("button", { name: "시작하기" });
+    expect(screen.queryByLabelText("이메일")).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
   it("만료되거나 사용한 링크는 입력 양식을 보여 주지 않는다", async () => {
     server.use(

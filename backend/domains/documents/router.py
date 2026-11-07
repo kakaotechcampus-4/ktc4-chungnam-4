@@ -187,9 +187,10 @@ def list_parent_notes(
     parent_id: Annotated[UUID, Depends(get_current_parent_id)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     cursor: str | None = None,
+    q: Annotated[str | None, Query(max_length=service.PARENT_SEARCH_MAX_LENGTH)] = None,
 ) -> ParentNoteListResponse:
     return service.list_letters_for_parent(
-        db, child_id=child_id, parent_id=parent_id, limit=limit, cursor=cursor
+        db, child_id=child_id, parent_id=parent_id, limit=limit, cursor=cursor, keyword=q
     )
 
 
@@ -210,12 +211,13 @@ def list_parent_media(
     parent_id: Annotated[UUID, Depends(get_current_parent_id)],
     limit: Annotated[int, Query(ge=1, le=service.MEDIA_NOTES_PER_PAGE_MAX)] = 10,
     cursor: str | None = None,
+    q: Annotated[str | None, Query(max_length=service.PARENT_SEARCH_MAX_LENGTH)] = None,
 ) -> ParentMediaListResponse:
     """학부모 사진·영상 모아 보기 (FR-10). 승인·게시된 알림장에 교사가 고른 것만."""
     # 서명 URL이 디스크·프록시 캐시에 남지 않게 합니다
     response.headers["Cache-Control"] = "no-store"
     return service.list_media_for_parent(
-        db, child_id=child_id, parent_id=parent_id, limit=limit, cursor=cursor
+        db, child_id=child_id, parent_id=parent_id, limit=limit, cursor=cursor, keyword=q
     )
 
 
