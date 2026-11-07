@@ -9,10 +9,11 @@
  * - `review` — 교사가 보고 승인할 수 있습니다
  * - `approved` — 교사가 승인했습니다
  * - `generating` — 아직 만드는 중입니다. 기다리면 됩니다
- * - `revoked` — 게시를 회수했습니다. 다시 다루는 흐름이 정해질 때까지 잠급니다
+ * - `revoked` — 게시를 회수했습니다. 승인·게시는 잠그고 `canReopen`으로만 엽니다 —
+ *   되돌려 다시 검토한 뒤 고쳐서 새로 게시합니다
  * - `unknown` — 서버가 보낸 값을 화면이 모릅니다
  *
- * 뒤 셋은 모두 잠급니다. 모르는 값을 `review`로 두면 승인 버튼이 열려 미완성 글이
+ * 뒤 셋은 승인을 모두 잠급니다. 모르는 값을 `review`로 두면 승인 버튼이 열려 미완성 글이
  * 그대로 나갑니다. 애매하면 잠그는 쪽이 맞습니다(H-1, #96 규칙과 같은 방향) —
  * 이슈 #106 정은 님 지적.
  *
@@ -69,7 +70,12 @@ export type DocTypeView = "observation_log" | "parent_note";
 
 /** 근거가 어디서 왔는지. 근거 패널이 출처 이름으로 바꿔 보여 줍니다. */
 export type EvidenceSourceTypeView =
-  "photo_observation" | "video_speech" | "video_scene" | "teacher_voice_memo" | "activity_plan";
+  | "photo_observation"
+  | "video_speech"
+  | "video_scene"
+  | "teacher_voice_memo"
+  | "teacher_note"
+  | "activity_plan";
 
 /** 문장 하나의 근거 */
 export interface EvidenceView {
@@ -122,6 +128,12 @@ export interface DraftView {
   /** 선택 미디어와 근거 미디어 전부. 근거 패널이 씁니다. */
   media: DraftMediaView[];
   published_at: string | null;
+  /**
+   * 회수 기한(게시 + 24시간)과 지금 회수할 수 있는지. **둘 다 서버가 판정한 값입니다** —
+   * 학부모가 본문을 열었는지는 화면이 알 수 없어 직접 계산하지 않습니다.
+   */
+  revoke_deadline: string | null;
+  can_revoke: boolean;
   /** 게시할 때 사진을 함께 보냈는지. 게시 전에는 `null`입니다. */
   include_photos: boolean | null;
 }
@@ -136,6 +148,17 @@ export interface DraftView {
  * "다시 게시"를 붙이면 모르는 결과까지 다시 보내게 됩니다(#125 리뷰 송유진 님).
  */
 export type PublicationStatusView = "published" | "failed" | "unknown";
+
+/**
+ * 게시를 회수한 결과. 회차 id는 화면이 쓰지 않아 옮기지 않습니다.
+ *
+ * 회수할 수 있는지(기한 이내·학부모 열람 전)는 **서버가 판정합니다.** 화면은 게시 시각으로
+ * 버튼을 열고 닫을 뿐이고, 어긋나면 서버가 409로 막습니다.
+ */
+export interface RevokedPublicationView {
+  draft_id: string;
+  revoked_at: string;
+}
 
 /** POST /publications 한 건의 결과 */
 export interface PublicationResultView {

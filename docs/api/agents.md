@@ -61,7 +61,7 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
   - `request_id`: FE가 만든 UUID입니다. 같은 값으로 다시 보내면 작업을 새로 만들지 않습니다. AI 계약의 `request_id` 규칙과 같습니다.
   - `record_date`: "YYYY-MM-DD", KST 기준 하루입니다.
   - `media_ids`: 이번에 보낸 `media_id` 목록입니다. 완료 통지와 귀속 저장이 끝났는지 확인하는 데만 씁니다. 근거는 원아·날짜 기준으로 모읍니다.
-  - 대상 원아와 작성 교사는 본문으로 받지 않습니다. 대상 원아는 서버가 그 날짜에 귀속된 자료(사진·영상·음성메모)가 있는 원아를 고릅니다. ③ 미동의 원아도 빼지 않고, 그 원아가 귀속된 사진만 LLM 근거에서 빠집니다(H-2·H-3). 작성 교사는 서버가 세션의 교사를 초안의 `author_teacher_id`로 넘깁니다(FR-26).
+  - 대상 원아와 작성 교사는 본문으로 받지 않습니다. 대상 원아는 서버가 그 날짜에 귀속된 자료(사진·영상·음성메모)나 추가 근거가 있는 원아를 고릅니다. ③ 미동의 원아도 빼지 않고, 그 원아가 귀속된 사진만 LLM 근거에서 빠집니다(H-2·H-3). 작성 교사는 서버가 세션의 교사를 초안의 `author_teacher_id`로 넘깁니다(FR-26).
 
 ```json
 {
@@ -101,7 +101,7 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
   - `CLASS_NOT_FOUND` (404) — 없는 반일 때
   - `INVALID_RECORD_DATE` (400) — 오늘(KST)보다 뒤 날짜일 때
   - `MEDIA_NOT_READY` (409) — `media_ids` 가운데 완료 통지 전이거나, `attributed_at`이 null이거나, STT 중(`transcript_status == pending`)이거나, 이 반·날짜의 자료가 아닌 것이 있을 때. 해당 ID는 `detail.media_ids`에 담습니다. STT가 `failed`인 영상·음성은 발화 없이 쓰므로 막지 않습니다(임시 결정(김동건), #219 리뷰).
-  - `NO_TARGET_CHILDREN` (409) — 그 날짜에 귀속된 자료가 있는 원아가 없을 때
+  - `NO_TARGET_CHILDREN` (409) — 그 날짜에 귀속된 자료나 추가 근거가 있는 원아가 없을 때
   - `JOB_ALREADY_RUNNING` (409) — 같은 반·날짜에 `pending`·`running` 작업이 이미 있을 때. FE는 `detail.job_id`로 그 작업을 이어서 폴링합니다. `running`은 10분(task 최대 소요 180초 × 3회 + 여유) 넘게 갱신이 없으면 worker가 죽어 멈춘 것으로 보고 잠그지 않습니다(#161 리뷰, 임시 결정(정은)). `pending`은 큐에서 차례를 기다리는 동안 갱신이 없는 게 정상이라 10분을 쓰지 않고, 1시간 넘게 시작하지 못했을 때만 큐 메시지가 사라진 것으로 보고 잠그지 않습니다(#185 리뷰, 임시 결정(김동건)).
 - [확인 필요: 정은·김동건] Job은 이 FE 호출로 시작하기로 정했습니다(09/27, #61). 함께 정할 것 두 가지가 남았습니다(#60).
   - 근거 범위: 그 날짜 전체로 할지, `media_ids`로 한정할지
@@ -168,7 +168,7 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 | `POST /api/v1/jobs/{job_id}/retry` | 실패한 단계 다시 시도 | 경로만 | 정은 |
 | `GET /api/v1/jobs/{job_id}/daily-routines` | 하루 정리(장면) 받기 | 경로만 | 정은 |
 | `POST /api/v1/jobs/{job_id}/resume`(가칭) | 하루 정리를 확인한 뒤 초안 생성 이어 하기 | 경로만 | 정은 |
-| `GET /api/v1/classes/{class_id}/evidence?record_date=`, `PUT /api/v1/children/{child_id}/evidence/{record_date}` | 추가 근거(교사 관찰 메모) 읽기·저장 | 제안(하단 §상의 필요 2) | 정은 |
+| `GET /api/v1/classes/{class_id}/evidence?record_date=`, `PUT /api/v1/children/{child_id}/evidence/{record_date}` | 추가 근거(교사 관찰 메모) 읽기·저장 | 구현됨(11/6 결정, 하단 §상의 필요 2) | 정은 |
 | `POST /api/v1/jobs/{job_id}/cancel` | 작업 취소 | 경로만 | 정은 |
 | `GET /api/v1/classes/{class_id}/jobs?record_date=` | 그날 작업 찾기(오늘의 기록 재진입) | 경로만 | 정은 |
 | `POST /api/v1/drafts/{draft_id}/revision-requests` | AI에게 다듬기 요청 | 경로만 | 정은·한상균 |
@@ -177,7 +177,7 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 
 ## 상의 필요 — 김동건 제안 (정은과 함께)
 
-> ④ 아이별 하루 확인·추가 근거 화면을 만들며 필요한 API를 채운 것입니다. agents 담당(정은) 영역이라 혼자 정하지 않았고, 팀 결정이 아닙니다. FE 타입·목은 이 모양으로 먼저 만들어 두었습니다(`types/api-draft/agents.ts`, `mocks/handlers/agents.ts`). 합의되면 위 본문으로 옮깁니다.
+> ④ 아이별 하루 확인·추가 근거 화면을 만들며 필요한 API를 채운 것입니다. agents 담당(정은) 영역이라 혼자 정하지 않았고, 팀 결정이 아닙니다. 단 **§2 추가 근거는 2026-11-06 디스코드에서 구현으로 정해졌습니다**(정은·엄태은). FE 타입·목은 이 모양으로 먼저 만들어 두었습니다(`types/api-draft/agents.ts`, `mocks/handlers/agents.ts`). 합의되면 위 본문으로 옮깁니다.
 
 ### 1. 하루 정리 확인(FR-27)을 서버 전송 전으로 — 송유진 제안(#83 리뷰)
 
@@ -223,11 +223,26 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 - `text`에는 실명이 들어갈 수 있어 LLM으로 보내기 전에 `CHILD_A`로 비식별화해야 합니다(H-2).
 - 에러: `CHILD_ACCESS_DENIED` (403), 422(`text`가 빔)
 
+#### 결정 (2026-11-06 디스코드, 정은·엄태은)
+
+- **구현합니다.** 9주차 #257 리뷰 5번(서버에 API가 없어 404로 입력이 잠김)의 해결 방향입니다. 추가 근거는 AI가 초안을 만들 때 쓰는 재료이고, 교사가 초안을 직접 쓰는 일은 AI 결과를 다듬는 과정이라 서로 겹치지 않습니다. (예전에 "겹쳐서 일단 제거"로 알던 것을 되돌렸습니다.)
+- 저장은 `TeacherEvidence`(아이·날짜당 1건, 덮어쓰기) — 테크스펙 §④.
+- 근거 출처는 새 `source_type=teacher_note` — `docs/ai-data-contract.md`. 테크스펙 `SentenceEvidence`의 `source_media_id`·`source_timestamp`는 이미 nullable이라 바꾸지 않습니다.
+- 이번 범위는 **글만**입니다. screens.md가 적어 둔 음성·관련 사진 연결은 제외합니다(FE도 글만 받음).
+
+#### 구현에서 정한 것 (임시 결정: 정은)
+
+- `activity_time`은 필수이고 `HH:MM` 형식입니다(어기면 422). 초안 근거에는 넣지 않고 교사 화면에만 보입니다. `text`는 앞뒤 공백을 지우고 비면 422입니다.
+- `GET`은 그 반 원아들의 그날 메모를 만든 순서로 주고(다음 쪽 없음, `next_cursor`는 항상 null), 메모마다 `AccessLog`(`view_list`)를 남깁니다.
+- 에러 추가: `CLASS_ACCESS_DENIED` (403, `GET`에서 다른 어린이집 반), `INVALID_RECORD_DATE` (400, 오늘(KST)보다 뒤 날짜로 저장할 때).
+- `EvidenceBundle`에는 참조 컬럼을 두지 않습니다. 생성할 때마다 메모를 읽어 `note:{id}` 근거로 합치므로, 저장한 메모는 **다음 생성부터** 반영되고 이미 만든 초안은 바뀌지 않습니다. 교사가 손대지 않은 검토 대기 초안을 다시 만들 때(#275)도 그때의 메모를 읽습니다.
+- 메모만 있고 그날 자료가 없는 원아도 초안 생성 대상입니다 — 임시 결정(송유진). 화면이 자료 없는 아이에게도 메모를 남기라고 안내하기 때문입니다. 메모가 그 아이의 유일한 관찰 근거가 됩니다.
+
 #### 정할 것
 
-- 테크스펙 `EvidenceBundle`·`SentenceEvidence`에 교사 텍스트 근거를 담을 자리(`source_type`)가 없습니다.
-- screens.md는 음성·관련 사진도 함께 적어 두었지만, FE는 글만 받습니다.
-- screens.md 체크리스트에 "+ 추가 근거 작성"이 상세 작성 범위 밖이라 숨길 UI로 올라 있습니다(송유진). 이 API를 채택하면 그 항목을 닫습니다.
+- `text` 길이 상한.
+- 메모의 보관·파기 기한(NFR-04의 파기 대상인지).
+- screens.md 체크리스트의 "+ 추가 근거 작성"(숨길 UI)은 송유진 님 항목이라 여기서 닫지 않았습니다.
 
 ### 3. Job 트리거 문구와 FE 책임 (#60)
 

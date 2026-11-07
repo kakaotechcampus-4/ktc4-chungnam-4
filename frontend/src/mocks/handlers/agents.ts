@@ -292,7 +292,7 @@ export const handlers = [
     return listResponse(jobs);
   }),
 
-  // ── (가정) 추가 근거(docs/api/agents.md 하단 제안, 김동건) ──
+  // ── 추가 근거(docs/api/agents.md §추가 근거, 김동건) ──
   http.get(apiPath("/classes/:classId/evidence"), ({ params, request }) => {
     const denied = requireTeacherOfClass(params.classId);
     if (denied) return denied;

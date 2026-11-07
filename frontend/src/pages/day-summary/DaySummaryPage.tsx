@@ -24,7 +24,6 @@ import {
   type ReviewResult,
   useUploadQueue,
 } from "@/features/upload-queue/upload-queue-store";
-import { kstToday } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 import type { ClassChildView } from "@/api/organization";
 
@@ -82,6 +81,8 @@ export function DaySummaryPage() {
   const route = useRouteChild();
   const items = useUploadQueue((state) => state.items);
   const setReview = useUploadQueue((state) => state.setReview);
+  // 메모는 올리는 자료와 같은 날짜의 근거입니다. 초안 생성과 분류 결과의 배지도 이 날짜를 봅니다.
+  const recordDate = useUploadQueue((state) => state.recordDate);
   const transcripts = useQueueTranscripts();
   const update = useUpdateSegment();
   const [removed, setRemoved] = useState<Record<string, Removed>>({});
@@ -237,7 +238,7 @@ export function DaySummaryPage() {
           />
         </div>
         <div className="flex w-85 shrink-0 flex-col gap-4.5">
-          <EvidenceCard key={child.child_id} child={child} recordDate={kstToday()} />
+          <EvidenceCard key={child.child_id} child={child} recordDate={recordDate} />
           <NextOutputs />
         </div>
       </div>

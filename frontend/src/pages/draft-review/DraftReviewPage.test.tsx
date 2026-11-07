@@ -1,4 +1,4 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 
@@ -22,7 +22,28 @@ import { DraftReviewPage } from "./DraftReviewPage";
 // 김도윤 검토 대기, 이하준·최지우 승인 완료, 박서아 확인 필요, 정예린 자료 없음.
 // 게시는 반 전체를 하루 한 번 하므로 검토 중인 어제에는 게시된 원아가 없습니다.
 const YESTERDAY = shiftDate(kstToday(), -1);
+// 그제는 김도윤·최지우 알림장이 모두 나간 날이라 "게시를 마쳤어요" 화면이 뜹니다.
+const CLOSED_DAY = shiftDate(kstToday(), -2);
 const DOYUN = fixtureId("child", 1);
+/** 그제 알림장(김도윤 102 · 최지우 142) */
+const CLOSED_DAY_NOTES = [fixtureId("draft", 102), fixtureId("draft", 142)];
+
+function renderClosedDay() {
+  return renderRoutes([{ path: "/t/today/review/:childId", element: <DraftReviewPage /> }], {
+    initialEntry: `/t/today/review/${DOYUN}?record_date=${CLOSED_DAY}`,
+  });
+}
+
+/** 그제 게시분의 게시 시각을 방금으로 당겨 회수 기한(24시간) 안으로 만듭니다. */
+function publishedJustNow() {
+  updateDb((db) => {
+    for (const id of CLOSED_DAY_NOTES) {
+      const draft = db.drafts[id];
+      if (!draft) throw new Error("그제 알림장이 시드에 없습니다.");
+      draft.published_at = new Date().toISOString();
+    }
+  });
+}
 
 function renderPage(childId = DOYUN) {
   return renderRoutes([{ path: "/t/today/review/:childId", element: <DraftReviewPage /> }], {
@@ -158,11 +179,176 @@ describe("DraftReviewPage", () => {
   });
 
   // '준비 중'이 스크린리더에만 읽혀, 화면을 보는 교사는 왜 눌리지 않는지 몰랐습니다(10/30 배포 점검 25번).
-  it("꺼진 사진 추가 타일은 준비 중이라고 화면에도 보여 준다", async () => {
-    await renderAndWait();
+  // 초안이 있으면 사진을 고를 수 있어(9주차 리뷰 4번) 이 타일은 초안이 없는 빈 상태에만 남습니다.
+  it("초안이 없는 빈 상태의 사진 추가 타일은 준비 중이라고 화면에도 보여 준다", async () => {
+    renderPage(fixtureId("child", 5)); // 정예린 — 시드에 초안이 없다
+    await screen.findByText("아직 이 아이의 기록이 없어요. 직접 작성할 수 있어요.");
     const tile = screen.getByRole("button", { name: "사진 추가 (준비 중)" });
     expect(tile).toBeDisabled();
     expect(tile).toHaveTextContent("준비 중");
+  });
+
+  // 9주차 리뷰 4번: 사진으로 만든 초안도 보낼 사진을 고를 길이 없어 학부모에게 글만 갔습니다.
+  describe("보낼 사진 고르기", () => {
+    /** 김도윤 초안에서 교사가 고른 사진을 비워, 근거 사진이 후보로 남게 합니다. */
+    function clearDoyunSelection() {
+      updateDb((db) => {
+        const draft = db.drafts[DOYUN_NOTE];
+        if (!draft) throw new Error("김도윤 초안이 시드에 없습니다.");
+        draft.selected_media_ids = [];
+      });
+    }
+
+    function capturePatches() {
+      const sent: DraftPatchRequest[] = [];
+      server.use(
+        http.patch(apiPath("/drafts/:draftId"), async ({ request }) => {
+          sent.push((await request.clone().json()) as DraftPatchRequest);
+        }),
+      );
+      return sent;
+    }
+
+    it("고른 사진을 빼면 남은 선택을 서버에 저장한다", async () => {
+      const user = userEvent.setup();
+      const before = readDb().drafts[DOYUN_NOTE]?.selected_media_ids ?? [];
+      expect(before.length).toBeGreaterThan(0);
+      const sent = capturePatches();
+      await renderAndWait();
+
+      await user.click(screen.getByRole("button", { name: "선택 사진 1 빼기" }));
+
+      await waitFor(() => expect(sent).toHaveLength(1));
+      expect(sent[0]?.selected_media_ids).toEqual(before.slice(1));
+      expect(sent[0]?.expected_version).toBe(1);
+      expect(
+        await screen.findByText(`선택 사진 ${String(before.length - 1)}장`),
+      ).toBeInTheDocument();
+    });
+
+    it("고르지 않은 사진을 골라 맨 뒤에 붙여 저장한다", async () => {
+      const user = userEvent.setup();
+      clearDoyunSelection();
+      const sent = capturePatches();
+      await renderAndWait();
+      expect(screen.getByText("선택 사진 0장")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "사진 추가" }));
+      await user.click(await screen.findByRole("button", { name: "사진 1 추가" }));
+
+      await waitFor(() => expect(sent).toHaveLength(1));
+      expect(sent[0]?.selected_media_ids).toHaveLength(1);
+      expect(await screen.findByText("선택 사진 1장")).toBeInTheDocument();
+      // 고른 사진은 후보에서 빠진다
+      expect(readDb().drafts[DOYUN_NOTE]?.selected_media_ids).toEqual(sent[0]?.selected_media_ids);
+    });
+
+    it("사진을 고르다 저장에 실패하면 대화상자 안에 이유를 보여 준다", async () => {
+      const user = userEvent.setup();
+      clearDoyunSelection();
+      server.use(
+        http.patch(apiPath("/drafts/:draftId"), () =>
+          errorResponse(
+            400,
+            "MEDIA_NOT_LINKED_TO_CHILD",
+            "이 원아의 그날 사진·영상만 고를 수 있어요.",
+          ),
+        ),
+      );
+      await renderAndWait();
+
+      await user.click(screen.getByRole("button", { name: "사진 추가" }));
+      await user.click(await screen.findByRole("button", { name: "사진 1 추가" }));
+
+      expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent(
+        "그날 사진·영상만 고를 수 있어요",
+      );
+    });
+
+    it("고를 사진이 더 없으면 사진 추가를 잠그고 이유를 적는다", async () => {
+      const user = userEvent.setup();
+      clearDoyunSelection();
+      await renderAndWait();
+      // 후보를 모두 고르면 더 고를 사진이 없다
+      await user.click(screen.getByRole("button", { name: "사진 추가" }));
+      const candidates = await screen.findAllByRole("button", { name: /사진 \d+ 추가/ });
+      for (let count = candidates.length; count > 0; count -= 1) {
+        await user.click(await screen.findByRole("button", { name: "사진 1 추가" }));
+        await screen.findByText(`선택 사진 ${String(candidates.length - count + 1)}장`);
+      }
+      await user.keyboard("{Escape}");
+
+      expect(await screen.findByText("더 고를 수 있는 사진이 없어요.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "사진 추가" })).toBeDisabled();
+    });
+
+    it("문장을 수정하는 중에는 사진을 바꿀 수 없다", async () => {
+      const user = userEvent.setup();
+      await renderAndWait();
+
+      await user.click(screen.getByRole("button", { name: "직접 수정" }));
+
+      expect(screen.getByRole("button", { name: "사진 추가" })).toBeDisabled();
+      expect(screen.queryByRole("button", { name: /선택 사진 \d+ 빼기/ })).not.toBeInTheDocument();
+      expect(screen.getByText("문장을 수정하는 중에는 사진을 바꿀 수 없어요.")).toBeInTheDocument();
+    });
+
+    it("승인한 초안은 다시 검토하기 뒤에야 사진을 바꿀 수 있다", async () => {
+      const user = userEvent.setup();
+      renderPage(fixtureId("child", 2)); // 이하준 — 시드에서 승인 완료
+      await screen.findByRole("button", { name: /이하준/ });
+
+      expect(
+        await screen.findByText(/승인한 초안은 ‘다시 검토하기’를 누른 뒤에/),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /선택 사진 \d+ 빼기/ })).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "다시 검토하기" }));
+
+      expect(await screen.findByRole("button", { name: /선택 사진 1 빼기/ })).toBeInTheDocument();
+    });
+
+    // H-1: 승인은 확인한 본문과 사진에 대한 것입니다. 사진이 바뀌면 다시 확인하게 합니다.
+    it("사진을 바꾸면 확인 체크가 풀린다", async () => {
+      const user = userEvent.setup();
+      await renderAndWait();
+      await user.click(screen.getByRole("checkbox"));
+      expect(screen.getByRole("checkbox")).toBeChecked();
+
+      await user.click(screen.getByRole("button", { name: "선택 사진 1 빼기" }));
+
+      await waitFor(() => expect(screen.getByRole("checkbox")).not.toBeChecked());
+    });
+
+    it("서버가 거절하면 이유를 보여 주고 선택은 그대로다", async () => {
+      const user = userEvent.setup();
+      const before = readDb().drafts[DOYUN_NOTE]?.selected_media_ids ?? [];
+      server.use(
+        http.patch(apiPath("/drafts/:draftId"), () =>
+          errorResponse(
+            400,
+            "MEDIA_NOT_LINKED_TO_CHILD",
+            "이 원아의 그날 사진·영상만 고를 수 있어요.",
+          ),
+        ),
+      );
+      await renderAndWait();
+
+      await user.click(screen.getByRole("button", { name: "선택 사진 1 빼기" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("그날 사진·영상만 고를 수 있어요");
+      expect(screen.getByText(`선택 사진 ${String(before.length)}장`)).toBeInTheDocument();
+    });
+
+    it("그 사이 다른 곳에서 고쳐 버전이 밀리면 새 본문을 다시 받는다", async () => {
+      const user = userEvent.setup();
+      await renderAndWait();
+      editDoyunNoteElsewhere();
+
+      await user.click(screen.getByRole("button", { name: "선택 사진 1 빼기" }));
+
+      expect(await screen.findByText(/다른 곳에서 고친 첫 문장이에요/)).toBeInTheDocument();
+    });
   });
 
   // 본문을 못 받으면 초안이 있는데도 빈 상태와 직접 작성 칸이 떴습니다. 새로 써서 저장하면 이미
@@ -1148,6 +1334,55 @@ describe("DraftReviewPage", () => {
     expect(screen.queryByRole("button", { name: "직접 수정" })).not.toBeInTheDocument();
   });
 
+  // 회수는 게시 후 24시간 안에만 됩니다. 시드의 그제 게시분은 이미 지났으므로 버튼을 감추고,
+  // 왜 못 하는지 알립니다 — 버튼만 사라지면 교사는 기능이 없는 줄 압니다.
+  it("회수 기한이 지난 게시분은 회수 버튼을 보여 주지 않는다", async () => {
+    renderClosedDay();
+
+    expect(await screen.findByRole("heading", { name: "게시를 마쳤어요" })).toBeInTheDocument();
+    expect(screen.getAllByText("회수 기한이 지났어요").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "회수" })).not.toBeInTheDocument();
+  });
+
+  // 회수하면 그 원아의 초안이 "안 나간 초안"이 되어 날짜가 다시 열립니다. 그래야 교사가
+  // 평소 흐름대로 고쳐서 다시 승인·게시할 수 있습니다(H-1: 게시본은 바로 못 고침).
+  it("기한 안의 게시분을 회수하면 그 날짜가 다시 열린다", async () => {
+    const user = userEvent.setup();
+    publishedJustNow();
+    renderClosedDay();
+
+    await user.click((await screen.findAllByRole("button", { name: "회수" }))[0]!);
+    await user.click(await screen.findByRole("button", { name: "회수하기" }));
+
+    expect(await screen.findByRole("heading", { name: /기록을 완성해요/ })).toBeInTheDocument();
+
+    // 회수본은 승인 상태가 아니므로 "다시 검토하기"로 되돌린 뒤에 고칩니다. **버튼이 보이는
+    // 것만으로는 부족합니다** — 처음에 여기까지만 보다가, 눌렀을 때 목이 "승인한 초안만
+    // 되돌릴 수 있어요"로 막는 것을 놓쳤습니다(브라우저로 확인하다 발견).
+    await user.click(await screen.findByRole("button", { name: "다시 검토하기" }));
+
+    expect(await screen.findByRole("button", { name: "직접 수정" })).toBeInTheDocument();
+    expect(screen.queryByText(/되돌릴 수 있습니다/)).not.toBeInTheDocument();
+  });
+
+  // 학부모가 이미 열어 본 알림장은 서버가 막습니다. 화면은 기한만 보고 버튼을 열기 때문에
+  // 눌러 봐야 알 수 있고, 그때 이유가 보여야 교사가 다음 행동을 고릅니다.
+  it("학부모가 이미 열어 봤으면 회수가 막힌 이유를 보여 준다", async () => {
+    const user = userEvent.setup();
+    publishedJustNow();
+    updateDb((db) => {
+      db.readParentNotes.push(fixtureId("draft", 102));
+    });
+    renderClosedDay();
+
+    await user.click((await screen.findAllByRole("button", { name: "회수" }))[0]!);
+    await user.click(await screen.findByRole("button", { name: "회수하기" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "학부모가 이미 열어 본 알림장은 회수할 수 없습니다.",
+    );
+  });
+
   // 4번: "수정 완료" 없이 승인하면 고치기 전 문장이 승인·게시되는데 화면에는 고친 글이
   // 남아 있어 교사가 알아채지 못한다. 그래서 수정 중에는 승인 자체를 막는다.
   it("직접 수정 중에는 확인 체크와 승인 버튼이 잠긴다", async () => {
@@ -1236,5 +1471,57 @@ describe("DraftReviewPage", () => {
     renderPage();
 
     expect(await screen.findByText("담당 반이 아니에요.")).toBeInTheDocument();
+  });
+
+  // 회수해 놓고 보내지 않은 채 나가면 그 알림장은 보호자에게 보이지 않는 채로 묻힙니다.
+  // 자동으로 다시 게시하지는 않고(H-1: 승인을 코드가 대신하게 됨), 어디서 찾는지 알립니다.
+  it("회수본을 보내지 않고 나가려 하면 회수함에 남는다고 알린다", async () => {
+    const user = userEvent.setup();
+    publishedJustNow();
+    const { router } = renderClosedDay();
+
+    await user.click((await screen.findAllByRole("button", { name: "회수" }))[0]!);
+    await user.click(await screen.findByRole("button", { name: "회수하기" }));
+    await screen.findByRole("heading", { name: /기록을 완성해요/ });
+
+    await act(() => router.navigate("/t/notes"));
+
+    expect(await screen.findByText("보내지 않고 나가시겠어요?")).toBeInTheDocument();
+    expect(screen.getByText(/회수함/)).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe(`/t/today/review/${DOYUN}`);
+
+    await user.click(screen.getByRole("button", { name: "계속 고치기" }));
+
+    expect(screen.queryByText("보내지 않고 나가시겠어요?")).not.toBeInTheDocument();
+  });
+
+  // 되돌려 승인하면 status가 approved가 되는데 보호자에게는 여전히 안 나간 상태입니다.
+  // 상태만 보던 때는 승인하는 순간 경고가 사라졌습니다(브라우저로 찾은 구멍).
+  it("회수한 뒤 승인만 하고 나가도 아직 안 보냈다고 알린다", async () => {
+    const user = userEvent.setup();
+    publishedJustNow();
+    const { router } = renderClosedDay();
+
+    await user.click((await screen.findAllByRole("button", { name: "회수" }))[0]!);
+    await user.click(await screen.findByRole("button", { name: "회수하기" }));
+    await user.click(await screen.findByRole("button", { name: "다시 검토하기" }));
+    await user.click(await screen.findByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await screen.findByRole("button", { name: "다시 검토하기" });
+
+    await act(() => router.navigate("/t/notes"));
+
+    expect(await screen.findByText("보내지 않고 나가시겠어요?")).toBeInTheDocument();
+  });
+
+  // 평범한 날에는 그날 초안이 전부 미게시라, 상태만 보고 막으면 잠깐 나갈 때마다 경고가 뜹니다.
+  it("회수한 적이 없으면 나갈 때 막지 않는다", async () => {
+    const { router } = renderPage();
+    await screen.findByRole("heading", { name: /작은 블록/ });
+
+    await act(() => router.navigate("/t/notes"));
+
+    expect(screen.queryByText("보내지 않고 나가시겠어요?")).not.toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/t/notes");
   });
 });

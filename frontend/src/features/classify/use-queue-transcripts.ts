@@ -84,8 +84,10 @@ export function useQueueTranscripts() {
     /** 업로드·STT가 아직 도는 중인 파일 수. 0이 되어야 발화 확인을 마칠 수 있습니다. */
     workingCount: perClip.filter((c) => c.state === "uploading" || c.state === "transcribing")
       .length,
-    failedCount: perClip.filter((c) => c.state === "upload_failed" || c.state === "stt_failed")
-      .length,
+    /** 올리지 못한 파일 수. 다시 올리면 복구됩니다. */
+    uploadFailedCount: perClip.filter((c) => c.state === "upload_failed").length,
+    /** 올라갔지만 서버 STT가 실패한 파일 수. 다시 올려도 STT는 다시 돌지 않습니다. */
+    sttFailedCount: perClip.filter((c) => c.state === "stt_failed").length,
     error: perClip.find((c) => c.error)?.error ?? null,
     refetch: () => {
       for (const result of queried) void result.refetch();

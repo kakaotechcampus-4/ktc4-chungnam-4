@@ -9,9 +9,14 @@ export function ParentNoteReaderPage() {
   const note = useQuery(parentNoteQueryOptions(parentNoteId));
   return (
     <main className="mx-auto flex max-w-reading flex-col gap-5 p-6">
-      <Link className="underline" to={`/p/children/${childId}/notes`}>
-        알림장 목록
-      </Link>
+      <nav aria-label="알림장 이동" className="flex flex-wrap gap-4">
+        <Link className="underline" to={`/p/children/${childId}/notes`}>
+          알림장 목록
+        </Link>
+        <Link className="underline" to={`/p/children/${childId}/media`}>
+          사진·영상 모아 보기
+        </Link>
+      </nav>
       {note.isPending ? (
         <p role="status">알림장을 불러오고 있어요.</p>
       ) : note.error ? (

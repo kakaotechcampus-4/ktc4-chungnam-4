@@ -13,6 +13,7 @@ import { classChildrenQueryOptions } from "@/api/organization";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
+import { RevokeNoteButton } from "@/features/documents/RevokeNoteButton";
 import { ApiError } from "@/lib/api-client";
 import { formatDate, formatDateTime } from "@/lib/datetime";
 
@@ -152,14 +153,38 @@ export function ParentNoteDetailPage() {
         )}
       </div>
 
-      <div className="mt-6 flex items-center justify-between">
+      <div className="mt-6 flex items-center justify-between gap-4">
         <p className="text-caption text-ink-muted">
           {current?.published_at ? `${formatDateTime(current.published_at)} 게시` : ""}
         </p>
-        {/* TODO(김진하): 게시한 알림장의 "수정하기"는 회수(revoke) 명세가 정해지면 넣습니다(docs/api/documents.md). */}
-        <Button variant="outline" onClick={() => navigate(`/t/notes/children/${childId}`)}>
-          목록으로
-        </Button>
+        <div className="flex items-center gap-3">
+          {/* 게시본은 바로 못 고칩니다 — 회수해 학부모에게서 내린 뒤 초안 검토에서 고칩니다(H-1).
+              회수할 수 있는지는 서버가 판정해 can_revoke로 줍니다. 기한이 남았어도 학부모가
+              이미 열었으면 거짓이고, 그건 화면이 알 수 없는 값입니다. */}
+          {draft?.can_revoke === true ? (
+            <RevokeNoteButton
+              // 옆의 "목록으로"와 같은 크기여야 버튼 줄이 고르게 보입니다.
+              size="default"
+              childId={childId}
+              childName={childName}
+              draftId={draft.draft_id}
+              version={draft.version}
+              // 회수한 교사는 고치려고 회수한 것입니다. 목록으로 보내면 회수본은 거기
+              // 없고(게시된 것만 보여 줍니다) "사라졌다"로 보이므로, 바로 고칠 수 있는
+              // 그 날짜의 초안 검토로 보냅니다. 게시 완료 화면에서 회수했을 때와 같은 자리입니다.
+              onRevoked={() =>
+                navigate(
+                  `/t/today/review/${childId}?record_date=${encodeURIComponent(draft.record_date)}`,
+                  // 넘어간 화면이 "이번에 회수한 것"을 알아야 나갈 때 경고할 수 있습니다.
+                  { state: { revokedDraftId: draft.draft_id } },
+                )
+              }
+            />
+          ) : null}
+          <Button variant="outline" onClick={() => navigate(`/t/notes/children/${childId}`)}>
+            목록으로
+          </Button>
+        </div>
       </div>
     </>
   );

@@ -18,6 +18,7 @@ import userEvent from "@testing-library/user-event";
 import { File as NodeFile } from "node:buffer";
 import { http, HttpResponse } from "msw";
 
+import { mediaKeys } from "@/api/media";
 import { routes } from "@/app/router";
 import {
   isPhoto,
@@ -35,6 +36,7 @@ import { server } from "@/mocks/server";
 import { renderRoutes } from "@/test/render";
 import type { TranscriptSegmentsResponse } from "@/types/api-draft/media";
 
+const SUNNY_CLASS = fixtureId("class", 1);
 const DOYUN = fixtureId("child", 1);
 const HAJUN = fixtureId("child", 2);
 const JIWOO = fixtureId("child", 4);
@@ -84,6 +86,15 @@ function photo(n: number): LocalPhoto {
   const found = photos().find((item) => item.client_id === fixtureId("clientPhoto", n));
   if (!found) throw new Error(`사진 ${n}번이 큐에 없습니다.`);
   return found;
+}
+
+/** 몸체 없는 조회 요청을 셉니다. 캐시를 비웠는지는 "다시 받았는지"로만 밖에서 볼 수 있습니다. */
+function countGets(matches: (url: string) => boolean) {
+  const urls: string[] = [];
+  server.events.on("request:start", ({ request }) => {
+    if (request.method === "GET" && matches(request.url)) urls.push(request.url);
+  });
+  return urls;
 }
 
 function capture(method: string, matches: (url: string) => boolean) {
@@ -320,6 +331,28 @@ describe("수동 분류 · 사진", () => {
     // 발화 4개는 아직 남아 있습니다.
     await waitForSpeech();
     expect(screen.getByText("확인 필요 4개")).toBeVisible();
+  });
+
+  // 테크스펙 H-2 판정 경로: 자동으로 못 맞힌 사진도 교사가 아이를 고르면 귀속이 끝납니다(FR-14).
+  it("수동 분류한 사진도 확인 체크 뒤에는 LLM을 허용해 보낸다", async () => {
+    seedQueue();
+    const user = userEvent.setup();
+    renderAt("/t/today/manual-sort");
+
+    expect(
+      await screen.findByText(/명단에 없는 사람이 나오면 이 자료를 제외해 주세요/),
+    ).toBeVisible();
+    await user.click(await screen.findByRole("checkbox", { name: "최지우" }));
+    await user.click(screen.getByRole("button", { name: "선택한 아이에게 연결" }));
+    await waitForSpeech();
+    await user.click(screen.getByRole("checkbox", { name: "아이 분류를 확인했어요" }));
+    await user.click(screen.getByRole("button", { name: "확인한 자료로 계속" }));
+
+    expect(photo(5)).toMatchObject({
+      review_state: "확정",
+      assigned_child_ids: [JIWOO],
+      llm_allowed: true,
+    });
   });
 
   it("제외한 사진은 업로드 목록에서 빠진다", async () => {
@@ -560,6 +593,25 @@ describe("아이별 하루 확인", () => {
     expect(screen.getByRole("button", { name: "근거 저장" })).toBeDisabled();
   });
 
+  it("추가 근거는 고른 활동 날짜로 저장한다", async () => {
+    useUploadQueue.getState().setRecordDate("2026-09-01");
+    const saved: string[] = [];
+    server.events.on("request:start", ({ request }) => {
+      if (request.method === "PUT" && request.url.includes("/evidence/")) saved.push(request.url);
+    });
+    const user = userEvent.setup();
+    renderAt(`/t/today/children/${DOYUN}/summary`);
+
+    const textbox = await screen.findByRole("textbox", { name: "관찰 내용" });
+    await waitFor(() => expect(textbox).toBeEnabled());
+    await user.type(textbox, "나뭇잎을 비교했어요.");
+    await user.click(screen.getByRole("button", { name: "근거 저장" }));
+
+    expect(await screen.findByText("저장했어요.")).toBeVisible();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toContain(`/children/${DOYUN}/evidence/2026-09-01`);
+  });
+
   it("추가 근거 저장에 실패하면 이유를 보여 준다", async () => {
     server.use(
       http.put(apiPath("/children/:childId/evidence/:recordDate"), () =>
@@ -603,6 +655,29 @@ describe("얼굴 정보", () => {
     // H-3: 사진이 아니라 벡터와 모델 버전만 보냅니다.
     expect(Object.keys(requests[0] as object).sort()).toEqual(["embedding", "model_version"]);
     expect((requests[0] as { embedding: number[] }).embedding).toHaveLength(1024);
+  });
+
+  // 삭제와 반대 방향의 같은 문제입니다. 비우지 않으면 방금 등록한 아이가 분류에서 빠지고,
+  // 원아 등록 화면도 "미등록"으로 남습니다.
+  it("얼굴 정보를 등록해도 반 임베딩과 명단 캐시를 비운다", async () => {
+    const user = userEvent.setup();
+    const rosterFetches = countGets(
+      (url) => url.includes("/classes/") && url.endsWith("/children"),
+    );
+    const { queryClient } = renderAt(`/t/children/${DOYUN}/face`);
+    const embeddings = mediaKeys.faceEmbeddings(SUNNY_CLASS);
+    queryClient.setQueryData(embeddings, []);
+
+    await user.upload(
+      await screen.findByLabelText("등록할 사진"),
+      new File(["face"], "face.jpg", { type: "image/jpeg" }),
+    );
+    const before = rosterFetches.length;
+    await user.click(screen.getByRole("button", { name: "얼굴 정보 등록 · 갱신" }));
+
+    expect(await screen.findByText("얼굴 정보를 등록했어요.")).toBeVisible();
+    await waitFor(() => expect(queryClient.getQueryState(embeddings)?.isInvalidated).toBe(true));
+    await waitFor(() => expect(rosterFetches.length).toBeGreaterThan(before));
   });
 
   // 동의·등록 상태 조회 API가 아직 없습니다. 고정 예시 값을 두면 등록하지 않은 원아도 "등록됨"으로 보입니다.
@@ -689,6 +764,28 @@ describe("얼굴 정보", () => {
     expect(await screen.findByText(/서버에 저장된 얼굴 특징정보를 삭제해요/)).toBeVisible();
     expect(screen.getByText(/서버에 저장된 자동 분류용 정보/)).toBeVisible();
     expect(screen.queryByText(/이 기기/)).not.toBeInTheDocument();
+  });
+
+  // 지운 벡터를 캐시가 들고 있으면 교사가 삭제를 누른 뒤에도 그 얼굴로 분류가 돕니다. 기본
+  // staleTime이 30초이고 처리 화면은 창을 다시 띄워도 새로 받지 않게 꺼 두어서, 비우지 않으면
+  // 그 사이 올린 사진이 지운 정보로 분류됩니다. 명단도 "얼굴 정보 등록됨"으로 남습니다.
+  it("얼굴 정보를 삭제하면 반 임베딩과 명단 캐시를 비운다", async () => {
+    const user = userEvent.setup();
+    const rosterFetches = countGets(
+      (url) => url.includes("/classes/") && url.endsWith("/children"),
+    );
+    const { queryClient } = renderAt(`/t/children/${DOYUN}/face/delete`);
+    // 처리 화면을 다녀와 임베딩 캐시가 차 있는 상태를 만듭니다.
+    const embeddings = mediaKeys.faceEmbeddings(SUNNY_CLASS);
+    queryClient.setQueryData(embeddings, []);
+    const deleteButton = await screen.findByRole("button", { name: "얼굴 정보 삭제" });
+    const before = rosterFetches.length;
+
+    await user.click(deleteButton);
+
+    // 임베딩은 이 화면이 보고 있지 않아 "비었다" 표시만 남고, 명단은 보고 있어 다시 받습니다.
+    await waitFor(() => expect(queryClient.getQueryState(embeddings)?.isInvalidated).toBe(true));
+    await waitFor(() => expect(rosterFetches.length).toBeGreaterThan(before));
   });
 
   it("삭제에 실패하면 화면에 남아 이유를 보여 준다", async () => {

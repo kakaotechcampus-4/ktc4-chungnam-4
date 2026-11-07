@@ -2,6 +2,7 @@ import type {
   ChildDraftItem,
   ClassDraftItem,
   DraftDetail,
+  DraftRevokeResponse,
   DraftStatus,
   DraftSummary,
   Evidence,
@@ -31,6 +32,7 @@ import type {
   ParentNoteListView,
   PublicationResultView,
   PublicationStatusView,
+  RevokedPublicationView,
   RosterStatusView,
   SentenceView,
 } from "./documents-view";
@@ -139,6 +141,8 @@ export function toDraftView(raw: DraftDetail): DraftView {
     failed_media_ids: raw.failed_media_ids ?? [],
     media: raw.media.map(toDraftMediaView),
     published_at: raw.published_at,
+    revoke_deadline: raw.revoke_deadline,
+    can_revoke: raw.can_revoke,
     include_photos: raw.include_photos,
   };
 }
@@ -161,6 +165,28 @@ function toPublicationStatusView(value: PublicationResult["status"]): Publicatio
       return warnUnknownStatus("모르는 게시 결과", unexpected);
     }
   }
+}
+
+export function toRevokedPublicationView(raw: DraftRevokeResponse): RevokedPublicationView {
+  return { draft_id: raw.draft_id, revoked_at: raw.revoked_at };
+}
+
+/**
+ * 회수 기한. 서버 `_REVOKE_WINDOW`(24시간)를 옮긴 값입니다 — 게시가 **끝난** 시각부터입니다.
+ *
+ * 목 핸들러에도 같은 값이 따로 있습니다. 한 곳에서 가져다 쓰면 값이 틀려도 둘이 나란히
+ * 틀려서 테스트가 못 잡습니다.
+ *
+ * **이 값으로 버튼을 열고 닫을 뿐 회수 가능 여부를 판정하지는 않습니다.** 학부모가 열었는지는
+ * 반·날짜 목록에 실려 오지 않아 화면이 알 수 없고, 최종 판정은 서버가 합니다(409).
+ */
+export const REVOKE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** 게시한 알림장의 회수 기한. 게시 전이면 `null`입니다. */
+export function revokeDeadlineOf(publishedAt: string | null): Date | null {
+  if (publishedAt === null) return null;
+  const published = Date.parse(publishedAt);
+  return Number.isNaN(published) ? null : new Date(published + REVOKE_WINDOW_MS);
 }
 
 export function toPublicationResultView(raw: PublicationResult): PublicationResultView {
@@ -233,6 +259,19 @@ export function selectedPhotos(draft: DraftView | undefined): DraftMediaView[] {
 }
 
 /**
+ * 교사가 아직 고르지 않았지만 보낼 사진으로 고를 수 있는 사진입니다. 초안 상세가 싣는 사진
+ * (문장 근거, 분석 실패)에서만 고릅니다 — 반·날짜의 사진 전체를 주는 API가 아직 경로만 있어서
+ * (docs/api/media-face.md) 거기까지는 보여 줄 수 없습니다. 서버는 고른 사진이 그 원아·그
+ * 날짜에 학부모에게 보여도 되는 것인지 다시 확인합니다(`PATCH /drafts/{draft_id}`).
+ */
+export function selectablePhotos(draft: DraftView | undefined): DraftMediaView[] {
+  if (draft === undefined) return [];
+  return draft.media.filter(
+    (media) => media.type === "photo" && !draft.selected_media_ids.includes(media.media_id),
+  );
+}
+
+/**
  * **학부모에게 실제로 나간 사진**입니다. 알림장 상세처럼 게시본을 되짚어 보는 화면이 씁니다.
  * `true`일 때만 돌려줍니다 — `null`(게시 전 캐시가 남은 경우)에 보여 주면 사진을 빼고
  * 게시했는데도 교사에게는 사진이 보입니다(#89 리뷰).
@@ -259,10 +298,17 @@ export function canApprove(draft: { status: DraftStatusView } | null | undefined
   return draft?.status === "review";
 }
 
-/** 승인을 되돌릴 수 있는지. 게시한 뒤에는 회수가 따로 필요합니다(H-1). */
+/**
+ * 승인이나 회수를 되돌려 다시 검토할 수 있는지.
+ *
+ * `approved`는 **게시 전까지만** 됩니다 — 이미 나갔으면 회수가 먼저입니다(H-1).
+ * `revoked`는 회수로 학부모에게서 내려온 상태라 바로 되돌립니다. 서버 `reopen_draft`도
+ * 두 상태를 모두 받습니다("승인 또는 회수를 되돌려 다시 검토하게 한다").
+ */
 export function canReopen(
   draft: { status: DraftStatusView; published_at: string | null } | null | undefined,
 ): boolean {
+  if (draft?.status === "revoked") return true;
   return draft?.status === "approved" && draft.published_at === null;
 }
 

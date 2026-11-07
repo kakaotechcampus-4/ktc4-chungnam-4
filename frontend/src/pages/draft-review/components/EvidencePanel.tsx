@@ -8,6 +8,7 @@ const SOURCE_LABEL_MAP: Record<EvidenceSourceTypeView, string> = {
   video_speech: "영상 발화",
   video_scene: "영상 장면",
   teacher_voice_memo: "교사 음성 메모",
+  teacher_note: "교사 메모",
   activity_plan: "활동 계획",
 };
 

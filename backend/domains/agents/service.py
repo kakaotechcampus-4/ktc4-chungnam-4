@@ -30,9 +30,11 @@ from domains.agents.models import (
     GenerationJob,
     Job,
     JobStatus,
+    TeacherEvidence,
 )
 from domains.agents.models import SentenceEvidence as SentenceEvidenceRow
 from domains.agents.models import VerificationResult as VerificationResultRow
+from domains.audit import service as audit_service
 from domains.documents import service as documents
 from domains.documents.schemas import DraftSaveInput, DraftSentenceInput, DraftStatus
 from domains.media import service as media_service
@@ -146,7 +148,7 @@ def start_generation_job(
 ) -> StartedGenerationJob:
     """서버 전송을 마친 반·날짜의 초안 생성 작업을 만든다 (FR-05, FR-06, FR-26).
 
-    대상 원아는 그 날짜에 귀속된 자료가 있는 원아 전원이다. ③ 미동의 원아도 빼지 않고,
+    대상 원아는 그 날짜에 귀속된 자료나 추가 근거가 있는 원아 전원이다. ③ 미동의 원아도 빼지 않고,
     그 원아가 귀속된 사진만 근거 수집에서 빠진다(H-2·H-3). 커밋과 큐 넣기는 호출자가 한다.
     """
     ensure_class_access(db, class_id, center_id)
@@ -186,7 +188,7 @@ def start_generation_job(
             "아직 서버 전송이 끝나지 않은 자료가 있습니다.",
             detail={"media_ids": [str(media_id) for media_id in unready]},
         )
-    child_ids = media_service.get_attributed_children(db, class_id, record_date)
+    child_ids = _draft_target_children(db, class_id, record_date)
     if not child_ids:
         raise NoTargetChildren("이 날짜에 원아에게 연결된 자료가 없습니다.")
 
@@ -334,11 +336,141 @@ def _overall_status(children: Sequence[ChildJobStatus]) -> JobStatus:
 
 
 # ---------------------------------------------------------------------------
+# 추가 근거(교사 관찰 메모) 읽기·저장 (GET /classes/{class_id}/evidence,
+# PUT /children/{child_id}/evidence/{record_date}) — FR-05, 2026-11-06 구현 결정
+# ---------------------------------------------------------------------------
+
+# 근거 ID 접두. 문장별 근거 행에는 출처 종류가 없어서, 미디어가 없는 근거 중 활동계획(`plan:`)과
+# 교사 메모를 이 접두로 가른다.
+TEACHER_NOTE_EVIDENCE_PREFIX = "note:"
+
+
+@dataclass(frozen=True)
+class SavedTeacherEvidence:
+    evidence: TeacherEvidence
+    # 처음 저장이면 True(201), 덮어썼으면 False(200)
+    created: bool
+
+
+def _draft_target_children(db: Session, class_id: UUID, record_date: date) -> list[UUID]:
+    """초안 생성 대상. 그날 귀속된 자료가 있거나 추가 근거를 남긴 반 원아다.
+
+    화면이 자료 없는 아이에게도 메모를 남기라고 안내하므로, 메모만 있어도 초안을 만든다
+    (임시 결정(송유진), 이전에는 자료가 있는 원아만이었다).
+    """
+    attributed = media_service.get_attributed_children(db, class_id, record_date)
+    class_children = list(organization_service.get_class_child_names(db, class_id))
+    noted = db.scalars(
+        select(TeacherEvidence.child_id).where(
+            TeacherEvidence.child_id.in_(class_children),
+            TeacherEvidence.record_date == record_date,
+        )
+    ).all()
+    return sorted({*attributed, *noted}, key=str)
+
+
+def list_teacher_evidence(
+    db: Session,
+    *,
+    class_id: UUID,
+    record_date: date,
+    teacher_id: UUID,
+    center_id: UUID | None,
+) -> list[TeacherEvidence]:
+    """그날 반 원아들의 추가 근거를 돌려준다 (아이마다 최대 한 건).
+
+    같은 어린이집 교사만 본다(FR-25). 메모에는 아이 이름이 들어갈 수 있어 열람마다
+    AccessLog를 남긴다(NFR-05, H-4) — 로그에는 ID만 둔다. 기록하지 못하면 응답하지 않는다.
+    """
+    ensure_class_access(db, class_id, center_id)
+    child_ids = list(organization_service.get_class_child_names(db, class_id))
+    if not child_ids:
+        return []
+    rows = list(
+        db.scalars(
+            select(TeacherEvidence)
+            .where(
+                TeacherEvidence.child_id.in_(child_ids),
+                TeacherEvidence.record_date == record_date,
+            )
+            .order_by(TeacherEvidence.created_at, TeacherEvidence.id)
+        )
+    )
+    for row in rows:
+        audit_service.record_access(
+            db,
+            actor_type="teacher",
+            actor_id=teacher_id,
+            target_type="teacher_evidence",
+            target_id=row.id,
+            action="view_list",
+        )
+    db.commit()
+    return rows
+
+
+def save_teacher_evidence(
+    db: Session,
+    *,
+    child_id: UUID,
+    record_date: date,
+    activity_time: str,
+    text: str,
+    teacher_id: UUID,
+    center_id: UUID | None,
+) -> SavedTeacherEvidence:
+    """아이·날짜의 추가 근거를 저장한다. 이미 있으면 덮어쓴다 (아이·날짜당 1건).
+
+    같은 어린이집 원아만 쓸 수 있다(FR-25). 마지막으로 쓴 교사가 작성자가 된다.
+    임시 결정(정은): 오늘(KST)보다 뒤 날짜는 초안 생성과 같게 `INVALID_RECORD_DATE`로 막는다.
+    """
+    organization_service.ensure_child_access(db, child_id, center_id)
+    if record_date > datetime.now(_KST).date():
+        raise InvalidRecordDate("오늘보다 뒤 날짜의 추가 근거는 남길 수 없습니다.")
+
+    def apply(row: TeacherEvidence) -> None:
+        row.activity_time = activity_time
+        row.text = text
+        row.author_teacher_id = teacher_id
+
+    def find() -> TeacherEvidence | None:
+        return db.scalar(
+            select(TeacherEvidence).where(
+                TeacherEvidence.child_id == child_id,
+                TeacherEvidence.record_date == record_date,
+            )
+        )
+
+    row = find()
+    created = row is None
+    if row is None:
+        row = TeacherEvidence(id=uuid4(), child_id=child_id, record_date=record_date)
+        apply(row)
+        db.add(row)
+    else:
+        apply(row)
+    try:
+        db.commit()
+    except IntegrityError:
+        # 같은 아이·날짜를 두 곳에서 처음 저장한 경우다. 먼저 들어간 행을 덮어쓴다.
+        db.rollback()
+        row = find()
+        if row is None:
+            raise
+        apply(row)
+        created = False
+        db.commit()
+    db.refresh(row)
+    return SavedTeacherEvidence(evidence=row, created=created)
+
+
+# ---------------------------------------------------------------------------
 # 문장별 근거 조회 (documents의 교사용 초안 상세가 부른다)
 # ---------------------------------------------------------------------------
 
 # 근거 행에 출처 종류를 저장하지 않아 미디어 종류로 정한다. 영상은 발화만 근거로 쓰므로
-# (테크스펙 §요청사항 2) video_speech다. 미디어가 없으면 활동계획이다.
+# (테크스펙 §요청사항 2) video_speech다. 미디어가 없으면 근거 ID 접두로 교사 메모와
+# 활동계획을 가른다.
 _SOURCE_TYPE_BY_MEDIA_TYPE = {
     "photo": contracts.SourceType.PHOTO_OBSERVATION,
     "voice_memo": contracts.SourceType.TEACHER_VOICE_MEMO,
@@ -388,11 +520,12 @@ def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[Sente
     result: dict[str, list[SentenceEvidenceView]] = {}
     for row in rows:
         meta = media.get(row.source_media_id) if row.source_media_id is not None else None
-        source_type = (
-            _SOURCE_TYPE_BY_MEDIA_TYPE[meta.type]
-            if meta is not None
-            else contracts.SourceType.ACTIVITY_PLAN
-        )
+        if meta is not None:
+            source_type = _SOURCE_TYPE_BY_MEDIA_TYPE[meta.type]
+        elif row.evidence_id.startswith(TEACHER_NOTE_EVIDENCE_PREFIX):
+            source_type = contracts.SourceType.TEACHER_NOTE
+        else:
+            source_type = contracts.SourceType.ACTIVITY_PLAN
         result.setdefault(row.sentence_id, []).append(
             SentenceEvidenceView(
                 evidence_id=row.evidence_id,
@@ -845,6 +978,24 @@ def _load_generation_inputs(bundle: EvidenceBundle) -> GenerationInputs:
     if merged.status == PerceptionStatus.RESPONSE_ERROR:
         raise PhotoAnalysisFailed
     evidence = list(merged.items)
+    # 교사가 글로 남긴 추가 근거는 그 아이·그날의 관찰이다(FR-05). 생성 때마다 새로 읽으므로
+    # 저장 뒤 다음 생성부터 반영되고, 이미 만든 초안은 바뀌지 않는다.
+    for note in session.scalars(
+        select(TeacherEvidence).where(
+            TeacherEvidence.child_id == bundle.child_id,
+            TeacherEvidence.record_date == record_date,
+        )
+    ):
+        evidence.append(
+            contracts.EvidenceItem(
+                evidence_id=f"{TEACHER_NOTE_EVIDENCE_PREFIX}{note.id}",
+                source_type=contracts.SourceType.TEACHER_NOTE,
+                child_ids=[str(bundle.child_id)],
+                observed_date=record_date,
+                text=note.text,
+                assignment_status=contracts.AssignmentStatus.TEACHER_CONFIRMED,
+            )
+        )
     # FR-05: 다른 요일의 계획을 해당 날짜의 관찰 맥락으로 섞지 않는다.
     weekday = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")[record_date.weekday()]
     for plan in organization_service.get_activity_plans_for_date(session, class_id, record_date):

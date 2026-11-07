@@ -49,6 +49,10 @@ export function ParentNotesPage() {
               <p>
                 {child.center_name} · {child.class_name} · {child.name}
               </p>
+              {/* 모아 보기(FR-10)로 들어가는 길. 주소를 직접 입력하지 않아도 열립니다. */}
+              <Link className="underline" to={`/p/children/${child.child_id}/media`}>
+                사진·영상 모아 보기
+              </Link>
               {notes.isPending ? (
                 <p role="status">알림장을 불러오고 있어요.</p>
               ) : notes.error ? (
