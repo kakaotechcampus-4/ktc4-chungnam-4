@@ -5,6 +5,7 @@ import type { ListResponse } from "@/types/api-draft/common";
 import type {
   ChildDraftItem,
   ClassDraftItem,
+  ClassObservationLogList,
   DraftApproveRequest,
   DraftCreateRequest,
   DraftDetail,
@@ -24,6 +25,7 @@ import type {
 import {
   toChildDraftView,
   toClassDraftView,
+  toClassObservationLogListView,
   toDraftView,
   toParentMediaDownloadView,
   toParentMediaListView,
@@ -55,6 +57,8 @@ export {
 export type {
   ChildDraftView,
   ClassDraftView,
+  ClassObservationLogListView,
+  ClassObservationLogView,
   DocTypeView,
   DraftMediaView,
   DraftStatusView,
@@ -69,6 +73,7 @@ export type {
   ParentMediaTypeView,
   ParentNoteLinkView,
   ParentNoteListView,
+  ObservationLogSummaryView,
   ParentNoteSummaryView,
   PublicationResultView,
   PublicationStatusView,
@@ -109,6 +114,10 @@ export const documentsKeys = {
   childDrafts: (childId: string, docType: DocTypeView, published: boolean) =>
     ["children", childId, "drafts", docType, published] as const,
   draft: (draftId: string) => ["drafts", draftId] as const,
+  /** 반의 월별 관찰일지 목록 전부. 생성이 끝난 뒤 달에 상관없이 비울 때 씁니다. */
+  classObservationLogLists: (classId: string) => ["classes", classId, "observation-logs"] as const,
+  classObservationLogs: (classId: string, month: string) =>
+    ["classes", classId, "observation-logs", month] as const,
   /**
    * 알림장에 고를 후보. `draft` 키 아래에 두지 않습니다 — 초안을 비울 때마다 함께 다시 받아, 부를 때마다
    * 남는 열람 기록(NFR-05)이 교사가 보지도 않은 조회로 쌓입니다.
@@ -138,6 +147,20 @@ export function classDraftsQueryOptions(classId: string, recordDate: string) {
           { query: { record_date: recordDate }, signal },
         )
       ).items.map(toClassDraftView),
+  });
+}
+
+/** 교사용: 달마다 원아별 게시 알림장 수와 관찰일지(FR-06). 명단 순서이고 이름은 없습니다. */
+export function classObservationLogsQueryOptions(classId: string, month: string) {
+  return queryOptions({
+    queryKey: documentsKeys.classObservationLogs(classId, month),
+    queryFn: async ({ signal }) =>
+      toClassObservationLogListView(
+        await api.get<ClassObservationLogList>(
+          `/classes/${encodeURIComponent(classId)}/observation-logs`,
+          { query: { month }, signal },
+        ),
+      ),
   });
 }
 
