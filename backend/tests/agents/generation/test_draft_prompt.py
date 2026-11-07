@@ -32,6 +32,13 @@ def test_근거와_피드백을_채우고_메타데이터_주석은_보내지_�
     assert "{{" not in prompt
 
 
+def test_첫_문장의_주어는_대상_원아로_쓰게_한다():
+    # 공동 활동만 있는 날에도 누구의 알림장인지 드러나야 합니다(11/07 배포 점검).
+    prompt = build_draft_prompt(DocType.PARENT_NOTE, _evidence())
+
+    assert "첫 문장의 주어는 CHILD_A" in prompt
+
+
 def test_첫_생성이면_피드백은_빈_배열이다():
     prompt = build_draft_prompt(DocType.PARENT_NOTE, _evidence())
 

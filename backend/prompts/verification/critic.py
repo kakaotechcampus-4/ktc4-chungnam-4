@@ -18,7 +18,7 @@ from pathlib import Path
 
 from tools.contracts import DraftDocument, EvidenceItem
 
-PROMPT_VERSION = "critic.v3"
+PROMPT_VERSION = "critic.v4"
 
 _TEMPLATE_PATH = Path(__file__).with_name("critic.md")
 _DOCUMENT_SLOT = "{{DOCUMENT}}"
