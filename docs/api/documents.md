@@ -10,7 +10,7 @@
 
 **한상균**
 
-- [x] (막힘) 회수 뒤 초안 상태 → **`revoked`로 잠그고, `reopen`으로 `verified`에 돌린 뒤 수정 → 승인 → 다시 게시합니다.** 회수 조건은 테크스펙 파이프라인 9단계(게시 후 24시간 이내, 열람 전)를 따릅니다. 임시 결정(한상균). 테크스펙 ⑤ RevisionLog의 reopen 설명은 아직 "게시 전 승인 되돌리기"만 적고 있어 팀 확인 뒤 고칩니다. 반영: 이 문서 §`POST /api/v1/drafts/{draft_id}/revoke`·§`POST /api/v1/drafts/{draft_id}/reopen`
+- [x] (막힘) 회수 뒤 초안 상태 → **`revoked`로 잠그고, `reopen`으로 `verified`에 돌린 뒤 수정 → 승인 → 다시 게시합니다.** 회수 조건은 테크스펙 파이프라인 9단계(게시 후 24시간 이내. 11/05부터 학부모가 열어 봤어도 회수, #266)를 따릅니다. 임시 결정(한상균). 테크스펙 ⑤ RevisionLog의 reopen 설명은 아직 "게시 전 승인 되돌리기"만 적고 있어 팀 확인 뒤 고칩니다. 반영: 이 문서 §`POST /api/v1/drafts/{draft_id}/revoke`·§`POST /api/v1/drafts/{draft_id}/reopen`
 - [x] (막힘) 초안 `status` 값: 테크스펙 4값(제안) vs develop에 병합된 PR #14 값(정은과 함께) → **`draft`(생성·검증 중) → `verified`(교사 검토 대기) → `approved`**. 검증을 통과한 초안은 `verified`로 저장하고, 승인 판정은 `status == verified` 하나입니다. PR #14의 `in_review`는 `verified`로 바꿨고, `revoked`는 아래 게시 모델이 정해질 때까지 그대로 둡니다. `unclassified`를 상태값으로 둘지는 아직 열려 있습니다(`docs/open-questions.md`). 임시 결정(한상균), 이슈 #75·#106에서 정은·김진하 확인. 반영: 테크스펙 ④ DraftDocument, `backend/domains/documents/models.py`
 - [x] (막힘) 승인·게시 분리(`DocumentPublication`) → **분리하고 일괄 `POST /publications`로 게시**합니다. 승인만으로는 학부모에게 보이지 않고, 회수되지 않은 게시 회차가 있을 때만 보입니다. 임시 결정(한상균), 팀 확인 대기(#158 6번). 반영: 테크스펙 ⑤ DocumentPublication
 - [ ] (막힘) **생성 중인 원아를 목록에서 알리는 방법** (#139 리뷰 송유진·김진하) — 지금은 `draft`로 저장되는 경로가 없습니다. agents는 검증을 통과한 초안만 `verified`로 저장해서, 생성 중인 원아가 초안 없는 원아와 구분되지 않습니다. 화면 쪽은 Job(`job_id`)이 아니라 반·날짜 목록(`GET /classes/{class_id}/drafts`)에 생성 중을 알리는 값이 있기를 원합니다 — 화면을 떠났다 오면 `job_id`를 잃고, 두 응답의 시점이 어긋나서입니다. 목록 구현 PR에서 값의 모양을 정하고, 그때 `draft` 상태값과 아래 표의 `draft` → 생성 중 행을 함께 정리합니다
@@ -138,7 +138,7 @@ documents의 상세 작성 엔드포인트는 12개(교사용 8, 학부모용 4)
 - `unclassified`(제안)는 초안 없이 미분류로 끝난 원아의 사유입니다. documents가 소유한 UnclassifiedItem을 조인합니다.
 - `preview`(제안)는 본문 앞부분 최대 100자이고, 문장 경계에서 자릅니다. 첫 문장부터 100자를 넘으면 그 문장을 100자에서 자릅니다(빈 미리보기를 내지 않으려는 것) — 임시 결정(한상균).
 - 게시할 수 있는 행은 FE가 `status == approved && published_at == null`로 판단합니다.
-- `revoke_deadline`·`can_revoke`는 상세(`GET /api/v1/drafts/{draft_id}`)와 같은 값입니다. 활성 게시 회차의 회수 기한이고, `can_revoke`는 기한 이내이면서 학부모가 본문을 열기 전일 때만 `true`입니다. 게시 완료 화면이 회수 버튼을 띄울지 정할 때 씁니다. 상세를 미리 받으면 보지 않은 알림장마다 교사 열람 기록(AccessLog)이 남아서 목록에 싣습니다(#260) — 임시 결정(한상균)
+- `revoke_deadline`·`can_revoke`는 상세(`GET /api/v1/drafts/{draft_id}`)와 같은 값입니다. 활성 게시 회차의 회수 기한이고, `can_revoke`는 활성 게시 회차가 있고 기한 이내이면 `true`입니다(학부모가 열어 봤어도, #266). 게시 완료 화면이 회수 버튼을 띄울지 정할 때 씁니다. 상세를 미리 받으면 보지 않은 알림장마다 교사 열람 기록(AccessLog)이 남아서 목록에 싣습니다(#260) — 임시 결정(한상균)
 - 에러:
   - `CLASS_ACCESS_DENIED` (403) — 다른 어린이집의 반일 때(같은 어린이집 교사는 모든 반을 봅니다, FR-25)
   - `CLASS_NOT_FOUND` (404) — 없는 반일 때
@@ -241,7 +241,7 @@ documents의 상세 작성 엔드포인트는 12개(교사용 8, 학부모용 4)
 }
 ```
 
-- `revoke_deadline`은 활성 게시 회차의 회수 기한이고, 활성 회차가 없으면 `null`입니다. `can_revoke`는 지금 회수할 수 있는지입니다(기한 이내이고 학부모가 본문을 열기 전). FE가 규칙을 따로 계산하지 않게 서버가 답합니다 — 임시 결정(한상균).
+- `revoke_deadline`은 활성 게시 회차의 회수 기한이고, 활성 회차가 없으면 `null`입니다. `can_revoke`는 지금 회수할 수 있는지입니다(활성 게시 회차가 있고 기한 이내. 학부모가 열어 봤어도 회수할 수 있습니다, #266). FE가 규칙을 따로 계산하지 않게 서버가 답합니다 — 임시 결정(한상균).
 - `include_photos`는 게시할 때 정해지는 값이라 **게시 전에는 `null`** 입니다 — 임시 결정(김진하). `false`면 학부모에게 글만 갔다는 뜻이고, 교사 화면(알림장 상세)도 사진을 감춥니다. 보낸 것과 교사가 보는 것이 달라지면 교사가 "사진을 보냈다"고 착각합니다. 초안 검토 화면은 아직 게시 전(`null`)이라 선택 사진을 그대로 보여 줍니다.
 - `sentence_id`는 초안 안에서만 유일한 문자열입니다 — 임시 결정(한상균), 이슈 #75. 순번으로 가리키면 교사가 문장을 끼워 넣거나 지울 때 뒤 번호가 밀려 근거가 다른 문장을 가리킵니다. 문장 순서는 배열 순서입니다.
   - AI 문장은 agents가 붙인 값(`s…`), 교사가 쓴 문장은 서버가 붙인 `t1`·`t2`…입니다(임시 결정(정은)). FE는 값의 모양을 해석하지 않습니다.
@@ -442,7 +442,7 @@ documents의 상세 작성 엔드포인트는 12개(교사용 8, 학부모용 4)
 ### `POST /api/v1/drafts/{draft_id}/revoke` — 교사용: 게시한 알림장 회수
 
 - 쓰는 화면: 아직 없음(`DraftReviewPage`의 `TODO(김진하)`)
-- 요구사항: 테크스펙 파이프라인 9단계·흐름 D-6(게시 후 24시간 이내, 열람 후에는 회수 불가), H-1
+- 요구사항: 테크스펙 파이프라인 9단계·흐름 D-6(게시 후 24시간 이내, 학부모가 열어 본 뒤에도 가능), H-1
 - 권한: 교사 — 같은 어린이집 원아의 초안만
 - 요청: `expected_version`만 보냅니다.
 
@@ -461,14 +461,13 @@ documents의 상세 작성 엔드포인트는 12개(교사용 8, 학부모용 4)
 }
 ```
 
-- 회수할 수 있는 조건은 세 가지입니다: 활성 게시 회차가 있고, 학부모가 **본문을 열기 전**이고(`first_viewed_at`, 목록만 본 것은 열람이 아닙니다), 회수 기한(게시 시각 + 24시간) 이내입니다.
+- 회수할 수 있는 조건은 두 가지입니다: 활성 게시 회차가 있고, 회수 기한(게시 시각 + 24시간) 이내입니다. **학부모가 본문을 열어 봤어도 회수합니다**(11/05 팀 논의, #266) — 잘못 나간 알림장을 학부모가 먼저 열면 고칠 길이 없기 때문입니다. 이미 본 내용은 되돌릴 수 없으니 "내리고, 고쳐서, 다시 보내기"입니다.
 - 회수하면 회차의 `revoked_at`을 채우고, `status`를 `revoked`로, `approved_at`을 `null`로 바꾸고, `version`을 1 올리고, `RevisionLog`(action=revoke)를 남깁니다. 넷은 한 트랜잭션입니다 — 임시 결정(한상균). 학부모 목록에서 바로 사라지고 본문은 `404 PARENT_NOTE_NOT_FOUND`입니다.
-- 회수와 학부모 열람이 동시에 와도 회차 행의 UPDATE 한 문장으로 판단하므로 둘 중 하나만 성공합니다.
+- 회수가 먼저 커밋되면 그 뒤의 학부모 열람은 `404`입니다. 열람이 회차 행을 "회수되지 않았을 때만" 갱신하는 UPDATE 한 문장으로 판단하기 때문입니다.
 - `revoked`인 문서는 잠깁니다. 고쳐서 다시 보내려면 `reopen` → `PATCH` → `approve` → `POST /publications` 순서입니다. 다시 게시하면 새 회차와 새 회수 기한이 생기고 `RevisionLog`(action=resend)를 남깁니다.
 - 에러:
   - `DRAFT_VERSION_CONFLICT` (409) — `expected_version`이 현재 값과 다를 때. 회수도 함께 취소됩니다.
   - `DRAFT_NOT_PUBLISHED` (409) — 활성 게시 회차가 없을 때(게시 전이거나 이미 회수함)
-  - `DRAFT_ALREADY_VIEWED` (409) — 학부모가 본문을 열었을 때
   - `REVOKE_DEADLINE_PASSED` (409) — 회수 기한이 지났을 때
   - `DRAFT_NOT_FOUND` (404) — 없는 초안일 때
   - `CHILD_ACCESS_DENIED` (403) — 다른 어린이집 원아의 초안일 때
@@ -492,7 +491,8 @@ documents의 상세 작성 엔드포인트는 12개(교사용 8, 학부모용 4)
       "photos": [
         { "media_id": "3ed1a000-0000-4000-8000-000000000041", "type": "photo", "url": "https://<bucket>.s3.amazonaws.com/<key>?X-Amz-Signature=…", "url_expires_at": "2026-09-15T12:05:00Z" }
       ],
-      "is_read": false
+      "is_read": false,
+      "is_resent": false
     }
   ],
   "next_cursor": "eyJyZWNvcmRfZGF0ZSI6IjIwMjYtMDktMTQifQ",
@@ -504,8 +504,11 @@ documents의 상세 작성 엔드포인트는 12개(교사용 8, 학부모용 4)
 - 게이트를 통과한 게시본만 담습니다.
 - `photos`는 지금 보여도 되는 선택 사진·영상(§publications) 가운데 앞 3장의 서명 URL입니다. 영상이 섞일 수 있으니 `type`을 보고 그립니다. `include_photos=false`로 게시했으면 빈 배열입니다.
 - `is_read`·`unread_count`는 이 학부모의 본문 열람 기록을 기준으로 합니다. `unread_count`는 전체 안 읽음 수이고, W3의 두 곳에 같은 값을 씁니다.
+  - 열람 기록은 게시 회차마다 따로라서, 회수 뒤 다시 보낸 알림장은 전에 읽었어도 다시 `is_read=false`입니다.
+- `is_resent`는 교사가 회수한 뒤 고쳐 다시 보낸 알림장(게시 회차 2회째부터)이면 `true`입니다. 화면은 "선생님이 내용을 고쳤어요"를 띄웁니다(11/05 팀 논의, #266, 테크스펙 D-6). 본문 응답에도 같은 값이 있습니다.
+  - 전 회차를 본 학부모에게만이 아니라 그 알림장을 보는 학부모 모두에게 `true`입니다. 누가 전 회차를 봤는지 학부모마다 가르지 않고, 고친 사실을 숨길 이유도 없어서입니다 — 임시 결정(한상균).
 - `this_month_count`(제안)는 기록 날짜가 KST 기준 이번 달인 게시본 수("이번 달 12")입니다. `unread_count`와 함께 목록 응답 봉투를 확장한 필드입니다.
-- 목록에도 발췌와 사진이 보이므로 AccessLog(action=view_list, target_type=document_publication)를 남깁니다. 회수 판단용 `first_viewed_at`은 건드리지 않습니다.
+- 목록에도 발췌와 사진이 보이므로 AccessLog(action=view_list, target_type=document_publication)를 남깁니다. `first_viewed_at`(학부모가 처음 본문을 연 시각)은 건드리지 않습니다.
 - 에러:
   - `CHILD_ACCESS_DENIED` (403) — 자기 자녀가 아닐 때
   - `CHILD_ACCESS_EXPIRED` (403) — 졸업 후 1년이 지났을 때(NFR-03)
@@ -534,6 +537,7 @@ documents의 상세 작성 엔드포인트는 12개(교사용 8, 학부모용 4)
   ],
   "author_name": "김하늘",
   "published_at": "2026-09-15T08:40:00Z",
+  "is_resent": false,
   "prev": { "parent_note_id": "d7af0000-0000-4000-8000-000000000002", "record_date": "2026-09-14" },
   "next": null
 }
@@ -544,13 +548,14 @@ documents의 상세 작성 엔드포인트는 12개(교사용 8, 학부모용 4)
 - `content`는 문장 단위로 줄을 바꿉니다(`\n`).
 - `photos`는 사진을 함께 보낸 경우 지금 보여도 되는 선택 사진·영상(§publications) 전부입니다. 영상이 섞일 수 있으니 `type`을 보고 그립니다.
 - `author_name`은 작성 교사 이름입니다(FR-26).
+- `is_resent`는 목록과 같습니다. 다시 보낸 알림장이면 `true`이고, `published_at`은 다시 보낸 시각입니다.
 - `prev`·`next`(제안)는 같은 자녀의 이전·다음 게시본입니다.
 - 에러:
   - `PARENT_NOTE_NOT_FOUND` (404) — 없음, 미게시, 남의 자녀 것을 구분하지 않고 모두 404로 답합니다.
   - `CHILD_ACCESS_EXPIRED` (403) — NFR-03 열람 기간이 지났을 때
   - `ACCESS_LOG_FAILED` (500) — 열람 기록에 실패했을 때
 - AccessLog의 target은 게시 회차(`document_publication`)입니다 — 회수 뒤 다시 게시하면 어느 회차를 봤는지 남아야 해서입니다. 임시 결정(한상균).
-- 같은 학부모가 다시 열어도 매번 기록하지만, 회수 판단용 `first_viewed_at`은 처음 연 시각 그대로입니다.
+- 같은 학부모가 다시 열어도 매번 기록하지만, `first_viewed_at`은 처음 연 시각 그대로입니다.
 
 ### `GET /api/v1/children/{child_id}/parent-media` — 학부모용: 자녀가 받은 사진·영상 모아 보기
 
@@ -582,7 +587,7 @@ documents의 상세 작성 엔드포인트는 12개(교사용 8, 학부모용 4)
 - 알림장 단위로 기록 날짜 최신순으로 나눕니다. 보낼 것이 없는 알림장은 건너뜁니다. `items`는 교사가 고른 순서입니다.
 - `url`은 화면 표시·재생용 서명 URL입니다. 파일로 저장할 때는 아래 내려받기를 따로 부릅니다.
 - `photo_count`·`video_count`는 쪽과 무관한 전체 개수입니다. 서명 전에 파기된 것은 세지 않습니다.
-- 응답 전에 화면에 실린 알림장마다 AccessLog를 커밋합니다(actor_type=parent, target_type=document_publication, action=view_media — 임시 결정(김동건)). `first_viewed_at`은 바꾸지 않습니다(회수 판단은 본문 열람 기준).
+- 응답 전에 화면에 실린 알림장마다 AccessLog를 커밋합니다(actor_type=parent, target_type=document_publication, action=view_media — 임시 결정(김동건)). `first_viewed_at`은 바꾸지 않습니다(본문을 처음 연 시각이라서).
 - 에러:
   - `CHILD_ACCESS_DENIED` (403) — 자기 자녀가 아님
   - `CHILD_ACCESS_EXPIRED` (403) — NFR-03 열람 기간이 지났을 때
