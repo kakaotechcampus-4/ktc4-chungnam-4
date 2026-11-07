@@ -1502,9 +1502,8 @@ describe("DraftReviewPage", () => {
     expect(screen.queryByText(/되돌릴 수 있습니다/)).not.toBeInTheDocument();
   });
 
-  // 학부모가 이미 열어 본 알림장은 서버가 막습니다. 화면은 기한만 보고 버튼을 열기 때문에
-  // 눌러 봐야 알 수 있고, 그때 이유가 보여야 교사가 다음 행동을 고릅니다.
-  it("학부모가 이미 열어 봤으면 회수가 막힌 이유를 보여 준다", async () => {
+  // 학부모가 열어 봤어도 게시 후 24시간 안이면 회수합니다(#289, 테크스펙 D-6).
+  it("학부모가 이미 열어 본 알림장도 기한 안이면 회수한다", async () => {
     const user = userEvent.setup();
     publishedJustNow();
     updateDb((db) => {
@@ -1515,8 +1514,26 @@ describe("DraftReviewPage", () => {
     await user.click((await screen.findAllByRole("button", { name: "회수" }))[0]!);
     await user.click(await screen.findByRole("button", { name: "회수하기" }));
 
+    expect(await screen.findByRole("heading", { name: /기록을 완성해요/ })).toBeInTheDocument();
+  });
+
+  // 화면은 게시 시각으로 기한만 보고 버튼을 엽니다. 그사이 기한이 지나 서버가 막으면,
+  // 이유가 보여야 교사가 다음 행동을 고릅니다.
+  it("서버가 회수를 막으면 이유를 보여 준다", async () => {
+    const user = userEvent.setup();
+    publishedJustNow();
+    server.use(
+      http.post(apiPath("/drafts/:draftId/revoke"), () =>
+        errorResponse(409, "REVOKE_DEADLINE_PASSED", "회수 기한(게시 후 24시간)이 지났습니다."),
+      ),
+    );
+    renderClosedDay();
+
+    await user.click((await screen.findAllByRole("button", { name: "회수" }))[0]!);
+    await user.click(await screen.findByRole("button", { name: "회수하기" }));
+
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "학부모가 이미 열어 본 알림장은 회수할 수 없습니다.",
+      "회수 기한(게시 후 24시간)이 지났습니다.",
     );
   });
 

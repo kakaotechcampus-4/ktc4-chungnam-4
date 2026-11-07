@@ -556,13 +556,7 @@ export const handlers = [
       if (draft.published_at === null) {
         return errorResponse(409, "DRAFT_NOT_PUBLISHED", "게시 중인 알림장이 아닙니다.");
       }
-      if (db.readParentNotes.includes(draft.draft_id)) {
-        return errorResponse(
-          409,
-          "DRAFT_ALREADY_VIEWED",
-          "학부모가 이미 열어 본 알림장은 회수할 수 없습니다.",
-        );
-      }
+      // 학부모가 열어 봤어도 기한 안이면 회수합니다(#289, 테크스펙 D-6).
       if (Date.parse(publishedAtOf(draft) ?? draft.published_at) + REVOKE_WINDOW_MS <= Date.now()) {
         return errorResponse(
           409,

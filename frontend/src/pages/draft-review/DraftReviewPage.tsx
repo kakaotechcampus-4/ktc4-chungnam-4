@@ -608,8 +608,7 @@ export function DraftReviewPage() {
             {/* 게시본은 바로 고칠 수 없고 회수를 거칩니다(H-1). 회수하면 그 원아의 초안이
                 "안 나간 초안"이 되어 이 날짜가 다시 열리고, 평소처럼 고쳐 승인·게시합니다. */}
             <p className="text-label text-ink-muted">
-              잘못 나간 알림장은 회수한 뒤에 고칠 수 있어요. 보호자가 열어 보기 전, 게시하고 24시간
-              안에만 됩니다.
+              잘못 나간 알림장은 회수한 뒤에 고칠 수 있어요. 게시하고 24시간 안에만 됩니다.
             </p>
           </div>
           <ul className="flex flex-col gap-2">
