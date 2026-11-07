@@ -54,8 +54,8 @@
 
 - [x] (막힘) **근거에 알림장 날짜** — 「근거 알림장」 패널이 `9월 15일 (화)`로 찍는데, `list_sentence_evidences`(`backend/domains/agents/service.py`)가 `captured_at`을 미디어에서만 채워 `parent_note` 근거는 **항상 `null`**이었고 정렬에서도 전부 뒤로 갔습니다 → **`SentenceEvidence`에 컬럼을 더하지 않고 `source_document_id`가 가리키는 알림장의 `record_date`를 조인해 `captured_at`에 채웁니다**(그날 0시, KST). `parent_note` 근거에만 해당하고 미디어 근거는 지금처럼 미디어의 촬영 시각입니다. 스키마·마이그레이션 변경은 없습니다. 임시 결정(정은, 11/07), #264. 반영: 이 문서 §`GET /api/v1/drafts/{draft_id}`, `agents/service.py`의 `list_sentence_evidences`, `documents/service.py`의 `get_record_dates`
 - [x] (막힘) **양식의 칸 목록과 순서** — 지금 `section`은 문장에 붙은 문자열뿐이라, 화면이 ① 칸 순서를 모르고 ② 근거가 없어 문장이 안 만들어진 **빈 칸을 그릴 수 없었습니다.** #225 ⑫가 "1~4건이면 칸이 비어 있을 수 있어요"로 합의한 그 칸입니다 → **초안 응답에 `sections: [...]` 문자열 목록을 더합니다.** `observation_log`일 때만 채우고(기본 양식의 영역 순서, agents의 `SECTIONS`) 알림장은 빈 배열입니다. 양식을 원별로 저장하는 ⑬은 아직 없어 모든 원이 같은 기본 양식입니다. 스키마·마이그레이션 변경은 없습니다. 임시 결정(정은, 11/07), #264. 반영: 이 문서 §`GET /api/v1/drafts/{draft_id}`, `agents/service.py`의 `observation_log_sections`, `documents/schemas.py`의 `DraftDetailResponse`
-- [ ] (막힘) **이미 만든 관찰일지 다시 생성** — 화면에 「다시 생성」이 있습니다(159:3788 안내 문구·159:3882 버튼). 지금은 `save_draft(expected_version=None)`이 중복을 충돌로 거부해 **요청은 가는데 결과가 버려집니다.** `backend/domains/agents/service.py`의 `TODO(eun)`가 그 자리입니다
-- [ ] 초안 **생성 시각** — 위 §observation-logs의 `created_at`과 생성 결과 화면 부제("9월 30일에 만들었어요")에 씁니다. `updated_at`은 교사가 고치면 바뀌어 쓸 수 없습니다. **#267이 목록과 초안 상세에 `created_at`을 넣어 해결합니다** — 머지되면 이 항목과 `screens.md`의 "(목록에 없음: …생성 시각…)"을 함께 닫습니다
+- [x] (막힘) **이미 만든 관찰일지 다시 생성** — 화면에 「다시 생성」이 있는데(159:3788 안내 문구·159:3882 버튼) `save_draft(expected_version=None)`이 중복을 충돌로 거부해 요청은 가도 결과가 버려졌습니다 → **#259에서 풀렸습니다.** agents가 외부 호출 전에 기존 초안을 읽어, 교사 수정·승인 이력이 있으면 `DRAFT_VERSION_CONFLICT`로 거절하고 기존 문서를 보존하며, 수정 없는 검토 대기 초안이면 같은 ID를 덮어쓰고 `version`을 올립니다. 이전 본문은 남지 않아 화면에 확인 단계가 필요합니다(#264). 반영: `backend/domains/agents/service.py`의 `orchestrate_drafts`·`_save_passed_draft`
+- [x] 초안 **생성 시각** — 위 §observation-logs의 `created_at`과 생성 결과 화면 부제("9월 30일에 만들었어요")에 씁니다. `updated_at`은 교사가 고치면 바뀌어 쓸 수 없습니다. **#267이 목록과 초안 상세에 `created_at`을 넣어 해결했습니다**(11/07 머지). `screens.md`의 "(목록에 없음: …생성 시각…)"도 함께 닫았습니다
 
 ## 구현과 다른 점
 
