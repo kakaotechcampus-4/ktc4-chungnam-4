@@ -38,13 +38,14 @@ class SourceType(StrEnum):
     VIDEO_SPEECH = "video_speech"
     VIDEO_SCENE = "video_scene"
     TEACHER_VOICE_MEMO = "teacher_voice_memo"  # 교사 음성메모와 영상 속 교사 관찰 발화
+    PARENT_NOTE = "parent_note"
     ACTIVITY_PLAN = "activity_plan"
     # 교사가 글로 남긴 추가 근거(2026-11-06 결정). 미디어가 없는 교사의 관찰이다.
     TEACHER_NOTE = "teacher_note"
 
 
 # 미디어에서 온 근거가 아니라서 media_id와 시간 구간이 없어야 하는 출처
-NON_MEDIA_SOURCE_TYPES = (SourceType.ACTIVITY_PLAN, SourceType.TEACHER_NOTE)
+NON_MEDIA_SOURCE_TYPES = (SourceType.ACTIVITY_PLAN, SourceType.TEACHER_NOTE, SourceType.PARENT_NOTE)
 
 
 class AssignmentStatus(StrEnum):
@@ -90,6 +91,7 @@ class EvidenceItem(ContractModel):
     child_ids: list[NonEmpty] = Field(default_factory=list)
     observed_date: date
     text: NonEmpty
+    source_document_id: NonEmpty | None = None
     media_id: NonEmpty | None = None
     start_ms: int | None = Field(default=None, ge=0, strict=True)
     end_ms: int | None = Field(default=None, ge=0, strict=True)
@@ -109,6 +111,8 @@ class EvidenceItem(ContractModel):
             raise ValueError(f"{self.source_type} evidence requires media_id")
         if self.start_ms is not None and self.end_ms is not None and self.end_ms <= self.start_ms:
             raise ValueError("end_ms must be greater than start_ms")
+        if (self.source_type == SourceType.PARENT_NOTE) != (self.source_document_id is not None):
+            raise ValueError("parent_note requires source_document_id exclusively")
         if len(self.child_ids) != len(set(self.child_ids)):
             raise ValueError("duplicate child_ids")
         if not self.child_ids and self.assignment_status != AssignmentStatus.NEEDS_CONFIRMATION:
@@ -124,6 +128,7 @@ class GenerationRequest(ContractModel):
     child_id: NonEmpty
     record_date: date
     evidence_ids: list[NonEmpty]
+    period_end: date | None = None
 
 
 class DraftSentence(ContractModel):
@@ -131,6 +136,7 @@ class DraftSentence(ContractModel):
     E1 같은 임시 참조 번호만 보이며, 실제 ID로의 치환은 evidence 준비/해석 단계가 맡는다).
     """
 
+    section: NonEmpty | None = None
     sentence_id: NonEmpty
     text: NonEmpty
     evidence_ids: list[NonEmpty] = Field(default_factory=list)

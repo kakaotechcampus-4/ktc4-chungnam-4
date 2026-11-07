@@ -17,11 +17,13 @@ from functools import cache
 from pathlib import Path
 
 from tools.contracts import DraftDocument, EvidenceItem
+from tools.generation.agent_tools import SECTION_GUIDANCE
 
-PROMPT_VERSION = "critic.v3"
+PROMPT_VERSION = "critic.v6"
 
 _TEMPLATE_PATH = Path(__file__).with_name("critic.md")
 _DOCUMENT_SLOT = "{{DOCUMENT}}"
+_SECTION_SLOT = "{{SECTION_GUIDANCE}}"
 # 맨 앞 메타데이터 주석(입력 변수·기대 출력 형식). 사람이 읽는 용도라 LLM에는 보내지 않는다.
 _META_COMMENT = re.compile(r"\A\s*<!--.*?-->\s*", re.DOTALL)
 
@@ -47,6 +49,7 @@ def build_critic_prompt(document: DraftDocument, evidence_by_id: dict[str, Evide
         ]
         sentence_payload.append(
             {
+                "section": sentence.section,
                 "sentence_id": sentence.sentence_id,
                 "text": sentence.text,
                 "evidences": evidences,
@@ -59,7 +62,10 @@ def build_critic_prompt(document: DraftDocument, evidence_by_id: dict[str, Evide
     )
     # 본문의 응답 형식 예시에 중괄호가 있어 str.format 대신 자리표시자만 바꾼다. 템플릿만
     # 훑으므로 근거 본문에 자리표시자 문자열이 섞여 있어도 다시 치환되지 않는다.
-    return _load_template().replace(_DOCUMENT_SLOT, body)
+    slots = {_DOCUMENT_SLOT: body, _SECTION_SLOT: json.dumps(SECTION_GUIDANCE, ensure_ascii=False)}
+    return re.sub(
+        r"\{\{(?:DOCUMENT|SECTION_GUIDANCE)\}\}", lambda match: slots[match[0]], _load_template()
+    )
 
 
 @cache
@@ -77,4 +83,6 @@ def _load_template() -> str:
         raise RuntimeError(f"{_TEMPLATE_PATH.name}: 본문에 주석 표시가 남아 있다")
     if body.count(_DOCUMENT_SLOT) != 1:
         raise RuntimeError(f"{_TEMPLATE_PATH.name}: {_DOCUMENT_SLOT}가 정확히 한 번 있어야 한다")
+    if body.count(_SECTION_SLOT) != 1:
+        raise RuntimeError(f"{_TEMPLATE_PATH.name}: {_SECTION_SLOT}가 정확히 한 번 있어야 한다")
     return body

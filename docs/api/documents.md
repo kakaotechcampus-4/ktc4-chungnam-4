@@ -691,3 +691,12 @@ documents의 상세 작성 엔드포인트는 14개(교사용 10, 학부모용 4
 | `POST /api/v1/classes/{class_id}/notices` | 공지 쓰기 | 경로만 | 한상균 |
 | `GET /api/v1/notices/{notice_id}` | 공지 상세 | 경로만 | 한상균 |
 | `POST /api/v1/publications` | 게시할 때 학부모 알림 발송 추가 | 확장(경로만) | 한상균 |
+
+
+## 멀티에이전트 초안의 추가 응답 필드 (FR-06·FR-07·FR-27)
+
+`GET /drafts/{draft_id}`(교사 전용)에 `daily_routine: string[]` 검토용 요약을 추가합니다.
+`sentences[].section`은 관찰일지 영역이며 알림장은 null입니다.
+`evidences[].source_type = parent_note`인 근거는 `source_document_id`로 원본 게시 알림장을 가리킵니다.
+이 근거에는 media_id·start_ms·end_ms가 없습니다. 기존 미디어 근거의 계약은 유지합니다.
+월별 관찰일지는 기존 초안 상세·수정·승인 API를 사용하고 알림장 게시 API에는 넣지 않습니다.

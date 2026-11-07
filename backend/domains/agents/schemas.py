@@ -114,6 +114,33 @@ class GenerationJobResponse(BaseModel):
     updated_at: datetime
 
 
+class ObservationJobCreateRequest(BaseModel):
+    request_id: UUID
+    month: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+
+    @field_validator("month")
+    @classmethod
+    def valid_month(cls, value: str) -> str:
+        date.fromisoformat(value + "-01")
+        return value
+
+
+class AgentTraceEvent(BaseModel):
+    agent: str
+    outcome: str
+    tool: str | None
+
+
+class ChildAgentTrace(BaseModel):
+    child_id: UUID
+    events: list[AgentTraceEvent]
+
+
+class JobTraceResponse(BaseModel):
+    job_id: UUID
+    children: list[ChildAgentTrace]
+
+
 # --- 추가 근거(교사 관찰 메모) API (docs/api/agents.md §추가 근거) ---
 
 

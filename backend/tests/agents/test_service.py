@@ -20,8 +20,11 @@ from tests.agents.fixtures.evidence import (
     EVIDENCE_CHILD_A,
     RECORD_DATE,
 )
+from tests.agents.fixtures.native_agent import native_fixture
 from tools import contracts
+from tools.evidence.routine import DailyRoutine, RoutineFact
 from tools.generation.draft import DraftResponseError
+from tools.generation.pseudonymize import pseudonymize_evidence
 
 
 class FakeSession:
@@ -30,6 +33,9 @@ class FakeSession:
         self.executed: list[object] = []
         self.committed = False
         self.rolled_back = False
+
+    def get(self, *args):
+        return None
 
     def add(self, obj: object) -> None:
         self.added.append(obj)
@@ -57,6 +63,12 @@ def _generation_inputs(monkeypatch) -> None:
     monkeypatch.setattr(service, "_load_generation_inputs", lambda bundle: object())
     monkeypatch.setattr(service.documents, "get_draft_version", lambda *args, **kwargs: None)
     monkeypatch.setattr(service.organization_service, "has_consent", lambda *args: True)
+    monkeypatch.setattr(
+        service, "_prepare_agent_inputs", lambda session, job, bundle, inputs: _inputs([])
+    )
+    monkeypatch.setattr(
+        service, "call_agent", native_fixture(lambda prompt: service.call_claude(prompt))
+    )
 
 
 def _document(evidence_ids: tuple[str, ...] = ("ev_001",)) -> contracts.DraftDocument:
@@ -418,10 +430,11 @@ def test_orchestrate_drafts_결과_기록과_성공_상태를_한_번에_커밋�
 
     _orchestrate_until(monkeypatch, session, decision)
 
-    assert session.commits == [
-        (JobStatus.RUNNING.value, []),
-        (JobStatus.SUCCEEDED.value, [result_row]),
-    ]
+    # 중간 에이전트 메타데이터 커밋은 허용하지만 결과는 최종 상태와 함께 한 번만 저장한다.
+    assert all(
+        state == JobStatus.RUNNING.value and rows == [] for state, rows in session.commits[:-1]
+    )
+    assert session.commits[-1] == (JobStatus.SUCCEEDED.value, [result_row])
 
 
 def test_orchestrate_drafts_마지막_커밋이_실패하면_초안도_커밋되지_않는다(monkeypatch) -> None:
@@ -715,6 +728,18 @@ def _inputs(evidence: list[contracts.EvidenceItem]) -> service.GenerationInputs:
         request=_request(tuple(item.evidence_id for item in evidence)),
         evidence=evidence,
         names_by_child_id=_SYNTHETIC_NAMES,
+        routine=DailyRoutine(
+            facts=[
+                RoutineFact(text=item.text, evidence_refs=[item.ref])
+                for item in pseudonymize_evidence(
+                    {e.evidence_id: e for e in evidence},
+                    target_child_id="child_A",
+                    names_by_child_id=_SYNTHETIC_NAMES,
+                ).llm_items
+            ]
+        )
+        if evidence
+        else None,
     )
 
 

@@ -60,7 +60,11 @@ def validate_target(
                 )
                 continue
 
-            if evidence.observed_date != document.record_date:
+            if (
+                not request.record_date
+                <= evidence.observed_date
+                <= (request.period_end or request.record_date)
+            ):
                 issues.append(
                     VerificationIssue(
                         sentence_id=sentence.sentence_id,

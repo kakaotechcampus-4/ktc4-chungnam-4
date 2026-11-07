@@ -152,6 +152,16 @@ def test_문장별_근거_조회는_미디어_없는_근거를_접두로_교사_
                 source_text=text,
             )
         )
+    source_document_id = uuid.uuid4()
+    db.add(
+        SentenceEvidence(
+            draft_id=draft_id,
+            sentence_id="s1",
+            evidence_id="parent-note:1",
+            source_document_id=source_document_id,
+            source_text="게시 알림장 원문",
+        )
+    )
     db.flush()
 
     views = list_sentence_evidences(db, draft_id)["s1"]
@@ -159,4 +169,6 @@ def test_문장별_근거_조회는_미디어_없는_근거를_접두로_교사_
     by_text = {view.text: view for view in views}
     assert by_text["교사 메모 원문"].source_type == "teacher_note"
     assert by_text["활동계획"].source_type == "activity_plan"
+    assert by_text["게시 알림장 원문"].source_type == "parent_note"
+    assert by_text["게시 알림장 원문"].source_document_id == source_document_id
     assert all(view.media_id is None and view.captured_at is None for view in views)

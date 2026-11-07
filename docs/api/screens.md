@@ -57,7 +57,7 @@
 | ⑤ 김진하 | 알림장 목록(원아별) | `GET /children/{child_id}/drafts?doc_type=parent_note&published=true`(최신순, `preview`), `GET /classes/{class_id}/children`(아이 이름). **Figma 없음** — 알림장 게시판에서 바로 상세로 보내면 ‹ › 로 한 칸씩만 움직일 수 있어 기록이 쌓이면 못 찾습니다(임시 결정(김진하), #89 리뷰) | 상세 작성 |
 | ⑤ 김진하 | 알림장 상세 | `GET /drafts/{draft_id}`, `GET /drafts/{draft_id}/read-receipts`(보호자 확인 수), (목록에 없음: 게시한 알림장 수정) | 둘 다 |
 | ⑤ 김진하 | 관찰일지 · 아이 목록 (159:3788) | `GET /classes/{class_id}/observation-logs?month=YYYY-MM`(#225 ⑱), `POST /children/{child_id}/observation-jobs`(생성하기) | 상세 작성 |
-| ⑤ 김진하 | 관찰일지 · 생성 결과 (159:3882) | `GET /drafts/{draft_id}`, `PATCH /drafts/{draft_id}`(교사 수정), (목록에 없음: 근거의 알림장 날짜, 양식의 칸 목록·순서, 생성 시각, 다시 생성, 파일 내려받기) | 둘 다 |
+| ⑤ 김진하 | 관찰일지 · 생성 결과 (159:3882) | `GET /drafts/{draft_id}`(내용·근거 조회). #284 제안을 반영한 #259 임시 화면은 직접 작성·수정·승인·승인 되돌리기를 제공하지 않음. 공용 서버 API는 유지. 근거의 알림장 날짜·칸 목록/순서·생성 시각・명시적 재생성·내려받기는 후속 계약 확인 필요 | 상세 작성 |
 | ⑤ 김진하 | 관찰일지 · 양식 등록 (159:3735) | #225 ⑧의 2단계라 그 뒤입니다. 양식은 반 단위로 저장합니다(⑬) | 미정 |
 
 ## 목록에 없는 것
