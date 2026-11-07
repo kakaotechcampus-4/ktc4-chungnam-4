@@ -12,6 +12,8 @@ export interface RosterRow {
   child: ClassChildView;
   /** 그날의 알림장 초안. 없으면 자료가 없어 초안이 만들어지지 않은 것입니다. */
   note: DraftSummaryView | null;
+  /** 초안 없이 끝난 사유(서버 값). 초안이 있거나 자료가 없으면 null입니다. */
+  unclassified: string | null;
   status: RosterStatusView;
 }
 

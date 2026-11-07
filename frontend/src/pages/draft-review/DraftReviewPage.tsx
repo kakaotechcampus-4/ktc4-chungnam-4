@@ -1,6 +1,6 @@
 // Figma: 53:294 (초안 검토 / 왼쪽 원아 목록)
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { Info, Plus } from "lucide-react";
 import { useState } from "react";
 import { useBlocker, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 
@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
+import { unclassifiedReasonText } from "@/features/documents/unclassified-reason";
 import { ApiError } from "@/lib/api-client";
 import { formatDate, isDateOnly, kstToday } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
@@ -176,7 +177,12 @@ export function DraftReviewPage() {
   const draftItems = draftsQuery.data ?? [];
   const rows: RosterRow[] = children.map((child) => {
     const item = draftItems.find((draft) => draft.child_id === child.child_id);
-    return { child, note: item?.parent_note ?? null, status: pickRosterStatus(item) };
+    return {
+      child,
+      note: item?.parent_note ?? null,
+      unclassified: item?.unclassified ?? null,
+      status: pickRosterStatus(item),
+    };
   });
 
   // 회수한 알림장은 고쳐서 다시 게시할 때까지 보호자에게 보이지 않습니다. 교사가 고치러 왔다가
@@ -457,6 +463,8 @@ export function DraftReviewPage() {
   const klassName = currentClass?.name ?? "";
   /** 실패를 알릴 때 id 대신 이름을 보여 줍니다. 못 찾으면 빈 문자열이라 사유 코드로 갈음합니다. */
   const nameOf = (id: string | null) => children.find((child) => child.child_id === id)?.name ?? "";
+  // 초안 없이 끝난 사유. 미동의와 근거 부족은 교사가 할 일이 달라서 같은 문구로 보여 주지 않습니다.
+  const emptyReason = unclassifiedReasonText(selectedRow?.unclassified ?? null);
   const selectedSentence =
     draft?.sentences.find((sentence) => sentence.sentence_id === selectedSentenceId) ?? null;
   // 게시 전 초안이라 교사가 고른 사진을 그대로 보여 줍니다. 게시본을 되짚어 보는 화면은
@@ -653,10 +661,17 @@ export function DraftReviewPage() {
             </div>
           ) : draft === undefined ? (
             <div className="flex flex-col gap-5 rounded-xl bg-paper p-7">
-              {/* TODO(김진하): 빈 상태 문구와 디자인이 Figma에 없어 임시로 둡니다.
-                  '사진 추가'는 아직 꺼져 있어 문구에서 뺐습니다. 사진 고르기가 정해지면 다시 넣습니다. */}
+              {/* TODO(김진하): 빈 상태 문구와 디자인이 Figma에 없어 임시로 둡니다. */}
+              {emptyReason ? (
+                <p className="flex items-start gap-2 rounded-lg bg-tint-2 p-3 text-body text-ink">
+                  <Info aria-hidden="true" className="mt-1 size-4 shrink-0 text-brand-ink" />
+                  {emptyReason}
+                </p>
+              ) : null}
               <p className="text-body text-ink-muted">
-                아직 이 아이의 기록이 없어요. 직접 작성할 수 있어요.
+                {emptyReason
+                  ? "직접 작성할 수 있어요."
+                  : "아직 이 아이의 기록이 없어요. 직접 작성할 수 있어요."}
               </p>
               <div className="grid grid-cols-3 gap-4">
                 <AddPhotoTile />

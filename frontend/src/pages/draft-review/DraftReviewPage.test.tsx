@@ -11,7 +11,7 @@ import { kstToday, shiftDate } from "@/lib/datetime";
 import { readDb, updateDb } from "@/mocks/db";
 import { fixtureId } from "@/mocks/fixtures/ids";
 import { SUNSHINE_CLASS } from "@/mocks/fixtures/organization";
-import { apiPath, errorResponse } from "@/mocks/http";
+import { apiPath, errorResponse, listResponse } from "@/mocks/http";
 import { server } from "@/mocks/server";
 import { renderRoutes } from "@/test/render";
 import type { DraftPatchRequest, PublicationRequest } from "@/types/api-draft/documents";
@@ -176,6 +176,27 @@ describe("DraftReviewPage", () => {
       await screen.findByText("아직 이 아이의 기록이 없어요. 직접 작성할 수 있어요."),
     ).toBeInTheDocument();
     expect(screen.queryByText(/사진을 추가하거나/)).not.toBeInTheDocument();
+  });
+
+  // 미동의와 근거 부족을 같은 문구로 보여 주면 교사가 왜 초안이 없는지 알 수 없습니다(11/07 배포 점검).
+  it.each([
+    ["no_consent", /얼굴 특징정보 동의가 없어/],
+    ["insufficient_evidence", /활동을 찾지 못해/],
+    ["처음 보는 값", /AI 초안을 만들지 못했어요/],
+  ])("초안 없이 끝난 사유 %s를 빈 상태에 보여 준다", async (reason, text) => {
+    const child = fixtureId("child", 5);
+    server.use(
+      http.get(apiPath("/classes/:classId/drafts"), () =>
+        listResponse([
+          { child_id: child, parent_note: null, observation_log: null, unclassified: { reason } },
+        ]),
+      ),
+    );
+    renderPage(child);
+
+    expect(await screen.findByText(text)).toBeInTheDocument();
+    expect(screen.getByText("직접 작성할 수 있어요.")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "직접 작성" })).toBeInTheDocument();
   });
 
   // '준비 중'이 스크린리더에만 읽혀, 화면을 보는 교사는 왜 눌리지 않는지 몰랐습니다(10/30 배포 점검 25번).
