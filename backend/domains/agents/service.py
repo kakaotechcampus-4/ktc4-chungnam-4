@@ -13,6 +13,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
+import openai
 from pydantic import ValidationError
 from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.exc import IntegrityError
@@ -26,6 +27,8 @@ from core.exceptions import (
     JobNotFound,
     MediaNotReady,
     NoTargetChildren,
+    RevisionFailed,
+    RevisionNothingToChange,
 )
 from domains.agents.llm import AgentResponseTruncated, call_agent, call_claude, call_vision
 from domains.agents.models import (
@@ -41,11 +44,17 @@ from domains.agents.models import VerificationResult as VerificationResultRow
 from domains.agents.schemas import AgentTraceEvent, ChildAgentTrace, JobTraceResponse
 from domains.audit import service as audit_service
 from domains.documents import service as documents
-from domains.documents.schemas import DraftSaveInput, DraftSentenceInput, DraftStatus
+from domains.documents.schemas import (
+    DraftDetailResponse,
+    DraftSaveInput,
+    DraftSentenceInput,
+    DraftStatus,
+)
 from domains.media import service as media_service
 from domains.organization import service as organization_service
 from domains.organization.service import ensure_class_access
 from prompts.generation.draft import DraftFeedback, build_draft_prompt
+from prompts.generation.revision_prompt import build_revision_prompt
 from prompts.generation.roles import role_prompt
 from prompts.perception.photo_analysis import build_single_photo_prompt
 from prompts.verification.critic import build_critic_prompt
@@ -62,6 +71,14 @@ from tools.generation.agent_tools import (
 )
 from tools.generation.draft import DraftResponseError, parse_draft_response
 from tools.generation.pseudonymize import pseudonymize_evidence, restore_names
+from tools.generation.revision import (
+    RevisionResponseError,
+    RevisionSentence,
+    has_leftover_token,
+    mask_revision_inputs,
+    parse_revision_response,
+    restore_revision_text,
+)
 from tools.perception.merge import failed_photo_ids, merge_perception_results
 from tools.perception.photo import parse_single_photo_analysis
 from tools.perception.transcript import normalize_transcript
@@ -1919,3 +1936,113 @@ def get_daily_routine(db: Session, bundle_id: UUID | None) -> list[str]:
         for token in re.findall(r"CHILD_[A-Z]+", fact.text):
             by_token.setdefault(token, "친구")
     return [restore_names(fact.text, by_token) for fact in routine.facts]
+
+
+# ---------------------------------------------------------------------------
+# 교사의 지시문으로 AI가 초안 문장을 다듬는다 (FR-18, docs/api/agents.md §AI에게 다듬기 요청)
+# ---------------------------------------------------------------------------
+#
+# 흐름: documents가 초안을 읽고(권한·상태·버전 확인) → 실명을 토큰으로 바꿔 LLM을 부르고(H-2) →
+# 응답을 검증해 실명으로 되돌린 뒤 → documents가 버전 잠금과 RevisionLog와 함께 반영한다.
+# 승인은 건드리지 않는다. 다듬은 초안도 승인 전 초안이라 학부모에게 공개되지 않는다(H-1).
+# 지시문·문장·응답 본문에는 실명이 있을 수 있어 로그에 남기지 않는다(H-4).
+
+
+# 응답이 규칙에 맞지 않으면 한 번만 다시 부른다. 호출 자체가 실패하면(타임아웃·API 오류) 다시
+# 부르지 않고 바로 거절한다 — 호출당 최대 30초(llm.py)라 최악이 약 1분이다.
+_MAX_REVISION_ATTEMPTS = 2
+
+
+@dataclass(frozen=True)
+class DraftRevisionResult:
+    draft: DraftDetailResponse
+    changed_sentence_ids: list[str]
+
+
+def revise_draft(
+    db: Session,
+    *,
+    draft_id: UUID,
+    teacher_id: UUID,
+    center_id: UUID | None,
+    instruction: str,
+    expected_version: int,
+) -> DraftRevisionResult:
+    """지시문대로 초안 문장을 다듬어 반영한다. 바뀐 문장이 없으면 버전을 올리지 않는다."""
+    target = documents.get_draft_for_revision(
+        db, draft_id=draft_id, center_id=center_id, expected_version=expected_version
+    )
+    editable_ids = {sentence.sentence_id for sentence in target.sentences if not sentence.locked}
+    if not editable_ids:
+        raise RevisionNothingToChange("AI가 바꿀 수 있는 문장이 없습니다.")
+
+    class_id = organization_service.get_child_class_id(db, target.child_id)
+    names_by_child_id = {
+        str(child_id): names
+        for child_id, names in organization_service.get_class_child_names(db, class_id).items()
+    }
+    # LLM을 기다리는 동안 읽기 트랜잭션과 DB 연결을 잡고 있지 않는다. 쓰기는 응답을 받은 뒤 새로 한다.
+    db.rollback()
+
+    try:
+        masked = mask_revision_inputs(
+            instruction=instruction,
+            sentences=[
+                RevisionSentence(item.sentence_id, item.text, item.locked)
+                for item in target.sentences
+            ],
+            child_id=str(target.child_id),
+            record_date=target.record_date,
+            names_by_child_id=names_by_child_id,
+        )
+    except ValueError:
+        # 대상 원아의 이름 목록이 없으면 실명이 새지 않는다는 보장이 없어 보내지 않는다 (H-2).
+        logger.warning("Draft revision skipped: names could not be masked")
+        raise RevisionFailed("AI가 초안을 다듬지 못했습니다.") from None
+
+    prompt = build_revision_prompt(
+        contracts.DocType(target.doc_type), masked.instruction, masked.sentences
+    )
+    changes = _ask_for_revision(prompt, editable_ids, masked.child_id_by_token, names_by_child_id)
+    detail, changed = documents.apply_ai_revision(
+        db,
+        draft_id=draft_id,
+        teacher_id=teacher_id,
+        center_id=center_id,
+        expected_version=expected_version,
+        instruction=instruction,
+        changes=changes,
+    )
+    logger.info("Draft revision applied: changed_sentences=%d", len(changed))
+    return DraftRevisionResult(draft=detail, changed_sentence_ids=changed)
+
+
+def _ask_for_revision(
+    prompt: str,
+    editable_ids: set[str],
+    child_id_by_token: dict[str, str],
+    names_by_child_id: dict[str, list[str]],
+) -> dict[str, str]:
+    """LLM을 부르고 응답을 검증해 실명으로 되돌린 {문장 ID: 새 문장}을 돌려준다."""
+    for attempt in range(1, _MAX_REVISION_ATTEMPTS + 1):
+        try:
+            raw = call_claude(prompt)
+        except openai.OpenAIError:
+            logger.warning("Draft revision call failed: attempt=%d", attempt)
+            raise RevisionFailed("AI가 초안을 다듬지 못했습니다.") from None
+        try:
+            parsed = parse_revision_response(raw, editable_ids=editable_ids)
+        except RevisionResponseError:
+            logger.warning("Draft revision response rejected: attempt=%d", attempt)
+            continue
+        restored = {
+            sentence_id: restore_revision_text(
+                text, child_id_by_token=child_id_by_token, names_by_child_id=names_by_child_id
+            )
+            for sentence_id, text in parsed.items()
+        }
+        if any(has_leftover_token(text) for text in restored.values()):
+            logger.warning("Draft revision response had unknown name tokens: attempt=%d", attempt)
+            continue
+        return restored
+    raise RevisionFailed("AI가 초안을 다듬지 못했습니다.")

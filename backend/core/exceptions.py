@@ -151,6 +151,26 @@ class InvalidSentenceId(AidamError):
     status_code = 400
 
 
+class RevisionNothingToChange(AidamError):
+    """AI에게 다듬기를 시킬 수 있는 문장이 없다 (docs/api/agents.md §AI에게 다듬기 요청).
+
+    모든 문장이 교사가 직접 고친 문장이라 잠겨 있을 때다.
+    """
+
+    code = "REVISION_NOTHING_TO_CHANGE"
+    status_code = 409
+
+
+class RevisionFailed(AidamError):
+    """AI가 초안을 다듬지 못했다 (FR-18). 호출이 실패했거나 응답이 두 번 모두 규칙에 맞지 않았다.
+
+    초안은 그대로다. 지시문·문장·응답 본문에는 실명이 있을 수 있어 메시지에 싣지 않는다 (H-4).
+    """
+
+    code = "REVISION_FAILED"
+    status_code = 502
+
+
 class MediaNotLinkedToChild(AidamError):
     """그 원아·그 날짜에 고를 수 있는 사진이 아닌 것을 알림장 사진으로 고른 경우.
 

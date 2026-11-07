@@ -87,7 +87,7 @@ from __future__ import annotations
 import base64
 import re
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
@@ -746,6 +746,125 @@ def update_draft(
         logs.append(_edit_log(draft_id, teacher_id, sentence_id, None, added.text))
     db.add_all(logs)
     return _commit_with_detail(db, draft_id)
+
+
+@dataclass(frozen=True)
+class RevisionSentenceView:
+    """AI 다듬기 요청이 읽는 문장 하나. locked는 AI가 바꾸지 못하는 문장이다."""
+
+    sentence_id: str
+    text: str
+    locked: bool
+
+
+@dataclass(frozen=True)
+class RevisionTarget:
+    """AI 다듬기 요청이 읽는 초안. 근거 원문은 담지 않는다(LLM으로 가지 않는다)."""
+
+    child_id: UUID
+    doc_type: str
+    record_date: date
+    sentences: list[RevisionSentenceView]
+
+
+def get_draft_for_revision(
+    db: Session, *, draft_id: UUID, center_id: UUID | None, expected_version: int
+) -> RevisionTarget:
+    """AI에게 다듬기를 시킬 초안을 읽는다 (FR-18, docs/api/agents.md §AI에게 다듬기 요청).
+
+    같은 어린이집 원아의 초안만 읽고(H-1 검수 권한), 검토 대기(verified)이면서 expected_version과
+    같을 때만 돌려준다. AI를 부르기 전에 막아 오래 걸리는 호출을 낭비하지 않는다. 버전을 먼저 보는
+    것은 PATCH(_claim_version)와 같은 순서다. 교사가 직접 고친 문장(is_edited_by_teacher)과 교사가 쓴
+    t… 문장은 locked라 AI가 바꾸지 못한다. 읽기만 하고 기록은 남기지 않는다.
+    """
+    draft = _draft_for_teacher(db, draft_id, center_id)
+    if draft.version != expected_version:
+        raise DraftVersionConflict("그 사이 초안이 바뀌었습니다. 새로 불러온 뒤 다시 해 주세요.")
+    if draft.status != DraftStatus.VERIFIED.value:
+        raise _not_editable(draft.status)
+    sentences = db.scalars(
+        select(DraftSentence)
+        .where(DraftSentence.draft_id == draft_id)
+        .order_by(DraftSentence.position)
+    )
+    return RevisionTarget(
+        child_id=draft.child_id,
+        doc_type=draft.doc_type,
+        record_date=draft.record_date,
+        sentences=[
+            RevisionSentenceView(
+                sentence_id=sentence.sentence_id,
+                text=sentence.text,
+                locked=sentence.is_edited_by_teacher
+                or _TEACHER_SENTENCE_ID.fullmatch(sentence.sentence_id) is not None,
+            )
+            for sentence in sentences
+        ],
+    )
+
+
+def apply_ai_revision(
+    db: Session,
+    *,
+    draft_id: UUID,
+    teacher_id: UUID,
+    center_id: UUID | None,
+    expected_version: int,
+    instruction: str,
+    changes: Mapping[str, str],
+) -> tuple[DraftDetailResponse, list[str]]:
+    """AI가 다시 쓴 문장을 초안에 반영하고 (교사용 상세, 바뀐 문장 ID)를 돌려준다 (FR-18).
+
+    - 검토 대기(verified)이고 버전이 그대로일 때만 반영한다. AI가 답하는 사이 다른 수정이 끼었으면
+      DRAFT_VERSION_CONFLICT다(_claim_version, PATCH와 같다).
+    - 잠긴 문장(교사가 직접 고친 문장·t… 문장)과 이 초안에 없는 문장, 글자가 그대로인 문장은 바뀐
+      것으로 보지 않는다. 바뀐 문장이 하나도 없으면 버전을 올리지 않고 이력도 남기지 않는다.
+    - 바뀐 문장마다 RevisionLog(edit, prompt)를 instruction_prompt와 함께 남긴다. 버전 증가와 한
+      트랜잭션이라 AI 재생성이 이 문서를 교사가 손댄 문서로 알아본다(_has_teacher_edits).
+    - AI가 바꾼 문장은 is_edited_by_teacher를 올리지 않는다. 교사가 직접 고친 것이 아니다.
+    """
+    _draft_for_teacher(db, draft_id, center_id)
+    sentences = {
+        sentence.sentence_id: sentence
+        for sentence in db.scalars(select(DraftSentence).where(DraftSentence.draft_id == draft_id))
+    }
+    effective = {
+        sentence_id: text
+        for sentence_id, text in changes.items()
+        if (sentence := sentences.get(sentence_id)) is not None
+        and not sentence.is_edited_by_teacher
+        and _TEACHER_SENTENCE_ID.fullmatch(sentence_id) is None
+        and sentence.text != text
+    }
+    if not effective:
+        return _teacher_detail(db, draft_id), []
+    _claim_version(
+        db,
+        draft_id,
+        expected_version=expected_version,
+        from_status=DraftStatus.VERIFIED,
+        wrong_status=_not_editable,
+        values={},
+    )
+    # 버전 UPDATE가 이 초안 행을 잡고 있어, 아래에서 쓰는 동안 다른 수정이 끼지 않는다.
+    logs = []
+    for sentence_id, text in effective.items():
+        sentence = sentences[sentence_id]
+        logs.append(
+            RevisionLog(
+                draft_id=draft_id,
+                editor_id=teacher_id,
+                action=RevisionAction.EDIT.value,
+                edit_method=EditMethod.PROMPT.value,
+                instruction_prompt=instruction,
+                target_sentence_id=sentence_id,
+                before_content=sentence.text,
+                after_content=text,
+            )
+        )
+        sentence.text = text
+    db.add_all(logs)
+    return _commit_with_detail(db, draft_id), list(effective)
 
 
 def _ensure_selectable_photos(db: Session, draft: DraftDocument, media_ids: Sequence[UUID]) -> None:

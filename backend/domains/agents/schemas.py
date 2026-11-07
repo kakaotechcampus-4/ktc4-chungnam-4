@@ -4,6 +4,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from domains.documents.schemas import DraftDetailResponse
+from tools.generation.revision import MAX_INSTRUCTION_CHARS
+
 
 class EvidenceBundleResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -177,3 +180,34 @@ class TeacherEvidenceListResponse(BaseModel):
     items: list[TeacherEvidenceResponse]
     # 반 한 곳·하루 치라 최대 반 원아 수만큼이다. 다음 쪽은 없다.
     next_cursor: str | None = None
+
+
+class DraftRevisionRequest(BaseModel):
+    """POST /api/v1/drafts/{draft_id}/revision-requests — AI에게 다듬기 요청 (FR-18).
+
+    instruction은 앞뒤 공백을 뗀 뒤 1~500자다. expected_version은 PATCH /drafts/{draft_id}와 같은
+    낙관적 잠금이다 (docs/api/agents.md §AI에게 다듬기 요청, 임시 결정(정은)).
+    """
+
+    # 검증 오류 문자열에 지시문을 싣지 않는다 — 지시문에는 원아 이름이 들어 있을 수 있다 (H-4).
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    instruction: str
+    expected_version: int = Field(ge=1)
+
+    @field_validator("instruction")
+    @classmethod
+    def instruction_must_fit(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("지시문이 비어 있습니다.")
+        if len(stripped) > MAX_INSTRUCTION_CHARS:
+            raise ValueError(f"지시문은 {MAX_INSTRUCTION_CHARS}자 이내여야 합니다.")
+        return stripped
+
+
+class DraftRevisionResponse(BaseModel):
+    """다듬은 뒤의 교사용 초안 상세와 바뀐 문장 ID. 바뀐 문장이 없으면 빈 배열이고 버전은 그대로다."""
+
+    draft: DraftDetailResponse
+    changed_sentence_ids: list[str]

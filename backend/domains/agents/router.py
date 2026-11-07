@@ -1,4 +1,4 @@
-"""agents 라우터 — 초안 생성 작업 시작·조회, 추가 근거 읽기·저장 (docs/api/agents.md).
+"""agents 라우터 — 초안 생성 작업 시작·조회, 추가 근거 읽기·저장, AI 다듬기 요청 (docs/api/agents.md).
 
 경로는 리소스 기준(/classes/{class_id}/jobs, /jobs/{job_id})이라 도메인 prefix를 두지 않습니다.
 베이스 경로 `/api/v1`은 `main.py`가 붙입니다. 판정·조회는 service.py가 하고, 이 파일은
@@ -20,6 +20,8 @@ from domains.agents import service
 from domains.agents.models import TeacherEvidence
 from domains.agents.schemas import (
     ChildJobResponse,
+    DraftRevisionRequest,
+    DraftRevisionResponse,
     GenerationJobCreateRequest,
     GenerationJobResponse,
     JobDraftResponse,
@@ -210,3 +212,24 @@ def save_teacher_evidence(
     )
     response.status_code = HTTPStatus.CREATED if saved.created else HTTPStatus.OK
     return _to_evidence_response(saved.evidence)
+
+
+@router.post("/drafts/{draft_id}/revision-requests", response_model=DraftRevisionResponse)
+def request_draft_revision(
+    draft_id: UUID,
+    body: DraftRevisionRequest,
+    db: Annotated[Session, Depends(get_db)],
+    teacher: CurrentTeacher,
+) -> DraftRevisionResponse:
+    """교사의 지시문으로 AI가 승인 전 초안 문장을 다듬습니다. 직접 고친 문장은 바꾸지 않습니다 (FR-18)."""
+    result = service.revise_draft(
+        db,
+        draft_id=draft_id,
+        teacher_id=teacher.teacher_id,
+        center_id=teacher.center_id,
+        instruction=body.instruction,
+        expected_version=body.expected_version,
+    )
+    return DraftRevisionResponse(
+        draft=result.draft, changed_sentence_ids=result.changed_sentence_ids
+    )
