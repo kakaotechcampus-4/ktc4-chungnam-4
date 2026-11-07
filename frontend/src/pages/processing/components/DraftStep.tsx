@@ -64,6 +64,11 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
   }, [currentClass, create]);
 
   const finished = isJobFinished(job);
+  // 손댄 초안을 지키느라 재생성을 건너뛴 것은 AI 실패가 아닙니다. 그 안내는 아래에 따로 있습니다.
+  const failedChildren = job?.children.filter((child) => child.status === "failed") ?? [];
+  const onlyProtectedDrafts =
+    failedChildren.length > 0 &&
+    failedChildren.every((child) => child.error_code === "DRAFT_VERSION_CONFLICT");
   const needsAttention = Boolean(
     job &&
     finished &&
@@ -102,11 +107,13 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
     >
       {needsAttention && job ? (
         <div role="alert">
-          <p>
-            {job.status === "failed"
-              ? "AI 처리에 실패한 자료가 있어요. 저장된 자료와 완성된 초안은 유지돼요."
-              : "초안을 만들 수 있는 근거가 부족해요. 동의 상태와 사진 분류를 확인해 주세요."}
-          </p>
+          {onlyProtectedDrafts ? null : (
+            <p>
+              {job.status === "failed"
+                ? "AI 처리에 실패한 자료가 있어요. 저장된 자료와 완성된 초안은 유지돼요."
+                : "초안을 만들 수 있는 근거가 부족해요. 동의 상태와 사진 분류를 확인해 주세요."}
+            </p>
+          )}
           {job.children.some((child) => child.error_code === "LLM_CALL_FAILED") ? (
             <p>AI 서비스에 연결하지 못했어요. 관리자에게 연결 상태 확인을 요청해 주세요.</p>
           ) : null}
