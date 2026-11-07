@@ -1243,24 +1243,99 @@ describe("DraftReviewPage", () => {
   });
 });
 
-it("월별 관찰일지만 검토·승인하고 학부모 게시 버튼은 노출하지 않는다", async () => {
-  const user = userEvent.setup();
+it.each(["verified", "approved", "revoked"] as const)(
+  "월별 관찰일지 %s는 내용·근거만 보여 주고 수정·승인 요청은 보내지 않는다",
+  async (status) => {
+    const user = userEvent.setup();
+    const monthStart = `${kstToday().slice(0, 7)}-01`;
+    const observationId = fixtureId("draft", 11);
+    updateDb((db) => {
+      const observation = db.drafts[observationId]!;
+      observation.record_date = monthStart;
+      observation.status = status;
+      observation.sentences[0]!.section = "자연탐구";
+      observation.sentences[0]!.text = "원아가 빨간 블록 세 개를 쌓았다.";
+      observation.sentences[0]!.evidences = [
+        {
+          evidence_id: "synthetic-note-evidence",
+          source_type: "parent_note",
+          text: "원본 알림장: 빨간 블록을 쌓았어요.",
+          media_id: null,
+          source_document_id: DOYUN_NOTE,
+          start_ms: null,
+          end_ms: null,
+          captured_at: null,
+        },
+      ];
+    });
+    const before = structuredClone(readDb().drafts[observationId]);
+    const writes: string[] = [];
+    const recordWrite = ({ request }: { request: Request }) => {
+      if (["POST", "PATCH", "PUT", "DELETE"].includes(request.method)) writes.push(request.url);
+    };
+    server.events.on("request:start", recordWrite);
+    try {
+      renderRoutes([{ path: "/t/today/review/:childId", element: <DraftReviewPage /> }], {
+        initialEntry: `/t/today/review/${DOYUN}?record_date=${monthStart}&doc_type=observation_log`,
+      });
+      expect(await screen.findByText("월별 관찰일지")).toBeInTheDocument();
+      expect(screen.getByText(/\[자연탐구\] 원아가 빨간 블록/)).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: /\[자연탐구\] 원아가 빨간 블록/ }));
+      expect(await screen.findByText("원본 알림장: 빨간 블록을 쌓았어요.")).toBeInTheDocument();
+      for (const name of [
+        "직접 수정",
+        "수정 완료",
+        "수정 취소",
+        "문장 추가",
+        "검토 완료하고 승인하기",
+        "다시 검토하기",
+        "게시하기",
+      ]) {
+        expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+      }
+      expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+      expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+      expect(screen.getByText(/파일 내려받기는 준비 중/)).toBeInTheDocument();
+      expect(screen.getByText(/명 생성됨/)).toBeInTheDocument();
+      expect(screen.queryByText(/명 검토 완료/)).not.toBeInTheDocument();
+      expect(writes).toEqual([]);
+      expect(readDb().drafts[observationId]).toEqual(before);
+      expect(readDb().drafts[DOYUN_NOTE]!.status).toBe("verified");
+    } finally {
+      server.events.removeListener("request:start", recordWrite);
+    }
+  },
+);
+
+it("관찰일지가 없으면 직접 작성 입력창 대신 월별 생성 안내를 보여 준다", async () => {
   const monthStart = `${kstToday().slice(0, 7)}-01`;
-  const observationId = fixtureId("draft", 11);
   updateDb((db) => {
-    const observation = db.drafts[observationId]!;
-    observation.record_date = monthStart;
-    observation.sentences[0]!.section = "자연탐구";
-    observation.sentences[0]!.text = "원아가 빨간 블록 세 개를 쌓았다.";
+    delete db.drafts[fixtureId("draft", 11)];
   });
   renderRoutes([{ path: "/t/today/review/:childId", element: <DraftReviewPage /> }], {
     initialEntry: `/t/today/review/${DOYUN}?record_date=${monthStart}&doc_type=observation_log`,
   });
+  expect(await screen.findByText(/아직 이 아이의 관찰일지가 없어요/)).toBeInTheDocument();
+  expect(screen.queryByRole("textbox", { name: "직접 작성" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "저장하기" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "검토 완료하고 승인하기" })).not.toBeInTheDocument();
+});
+
+it("같은 원아·날짜의 알림장 수정 중 관찰일지로 이동하면 편집 상태를 버린다", async () => {
+  const user = userEvent.setup();
+  updateDb((db) => {
+    db.drafts[fixtureId("draft", 11)]!.record_date = YESTERDAY;
+  });
+  const { router } = renderPage();
+  await user.click(await screen.findByRole("button", { name: "직접 수정" }));
+  expect(screen.getAllByRole("textbox").length).toBeGreaterThan(0);
+  await act(async () => {
+    await router.navigate(
+      `/t/today/review/${DOYUN}?record_date=${YESTERDAY}&doc_type=observation_log`,
+    );
+  });
   expect(await screen.findByText("월별 관찰일지")).toBeInTheDocument();
-  expect(screen.getByText(/\[자연탐구\] 원아가 빨간 블록/)).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "게시하기" })).not.toBeInTheDocument();
-  await user.click(screen.getByRole("checkbox"));
-  await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
-  await waitFor(() => expect(readDb().drafts[observationId]!.status).toBe("approved"));
-  expect(readDb().drafts[DOYUN_NOTE]!.status).toBe("verified");
+  expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "수정 완료" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "검토 완료하고 승인하기" })).not.toBeInTheDocument();
 });

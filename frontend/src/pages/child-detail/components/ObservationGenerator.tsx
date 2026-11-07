@@ -79,7 +79,8 @@ export function ObservationGenerator({ childId }: ObservationGeneratorProps) {
         />
       </label>
       <p className="text-caption text-ink-muted">
-        게시된 알림장 {count}건을 참고해 기본 양식으로 만들어요. 교사 검토 후 승인해 주세요.
+        게시된 알림장 {count}건을 참고해 기본 양식으로 만들어요. 생성된 내용과 원본 알림장 근거를
+        확인해 주세요.
       </p>
       {count > 0 && count < 5 && (
         <p className="text-caption text-ink-muted">자료가 적어 일부 영역이 비어 있을 수 있어요.</p>
