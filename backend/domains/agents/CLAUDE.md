@@ -6,10 +6,10 @@
 
 | 파일 | 내용 | 상태 |
 | --- | --- | --- |
-| `models.py` | `GenerationJob`(반·날짜 요청), `Job`(원아별), `EvidenceBundle`, `SentenceEvidence`, `VerificationResult`, `DraftDecisionLog` | 완료 (`check_type`/`result` 값 도메인은 PR #7 계약과 맞춤) |
+| `models.py` | `GenerationJob`(반·날짜 요청), `Job`(원아별), `EvidenceBundle`, `SentenceEvidence`, `VerificationResult`, `DraftDecisionLog`, `TeacherEvidence`(교사 추가 근거, 아이·날짜당 1건) | 완료 (`check_type`/`result` 값 도메인은 PR #7 계약과 맞춤) |
 | `schemas.py` | 파이프라인 요청·응답 | 완료 (`context_lookup` 구조만 미정 — organization/media 확정 후) |
-| `router.py` | 초안 생성 작업 시작·폴링 (`POST /classes/{class_id}/jobs`, `GET /jobs/{job_id}`) | 완료 — 판정·조회는 `service.start_generation_job`·`get_generation_job`, 커밋 뒤 `tasks.enqueue_generate_drafts`로 큐에 넣음. 실패 코드·미분류 사유는 Job에 저장. 단계별 진행 필드는 후속 과제 |
-| `service.py` | 근거수집 → 초안생성 → Critic 검증 오케스트레이션 | 부분 구현. `orchestrate_drafts`는 `decide()`(pass/regenerate/retry_critic/needs_teacher_review) 4종 판정에 맞춰 재생성·Critic 재시도 루프를 돈다. `_verify_and_record`는 references→target→critic→decide 실제 파이프라인으로 동작. `_collect_evidence`는 `media.collect_media_for_llm`으로 받은 미디어를 `EvidenceBundle`로 저장(사진 상한 `MAX_PHOTOS_PER_CHILD`, `context_lookup`은 빈 고정 키). `_generate_draft`는 근거 선별(`tools/evidence`) → 비식별화·생성 응답 파싱(`tools/generation`) → 알림장 프롬프트(`prompts/generation`)로 동작. `_load_generation_inputs`는 동의 게이트를 다시 확인해 사진 분석·정규화·원아 이름·활동계획을 연결. 영상·음성 발화는 교사가 뺀 것을 거른 뒤 생성 입력에 연결했다(#232). 교사 문체는 후속 과제 |
+| `router.py` | 초안 생성 작업 시작·폴링 (`POST /classes/{class_id}/jobs`, `GET /jobs/{job_id}`), 추가 근거 읽기·저장 (`GET /classes/{class_id}/evidence`, `PUT /children/{child_id}/evidence/{record_date}`) | 완료 — 판정·조회는 `service.start_generation_job`·`get_generation_job`, 커밋 뒤 `tasks.enqueue_generate_drafts`로 큐에 넣음. 실패 코드·미분류 사유는 Job에 저장. 단계별 진행 필드는 후속 과제 |
+| `service.py` | 근거수집 → 초안생성 → Critic 검증 오케스트레이션 | 부분 구현. `orchestrate_drafts`는 `decide()`(pass/regenerate/retry_critic/needs_teacher_review) 4종 판정에 맞춰 재생성·Critic 재시도 루프를 돈다. `_verify_and_record`는 references→target→critic→decide 실제 파이프라인으로 동작. `_collect_evidence`는 `media.collect_media_for_llm`으로 받은 미디어를 `EvidenceBundle`로 저장(사진 상한 `MAX_PHOTOS_PER_CHILD`, `context_lookup`은 빈 고정 키). `_generate_draft`는 근거 선별(`tools/evidence`) → 비식별화·생성 응답 파싱(`tools/generation`) → 알림장 프롬프트(`prompts/generation`)로 동작. `_load_generation_inputs`는 동의 게이트를 다시 확인해 사진 분석·정규화·원아 이름·활동계획을 연결. 영상·음성 발화는 교사가 뺀 것을 거른 뒤 생성 입력에 연결했다(#232). 교사가 글로 남긴 추가 근거(`TeacherEvidence`)는 생성 때마다 읽어 `source_type=teacher_note` 근거로 합친다(`note:` 접두, 미디어·시간 구간 없음). 교사 문체는 후속 과제 |
 | `llm.py` | LLM 직접 호출 | 완료 (카테캠 Elice AI Cloud 게이트웨이 경유, `openai` SDK + 커스텀 `base_url`. Anthropic 공식 API 아님) |
 | `tasks.py` | Celery 파이프라인 실행 | 완료 — `service.orchestrate_drafts` 호출 |
 

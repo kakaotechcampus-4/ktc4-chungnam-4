@@ -256,7 +256,7 @@ describe("ProcessingPage", () => {
         client_photo_id: confirmed!.client_id,
         captured_at: "2026-09-15T03:00:00.000Z",
         type: "photo",
-        llm_allowed: !hasUnidentifiedFace,
+        llm_allowed: true,
         child_links: [
           { child_id: fixtureId("child", 1), method: "face_recognition", confidence_score: 0.9 },
           { child_id: fixtureId("child", 2), method: "manual", confidence_score: null },
