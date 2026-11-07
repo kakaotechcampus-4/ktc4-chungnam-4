@@ -1502,6 +1502,17 @@ describe("DraftReviewPage", () => {
     expect(screen.queryByText(/되돌릴 수 있습니다/)).not.toBeInTheDocument();
   });
 
+  it("둘째 줄 아이를 회수하면 그 아이 화면으로 옮겨 바로 고칠 수 있다", async () => {
+    const user = userEvent.setup();
+    publishedJustNow();
+    renderClosedDay();
+
+    await user.click((await screen.findAllByRole("button", { name: "회수" }))[1]!);
+    await user.click(await screen.findByRole("button", { name: "회수하기" }));
+
+    expect(await screen.findByRole("button", { name: "다시 검토하기" })).toBeInTheDocument();
+  });
+
   // 학부모가 이미 열어 본 알림장은 서버가 막습니다. 화면은 기한만 보고 버튼을 열기 때문에
   // 눌러 봐야 알 수 있고, 그때 이유가 보여야 교사가 다음 행동을 고릅니다.
   it("학부모가 이미 열어 봤으면 회수가 막힌 이유를 보여 준다", async () => {

@@ -622,7 +622,11 @@ export function DraftReviewPage() {
             {published.map(({ child, note, publishedAt }) => (
               <PublishedNoteRow
                 key={child.child_id}
-                onRevoked={() => setRevokedDraftId(note.draft_id)}
+                onRevoked={() => {
+                  setRevokedDraftId(note.draft_id);
+                  // 회수하면 이 화면이 다시 열립니다. 주소의 아이가 아니라 방금 회수한 아이를 보여 줍니다.
+                  selectChild(child.child_id);
+                }}
                 childId={child.child_id}
                 childName={child.name}
                 draftId={note.draft_id}
