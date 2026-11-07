@@ -241,24 +241,20 @@ export function seedDb(now: Date = new Date()): MockDb {
   const book2 = seedMedia(52, 2, at(twoDaysAgo, "03:10:00"), [face(4, 0.87)]);
   const book3 = seedMedia(61, 2, at(threeDaysAgo, "02:30:00"), [face(1, 0.91)]);
   const media = [blocks, sand, book, sand2, book2, book3];
-  // 깔아 두는 알림장은 교사가 근거 사진을 이미 고른 것으로 둡니다. 게시본과 승인본, 사진 빼기를 그대로
-  // 보여 주려는 것입니다. 작업으로 새로 만드는 초안은 서버처럼 선택이 비어 있습니다(fixtures/documents.ts).
   const drafts = (
     child: number,
     date: string,
     evidence: MediaRecord[],
     obs: number,
     note: number,
-  ): [DraftRecord, DraftRecord] => {
-    const [log, parentNote] = buildDrafts({
+  ): [DraftRecord, DraftRecord] =>
+    buildDrafts({
       child: childOf(child),
       recordDate: date,
       evidenceMedia: evidence,
       draftIds: { observation_log: fixtureId("draft", obs), parent_note: fixtureId("draft", note) },
       now: at(date, "06:40:00"),
     });
-    return [log, { ...parentNote, selected_media_ids: evidence.map((media) => media.media_id) }];
-  };
 
   // 상태를 옮긴 초안: approve는 version+1, 게시도 version+1(API 문서 규칙)
   const approve = (draft: DraftRecord, date: string): DraftRecord => ({

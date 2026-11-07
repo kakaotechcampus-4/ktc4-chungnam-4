@@ -147,8 +147,8 @@ describe("핵심 흐름 목", () => {
     expect(edited.version).toBe(note.version + 1);
     // 고친 문장은 교사가 쓴 글이라 근거를 끊고 '수정됨'으로 표시합니다.
     expect(edited.sentences[0]).toMatchObject({ is_edited_by_teacher: true, evidences: [] });
-    // AI 초안은 사진을 고르지 않습니다. 교사가 그날 후보에서 골라야 학부모에게 갑니다(#257 멘토 리뷰).
-    expect(edited.selected_media_ids).toEqual([]);
+    // AI 초안은 근거 사진이 기본으로 골라져 있습니다(#283). 교사가 그날 후보에서 더하거나 뺍니다.
+    expect(edited.selected_media_ids).toEqual([doyunPhoto.media_id]);
     const candidates = await client.fetchQuery(selectableMediaQueryOptions(noteId));
     expect(candidates.map((media) => media.media_id)).toEqual([doyunPhoto.media_id]);
     const picked = await patchDraft(noteId, {

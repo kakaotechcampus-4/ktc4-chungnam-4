@@ -73,7 +73,7 @@ export interface DraftDetail {
   version: number;
   title: string | null;
   sentences: Sentence[];
-  /** 선택 사진·영상의 순서. AI 초안은 비어 있고 교사가 고릅니다 */
+  /** 선택 사진·영상의 순서. AI 초안은 근거 사진이 기본으로 들어 있고 교사가 더하거나 뺍니다 */
   selected_media_ids: string[];
   /** 분석 실패로 근거에서 제외된 사진. 구버전 서버 응답에는 없을 수 있습니다. */
   failed_media_ids?: string[];

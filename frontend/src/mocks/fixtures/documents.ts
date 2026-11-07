@@ -109,8 +109,6 @@ export function buildDrafts({
     record_date: recordDate,
     status: "verified" as const,
     version: 1,
-    // 서버 AI 초안처럼 비워 둡니다. 미리 채우면 목에서만 사진이 나가 고르는 단계의 문제가 안 보입니다(#257).
-    selected_media_ids: [],
     author_teacher_id: TEACHER_ME.teacher_id,
     author_name: TEACHER_ME.name,
     approved_at: null,
@@ -124,6 +122,7 @@ export function buildDrafts({
       draft_id: draftIds.observation_log,
       doc_type: "observation_log",
       title: null,
+      selected_media_ids: [],
       sentences: sentencesFor("observation_log"),
     },
     {
@@ -131,6 +130,10 @@ export function buildDrafts({
       draft_id: draftIds.parent_note,
       doc_type: "parent_note",
       title: first ? activityOf(first).title : null,
+      // 서버처럼 생성에 쓴 근거 사진이 기본 선택입니다(#283). 영상·음성은 교사가 골라야 들어갑니다.
+      selected_media_ids: evidenceMedia
+        .filter((media) => media.type === "photo")
+        .map((media) => media.media_id),
       sentences: sentencesFor("parent_note"),
     },
   ];
