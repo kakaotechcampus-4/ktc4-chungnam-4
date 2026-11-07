@@ -578,6 +578,9 @@ export const handlers = [
       draft.published_at = null;
       draft.version += 1;
       draft.updated_at = now;
+      draft.resent = true;
+      // 열람 기록은 게시 회차마다 따로라, 다시 보내면 전에 읽었어도 안 읽은 글이 됩니다.
+      db.readParentNotes = db.readParentNotes.filter((id) => id !== draft.draft_id);
       return HttpResponse.json<DraftRevokeResponse>({
         draft_id: draft.draft_id,
         // 목은 회차를 따로 두지 않습니다. 화면이 쓰지 않는 값이라 초안마다 고정 id를 냅니다.
@@ -671,6 +674,7 @@ export const handlers = [
       preview: previewOf(draft.sentences),
       photos: parentPhotos(db, draft, 3),
       is_read: db.readParentNotes.includes(draft.draft_id),
+      is_resent: draft.resent ?? false,
     }));
     return HttpResponse.json<ParentNoteList>({
       items,
@@ -702,6 +706,7 @@ export const handlers = [
         photos: parentPhotos(db, draft),
         author_name: draft.author_name,
         published_at: draft.published_at as string,
+        is_resent: draft.resent ?? false,
         // 목록이 최신순이라 뒤 칸이 이전 게시본입니다.
         prev: link(siblings[index + 1]),
         next: link(siblings[index - 1]),

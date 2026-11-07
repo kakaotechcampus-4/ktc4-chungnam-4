@@ -148,8 +148,13 @@ export function ParentNoteReaderPage() {
                     </p>
                   ) : null}
                   <p className="text-label text-ink-muted">
-                    {formatDateTime(note.data.published_at)}에 보냈어요
+                    {formatDateTime(note.data.published_at)}에 {note.data.is_resent ? "다시 " : ""}
+                    보냈어요
                   </p>
+                  {/* 회수한 뒤 다시 보낸 글입니다. 문구는 팀 논의(11/05, #266)에서 정했습니다. */}
+                  {note.data.is_resent ? (
+                    <p className="text-label font-bold text-brand-ink">선생님이 내용을 고쳤어요</p>
+                  ) : null}
                 </div>
               </div>
               <nav aria-label="다른 날 알림장" className="flex flex-col gap-3">

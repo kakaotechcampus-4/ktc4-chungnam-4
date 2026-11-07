@@ -232,6 +232,7 @@ export interface ParentNoteSummaryView {
   record_date: string;
   preview: string;
   is_read: boolean;
+  is_resent: boolean;
 }
 export interface ParentNoteListView {
   items: ParentNoteSummaryView[];
@@ -251,6 +252,7 @@ export interface ParentNoteDetailView {
   photos: DraftMediaView[];
   author_name: string;
   published_at: string;
+  is_resent: boolean;
   /** 같은 자녀의 더 오래된 게시본 */
   prev: ParentNoteLinkView | null;
   /** 같은 자녀의 더 최근 게시본 */

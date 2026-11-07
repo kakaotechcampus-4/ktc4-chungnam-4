@@ -32,6 +32,7 @@ const DETAIL: ParentNoteDetail = {
   photos: [media(PHOTO, "photo"), media(VIDEO, "video")],
   author_name: "",
   published_at: "2026-10-20T08:40:00Z",
+  is_resent: false,
   prev: null,
   next: null,
 };
@@ -121,6 +122,26 @@ describe("ParentNoteReaderPage", () => {
     expect(screen.getByText("친구와 성을 쌓았어요.")).toBeInTheDocument();
     expect(screen.getByText("김하늘 선생님")).toBeInTheDocument();
     expect(screen.getByText("10월 20일 17:40에 보냈어요")).toBeInTheDocument();
+  });
+
+  it("다시 보낸 알림장이면 다시 보냈다고 적고 선생님이 고쳤다고 알린다", async () => {
+    server.use(
+      http.get(apiPath(`/parent-notes/${NOTE}`), () =>
+        HttpResponse.json({ ...DETAIL, is_resent: true }),
+      ),
+    );
+    renderPage();
+
+    expect(await screen.findByText("10월 20일 17:40에 다시 보냈어요")).toBeInTheDocument();
+    expect(screen.getByText("선생님이 내용을 고쳤어요")).toBeInTheDocument();
+  });
+
+  it("처음 보낸 알림장에는 고쳤다는 말을 붙이지 않는다", async () => {
+    server.use(http.get(apiPath(`/parent-notes/${NOTE}`), () => HttpResponse.json(DETAIL)));
+    renderPage();
+
+    expect(await screen.findByText("10월 20일 17:40에 보냈어요")).toBeInTheDocument();
+    expect(screen.queryByText("선생님이 내용을 고쳤어요")).not.toBeInTheDocument();
   });
 
   it("교사 이름을 못 찾으면 이름 줄을 비운다", async () => {
