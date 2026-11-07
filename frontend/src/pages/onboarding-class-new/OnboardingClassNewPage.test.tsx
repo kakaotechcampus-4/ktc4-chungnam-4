@@ -1,6 +1,6 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { http } from "msw";
+import { http, HttpResponse } from "msw";
 
 import { useCurrentClassStore } from "@/features/class-context/current-class-store";
 import { apiPath, errorResponse } from "@/mocks/http";
@@ -39,6 +39,18 @@ describe("OnboardingClassNewPage", () => {
     expect(router.state.location.pathname).toBe("/t/children/new");
     // 만든 반이 현재 반이 됩니다(#85).
     expect(useCurrentClassStore.getState().selectedClassId).not.toBeNull();
+  });
+
+  // 새 어린이집으로 가입한 첫 교사는 반이 없어 이름을 알 수 없고, 코드로 들어온 것도 아닙니다.
+  it("반이 아직 없으면 코드 이야기 없이 등록한 어린이집이라고 적는다", async () => {
+    server.use(
+      http.get(apiPath("/centers/:centerId/classes"), () =>
+        HttpResponse.json({ items: [], next_cursor: null }),
+      ),
+    );
+    renderPage();
+
+    expect(await screen.findByDisplayValue("가입할 때 등록한 어린이집")).toBeInTheDocument();
   });
 
   it("만들기에 실패하면 서버 문구를 보여 주고 머문다", async () => {
