@@ -1,3 +1,5 @@
+import type { DraftView } from "./documents-view";
+
 // 초안 생성 작업(Job)과 아이별 하루 확인 화면이 쓰는 타입입니다(frontend/CLAUDE.md §데이터, #124 멘토 리뷰).
 // 이 파일은 서버 타입(types/api-draft)을 import하지 않습니다. 서버 응답이 바뀌면 여기가 아니라
 // agents-adapter.ts에서 타입 에러가 나고, 화면은 그대로 둡니다.
@@ -114,4 +116,18 @@ export interface TeacherEvidenceInput {
 export interface ObservationJobInput {
   request_id: string;
   month: string;
+}
+
+/** AI에게 다듬기 요청(FR-18) 결과. 바뀐 문장이 없으면 changed_sentence_ids가 빈 배열이고 버전도 그대로입니다. */
+export interface DraftRevisionView {
+  draft: DraftView;
+  changed_sentence_ids: string[];
+}
+
+/** AI에게 다듬기 요청 값 */
+export interface DraftRevisionInput {
+  /** 교사가 쓴 지시문. 보낼 때 앞뒤 공백을 뗍니다. */
+  instruction: string;
+  /** 지금 화면의 초안 version */
+  expected_version: number;
 }

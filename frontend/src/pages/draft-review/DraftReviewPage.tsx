@@ -40,7 +40,9 @@ import { EvidencePanel } from "./components/EvidencePanel";
 import { LeaveRevokedDialog } from "./components/LeaveRevokedDialog";
 import { PublishedNoteRow } from "./components/PublishedNoteRow";
 import { PublishConfirmDialog } from "./components/PublishConfirmDialog";
+import { RevisedBadge, RevisionRequestBox } from "./components/RevisionRequestBox";
 import { RosterList, type RosterRow } from "./components/RosterList";
+import { useDraftRevision } from "./use-draft-revision";
 
 /**
  * 게시가 건별로 실패한 사유입니다. 서버는 코드만 주므로 교사가 읽을 말로 바꿉니다.
@@ -222,6 +224,8 @@ export function DraftReviewPage() {
   const draft = draftQuery.data;
   // #284: 관찰일지 임시 화면은 생성 결과·근거 조회만 제공한다. 공용 서버 API는 유지한다.
   const canChangeDraft = !isObservation && draft?.doc_type === "parent_note";
+  // FR-18 AI에게 다듬기 요청. 요청이 도는 동안(최대 1분) 수정·승인·게시·사진을 잠급니다.
+  const revision = useDraftRevision(classId, draft);
 
   function resetDraftState() {
     setConfirmed(false);
@@ -232,6 +236,7 @@ export function DraftReviewPage() {
     setNewText("");
     // 빈 문장 안내도 그 원아의 편집에 딸린 것이라, 다른 원아로 넘어가면 지웁니다(#206 멘토님 리뷰).
     setEmptyEdit(false);
+    revision.reset();
   }
 
   // 고치던 문장과 새 문장을 저장하지 않고 버립니다. 같은 원아를 다시 눌러 버리던 길은 실수로
@@ -502,7 +507,8 @@ export function DraftReviewPage() {
   // 화면에는 고친 글이 남아 있어 교사가 알아채지 못합니다(H-1 승인 게이트).
   const isEditing = canChangeDraft && editing !== null;
   const isDraftApprovable = canChangeDraft && canApprove(draft);
-  const canApproveNow = isDraftApprovable && !isEditing;
+  const revisionPending = revision.isPending;
+  const canApproveNow = isDraftApprovable && !isEditing && !revisionPending;
   // 사진은 검토 중인 초안에서만 바꿉니다. 승인한 뒤에는 다시 검토하기로 되돌려야 하고, 수정 중에는 같은
   // 버전을 쓰는 두 저장이 겹쳐 서로 밀어내므로 잠급니다.
   const photosLockedReason = isEditing
@@ -516,7 +522,8 @@ export function DraftReviewPage() {
     photoMutation.isPending ||
     patchMutation.isPending ||
     approveMutation.isPending ||
-    reopenMutation.isPending;
+    reopenMutation.isPending ||
+    revisionPending;
   // 게시한 뒤에는 되돌릴 수 없습니다. 이미 학부모에게 나갔으므로 회수가 따로 필요합니다(H-1).
   const canReopenNow = canChangeDraft && canReopen(draft);
   // 게시는 반 전체를 하루 한 번 합니다 — 임시 결정(김진하), docs/api/documents.md §POST /publications.
@@ -550,7 +557,11 @@ export function DraftReviewPage() {
   // 글이 남는데 승인본이 나갑니다. 승인을 잠그는 것과 같은 이유입니다(H-1).
   // 관찰일지는 게시 대상에서 제외한다. 버튼 숨김과 별개로 실행 가능 여부도 잠근다(H-1).
   const canPublish =
-    !isObservation && publishTargets.length > 0 && !hasUnreviewedDraft && !isEditing;
+    !isObservation &&
+    publishTargets.length > 0 &&
+    !hasUnreviewedDraft &&
+    !isEditing &&
+    !revisionPending;
 
   function selectChild(id: string) {
     // 지금 원아를 다시 누르면 아무것도 하지 않습니다. 고치던 문장을 지우거나 같은 주소를 이력에 또 쌓지
@@ -845,6 +856,7 @@ export function DraftReviewPage() {
                         key={sentence.sentence_id}
                         className="text-lead whitespace-pre-line text-ink"
                       >
+                        {revision.isRevised(sentence) ? <RevisedBadge /> : null}
                         {sentence.section ? `[${sentence.section}] ` : ""}
                         {sentence.text}
                       </p>
@@ -863,6 +875,7 @@ export function DraftReviewPage() {
                           sentence.sentence_id === selectedSentenceId && "underline",
                         )}
                       >
+                        {revision.isRevised(sentence) ? <RevisedBadge /> : null}
                         {sentence.section ? `[${sentence.section}] ` : ""}
                         {sentence.text}
                       </button>
@@ -882,7 +895,8 @@ export function DraftReviewPage() {
                         disabled={
                           patchMutation.isPending ||
                           approveMutation.isPending ||
-                          photoMutation.isPending
+                          photoMutation.isPending ||
+                          revisionPending
                         }
                         className="text-label font-bold text-ink-muted underline-offset-4 outline-none transition-colors hover:text-brand-ink hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
                       >
@@ -913,7 +927,7 @@ export function DraftReviewPage() {
                     onClick={() =>
                       reopenMutation.mutate({ draftId: draft.draft_id, version: draft.version })
                     }
-                    disabled={reopenMutation.isPending}
+                    disabled={reopenMutation.isPending || revisionPending}
                     className="self-start text-label font-bold text-ink-muted underline-offset-4 outline-none transition-colors hover:text-brand-ink hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
                   >
                     다시 검토하기
@@ -928,6 +942,31 @@ export function DraftReviewPage() {
                   <p className="text-caption text-destructive">{failureText(draftError)}</p>
                 ) : null}
               </div>
+              {canChangeDraft && (
+                <RevisionRequestBox
+                  // 원아·초안이 바뀌면 입력한 지시문도 그 아이 것이 아니므로 새로 시작합니다.
+                  key={draft.draft_id}
+                  lockedReason={
+                    isEditing
+                      ? "문장을 수정하는 중에는 요청할 수 없어요."
+                      : draft.status === "review"
+                        ? null
+                        : draft.status === "approved"
+                          ? "승인된 초안이에요. ‘다시 검토하기’를 누르면 요청할 수 있어요."
+                          : "검토 대기 중인 초안에서만 요청할 수 있어요."
+                  }
+                  pending={revisionPending}
+                  otherBusy={
+                    patchMutation.isPending ||
+                    approveMutation.isPending ||
+                    photoMutation.isPending ||
+                    reopenMutation.isPending
+                  }
+                  error={revision.error}
+                  changedCount={revision.changedCount}
+                  onSubmit={revision.request}
+                />
+              )}
             </>
           )}
         </section>

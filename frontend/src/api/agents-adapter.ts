@@ -1,4 +1,6 @@
 import type {
+  DraftRevisionRequest,
+  DraftRevisionResponse,
   Job,
   ObservationJobCreateRequest,
   JobChild,
@@ -10,6 +12,8 @@ import type {
 } from "@/types/api-draft/agents";
 
 import type {
+  DraftRevisionInput,
+  DraftRevisionView,
   JobChildView,
   ObservationJobInput,
   JobCreateInput,
@@ -19,6 +23,7 @@ import type {
   TeacherEvidenceInput,
   TeacherEvidenceView,
 } from "./agents-view";
+import { toDraftView } from "./documents-adapter";
 
 // 초안 생성 작업(Job) 응답을 화면이 쓰는 모양으로 바꾸는 곳입니다(frontend/CLAUDE.md §데이터, #92 멘토 리뷰).
 // 서버 필드 이름이나 상태 값이 API 문서와 다르게 오면 이 파일만 고칩니다. 화면용 타입은 agents-view.ts에 있습니다.
@@ -117,4 +122,17 @@ export function toTeacherEvidenceBody(input: TeacherEvidenceInput): TeacherEvide
 
 export function toObservationJobBody(input: ObservationJobInput): ObservationJobCreateRequest {
   return { request_id: input.request_id, month: input.month };
+}
+
+/** AI에게 다듬기 응답. 초안은 documents와 같은 모양이라 같은 변환을 씁니다. */
+export function toDraftRevisionView(raw: DraftRevisionResponse): DraftRevisionView {
+  return {
+    draft: toDraftView(raw.draft),
+    changed_sentence_ids: [...raw.changed_sentence_ids],
+  };
+}
+
+/** 지시문은 앞뒤 공백을 떼고 보냅니다(서버도 뗀 뒤 1~500자를 봅니다). */
+export function toDraftRevisionBody(input: DraftRevisionInput): DraftRevisionRequest {
+  return { instruction: input.instruction.trim(), expected_version: input.expected_version };
 }

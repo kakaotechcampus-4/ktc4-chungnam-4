@@ -1,7 +1,7 @@
 // API 문서 §agents(담당 정은)를 옮긴 임시 타입입니다. 명세가 바뀌면 여기부터 맞춥니다.
 // 트리거는 FE의 POST /jobs로 정해졌습니다(#60 B안). 상태값은 모두 (제안)입니다.
 
-import type { DocType } from "./documents";
+import type { DocType, DraftDetail } from "./documents";
 
 /** 원아별·반 전체 작업 상태 */
 export type JobStatus = "pending" | "running" | "succeeded" | "failed";
@@ -118,4 +118,23 @@ export interface TeacherEvidence {
 export interface ObservationJobCreateRequest {
   request_id: string;
   month: string;
+}
+
+/**
+ * POST /drafts/{draft_id}/revision-requests 요청 (FR-18, 임시 결정(정은), docs/api/agents.md §AI에게 다듬기 요청).
+ * 직접 고친 문장은 AI가 바꾸지 않습니다. 검토 대기(`verified`)인 초안만 받습니다.
+ */
+export interface DraftRevisionRequest {
+  /** 앞뒤 공백을 뗀 뒤 1~500자 */
+  instruction: string;
+  /** PATCH /drafts/{draft_id}와 같은 낙관적 잠금. 지금 화면의 version */
+  expected_version: number;
+}
+
+/** POST /drafts/{draft_id}/revision-requests 응답(200) */
+export interface DraftRevisionResponse {
+  /** GET /drafts/{draft_id}와 같은 교사용 상세 */
+  draft: DraftDetail;
+  /** 바뀐 문장 ID. 바뀐 문장이 없으면 빈 배열이고 버전도 그대로입니다. */
+  changed_sentence_ids: string[];
 }

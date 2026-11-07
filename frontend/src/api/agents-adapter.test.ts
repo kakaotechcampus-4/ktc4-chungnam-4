@@ -1,7 +1,10 @@
+import type { DraftDetail } from "@/types/api-draft/documents";
 import type { Job, TeacherEvidence } from "@/types/api-draft/agents";
 
 import {
   isJobFinished,
+  toDraftRevisionBody,
+  toDraftRevisionView,
   toJobCreateBody,
   toJobView,
   toTeacherEvidenceBody,
@@ -121,6 +124,51 @@ describe("agents adapter (추가 근거)", () => {
     expect(toTeacherEvidenceBody(input)).toEqual({
       activity_time: "10:30",
       text: "블록을 높이 쌓았어요",
+    });
+  });
+});
+
+describe("다듬기 요청 변환", () => {
+  const DETAIL: DraftDetail = {
+    draft_id: "d1",
+    child_id: "k1",
+    doc_type: "parent_note",
+    record_date: "2026-09-15",
+    status: "verified",
+    version: 4,
+    title: null,
+    sentences: [
+      {
+        section: null,
+        sentence_id: "s1",
+        text: "합성 문장이에요.",
+        is_edited_by_teacher: false,
+        evidences: [],
+      },
+    ],
+    selected_media_ids: [],
+    media: [],
+    author_teacher_id: "t1",
+    author_name: "교사",
+    approved_at: null,
+    published_at: null,
+    revoke_deadline: null,
+    can_revoke: false,
+    include_photos: null,
+    updated_at: "2026-09-15T06:00:00Z",
+  };
+
+  it("초안은 documents와 같은 화면용 모양으로 바꾸고 바뀐 문장 ID를 넘긴다", () => {
+    const view = toDraftRevisionView({ draft: DETAIL, changed_sentence_ids: ["s1"] });
+    expect(view.draft.status).toBe("review");
+    expect(view.draft.version).toBe(4);
+    expect(view.changed_sentence_ids).toEqual(["s1"]);
+  });
+
+  it("요청 본문은 지시문 앞뒤 공백을 뗀다", () => {
+    expect(toDraftRevisionBody({ instruction: "  짧게  ", expected_version: 3 })).toEqual({
+      instruction: "짧게",
+      expected_version: 3,
     });
   });
 });

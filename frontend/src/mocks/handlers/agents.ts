@@ -2,6 +2,8 @@ import { http, HttpResponse } from "msw";
 
 import { kstToday } from "@/lib/datetime";
 import type {
+  DraftRevisionRequest,
+  DraftRevisionResponse,
   Job,
   JobChild,
   JobCreateRequest,
@@ -15,8 +17,13 @@ import { nextId, nowIso, readDb, updateDb } from "../db";
 import type { DraftRecord, JobChildRecord, JobRecord, MediaRecord, MockDb } from "../db";
 import { nextEvidenceId, teacherEvidence } from "../fixtures/agents";
 import { buildDrafts } from "../fixtures/documents";
-import { FACE_CONSENTED_CHILD_IDS, SUNSHINE_CHILDREN } from "../fixtures/organization";
+import {
+  FACE_CONSENTED_CHILD_IDS,
+  SUNSHINE_CHILDREN,
+  SUNSHINE_CLASS,
+} from "../fixtures/organization";
 import { requireTeacher, requireTeacherOfClass } from "../guards";
+import { detail as draftDetail } from "./documents";
 import { apiPath, errorResponse, listResponse, validationError } from "../http";
 import { isMockScenario } from "../scenario";
 
@@ -26,7 +33,8 @@ import { isMockScenario } from "../scenario";
 //   사진은 서버 collect_media_for_llm처럼 귀속 원아가 모두 ③ 동의일 때만 씁니다(H-2).
 //   근거가 없으면 미분류(insufficient_evidence)로 끝납니다. ③ 미동의 원아만 귀속된 사진이 여기에 해당합니다.
 // - 날짜 대조("이 반·날짜의 자료가 아닌 것")는 목에서 하지 않습니다. 시연 파일의 촬영일이 제각각이라서입니다.
-// 시나리오: agents.job-fails(첫 원아가 생성 단계에서 LLM_TIMEOUT으로 실패)
+// - 다듬기 요청(FR-18): 서버 규칙(검토 대기만, 직접 고친·t 문장 잠금, 버전 검사)을 따르고, AI 대신 앞의 문장 최대 2개를 정해진 글로 고칩니다.
+// 시나리오: agents.revision-fails(다듬기 요청이 REVISION_FAILED 502), agents.job-fails(첫 원아가 생성 단계에서 LLM_TIMEOUT으로 실패)
 
 const STAGES: readonly JobStage[] = [
   "transcribing",
@@ -34,6 +42,9 @@ const STAGES: readonly JobStage[] = [
   "generating",
   "verifying",
 ];
+const REVISION_INSTRUCTION_MAX = 500;
+const REVISED_SUFFIX_TEXT = " 조금 더 구체적으로 다듬었어요.";
+const REVISED_SUFFIX = / 조금 더 구체적으로 다듬었어요\.$/;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 function isFinished(child: JobChildRecord) {
@@ -459,5 +470,74 @@ export const handlers = [
     };
     teacherEvidence.push(saved);
     return HttpResponse.json(saved, { status: 201 });
+  }),
+
+  // FR-18 AI에게 다듬기 요청. 순서는 서버와 같습니다: 검증(422) → 없음(404) → 상태 → 버전 → 바꿀 문장 없음 → AI 실패.
+  http.post(apiPath("/drafts/:draftId/revision-requests"), async ({ request, params }) => {
+    const denied = requireTeacher();
+    if (denied) return denied;
+    const body = (await request.json()) as Partial<DraftRevisionRequest>;
+    const instruction = typeof body.instruction === "string" ? body.instruction.trim() : "";
+    if (instruction.length < 1 || instruction.length > REVISION_INSTRUCTION_MAX) {
+      return validationError("body.instruction", "지시문은 1~500자여야 합니다");
+    }
+    if (typeof body.expected_version !== "number") {
+      return validationError("body.expected_version", "expected_version이 필요합니다");
+    }
+    const expectedVersion = body.expected_version;
+    return updateDb((db) => {
+      const draft = db.drafts[String(params.draftId)];
+      if (!draft) return errorResponse(404, "DRAFT_NOT_FOUND", "초안을 찾을 수 없어요.");
+      if (draft.class_id !== SUNSHINE_CLASS.class_id) {
+        return errorResponse(403, "CHILD_ACCESS_DENIED", "이 아이의 기록은 볼 수 없어요.");
+      }
+      // 서버(documents.get_draft_for_revision)처럼 버전을 상태보다 먼저 봅니다.
+      if (draft.version !== expectedVersion) {
+        return errorResponse(
+          409,
+          "DRAFT_VERSION_CONFLICT",
+          "다른 곳에서 먼저 고쳤어요. 새로 불러와 주세요.",
+        );
+      }
+      if (draft.status === "draft") {
+        return errorResponse(409, "DRAFT_NOT_READY", "아직 초안을 만들고 있어요.");
+      }
+      if (draft.status === "approved") {
+        return errorResponse(409, "DRAFT_ALREADY_APPROVED", "이미 승인한 초안이에요.");
+      }
+      if (draft.status === "revoked") {
+        return errorResponse(409, "DRAFT_REVOKED", "회수한 초안이에요.");
+      }
+      // 직접 고친 문장과 교사가 쓴 t 문장은 AI가 바꾸지 않습니다.
+      const unlocked = draft.sentences.filter(
+        (sentence) => !sentence.is_edited_by_teacher && !sentence.sentence_id.startsWith("t"),
+      );
+      if (unlocked.length === 0) {
+        return errorResponse(
+          409,
+          "REVISION_NOTHING_TO_CHANGE",
+          "AI가 바꿀 수 있는 문장이 없어요. 직접 고친 문장은 그대로 둬요.",
+        );
+      }
+      if (isMockScenario("agents.revision-fails")) {
+        return errorResponse(
+          502,
+          "REVISION_FAILED",
+          "AI가 문장을 다듬지 못했어요. 잠시 후 다시 요청해 주세요.",
+        );
+      }
+      // 결정적인 합성 문장으로 앞의 최대 2개만 고칩니다. 이미 붙은 꼬리는 떼고 다시 붙여 글이 길어지지 않습니다.
+      const changed = unlocked.slice(0, 2);
+      for (const sentence of changed) {
+        sentence.text = `${sentence.text.replace(REVISED_SUFFIX, "")}${REVISED_SUFFIX_TEXT}`;
+        // 근거 연결은 그대로 두고, 교사가 직접 고친 것이 아니므로 is_edited_by_teacher는 건드리지 않습니다.
+      }
+      draft.version += 1;
+      draft.updated_at = nowIso();
+      return HttpResponse.json<DraftRevisionResponse>({
+        draft: draftDetail(db, draft),
+        changed_sentence_ids: changed.map((sentence) => sentence.sentence_id),
+      });
+    });
   }),
 ];

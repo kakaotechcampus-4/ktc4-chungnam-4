@@ -3,21 +3,25 @@ import type { ObservationJobInput } from "./agents-view";
 import { queryOptions } from "@tanstack/react-query";
 
 import { api } from "@/lib/api-client";
-import type { Job, TeacherEvidence } from "@/types/api-draft/agents";
+import type { DraftRevisionResponse, Job, TeacherEvidence } from "@/types/api-draft/agents";
 import type { ListResponse } from "@/types/api-draft/common";
 
 import {
   isJobFinished,
+  toDraftRevisionBody,
+  toDraftRevisionView,
   toJobCreateBody,
   toJobView,
   toTeacherEvidenceBody,
   toTeacherEvidenceView,
 } from "./agents-adapter";
-import type { JobCreateInput, TeacherEvidenceInput } from "./agents-view";
+import type { DraftRevisionInput, JobCreateInput, TeacherEvidenceInput } from "./agents-view";
 
 // 화면은 agents 서버 타입 대신 여기서 내보내는 화면용 타입을 씁니다(frontend/CLAUDE.md §데이터).
 export { isJobFinished } from "./agents-adapter";
 export type {
+  DraftRevisionInput,
+  DraftRevisionView,
   JobChildView,
   JobCreateInput,
   JobStatusView,
@@ -114,6 +118,23 @@ export async function createObservationJob(childId: string, input: ObservationJo
     await api.post<Job>(
       `/children/${encodeURIComponent(childId)}/observation-jobs`,
       toObservationJobBody(input),
+    ),
+  );
+}
+
+/** 지시문 길이 상한(앞뒤 공백을 뗀 뒤). 서버도 같은 값으로 422를 줍니다. */
+export const DRAFT_REVISION_MAX_LENGTH = 500;
+
+/**
+ * FR-18 AI에게 다듬기 요청. 최대 1분쯤 걸립니다(AI 호출 + 형식 오류 때 1회 재시도) — 화면이 로딩을 보이고
+ * 그동안 수정·승인을 잠급니다. 직접 고친 문장은 AI가 바꾸지 않고, 검토 대기 초안만 받습니다.
+ * 결과는 승인 전 초안이라 교사가 확인·승인해야 학부모에게 공개됩니다(H-1).
+ */
+export async function requestDraftRevision(draftId: string, input: DraftRevisionInput) {
+  return toDraftRevisionView(
+    await api.post<DraftRevisionResponse>(
+      `/drafts/${encodeURIComponent(draftId)}/revision-requests`,
+      toDraftRevisionBody(input),
     ),
   );
 }

@@ -83,7 +83,8 @@ function summary(draft: DraftRecord): DraftSummary {
   };
 }
 
-function detail(db: MockDb, draft: DraftRecord): DraftDetail {
+/** 교사용 초안 상세 응답. 다듬기 요청 목(agents.ts)도 같은 모양을 씁니다. */
+export function detail(db: MockDb, draft: DraftRecord): DraftDetail {
   // 선택 사진과 문장 근거 미디어의 서명 URL을 함께 싣습니다.
   const mediaIds = [
     ...draft.selected_media_ids,
