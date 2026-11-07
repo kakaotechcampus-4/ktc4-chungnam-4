@@ -15,3 +15,17 @@ os.environ.setdefault("POSTGRES_PASSWORD", "test-only-password")
 # 토큰 서명 키. get_settings()가 lru_cache라 테스트 모듈에서 채우면 늦습니다 —
 # 먼저 Settings를 만든 테스트가 있으면 그 값이 굳어버립니다.
 os.environ.setdefault("JWT_SECRET", "test-only-secret-that-is-long-enough-32")
+
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def prohibit_unmocked_agent_calls(monkeypatch):
+    """새 LLM 경로가 생겨도 테스트가 실제 키로 호출하지 못하게 한다."""
+    from domains.agents import service
+
+    def blocked(*args, **kwargs):
+        raise AssertionError("네이티브 에이전트 호출도 테스트 픽스처를 지정해야 합니다.")
+
+    monkeypatch.setattr(service, "call_agent", blocked)

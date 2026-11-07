@@ -34,6 +34,16 @@ const STATE_LABEL_MAP: Record<RosterStatusView, string> = {
   unknown: "확인 필요",
 };
 
+const OBSERVATION_STATE_LABEL_MAP: Record<RosterStatusView, string> = {
+  published: "생성됨",
+  approved: "생성됨",
+  review: "생성됨",
+  revoked: "생성됨",
+  none: "생성 전",
+  generating: "생성 중",
+  unknown: "확인 필요",
+};
+
 /** 교사가 손을 뗀 줄만 체크로 표시합니다(H-1: 승인 전은 검토 대기). */
 function isDone(status: RosterStatusView) {
   return status === "approved" || status === "published";
@@ -44,10 +54,19 @@ interface RosterListProps {
   rows: RosterRow[];
   selectedChildId: string;
   onSelect: (childId: string) => void;
+  isObservation?: boolean;
 }
 
-export function RosterList({ klassName, rows, selectedChildId, onSelect }: RosterListProps) {
-  const doneCount = rows.filter((row) => isDone(row.status)).length;
+export function RosterList({
+  klassName,
+  rows,
+  selectedChildId,
+  onSelect,
+  isObservation = false,
+}: RosterListProps) {
+  const rowIsDone = (status: RosterStatusView) =>
+    isObservation ? OBSERVATION_STATE_LABEL_MAP[status] === "생성됨" : isDone(status);
+  const doneCount = rows.filter((row) => rowIsDone(row.status)).length;
   // 초안이 없는 아이까지 세면 다 마쳐도 끝나지 않은 것처럼 보입니다.
   const draftCount = rows.filter((row) => row.note !== null).length;
 
@@ -56,12 +75,16 @@ export function RosterList({ klassName, rows, selectedChildId, onSelect }: Roste
       <div className="flex flex-col gap-1">
         <h2 className="text-lead font-bold text-ink">{klassName} 원아</h2>
         <p className="text-label text-ink-muted">
-          {draftCount === 0 ? "아직 초안이 없어요" : `${doneCount} / ${draftCount}명 검토 완료`}
+          {isObservation
+            ? `${doneCount} / ${rows.length}명 생성됨`
+            : draftCount === 0
+              ? "아직 초안이 없어요"
+              : `${doneCount} / ${draftCount}명 검토 완료`}
         </p>
       </div>
       <ul className="flex flex-col gap-1">
         {rows.map(({ child, status }) => {
-          const done = isDone(status);
+          const done = rowIsDone(status);
           const isSelected = child.child_id === selectedChildId;
           return (
             <li key={child.child_id}>
@@ -92,14 +115,18 @@ export function RosterList({ klassName, rows, selectedChildId, onSelect }: Roste
                   </span>
                 </span>
                 <span className={cn("text-label", done ? "text-brand-ink" : "text-ink-muted")}>
-                  {STATE_LABEL_MAP[status]}
+                  {(isObservation ? OBSERVATION_STATE_LABEL_MAP : STATE_LABEL_MAP)[status]}
                 </span>
               </button>
             </li>
           );
         })}
       </ul>
-      <p className="text-label text-ink-muted">초안 없는 아이는 직접 작성할 수 있어요.</p>
+      <p className="text-label text-ink-muted">
+        {isObservation
+          ? "월별로 생성한 관찰일지와 근거를 확인해 주세요."
+          : "초안 없는 아이는 직접 작성할 수 있어요."}
+      </p>
     </aside>
   );
 }

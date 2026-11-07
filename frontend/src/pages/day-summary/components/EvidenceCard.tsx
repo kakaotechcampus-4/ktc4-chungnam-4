@@ -57,6 +57,12 @@ export function EvidenceCard({ child, recordDate }: EvidenceCardProps) {
       <p className="text-caption text-ink-muted">
         선생님이 직접 본 일을 적어 주세요. 초안의 문장별 근거로 연결돼요.
       </p>
+      <p id="evidence-privacy-help" className="text-caption text-ink-muted">
+        학부모 이름·전화번호·주소 같은 개인정보는 적지 마세요.
+      </p>
+      <p id="evidence-generation-help" className="text-caption text-ink-muted">
+        저장한 내용은 다음 AI 생성부터 반영돼요. 이미 만든 초안은 자동으로 바뀌지 않아요.
+      </p>
 
       {evidence.error ? (
         <div role="alert" className="flex flex-col gap-2 text-body text-coral-ink">
@@ -92,6 +98,7 @@ export function EvidenceCard({ child, recordDate }: EvidenceCardProps) {
           value={text}
           onChange={(event) => setDraftText(event.target.value)}
           aria-label="관찰 내용"
+          aria-describedby="evidence-privacy-help evidence-generation-help"
           rows={5}
           disabled={!evidence.isSuccess}
           placeholder="예) 나뭇잎의 모양을 비교하며 “별 모양이야”라고 말했어요."

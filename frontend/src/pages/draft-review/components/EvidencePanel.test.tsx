@@ -7,6 +7,7 @@ it("교사가 글로 남긴 메모 근거는 출처를 교사 메모로 보여 �
     <EvidencePanel
       sentence={{
         sentence_id: "s1",
+        section: null,
         text: "우산을 직접 챙겼어요.",
         is_edited_by_teacher: false,
         evidences: [
@@ -18,6 +19,7 @@ it("교사가 글로 남긴 메모 근거는 출처를 교사 메모로 보여 �
             start_ms: null,
             end_ms: null,
             captured_at: null,
+            source_document_id: null,
           },
         ],
       }}
