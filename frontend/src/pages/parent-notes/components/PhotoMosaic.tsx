@@ -20,8 +20,9 @@ interface PhotoMosaicProps {
 const VISIBLE_LIMIT = 3;
 
 const GRID_CLASS_MAP: Record<number, string> = {
-  1: "grid-cols-1",
-  2: "grid-cols-2",
+  // 줄을 정해 두지 않으면 세로로 긴 사진이 칸을 늘립니다.
+  1: "grid-cols-1 grid-rows-1",
+  2: "grid-cols-2 grid-rows-1",
   3: "grid-cols-3 grid-rows-2",
 };
 

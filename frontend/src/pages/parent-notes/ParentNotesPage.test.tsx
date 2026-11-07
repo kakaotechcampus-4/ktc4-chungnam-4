@@ -105,51 +105,83 @@ describe("ParentNotesPage 모아 보기 링크", () => {
 });
 
 describe("ParentNotesPage 검색", () => {
-  it("내용으로 찾으면 맞는 알림장만 남기고 몇 건인지 알려 준다", async () => {
+  // 서버처럼 q로 거릅니다. 화면이 어떤 검색어를 보냈는지도 남깁니다.
+  function useSearchServer(list: ParentNoteList = LIST) {
+    const keywords: (string | null)[] = [];
+    server.use(
+      http.get(apiPath("/me/children"), () => listResponse([myChild(false)])),
+      http.get(apiPath(`/children/${CHILD}/parent-notes`), ({ request }) => {
+        const q = new URL(request.url).searchParams.get("q");
+        keywords.push(q);
+        return HttpResponse.json({
+          ...list,
+          items: list.items.filter(
+            (note) => !q || note.preview.includes(q) || note.record_date.includes(q),
+          ),
+        });
+      }),
+    );
+    return keywords;
+  }
+
+  function renderSearchPage(initialEntry = `/p/children/${CHILD}/notes`) {
+    return renderRoute(<ParentNotesPage />, { path: "/p/children/:childId/notes", initialEntry });
+  }
+
+  it("입력이 멈추면 서버에 찾고, 맞는 알림장과 건수를 보여 준다", async () => {
     const user = userEvent.setup();
-    renderPage(myChild(false), LIST);
+    const keywords = useSearchServer();
+    renderSearchPage();
 
     await user.type(await screen.findByRole("searchbox", { name: "알림장 검색" }), "모래");
 
+    expect(await screen.findByText("1건을 찾았어요")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /모래놀이를 했어요/ })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /블록을 높이/ })).not.toBeInTheDocument();
-    expect(screen.getByText("1건을 찾았어요")).toBeInTheDocument();
+    expect(keywords).toEqual([null, "모래"]); // 글자마다 부르지 않습니다.
   });
 
-  it("날짜로도 찾는다", async () => {
-    const user = userEvent.setup();
-    renderPage(myChild(false), LIST);
+  it("주소에 검색어가 있으면 검색칸을 채우고 그 결과부터 보여 준다", async () => {
+    useSearchServer();
+    renderSearchPage(`/p/children/${CHILD}/notes?q=${encodeURIComponent("모래")}`);
 
-    await user.type(await screen.findByRole("searchbox", { name: "알림장 검색" }), "10월 30일");
-
-    expect(screen.getByRole("link", { name: /나뭇잎을 모았어요/ })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /모래놀이를 했어요/ })).not.toBeInTheDocument();
+    expect(await screen.findByRole("searchbox", { name: "알림장 검색" })).toHaveValue("모래");
+    expect(await screen.findByText("1건을 찾았어요")).toBeInTheDocument();
   });
 
-  it("맞는 알림장이 없으면 안내하고, 전체 보기로 돌아온다", async () => {
+  it("다음 쪽이 더 있으면 건수에 그렇게 적는다", async () => {
+    useSearchServer({ ...LIST, next_cursor: "2026-10-30" });
+    renderSearchPage(`/p/children/${CHILD}/notes?q=${encodeURIComponent("모래")}`);
+
+    expect(await screen.findByText("1건 넘게 찾았어요")).toBeInTheDocument();
+  });
+
+  it("맞는 알림장이 없으면 안내하고, 전체 보기로 돌아오면 검색칸도 비운다", async () => {
     const user = userEvent.setup();
-    renderPage(myChild(false), LIST);
+    useSearchServer();
+    renderSearchPage();
 
     await user.type(await screen.findByRole("searchbox", { name: "알림장 검색" }), "없는 말");
 
-    expect(screen.getByRole("heading", { name: "맞는 알림장이 없어요" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "맞는 알림장이 없어요" }),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "전체 알림장 보기" }));
 
+    expect(await screen.findByRole("link", { name: /나뭇잎을 모았어요/ })).toBeInTheDocument();
     expect(screen.getByRole("searchbox", { name: "알림장 검색" })).toHaveValue("");
-    expect(screen.getByRole("link", { name: /블록을 높이/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /나뭇잎을 모았어요/ })).toBeInTheDocument();
   });
 
-  it("지우기 단추로 검색어를 비우면 다시 안 읽은 수를 보여 준다", async () => {
+  it("지우기 단추로 비우면 바로 전체를 보여 주고 안 읽은 수로 돌아온다", async () => {
     const user = userEvent.setup();
-    renderPage(myChild(false), LIST);
+    useSearchServer();
+    renderSearchPage(`/p/children/${CHILD}/notes?q=${encodeURIComponent("모래")}`);
 
-    expect(screen.queryByRole("button", { name: "검색어 지우기" })).not.toBeInTheDocument();
-    await user.type(await screen.findByRole("searchbox", { name: "알림장 검색" }), "모래");
-    await user.click(screen.getByRole("button", { name: "검색어 지우기" }));
+    await user.click(await screen.findByRole("button", { name: "검색어 지우기" }));
 
+    expect(await screen.findByText("아직 읽지 않은 알림장 1개")).toBeInTheDocument();
     expect(screen.getByRole("searchbox", { name: "알림장 검색" })).toHaveValue("");
-    expect(screen.getByText("아직 읽지 않은 알림장 1개")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "검색어 지우기" })).not.toBeInTheDocument();
   });
 
   it("알림장이 하나도 없으면 검색칸을 보여 주지 않는다", async () => {

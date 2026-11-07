@@ -1,5 +1,5 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
-import { Download, Images } from "lucide-react";
+import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
+import { Download, Images, SearchX } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import {
@@ -9,6 +9,8 @@ import {
 } from "@/api/documents";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
+import { ParentSearchBox } from "@/features/parent/ParentSearchBox";
+import { useParentSearch } from "@/features/parent/use-parent-search";
 import { ApiError } from "@/lib/api-client";
 import { formatDate } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
@@ -52,7 +54,13 @@ function failureText(error: unknown) {
  * 알림장 날짜별로 묶고, 눌러서 크게 보거나 원본을 저장합니다.
  */
 export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
-  const query = useInfiniteQuery(parentMediaInfiniteQueryOptions(childId));
+  // 사진에는 글이 없어 서버가 함께 게시한 알림장의 본문·날짜에서 찾습니다(docs/api/documents.md).
+  const { keyword, search, reset, resetCount, initialValue } = useParentSearch();
+  const query = useInfiniteQuery({
+    ...parentMediaInfiniteQueryOptions(childId, keyword),
+    // 새 결과가 올 때까지 이전 사진을 흐리게 남겨 둡니다. 비웠다가 다시 그리면 화면이 깜박입니다.
+    placeholderData: keepPreviousData,
+  });
   const saver = useSaveMedia(childId);
   const [filter, setFilter] = useState<MediaFilter>("all");
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
@@ -122,7 +130,8 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
   }
 
   const total = (firstPage?.photo_count ?? 0) + (firstPage?.video_count ?? 0);
-  if (total === 0) {
+  // 받은 것이 하나도 없는 아이에게만 빈 화면을 보여 줍니다. 찾다가 0건이면 검색칸을 남깁니다.
+  if (total === 0 && !keyword) {
     return (
       <section className="flex flex-col gap-6">
         {header}
@@ -152,24 +161,37 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
     <section className="flex flex-col gap-6">
       {header}
 
-      <div role="tablist" aria-label="종류" className="flex gap-2">
-        {FILTERS.map((option) => (
-          <button
-            key={option}
-            type="button"
-            role="tab"
-            aria-selected={filter === option}
-            onClick={() => changeFilter(option)}
-            className={cn(
-              "h-9 rounded-full border px-4 text-label font-bold outline-none transition duration-200 ease-soft focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-95",
-              filter === option
-                ? "border-brand-ink bg-brand-ink text-paper shadow-xs"
-                : "border-line bg-paper text-ink-muted hover:-translate-y-px hover:border-brand-border hover:text-brand-ink",
-            )}
-          >
-            {FILTER_LABEL_MAP[option]} {countByFilter[option]}
-          </button>
-        ))}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div role="tablist" aria-label="종류" className="flex gap-2">
+          {FILTERS.map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="tab"
+              aria-selected={filter === option}
+              onClick={() => changeFilter(option)}
+              className={cn(
+                "h-9 rounded-full border px-4 text-label font-bold outline-none transition duration-200 ease-soft focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-95",
+                filter === option
+                  ? "border-brand-ink bg-brand-ink text-paper shadow-xs"
+                  : "border-line bg-paper text-ink-muted hover:-translate-y-px hover:border-brand-border hover:text-brand-ink",
+              )}
+            >
+              {FILTER_LABEL_MAP[option]} {countByFilter[option]}
+            </button>
+          ))}
+        </div>
+        <ParentSearchBox
+          key={`${childId}-${resetCount}`}
+          label="사진·영상 검색"
+          placeholder="날짜나 알림장 내용으로 찾기"
+          initialValue={initialValue}
+          onSearch={(next) => {
+            search(next);
+            setViewerIndex(null);
+          }}
+          className="w-full sm:w-rail"
+        />
       </div>
 
       {saver.errorText && viewerIndex === null && (
@@ -178,50 +200,71 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
         </p>
       )}
 
-      {days.length === 0 && !query.hasNextPage && (
+      {total === 0 ? (
+        <div
+          className={cn(
+            CARD_CLASS,
+            "flex flex-col items-center gap-3 px-6 py-14 text-center motion-safe:animate-rise",
+          )}
+        >
+          <SearchX aria-hidden="true" className="size-10 text-line" strokeWidth={1.5} />
+          <p className="text-lead font-bold text-ink">맞는 사진·영상이 없어요</p>
+          <p className="text-body text-ink-muted">다른 말이나 날짜로 찾아보세요.</p>
+          <Button variant="outline" className="active:scale-98" onClick={reset}>
+            전체 사진·영상 보기
+          </Button>
+        </div>
+      ) : days.length === 0 && !query.hasNextPage ? (
         <p className="py-10 text-center text-body text-ink-muted">
           {FILTER_LABEL_MAP[filter]}이 아직 없어요.
         </p>
-      )}
+      ) : null}
 
-      {days.map((day, dayIndex) => {
-        const savable = day.items.filter(canSaveParentMedia).map((item) => item.media_id);
-        return (
-          <section
-            key={day.parent_note_id}
-            aria-label={formatDate(day.record_date)}
-            className={cn(CARD_CLASS, "p-4 motion-safe:animate-rise sm:p-6")}
-            style={{ animationDelay: `${Math.min(dayIndex, STAGGER_LIMIT) * STAGGER_MS}ms` }}
-          >
-            <div className="mb-3 flex items-center gap-2">
-              <h2 className="text-nav font-bold text-ink">
-                {formatDate(day.record_date, { year: false })}
-              </h2>
-              <span className="text-label text-ink-muted">{countText(day.items)}</span>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="ml-auto h-8 rounded-full px-3 text-label text-brand-ink active:scale-95"
-                disabled={saver.isBusy || savable.length === 0}
-                onClick={() => saver.save(savable)}
-              >
-                <Download aria-hidden="true" />
-                모두 저장
-              </Button>
-            </div>
-            <div className={MEDIA_GRID_CLASS}>
-              {day.items.map((item) => (
-                <MediaTile
-                  key={item.media_id}
-                  item={item}
-                  onOpen={() => setViewerIndex(viewerItems.indexOf(item))}
-                  onLoadError={handleLoadError}
-                />
-              ))}
-            </div>
-          </section>
-        );
-      })}
+      <div
+        className={cn(
+          "flex flex-col gap-6 motion-safe:transition-opacity motion-safe:duration-300",
+          query.isPlaceholderData && "opacity-60",
+        )}
+      >
+        {days.map((day, dayIndex) => {
+          const savable = day.items.filter(canSaveParentMedia).map((item) => item.media_id);
+          return (
+            <section
+              key={day.parent_note_id}
+              aria-label={formatDate(day.record_date)}
+              className={cn(CARD_CLASS, "p-4 motion-safe:animate-rise sm:p-6")}
+              style={{ animationDelay: `${Math.min(dayIndex, STAGGER_LIMIT) * STAGGER_MS}ms` }}
+            >
+              <div className="mb-3 flex items-center gap-2">
+                <h2 className="text-nav font-bold text-ink">
+                  {formatDate(day.record_date, { year: false })}
+                </h2>
+                <span className="text-label text-ink-muted">{countText(day.items)}</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="ml-auto h-8 rounded-full px-3 text-label text-brand-ink active:scale-95"
+                  disabled={saver.isBusy || savable.length === 0}
+                  onClick={() => saver.save(savable)}
+                >
+                  <Download aria-hidden="true" />
+                  모두 저장
+                </Button>
+              </div>
+              <div className={MEDIA_GRID_CLASS}>
+                {day.items.map((item) => (
+                  <MediaTile
+                    key={item.media_id}
+                    item={item}
+                    onOpen={() => setViewerIndex(viewerItems.indexOf(item))}
+                    onLoadError={handleLoadError}
+                  />
+                ))}
+              </div>
+            </section>
+          );
+        })}
+      </div>
 
       {query.hasNextPage && (
         <Button
