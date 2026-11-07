@@ -218,6 +218,16 @@ export function isImportStage(items: readonly LocalMedia[]) {
   );
 }
 
+/**
+ * 새로고침하면 사라질 작업이 큐에 있는지. 원본과 분류·검수 결과는 메모리에만 있어 처음부터 다시 해야 합니다.
+ * 서버가 받은 자료와 교사가 뺀 사진은 잃을 것이 없습니다.
+ */
+export function hasUnsentWork(items: readonly LocalMedia[]) {
+  return items.some(
+    (item) => item.upload_state !== "확인됨" && !(isPhoto(item) && item.review_state === "제외"),
+  );
+}
+
 /** 남은 불러오기 시간(초) 어림 */
 export function remainingImportSeconds(items: readonly LocalMedia[]) {
   const remaining = items.reduce((sum, item) => sum + (100 - item.import_progress), 0);
