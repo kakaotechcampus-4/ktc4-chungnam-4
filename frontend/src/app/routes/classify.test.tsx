@@ -633,6 +633,21 @@ describe("아이별 하루 확인", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("관찰 내용을 적어 주세요.");
   });
+
+  // 서버 상한(1,000자)과 같은 값으로 입력칸을 막고 글자 수를 보여 줍니다(임시 결정(정은), 11/07).
+  it("추가 근거 입력칸은 1,000자까지만 받고 글자 수를 보여 준다", async () => {
+    const user = userEvent.setup();
+    renderAt(`/t/today/children/${DOYUN}/summary`);
+
+    const textbox = await screen.findByRole("textbox", { name: "관찰 내용" });
+    await waitFor(() => expect(textbox).toBeEnabled());
+    expect(textbox).toHaveAttribute("maxLength", "1000");
+    expect(screen.getByText("0 / 1,000자")).toBeInTheDocument();
+
+    await user.type(textbox, "나뭇잎을 비교했어요.");
+
+    expect(screen.getByText("11 / 1,000자")).toBeInTheDocument();
+  });
 });
 
 describe("얼굴 정보", () => {

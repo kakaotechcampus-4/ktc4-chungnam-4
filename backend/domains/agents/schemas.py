@@ -144,11 +144,16 @@ class JobTraceResponse(BaseModel):
 # --- 추가 근거(교사 관찰 메모) API (docs/api/agents.md §추가 근거) ---
 
 
+# 메모 한 건의 글자 수 상한(앞뒤 공백 제외). 측정으로 정한 값이 아니다 — 임시 결정(정은, 11/07),
+# 테크스펙 §④ TeacherEvidence·docs/api/agents.md §추가 근거. FE 입력칸(EvidenceCard)과 같은 값이다.
+TEACHER_EVIDENCE_TEXT_MAX_LENGTH = 1000
+
+
 class TeacherEvidenceSaveRequest(BaseModel):
     """PUT /children/{child_id}/evidence/{record_date} 본문. 글만 받는다(음성·사진 제외).
 
-    TODO(eun): text 길이 상한과 activity_time 필수 여부는 스펙에 없어 정하지 않았다
-    (테크스펙 §④ TeacherEvidence 미정). 지금은 비어 있지 않으면 받고 시각 형식만 본다.
+    text는 앞뒤 공백을 지우고 비어 있으면 거절하며, TEACHER_EVIDENCE_TEXT_MAX_LENGTH자를 넘어도
+    거절한다. activity_time 필수 여부는 스펙에 없어 지금은 필수로 두고 시각 형식만 본다.
     """
 
     activity_time: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
@@ -156,10 +161,14 @@ class TeacherEvidenceSaveRequest(BaseModel):
 
     @field_validator("text")
     @classmethod
-    def text_must_not_be_blank(cls, value: str) -> str:
+    def text_must_fit(cls, value: str) -> str:
         stripped = value.strip()
         if not stripped:
             raise ValueError("추가 근거 내용이 비어 있습니다.")
+        if len(stripped) > TEACHER_EVIDENCE_TEXT_MAX_LENGTH:
+            raise ValueError(
+                f"추가 근거 내용은 {TEACHER_EVIDENCE_TEXT_MAX_LENGTH:,}자까지 쓸 수 있습니다."
+            )
         return stripped
 
 

@@ -81,6 +81,9 @@ export const evidenceKeys = {
     ["classes", classId, "evidence", recordDate] as const,
 };
 
+/** 추가 근거 한 건의 글자 수 상한(앞뒤 공백 제외). 서버 `TEACHER_EVIDENCE_TEXT_MAX_LENGTH`와 같은 값입니다 — 임시 결정(정은, 11/07). */
+export const TEACHER_EVIDENCE_TEXT_MAX_LENGTH = 1000;
+
 /** 그날 반에서 남긴 추가 근거(아이마다 최대 한 건). */
 export function classEvidenceQueryOptions(classId: string, recordDate: string) {
   return queryOptions({

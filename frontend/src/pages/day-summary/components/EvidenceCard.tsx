@@ -1,7 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { classEvidenceQueryOptions, evidenceKeys, saveTeacherEvidence } from "@/api/agents";
+import {
+  TEACHER_EVIDENCE_TEXT_MAX_LENGTH,
+  classEvidenceQueryOptions,
+  evidenceKeys,
+  saveTeacherEvidence,
+} from "@/api/agents";
 import { Button } from "@/components/ui/button";
 import type { ClassChildView } from "@/api/organization";
 
@@ -100,10 +105,15 @@ export function EvidenceCard({ child, recordDate }: EvidenceCardProps) {
           aria-label="관찰 내용"
           aria-describedby="evidence-privacy-help evidence-generation-help"
           rows={5}
+          maxLength={TEACHER_EVIDENCE_TEXT_MAX_LENGTH}
           disabled={!evidence.isSuccess}
           placeholder="예) 나뭇잎의 모양을 비교하며 “별 모양이야”라고 말했어요."
           className="w-full resize-none rounded-xl bg-brand p-4 text-body text-brand-ink outline-none placeholder:text-brand-ink/50 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
         />
+        {/* 글자 수는 보조 표시라 스크린 리더에는 읽히지 않게 둡니다. 입력칸이 상한을 넘기지 못하게 막습니다. */}
+        <p aria-hidden="true" className="-mt-2 text-right text-caption text-ink-muted">
+          {text.length.toLocaleString()} / {TEACHER_EVIDENCE_TEXT_MAX_LENGTH.toLocaleString()}자
+        </p>
         {/* TODO(김동건): 음성으로 남기기·관련 사진 연결(Figma 1:3095)은 모양이 정해지면 붙입니다. */}
         <div className="flex items-center justify-between gap-3">
           <p aria-live="polite" className="text-caption text-ink-muted">

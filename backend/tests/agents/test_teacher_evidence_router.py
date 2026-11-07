@@ -19,6 +19,7 @@ from sqlalchemy.pool import StaticPool
 from core.base import Base
 from core.database import get_db
 from domains.agents.models import TeacherEvidence
+from domains.agents.schemas import TEACHER_EVIDENCE_TEXT_MAX_LENGTH
 from domains.audit.models import AccessLog
 from domains.auth.middleware import get_current_teacher
 from domains.auth.service import TeacherProfile
@@ -232,6 +233,22 @@ def test_빈_내용과_잘못된_시각은_422로_거절한다(
     assert response.status_code == 422
     with session_factory() as db:
         assert db.scalars(select(TeacherEvidence)).first() is None
+
+
+def test_글자_수_상한까지는_저장하고_넘으면_422로_거절한다(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    limit = TEACHER_EVIDENCE_TEXT_MAX_LENGTH
+
+    over = _put(client, DOYUN, text="가" * (limit + 1))
+    assert over.status_code == 422
+    with session_factory() as db:
+        assert db.scalars(select(TeacherEvidence)).first() is None
+
+    # 앞뒤 공백은 세지 않는다
+    exact = _put(client, DOYUN, text=f"  {'가' * limit}  ")
+    assert exact.status_code == 201
+    assert len(exact.json()["text"]) == limit
 
 
 def test_오늘보다_뒤_날짜는_거절한다(client: TestClient) -> None:

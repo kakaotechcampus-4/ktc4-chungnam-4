@@ -20,6 +20,10 @@ import { requireTeacher, requireTeacherOfClass } from "../guards";
 import { apiPath, errorResponse, listResponse, validationError } from "../http";
 import { isMockScenario } from "../scenario";
 
+// 추가 근거 글자 수 상한. 서버(`TEACHER_EVIDENCE_TEXT_MAX_LENGTH`)와 `@/api/agents`의 같은 이름 상수와
+// 같은 값입니다 — 임시 결정(정은, 11/07). 목은 서버를 흉내 낼 뿐 api 계층을 가져오지 않습니다.
+const TEACHER_EVIDENCE_TEXT_MAX_LENGTH = 1000;
+
 // API 문서 §agents 목입니다. 서버 전송이 끝나면 FE가 POST /jobs를 한 번 부르고(#60 B안), GET /jobs/{job_id}를 폴링합니다.
 // - 폴링할 때마다 안 끝난 원아가 한 단계씩 나아갑니다(4번이면 끝). 2초 간격이면 약 8초입니다.
 // - 근거는 요청의 media_ids 가운데 그 원아에게 귀속되고 llm_allowed인 자료만 씁니다(김동건 님 #60 [must], 잠정).
@@ -438,6 +442,13 @@ export const handlers = [
     const body = (await request.json()) as TeacherEvidenceUpsertRequest;
     if (!body.text?.trim()) {
       return errorResponse(422, "VALIDATION_ERROR", "관찰 내용을 적어 주세요.");
+    }
+    if (body.text.trim().length > TEACHER_EVIDENCE_TEXT_MAX_LENGTH) {
+      return errorResponse(
+        422,
+        "VALIDATION_ERROR",
+        `관찰 내용은 ${TEACHER_EVIDENCE_TEXT_MAX_LENGTH.toLocaleString()}자까지 쓸 수 있어요.`,
+      );
     }
     const childId = String(params.childId);
     const recordDate = String(params.recordDate);
