@@ -1,6 +1,6 @@
 // Figma: 53:294 (초안 검토 / 왼쪽 원아 목록)
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { Info } from "lucide-react";
 import { useState } from "react";
 import { useBlocker, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 
@@ -30,10 +30,12 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
+import { unclassifiedReasonText } from "@/features/documents/unclassified-reason";
 import { ApiError } from "@/lib/api-client";
-import { formatDate, isDateOnly, kstToday } from "@/lib/datetime";
+import { formatYearMonth, formatDate, isDateOnly, kstToday } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 
+import { DraftPhotos } from "./components/DraftPhotos";
 import { EvidencePanel } from "./components/EvidencePanel";
 import { LeaveRevokedDialog } from "./components/LeaveRevokedDialog";
 import { PublishedNoteRow } from "./components/PublishedNoteRow";
@@ -63,6 +65,13 @@ function failureText(error: unknown) {
   return error instanceof ApiError ? error.message : "잠시 후 다시 시도해 주세요.";
 }
 
+const PUBLISH_DONE_PATH = "/t/notes/publish/done";
+
+/** 게시 안내에 적을 이름. 여럿이면 줄이 길어져 버튼을 밀어내므로 줄여 적습니다. */
+function summarizeNames(names: string[]) {
+  return names.length > 2 ? `${names[0]} 외 ${names.length - 1}명` : names.join(", ");
+}
+
 /** 그 사이 다른 곳에서 초안을 바꿔 서버가 요청을 반영하지 않은 경우입니다. */
 function isVersionConflict(error: unknown) {
   return error instanceof ApiError && error.code === "DRAFT_VERSION_CONFLICT";
@@ -77,24 +86,6 @@ function isVersionConflict(error: unknown) {
 const EDIT_FIELD_CLASS =
   "min-h-0 resize-none rounded-md border-0 bg-transparent p-0 text-lead whitespace-pre-line shadow-none focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent";
 
-// TODO(김진하): 사진 추가는 업로드 흐름(media, 정은·김동건)이 정해지지 않아 자리만 둡니다.
-// Figma 타일은 '사진 추가'뿐이지만 '준비 중'을 보이는 글자로도 둡니다. 스크린리더에만 읽히면 화면을 보는
-// 교사는 왜 눌리지 않는지 모릅니다(10/30 배포 점검 25번).
-function AddPhotoTile() {
-  return (
-    <button
-      type="button"
-      disabled
-      aria-label="사진 추가 (준비 중)"
-      className="flex aspect-square flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-line text-ink-muted disabled:opacity-60"
-    >
-      <Plus className="size-6" />
-      <span className="text-label">사진 추가</span>
-      <span className="text-caption">준비 중</span>
-    </button>
-  );
-}
-
 /** 교사가 쓴 글을 줄바꿈으로 나눠 문장 배열로 만듭니다(API 문서 §직접 쓴 초안 만들기). */
 function toSentences(text: string) {
   return text
@@ -107,6 +98,7 @@ function toSentences(text: string) {
 export function DraftReviewPage() {
   const { childId } = useParams<{ childId: string }>();
   const [searchParams] = useSearchParams();
+  const isObservation = searchParams.get("doc_type") === "observation_log";
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
@@ -116,10 +108,17 @@ export function DraftReviewPage() {
   const recordDateParam = searchParams.get("record_date");
   const recordDate = isDateOnly(recordDateParam) ? recordDateParam : kstToday();
   // 지난 날짜로 열었는데 '오늘의 기록'이라고 하면 교사가 오늘 것으로 읽습니다. 날짜는 부제가 보여 줍니다.
-  // 회수본을 고치러 오면 늘 지난 날짜라, 눈썹까지 '오늘의 기록'이면 길을 잘못 든 것처럼 보입니다.
+  // 회수한 과거 알림장과 월별 관찰일지를 각각의 제목·날짜로 구분한다.
   const isToday = recordDate === kstToday();
-  const reviewTitle = isToday ? "오늘의 기록을 완성해요" : "기록을 완성해요";
-  const reviewEyebrow = `${isToday ? "오늘의 기록" : "지난 기록"}  /  초안 검토`;
+  const reviewTitle = isObservation
+    ? "월별 관찰일지를 검토해요"
+    : isToday
+      ? "오늘의 기록을 완성해요"
+      : "기록을 완성해요";
+  const reviewEyebrow = isObservation
+    ? "월별 관찰일지  /  초안 검토"
+    : `${isToday ? "오늘의 기록" : "지난 기록"}  /  초안 검토`;
+  const reviewDate = isObservation ? formatYearMonth(recordDate) : formatDate(recordDate);
 
   const {
     currentClass,
@@ -157,6 +156,11 @@ export function DraftReviewPage() {
   const [publishOpen, setPublishOpen] = useState(false);
   /** 승인했지만 이번 게시에서는 빼기로 한 원아 */
   const [excludedChildIds, setExcludedChildIds] = useState<Set<string>>(new Set());
+  /**
+   * 게시를 마친 날에 초안 없는 아이를 직접 쓰러 들어온 경우. 이 값이 없으면 끝난 화면만 보여서 들어갈 길이
+   * 없습니다. 글을 저장하면 안 나간 초안이 생겨 그날이 다시 열리고, 게시하면 발행 완료 화면으로 넘어갑니다.
+   */
+  const [writingAfterClose, setWritingAfterClose] = useState(false);
   /** 선택 사진을 학부모에게 함께 보낼지. 기본은 보냄 */
   const [includePhotos, setIncludePhotos] = useState(true);
   /**
@@ -174,7 +178,13 @@ export function DraftReviewPage() {
   const draftItems = draftsQuery.data ?? [];
   const rows: RosterRow[] = children.map((child) => {
     const item = draftItems.find((draft) => draft.child_id === child.child_id);
-    return { child, note: item?.parent_note ?? null, status: pickRosterStatus(item) };
+    const note = (isObservation ? item?.observation_log : item?.parent_note) ?? null;
+    return {
+      child,
+      note,
+      unclassified: item?.unclassified ?? null,
+      status: pickRosterStatus(isObservation && item ? { ...item, parent_note: note } : item),
+    };
   });
 
   // 회수한 알림장은 고쳐서 다시 게시할 때까지 보호자에게 보이지 않습니다. 교사가 고치러 왔다가
@@ -194,9 +204,13 @@ export function DraftReviewPage() {
   );
   // 레일에서 원아를 바꾸는 것도 주소가 바뀌지만 **이 화면 안**입니다. 경로만 비교하면
   // 아이를 옮길 때마다 경고가 떠서 아무것도 못 합니다. 검토 화면을 아주 떠날 때만 막습니다.
+  // 발행 완료로 가는 것도 막지 않습니다. 게시가 끝난 뒤의 이동이고, 목록을 다시 받아 그리기 전이라
+  // unsentRow가 아직 남아 있습니다.
   const blocker = useBlocker(
     ({ nextLocation }) =>
-      unsentRow !== undefined && !nextLocation.pathname.startsWith("/t/today/review/"),
+      unsentRow !== undefined &&
+      !nextLocation.pathname.startsWith("/t/today/review/") &&
+      nextLocation.pathname !== PUBLISH_DONE_PATH,
   );
 
   const selectedChildId = childId ?? rows[0]?.child.child_id ?? "";
@@ -204,9 +218,12 @@ export function DraftReviewPage() {
   const draftId = selectedRow?.note?.draft_id ?? "";
   const draftQuery = useQuery({ ...draftQueryOptions(draftId), enabled: draftId !== "" });
   const draft = draftQuery.data;
+  // #284: 관찰일지 임시 화면은 생성 결과·근거 조회만 제공한다. 공용 서버 API는 유지한다.
+  const canChangeDraft = !isObservation && draft?.doc_type === "parent_note";
 
   function resetDraftState() {
     setConfirmed(false);
+    setPublishOpen(false);
     setSelectedSentenceId(null);
     setEditing(null);
     setAddedTexts([]);
@@ -229,7 +246,7 @@ export function DraftReviewPage() {
   // 문장이 이 원아 초안에 저장되고 "사진과 본문을 확인했어요" 체크도 넘어옵니다(H-1). #206 멘토님 리뷰의
   // 빈 문장 안내를 고치다가 같은 원인으로 찾은 경로입니다.
   // effect를 기다리지 않고 렌더 중에 직전 값과 견줘 바로 비웁니다.
-  const shownKey = `${selectedChildId}|${recordDate}`;
+  const shownKey = `${selectedChildId}|${recordDate}|${isObservation}`;
   const [lastShownKey, setLastShownKey] = useState(shownKey);
   if (lastShownKey !== shownKey) {
     setLastShownKey(shownKey);
@@ -242,6 +259,7 @@ export function DraftReviewPage() {
   if (lastPublishDate !== recordDate) {
     setLastPublishDate(recordDate);
     setExcludedChildIds(new Set());
+    setWritingAfterClose(false);
   }
 
   // 같은 초안이라도 버전이 오르면(버전 충돌 뒤 새로 불러온 본문 등) 확인 체크를 다시 받습니다.
@@ -267,13 +285,15 @@ export function DraftReviewPage() {
 
   // 자료가 없는 원아도 교사가 직접 써서 검토·승인할 수 있게 합니다.
   const createMutation = useMutation({
-    mutationFn: (input: { childId: string; recordDate: string; text: string }) =>
-      createDraft(input.childId, {
+    mutationFn: (input: { childId: string; recordDate: string; text: string }) => {
+      if (isObservation) throw new Error("관찰일지 화면에서는 직접 작성할 수 없어요.");
+      return createDraft(input.childId, {
         record_date: input.recordDate,
         doc_type: "parent_note",
         title: null,
         sentences: toSentences(input.text),
-      }),
+      });
+    },
     onSuccess: async (created, variables) => {
       // 저장을 기다리는 사이 다른 원아·날짜로 옮겼으면 지금 칸은 그 아이의 글입니다. 콜백은 마지막 렌더의
       // 값을 보므로, 요청한 원아·날짜를 보고 있을 때만 비웁니다.
@@ -288,9 +308,11 @@ export function DraftReviewPage() {
   });
 
   const approveMutation = useMutation({
-    mutationFn: (input: { draftId: string; version: number }) =>
+    mutationFn: (input: { draftId: string; version: number }) => {
+      if (!canChangeDraft) throw new Error("이 화면에서는 알림장만 승인할 수 있어요.");
       // "사진과 본문을 확인했어요" 체크가 reviewed로 들어갑니다(H-1 승인 게이트).
-      approveDraft(input.draftId, { expected_version: input.version, reviewed: true }),
+      return approveDraft(input.draftId, { expected_version: input.version, reviewed: true });
+    },
     onSuccess: async (updated, variables) => {
       // 승인을 기다리는 사이 다른 원아로 옮겼으면 지금 체크는 그 아이의 것입니다. 콜백은 마지막 렌더의
       // 값을 보므로, 요청한 초안을 보고 있을 때만 풉니다.
@@ -309,12 +331,14 @@ export function DraftReviewPage() {
       version: number;
       sentences: { sentence_id: string; text: string }[];
       addedSentences: { text: string }[];
-    }) =>
-      patchDraft(input.draftId, {
+    }) => {
+      if (!canChangeDraft) throw new Error("이 화면에서는 알림장만 수정할 수 있어요.");
+      return patchDraft(input.draftId, {
         expected_version: input.version,
         sentences: input.sentences,
         added_sentences: input.addedSentences,
-      }),
+      });
+    },
     onSuccess: async (updated) => {
       // 고친 문장의 근거는 서버가 끊고, 새로 쓴 문장도 근거 없이 돌아옵니다(API 문서 §PATCH).
       queryClient.setQueryData(documentsKeys.draft(updated.draft_id), updated);
@@ -332,10 +356,31 @@ export function DraftReviewPage() {
     },
   });
 
+  // 학부모에게 보낼 사진을 고르면 바로 저장합니다. 서버가 그 원아·날짜의 사진인지 다시 확인합니다.
+  const photoMutation = useMutation({
+    mutationFn: (input: { draftId: string; version: number; mediaIds: string[] }) => {
+      if (!canChangeDraft) throw new Error("이 화면에서는 알림장 사진만 바꿀 수 있어요.");
+      return patchDraft(input.draftId, {
+        expected_version: input.version,
+        selected_media_ids: input.mediaIds,
+      });
+    },
+    onSuccess: async (updated) => {
+      // 버전이 오르므로 확인 체크는 아래 shownVersion 규칙대로 풀립니다 — 바뀐 사진을 다시 보게 합니다(H-1).
+      queryClient.setQueryData(documentsKeys.draft(updated.draft_id), updated);
+      await queryClient.invalidateQueries({
+        queryKey: documentsKeys.classDraftLists(classId),
+      });
+    },
+    onError: (error, variables) => refetchOnVersionConflict(error, variables.draftId),
+  });
+
   // 승인은 잠금이지만, 게시 전까지는 교사가 되돌려 다시 고칠 수 있어야 합니다.
   const reopenMutation = useMutation({
-    mutationFn: (input: { draftId: string; version: number }) =>
-      reopenDraft(input.draftId, { expected_version: input.version }),
+    mutationFn: (input: { draftId: string; version: number }) => {
+      if (!canChangeDraft) throw new Error("이 화면에서는 알림장만 다시 검토할 수 있어요.");
+      return reopenDraft(input.draftId, { expected_version: input.version });
+    },
     onSuccess: async (updated) => {
       queryClient.setQueryData(documentsKeys.draft(updated.draft_id), updated);
       await queryClient.invalidateQueries({
@@ -351,12 +396,14 @@ export function DraftReviewPage() {
       includePhotos: boolean;
       /** 요청에는 싣지 않습니다. 실패 문구를 그 날짜를 볼 때만 보여 주려고 함께 둡니다. */
       recordDate: string;
-    }) =>
-      publishParentNotes({
+    }) => {
+      if (isObservation) throw new Error("관찰일지는 학부모에게 게시할 수 없어요.");
+      return publishParentNotes({
         request_id: crypto.randomUUID(),
         include_photos: input.includePhotos,
         items: input.items,
-      }),
+      });
+    },
     onSuccess: async (results, variables) => {
       // 게시하면 published_at과 include_photos가 정해집니다. 비워 두지 않으면 알림장 상세가
       // 게시 전 캐시(include_photos가 null)를 읽어 사진을 뺀 게시본에도 사진을 보여 줍니다.
@@ -390,7 +437,7 @@ export function DraftReviewPage() {
       });
       if (failures.length > 0) return;
       // 발행 완료 화면이 오늘이 아니라 게시한 날짜를 보여 주도록 요청 때의 날짜를 함께 넘깁니다.
-      navigate("/t/notes/publish/done", {
+      navigate(PUBLISH_DONE_PATH, {
         state: { publishedCount: results.length, recordDate: variables.recordDate },
       });
     },
@@ -409,6 +456,7 @@ export function DraftReviewPage() {
       ? createMutation.error
       : null;
   const draftError = errorOnShownDraft(patchMutation) ?? errorOnShownDraft(reopenMutation);
+  const photoError = errorOnShownDraft(photoMutation);
   const publishError =
     publishMutation.variables?.recordDate === recordDate ? publishMutation.error : null;
   // HTTP 200 안에 섞여 오는 건별 실패도 같은 기준으로 그 날짜에서만 보여 줍니다.
@@ -437,6 +485,8 @@ export function DraftReviewPage() {
   const klassName = currentClass?.name ?? "";
   /** 실패를 알릴 때 id 대신 이름을 보여 줍니다. 못 찾으면 빈 문자열이라 사유 코드로 갈음합니다. */
   const nameOf = (id: string | null) => children.find((child) => child.child_id === id)?.name ?? "";
+  // 초안 없이 끝난 사유. 미동의와 근거 부족은 교사가 할 일이 달라서 같은 문구로 보여 주지 않습니다.
+  const emptyReason = unclassifiedReasonText(selectedRow?.unclassified ?? null);
   const selectedSentence =
     draft?.sentences.find((sentence) => sentence.sentence_id === selectedSentenceId) ?? null;
   // 게시 전 초안이라 교사가 고른 사진을 그대로 보여 줍니다. 게시본을 되짚어 보는 화면은
@@ -450,11 +500,25 @@ export function DraftReviewPage() {
   // 승인은 검증을 마친 초안만(목·API 문서 규칙). 게시는 검토가 남은 원아가 없을 때만 엽니다.
   // 수정 중에는 잠급니다 — "수정 완료" 없이 승인하면 고치기 전 문장이 승인·게시되는데
   // 화면에는 고친 글이 남아 있어 교사가 알아채지 못합니다(H-1 승인 게이트).
-  const isEditing = editing !== null;
-  const isDraftApprovable = canApprove(draft);
+  const isEditing = canChangeDraft && editing !== null;
+  const isDraftApprovable = canChangeDraft && canApprove(draft);
   const canApproveNow = isDraftApprovable && !isEditing;
+  // 사진은 검토 중인 초안에서만 바꿉니다. 승인한 뒤에는 다시 검토하기로 되돌려야 하고, 수정 중에는 같은
+  // 버전을 쓰는 두 저장이 겹쳐 서로 밀어내므로 잠급니다.
+  const photosLockedReason = isEditing
+    ? "문장을 수정하는 중에는 사진을 바꿀 수 없어요."
+    : draft?.status === "approved"
+      ? "승인한 초안은 ‘다시 검토하기’를 누른 뒤에 사진을 바꿀 수 있어요."
+      : !isDraftApprovable
+        ? "검토할 수 있는 초안에서만 사진을 고를 수 있어요."
+        : null;
+  const photosBusy =
+    photoMutation.isPending ||
+    patchMutation.isPending ||
+    approveMutation.isPending ||
+    reopenMutation.isPending;
   // 게시한 뒤에는 되돌릴 수 없습니다. 이미 학부모에게 나갔으므로 회수가 따로 필요합니다(H-1).
-  const canReopenNow = canReopen(draft);
+  const canReopenNow = canChangeDraft && canReopen(draft);
   // 게시는 반 전체를 하루 한 번 합니다 — 임시 결정(김진하), docs/api/documents.md §POST /publications.
   // 그래서 한 날짜에 게시된 초안이 하나라도 있으면 그날은 끝난 날입니다. 게시본은 학부모가
   // 이미 봤으므로 고칠 수 없고, 되돌리려면 회수(revoke)가 필요합니다(H-1).
@@ -484,7 +548,19 @@ export function DraftReviewPage() {
   const notReadyCount = rows.filter(isNotReady).length;
   // 수정 중에도 게시를 잠급니다. 고치던 초안이 그 사이 다른 곳에서 승인되면 화면에는 저장하지 않은
   // 글이 남는데 승인본이 나갑니다. 승인을 잠그는 것과 같은 이유입니다(H-1).
-  const canPublish = publishTargets.length > 0 && !hasUnreviewedDraft && !isEditing;
+  // 관찰일지는 게시 대상에서 제외한다. 버튼 숨김과 별개로 실행 가능 여부도 잠근다(H-1).
+  const canPublish =
+    !isObservation && publishTargets.length > 0 && !hasUnreviewedDraft && !isEditing;
+  // 게시하기가 왜 꺼져 있는지 적습니다. 수정 중 안내는 아래에 따로 있습니다.
+  const unreviewedNames = rows.filter(needsReview).map((row) => row.child.name);
+  const publishHint =
+    isEditing || isObservation
+      ? null
+      : unreviewedNames.length > 0
+        ? `${summarizeNames(unreviewedNames)} 검토를 마치면 게시할 수 있어요.`
+        : publishTargets.length === 0
+          ? "승인한 알림장이 있으면 게시할 수 있어요."
+          : null;
 
   function selectChild(id: string) {
     // 지금 원아를 다시 누르면 아무것도 하지 않습니다. 고치던 문장을 지우거나 같은 주소를 이력에 또 쌓지
@@ -495,7 +571,7 @@ export function DraftReviewPage() {
   }
 
   function toggleEditing() {
-    if (!draft) return;
+    if (!draft || !canChangeDraft) return;
     if (editing === null) {
       // 고치기 전 문장을 보고 눌러 둔 체크입니다. 수정이 끝나면 다시 확인해야 합니다.
       setConfirmed(false);
@@ -543,7 +619,8 @@ export function DraftReviewPage() {
 
   // 게시를 마친 날짜는 다시 열어도 고칠 수 없습니다. 검토 화면을 그대로 보여 주면
   // 교사가 고칠 수 있다고 착각하므로, 화면 전체를 끝난 상태로 바꿉니다.
-  if (isDayClosed) {
+  if (!isObservation && isDayClosed && !writingAfterClose) {
+    const noDraftRows = rows.filter((row) => row.note === null);
     const published = rows.flatMap((row) =>
       row.note !== null && row.note.published_at !== null
         ? [{ child: row.child, note: row.note, publishedAt: row.note.published_at }]
@@ -554,7 +631,7 @@ export function DraftReviewPage() {
         <PageHeader
           eyebrow={reviewEyebrow}
           title="게시를 마쳤어요"
-          subtitle={`${formatDate(recordDate)}  ·  ${klassName}`}
+          subtitle={`${reviewDate}  ·  ${klassName}`}
         />
         <div className="flex flex-col gap-5 rounded-xl bg-paper p-7">
           <div className="flex flex-col gap-1">
@@ -564,15 +641,18 @@ export function DraftReviewPage() {
             {/* 게시본은 바로 고칠 수 없고 회수를 거칩니다(H-1). 회수하면 그 원아의 초안이
                 "안 나간 초안"이 되어 이 날짜가 다시 열리고, 평소처럼 고쳐 승인·게시합니다. */}
             <p className="text-label text-ink-muted">
-              잘못 나간 알림장은 회수한 뒤에 고칠 수 있어요. 보호자가 열어 보기 전, 게시하고 24시간
-              안에만 됩니다.
+              잘못 나간 알림장은 회수한 뒤에 고칠 수 있어요. 게시하고 24시간 안에만 됩니다.
             </p>
           </div>
           <ul className="flex flex-col gap-2">
             {published.map(({ child, note, publishedAt }) => (
               <PublishedNoteRow
                 key={child.child_id}
-                onRevoked={() => setRevokedDraftId(note.draft_id)}
+                onRevoked={() => {
+                  setRevokedDraftId(note.draft_id);
+                  // 회수하면 이 화면이 다시 열립니다. 주소의 아이가 아니라 방금 회수한 아이를 보여 줍니다.
+                  selectChild(child.child_id);
+                }}
                 childId={child.child_id}
                 childName={child.name}
                 draftId={note.draft_id}
@@ -581,6 +661,45 @@ export function DraftReviewPage() {
               />
             ))}
           </ul>
+          {noDraftRows.length > 0 ? (
+            <div className="flex flex-col gap-3 border-t border-line pt-5">
+              <div className="flex flex-col gap-1">
+                <h2 className="text-lead font-bold text-ink">
+                  알림장이 없는 아이 {noDraftRows.length}명
+                </h2>
+                <p className="text-label text-ink-muted">
+                  직접 써서 승인하면 따로 게시할 수 있어요.
+                </p>
+              </div>
+              <ul className="flex flex-col gap-2">
+                {noDraftRows.map((row) => (
+                  <li
+                    key={row.child.child_id}
+                    className="flex items-center justify-between gap-4 rounded-lg bg-tint-2 px-4 py-3"
+                  >
+                    <div className="flex min-w-0 flex-col">
+                      <p className="text-body font-bold text-ink">{row.child.name}</p>
+                      <p className="text-label text-ink-muted">
+                        {unclassifiedReasonText(row.unclassified) ?? "아직 기록이 없어요."}
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      aria-label={`${row.child.name} 직접 쓰기`}
+                      onClick={() => {
+                        setWritingAfterClose(true);
+                        selectChild(row.child.child_id);
+                      }}
+                    >
+                      직접 쓰기
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
         <LeaveRevokedDialog blocker={blocker} childName={unsentRow?.child.name ?? ""} />
       </>
@@ -592,7 +711,7 @@ export function DraftReviewPage() {
       <PageHeader
         eyebrow={reviewEyebrow}
         title={reviewTitle}
-        subtitle={`${formatDate(recordDate)}  ·  ${klassName}`}
+        subtitle={`${reviewDate}  ·  ${klassName}`}
       />
 
       <div className="flex items-start gap-5">
@@ -601,6 +720,7 @@ export function DraftReviewPage() {
           rows={rows}
           selectedChildId={selectedChildId}
           onSelect={selectChild}
+          isObservation={isObservation}
         />
 
         <section className="flex min-w-0 flex-1 flex-col gap-3.5">
@@ -617,16 +737,24 @@ export function DraftReviewPage() {
                 다시 불러오기
               </Button>
             </div>
+          ) : draft === undefined && isObservation ? (
+            <p className="rounded-xl bg-paper p-7 text-body text-ink-muted">
+              아직 이 아이의 관찰일지가 없어요. 원아 개인 페이지에서 월을 골라 생성해 주세요.
+            </p>
           ) : draft === undefined ? (
             <div className="flex flex-col gap-5 rounded-xl bg-paper p-7">
-              {/* TODO(김진하): 빈 상태 문구와 디자인이 Figma에 없어 임시로 둡니다.
-                  '사진 추가'는 아직 꺼져 있어 문구에서 뺐습니다. 사진 고르기가 정해지면 다시 넣습니다. */}
+              {/* TODO(김진하): 빈 상태 문구와 디자인이 Figma에 없어 임시로 둡니다. */}
+              {emptyReason ? (
+                <p className="flex items-start gap-2 rounded-lg bg-tint-2 p-3 text-body text-ink">
+                  <Info aria-hidden="true" className="mt-1 size-4 shrink-0 text-brand-ink" />
+                  {emptyReason}
+                </p>
+              ) : null}
               <p className="text-body text-ink-muted">
-                아직 이 아이의 기록이 없어요. 직접 작성할 수 있어요.
+                {emptyReason
+                  ? "직접 작성할 수 있어요."
+                  : "아직 이 아이의 기록이 없어요. 직접 작성할 수 있어요."}
               </p>
-              <div className="grid grid-cols-3 gap-4">
-                <AddPhotoTile />
-              </div>
               <Textarea
                 value={newText}
                 rows={4}
@@ -634,6 +762,7 @@ export function DraftReviewPage() {
                 placeholder="예) 지우가 블록을 쌓는 동안 옆에서 색을 골라 건네주었어요."
                 onChange={(event) => setNewText(event.target.value)}
               />
+              <p className="text-caption text-ink-muted">저장한 뒤에 보낼 사진을 고를 수 있어요.</p>
               {createError ? (
                 <p className="text-caption text-destructive">{failureText(createError)}</p>
               ) : null}
@@ -674,28 +803,47 @@ export function DraftReviewPage() {
                 </section>
               ) : null}
               {/* 사진이 없는 초안(직접 쓴 글)에서도 추가 자리는 남겨 둡니다. */}
-              <div className="grid grid-cols-3 gap-4">
-                {photos.map((photo) => (
-                  <img
-                    key={photo.media_id}
-                    src={photo.url}
-                    alt=""
-                    className="aspect-square w-full rounded-lg object-cover"
-                  />
-                ))}
-                <AddPhotoTile />
-              </div>
-              <p className="text-caption text-ink-muted">선택 사진 {photos.length}장</p>
+              {!isObservation && (
+                <DraftPhotos
+                  draftId={draft.draft_id}
+                  photos={photos}
+                  lockedReason={photosLockedReason}
+                  saving={photosBusy}
+                  error={photoError === null ? null : failureText(photoError)}
+                  onChange={(mediaIds) =>
+                    photoMutation.mutate({
+                      draftId: draft.draft_id,
+                      version: draft.version,
+                      mediaIds,
+                    })
+                  }
+                />
+              )}
 
               <div className="flex flex-col gap-3.5 rounded-xl bg-paper p-7">
                 <div className="flex items-center justify-between">
                   <span className="rounded-md bg-brand px-6 py-1.5 text-body font-bold text-brand-ink">
-                    알림장
+                    {isObservation ? "월별 관찰일지" : "알림장"}
                   </span>
                   <span className="text-caption text-ink-muted">
                     {editing !== null ? "수정 중" : `버전 ${draft.version}`}
                   </span>
                 </div>
+                {(draft.daily_routine?.length ?? 0) > 0 && (
+                  <details className="rounded-md border border-line p-3">
+                    <summary className="cursor-pointer text-label font-bold">
+                      {isObservation ? "기간별 관찰 요약" : "AI 하루 일과 요약"}
+                    </summary>
+                    <p className="text-caption text-ink-muted">
+                      AI가 정리한 검토용 요약이에요. 아래 문장의 원본 근거도 함께 확인해 주세요.
+                    </p>
+                    <ul className="list-disc pl-5 text-body">
+                      {draft.daily_routine?.map((fact, index) => (
+                        <li key={index}>{fact}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
                 {draft.title ? <h3 className="text-h3 font-bold text-ink">{draft.title}</h3> : null}
 
                 {editing !== null ? (
@@ -755,6 +903,7 @@ export function DraftReviewPage() {
                         key={sentence.sentence_id}
                         className="text-lead whitespace-pre-line text-ink"
                       >
+                        {sentence.section ? `[${sentence.section}] ` : ""}
                         {sentence.text}
                       </p>
                     ) : (
@@ -772,6 +921,7 @@ export function DraftReviewPage() {
                           sentence.sentence_id === selectedSentenceId && "underline",
                         )}
                       >
+                        {sentence.section ? `[${sentence.section}] ` : ""}
                         {sentence.text}
                       </button>
                     ),
@@ -787,7 +937,11 @@ export function DraftReviewPage() {
                         type="button"
                         onClick={toggleEditing}
                         // 승인을 기다리는 사이 수정을 시작하면, 승인된 초안에 고치던 칸만 남습니다.
-                        disabled={patchMutation.isPending || approveMutation.isPending}
+                        disabled={
+                          patchMutation.isPending ||
+                          approveMutation.isPending ||
+                          photoMutation.isPending
+                        }
                         className="text-label font-bold text-ink-muted underline-offset-4 outline-none transition-colors hover:text-brand-ink hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
                       >
                         {editing !== null ? "수정 완료" : "직접 수정"}
@@ -836,68 +990,86 @@ export function DraftReviewPage() {
           )}
         </section>
 
-        <EvidencePanel sentence={selectedSentence} onClose={() => setSelectedSentenceId(null)} />
+        <EvidencePanel
+          sentence={selectedSentence}
+          media={draft?.media ?? []}
+          onClipFailed={() => {
+            void queryClient.invalidateQueries({ queryKey: documentsKeys.draft(draftId) });
+          }}
+          onClose={() => setSelectedSentenceId(null)}
+        />
       </div>
 
-      <div className="mt-6 flex items-center justify-between border-t border-line pt-4">
-        <p className="text-caption text-ink-muted">승인 전에는 학부모에게 공개되지 않아요.</p>
-        <div className="flex items-center gap-4">
-          {footerError ? (
-            <p className="text-caption text-destructive">{failureText(footerError)}</p>
-          ) : null}
-          {/* 건별 실패는 HTTP 200 안에 섞여 오므로 isError로는 잡히지 않습니다.
+      {isObservation ? (
+        <p className="mt-6 border-t border-line pt-4 text-caption text-ink-muted">
+          관찰일지의 내용과 문장별 근거를 확인할 수 있어요. 파일 내려받기는 준비 중이에요.
+        </p>
+      ) : (
+        <div className="mt-6 flex items-center justify-between border-t border-line pt-4">
+          <p className="text-caption text-ink-muted">승인 전에는 학부모에게 공개되지 않아요.</p>
+          <div className="flex items-center gap-4">
+            {footerError ? (
+              <p className="text-caption text-destructive">{failureText(footerError)}</p>
+            ) : null}
+            {/* 건별 실패는 HTTP 200 안에 섞여 오므로 isError로는 잡히지 않습니다.
               성공 수를 함께 알립니다 — 실패만 뜨면 나머지가 나갔는지 교사가 알 수 없습니다. */}
-          {shownPublishOutcome && shownPublishOutcome.failures.length > 0 ? (
-            <p className="text-caption text-destructive">
-              {shownPublishOutcome.publishedCount > 0
-                ? `${String(shownPublishOutcome.publishedCount)}명은 게시했고, `
-                : ""}
-              {shownPublishOutcome.failures.length}명은 게시하지 못했어요 —{" "}
-              {shownPublishOutcome.failures
-                .map(
-                  (failure) =>
-                    `${nameOf(failure.child_id) || "원아"}: ${
-                      PUBLISH_ERROR_LABEL_MAP[failure.error_code ?? ""] ??
-                      failure.error_code ??
-                      "알 수 없는 이유"
-                    }`,
-                )
-                .join(", ")}
-            </p>
-          ) : null}
-          {/* 수정 중에는 승인과 게시를 함께 잠가서 그 이유를 같이 적습니다. 그 사이 다른 곳에서 승인돼
+            {shownPublishOutcome && shownPublishOutcome.failures.length > 0 ? (
+              <p className="text-caption text-destructive">
+                {shownPublishOutcome.publishedCount > 0
+                  ? `${String(shownPublishOutcome.publishedCount)}명은 게시했고, `
+                  : ""}
+                {shownPublishOutcome.failures.length}명은 게시하지 못했어요 —{" "}
+                {shownPublishOutcome.failures
+                  .map(
+                    (failure) =>
+                      `${nameOf(failure.child_id) || "원아"}: ${
+                        PUBLISH_ERROR_LABEL_MAP[failure.error_code ?? ""] ??
+                        failure.error_code ??
+                        "알 수 없는 이유"
+                      }`,
+                  )
+                  .join(", ")}
+              </p>
+            ) : null}
+            {/* 수정 중에는 승인과 게시를 함께 잠가서 그 이유를 같이 적습니다. 그 사이 다른 곳에서 승인돼
               "수정 완료"가 사라져도 게시하기가 왜 잠겼는지 보이게, 남은 "수정 취소"로 안내합니다. */}
-          {isEditing ? (
-            <p className="text-caption text-ink-muted">
-              {isDraftApprovable
-                ? "수정을 마쳐야 승인하고 게시할 수 있어요."
-                : "그 사이 승인돼 더 고칠 수 없어요. 수정을 취소해야 게시할 수 있어요."}
-            </p>
-          ) : null}
-          <label className="flex items-center gap-2 text-body text-ink">
-            <Checkbox
-              checked={confirmed}
-              disabled={!canApproveNow}
-              onCheckedChange={(value) => setConfirmed(value === true)}
-            />
-            사진과 본문을 확인했어요
-          </label>
-          <Button
-            onClick={() =>
-              draft && approveMutation.mutate({ draftId: draft.draft_id, version: draft.version })
-            }
-            disabled={!confirmed || !canApproveNow || approveMutation.isPending}
-          >
-            검토 완료하고 승인하기
-          </Button>
-          <Button
-            onClick={() => setPublishOpen(true)}
-            disabled={!canPublish || publishMutation.isPending}
-          >
-            게시하기
-          </Button>
+            {isEditing ? (
+              <p className="text-caption text-ink-muted">
+                {isDraftApprovable
+                  ? "수정을 마쳐야 승인하고 게시할 수 있어요."
+                  : "그 사이 승인돼 더 고칠 수 없어요. 수정을 취소해야 게시할 수 있어요."}
+              </p>
+            ) : null}
+            {publishHint ? <p className="text-caption text-ink-muted">{publishHint}</p> : null}
+            <label className="flex items-center gap-2 text-body text-ink">
+              <Checkbox
+                checked={confirmed}
+                disabled={!canApproveNow}
+                onCheckedChange={(value) => setConfirmed(value === true)}
+              />
+              사진과 본문을 확인했어요
+            </label>
+            <Button
+              onClick={() =>
+                draft && approveMutation.mutate({ draftId: draft.draft_id, version: draft.version })
+              }
+              disabled={
+                !confirmed || !canApproveNow || approveMutation.isPending || photoMutation.isPending
+              }
+            >
+              검토 완료하고 승인하기
+            </Button>
+            {!isObservation && (
+              <Button
+                onClick={() => setPublishOpen(true)}
+                disabled={!canPublish || publishMutation.isPending}
+              >
+                게시하기
+              </Button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       <LeaveRevokedDialog blocker={blocker} childName={unsentRow?.child.name ?? ""} />
 

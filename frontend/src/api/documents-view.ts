@@ -70,10 +70,17 @@ export type DocTypeView = "observation_log" | "parent_note";
 
 /** 근거가 어디서 왔는지. 근거 패널이 출처 이름으로 바꿔 보여 줍니다. */
 export type EvidenceSourceTypeView =
-  "photo_observation" | "video_speech" | "video_scene" | "teacher_voice_memo" | "activity_plan";
+  | "photo_observation"
+  | "video_speech"
+  | "video_scene"
+  | "teacher_voice_memo"
+  | "teacher_note"
+  | "activity_plan"
+  | "parent_note";
 
 /** 문장 하나의 근거 */
 export interface EvidenceView {
+  source_document_id: string | null;
   /** 초안 안에서만 유일한 불투명 문자열(UUID 규약의 예외) */
   evidence_id: string;
   source_type: EvidenceSourceTypeView;
@@ -86,6 +93,7 @@ export interface EvidenceView {
 }
 
 export interface SentenceView {
+  section: string | null;
   /** 초안 안에서만 유일한 문자열입니다. 모양을 해석하지 않습니다 */
   sentence_id: string;
   text: string;
@@ -107,6 +115,7 @@ export interface DraftMediaView {
 
 /** GET /drafts/{draft_id} — 초안 본문과 근거 */
 export interface DraftView {
+  daily_routine: string[];
   draft_id: string;
   child_id: string;
   /** 알림장인지 관찰일지인지. 이 화면은 안 쓰지만 문서에 있는 응답 필드라 버리지 않습니다. */
@@ -116,7 +125,7 @@ export interface DraftView {
   version: number;
   title: string | null;
   sentences: SentenceView[];
-  /** 교사가 고른 미디어의 id. 어느 것이 사진인지는 `selectedPhotos`가 가립니다. */
+  /** 교사가 고른 미디어의 id(고른 순서). 그릴 것은 `selectedPhotos`가 가립니다. */
   selected_media_ids: string[];
   /** 분석 실패로 근거에서 제외된 사진. 구버전 서버 응답에 없으면 adapter가 빈 배열로 채웁니다. */
   failed_media_ids: string[];
@@ -131,6 +140,22 @@ export interface DraftView {
   can_revoke: boolean;
   /** 게시할 때 사진을 함께 보냈는지. 게시 전에는 `null`입니다. */
   include_photos: boolean | null;
+}
+
+/**
+ * 알림장에 고를 수 있는 미디어의 종류. `unknown`은 서버 값에 없습니다 — 모르는 종류를 고르게 하면
+ * 무엇이 학부모에게 나갈지 알 수 없어 잠급니다(`canSelectMedia`, H-1 방향).
+ */
+export type SelectableMediaTypeView = "photo" | "video" | "unknown";
+
+/** GET /drafts/{draft_id}/selectable-media 한 건. 그 원아에게 귀속된 그날 사진·영상입니다(D-4). */
+export interface SelectableMediaView {
+  media_id: string;
+  type: SelectableMediaTypeView;
+  /** 화면 표시·재생용 서명 URL */
+  url: string;
+  url_expires_at: string;
+  captured_at: string;
 }
 
 /**
@@ -211,12 +236,17 @@ export interface ParentNoteSummaryView {
   record_date: string;
   preview: string;
   is_read: boolean;
+  is_resent: boolean;
 }
 export interface ParentNoteListView {
   items: ParentNoteSummaryView[];
   next_cursor: string | null;
   unread_count: number;
   this_month_count: number;
+}
+export interface ParentNoteLinkView {
+  parent_note_id: string;
+  record_date: string;
 }
 export interface ParentNoteDetailView {
   parent_note_id: string;
@@ -225,4 +255,10 @@ export interface ParentNoteDetailView {
   content: string;
   photos: DraftMediaView[];
   author_name: string;
+  published_at: string;
+  is_resent: boolean;
+  /** 같은 자녀의 더 오래된 게시본 */
+  prev: ParentNoteLinkView | null;
+  /** 같은 자녀의 더 최근 게시본 */
+  next: ParentNoteLinkView | null;
 }

@@ -28,7 +28,9 @@ describe("ChildInviteLinkPage", () => {
     expect(screen.getByText("박서아 · 햇살반")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "초대 링크 복사" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "초대 링크 만들기" }));
-    await user.click(await screen.findByRole("button", { name: "다시 만들기" }));
+    // 처음 만들 때는 "다시"라고 묻지 않습니다(11/07 로컬 통합 시험).
+    expect(await screen.findByText("초대 링크를 만들까요?")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "만들기" }));
     expect(await screen.findByText("aidam.test/invite/••••••••")).toBeInTheDocument();
     expect(screen.getByText("보호자가 연결됐어요")).toBeInTheDocument();
 
@@ -45,7 +47,10 @@ describe("ChildInviteLinkPage", () => {
     renderPage();
 
     await user.click(await screen.findByRole("button", { name: "초대 링크 만들기" }));
-    await user.click(await screen.findByRole("button", { name: "다시 만들기" }));
+    await user.click(await screen.findByRole("button", { name: "만들기" }));
+    await user.click(await screen.findByRole("button", { name: "링크 다시 만들기" }));
+    expect(await screen.findByText("링크를 다시 만들까요?")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "다시 만들기" }));
 
     expect(await screen.findByText("새 링크를 만들었어요.")).toBeInTheDocument();
   });

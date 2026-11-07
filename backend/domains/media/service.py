@@ -45,6 +45,7 @@ from domains.media.models import MediaAsset, MediaChildLink, MediaUpload, Transc
 from domains.organization.service import (
     ensure_children_in_class,
     ensure_class_access,
+    get_class_enrolled_child_names,
     get_consented_children,
 )
 
@@ -550,6 +551,22 @@ def get_media_meta(db: Session, media_ids: Sequence[UUID]) -> dict[UUID, MediaMe
         row.id: MediaMeta(media_id=row.id, type=row.type, captured_at=row.captured_at)
         for row in rows
     }
+
+
+def get_segment_end_ms(db: Session, segment_ids: Sequence[UUID]) -> dict[UUID, int]:
+    """발화 구간의 끝 시각을 밀리초로 찾아 줍니다 (FR-07).
+
+    agents가 근거 구간을 교사 화면 모양으로 바꿀 때 씁니다. 끝 시각이 없는 구간은 빼고 돌려줍니다.
+    """
+    unique_ids = list(dict.fromkeys(segment_ids))
+    if not unique_ids:
+        return {}
+    rows = db.execute(
+        select(TranscriptSegment.id, TranscriptSegment.end_time).where(
+            TranscriptSegment.id.in_(unique_ids), TranscriptSegment.end_time.is_not(None)
+        )
+    ).all()
+    return {row.id: round(row.end_time * 1000) for row in rows}
 
 
 @dataclass(frozen=True)
@@ -1286,11 +1303,14 @@ def transcribe_media(media_id: str) -> None:
         if asset.transcript_status != TRANSCRIPT_PENDING:
             return
         storage_key, source = asset.storage_url, _TRANSCRIPT_SOURCE[asset.type]
+        # 교사가 호칭이나 성명으로 부른 원아 이름을 같은 글자로 받아 적게, 반 재원 원아의 [호칭, 성명]을
+        # 넘깁니다. 졸업·퇴소 원아의 실명은 밖으로 보내지 않습니다(#269 리뷰)
+        names = list(get_class_enrolled_child_names(session, asset.class_id).values())
 
     started = clock.monotonic()
     try:
         chunks = _speech_chunks(storage_key)
-        speech = stt.transcribe_chunks(chunks) if chunks else []
+        speech = stt.transcribe_chunks(chunks, names=names) if chunks else []
     except (audio.AudioExtractionError, stt.SttError, ClientError, BotoCoreError) as error:
         logger.warning("transcription failed for media %s: %s", media_id, type(error).__name__)
         mark_transcription_failed(media_id)

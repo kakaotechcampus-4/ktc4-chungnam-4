@@ -1,8 +1,15 @@
 import { http, HttpResponse } from "msw";
 
-import type { Me, SessionCreated, SessionRequest } from "@/types/api-draft/auth";
+import type {
+  InviteAccepted,
+  InvitePreview,
+  Me,
+  SessionCreated,
+  SessionRequest,
+} from "@/types/api-draft/auth";
 
 import { PARENT_ME, TEACHER_ME } from "../fixtures/auth";
+import { fixtureId } from "../fixtures/ids";
 import { apiPath, errorResponse } from "../http";
 import { getMockSession, setMockSession } from "../session";
 
@@ -36,5 +43,18 @@ export const handlers = [
       return errorResponse(401, "UNAUTHENTICATED", "로그인이 필요해요.");
     }
     return HttpResponse.json<Me>(session === "teacher" ? TEACHER_ME : PARENT_ME);
+  }),
+  // 초대 링크(FR-28). 어떤 토큰이든 김도윤의 초대로 답하고, 수락하면 학부모로 로그인된 상태가 됩니다.
+  http.get(apiPath("/parent-invites/:token"), () =>
+    HttpResponse.json<InvitePreview>({
+      child_name: "김도윤",
+      class_name: "햇살반",
+      center_name: "햇살어린이집",
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60_000).toISOString(),
+    }),
+  ),
+  http.post(apiPath("/parent-invites/:token/accept"), () => {
+    setMockSession("parent");
+    return HttpResponse.json<InviteAccepted>({ child_id: fixtureId("child", 1) }, { status: 201 });
   }),
 ];

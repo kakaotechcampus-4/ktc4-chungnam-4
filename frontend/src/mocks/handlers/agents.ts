@@ -5,13 +5,14 @@ import type {
   Job,
   JobChild,
   JobCreateRequest,
+  ObservationJobCreateRequest,
   JobStage,
   TeacherEvidence,
   TeacherEvidenceUpsertRequest,
 } from "@/types/api-draft/agents";
 
 import { nextId, nowIso, readDb, updateDb } from "../db";
-import type { JobChildRecord, JobRecord, MediaRecord, MockDb } from "../db";
+import type { DraftRecord, JobChildRecord, JobRecord, MediaRecord, MockDb } from "../db";
 import { nextEvidenceId, teacherEvidence } from "../fixtures/agents";
 import { buildDrafts } from "../fixtures/documents";
 import { FACE_CONSENTED_CHILD_IDS, SUNSHINE_CHILDREN } from "../fixtures/organization";
@@ -95,8 +96,77 @@ function jobView(job: JobRecord): Job {
   };
 }
 
+function monthlyNotes(db: MockDb, childId: string, month: string) {
+  return Object.values(db.drafts).filter(
+    (draft) =>
+      draft.child_id === childId &&
+      draft.doc_type === "parent_note" &&
+      draft.record_date.startsWith(month) &&
+      draft.status === "approved" &&
+      draft.published_at !== null,
+  );
+}
+
+function finishObservation(db: MockDb, job: JobRecord, child: JobChildRecord, now: string) {
+  const existing = Object.values(db.drafts).find(
+    (draft) =>
+      draft.child_id === child.child_id &&
+      draft.doc_type === "observation_log" &&
+      draft.record_date === job.record_date,
+  );
+  const notes = monthlyNotes(db, child.child_id, job.record_date.slice(0, 7));
+  if (!existing && notes.length === 0) {
+    child.status = "failed";
+    child.error_code = "LLM_CALL_FAILED";
+    return;
+  }
+  const source = notes
+    .flatMap((note) => note.sentences.map((sentence) => ({ note, sentence })))
+    .slice(0, 10);
+  const draft: DraftRecord = existing ?? {
+    ...notes[0]!,
+    draft_id: nextId(db, "draft"),
+    doc_type: "observation_log",
+    record_date: job.record_date,
+    status: "verified",
+    version: 1,
+    title: null,
+    daily_routine: source.map(({ sentence }) => sentence.text),
+    sentences: source.map(({ note, sentence }, index) => ({
+      sentence_id: `s${index + 1}`,
+      section: "종합의견",
+      text: sentence.text,
+      is_edited_by_teacher: false,
+      evidences: [
+        {
+          evidence_id: `ev_${index + 1}`,
+          source_document_id: note.draft_id,
+          source_type: "parent_note",
+          text: sentence.text,
+          media_id: null,
+          start_ms: null,
+          end_ms: null,
+          captured_at: null,
+        },
+      ],
+    })),
+    selected_media_ids: [],
+    approved_at: null,
+    published_at: null,
+    include_photos: false,
+    updated_at: now,
+  };
+  db.drafts[draft.draft_id] = draft;
+  child.outcome = "drafted";
+  child.drafts = [{ draft_id: draft.draft_id, doc_type: "observation_log" }];
+}
+
 function finishChild(db: MockDb, job: JobRecord, child: JobChildRecord, now: string) {
   child.status = "succeeded";
+  if (job.doc_type === "observation_log") {
+    finishObservation(db, job, child, now);
+    return;
+  }
   const evidence = job.media_ids
     .map((id) => db.media[id])
     .filter(
@@ -176,6 +246,66 @@ function requireClassChild(childId: unknown): Response | null {
 }
 
 export const handlers = [
+  http.post(apiPath("/children/:childId/observation-jobs"), async ({ request, params }) => {
+    const childId = String(params.childId);
+    const denied = requireClassChild(childId);
+    if (denied) return denied;
+    const body = (await request.json()) as Partial<ObservationJobCreateRequest>;
+    if (
+      typeof body.request_id !== "string" ||
+      typeof body.month !== "string" ||
+      !/^\d{4}-(0[1-9]|1[0-2])$/.test(body.month)
+    ) {
+      return validationError("body", "request_id, YYYY-MM 형식의 month가 필요합니다");
+    }
+    const { request_id: requestId, month } = body;
+    if (month > kstToday().slice(0, 7)) {
+      return errorResponse(400, "INVALID_RECORD_DATE", "미래 월의 관찰일지를 만들 수 없어요.");
+    }
+    const job = updateDb((db) => {
+      const repeated = Object.values(db.jobs).find(
+        (item) =>
+          item.request_id === requestId ||
+          (item.doc_type === "observation_log" &&
+            item.record_date === `${month}-01` &&
+            item.children.some((child) => child.child_id === childId && !isFinished(child))),
+      );
+      if (repeated) return repeated;
+      const notes = monthlyNotes(db, childId, month);
+      if (notes.length === 0) return null;
+      const now = nowIso();
+      const created: JobRecord = {
+        job_id: nextId(db, "job"),
+        request_id: requestId,
+        class_id: notes[0]!.class_id,
+        doc_type: "observation_log",
+        record_date: `${month}-01`,
+        media_ids: [],
+        children: [
+          {
+            child_id: childId,
+            steps: 0,
+            status: "pending",
+            outcome: null,
+            unclassified_reason: null,
+            failed_stage: null,
+            error_code: null,
+            drafts: [],
+          },
+        ],
+        created_at: now,
+        updated_at: now,
+      };
+      db.jobs[created.job_id] = created;
+      return created;
+    });
+    if (!job) return errorResponse(409, "NO_TARGET_CHILDREN", "이 달에 게시된 알림장이 없어요.");
+    return HttpResponse.json<Job>(jobView(job), {
+      status: 202,
+      headers: { Location: apiPath(`/jobs/${job.job_id}`) },
+    });
+  }),
+
   http.post(apiPath("/classes/:classId/jobs"), async ({ request, params }) => {
     const classId = String(params.classId);
     const denied = requireTeacherOfClass(classId);
@@ -200,6 +330,7 @@ export const handlers = [
 
       const running = Object.values(db.jobs).find(
         (job) =>
+          job.doc_type !== "observation_log" &&
           job.class_id === classId &&
           job.record_date === recordDate &&
           job.children.some((child) => !isFinished(child)),
@@ -292,7 +423,7 @@ export const handlers = [
     return listResponse(jobs);
   }),
 
-  // ── (가정) 추가 근거(docs/api/agents.md 하단 제안, 김동건) ──
+  // ── 추가 근거(docs/api/agents.md §추가 근거, 김동건) ──
   http.get(apiPath("/classes/:classId/evidence"), ({ params, request }) => {
     const denied = requireTeacherOfClass(params.classId);
     if (denied) return denied;

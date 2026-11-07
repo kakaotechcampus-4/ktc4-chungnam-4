@@ -24,6 +24,7 @@ class DraftSentenceInput(BaseModel):
     model_config = ConfigDict(hide_input_in_errors=True)
 
     sentence_id: str = Field(min_length=1)
+    section: str | None = None
     text: str = Field(min_length=1)
 
 
@@ -50,6 +51,10 @@ class DraftSaveInput(BaseModel):
     sentences: list[DraftSentenceInput] = Field(min_length=1)
     ai_version: int = Field(ge=1)
     evidence_bundle_id: UUID | None = None
+    # AI가 근거로 쓴 사진. 알림장에 보낼 사진의 기본 선택이다(교사가 PATCH로 바꾼다). 처음 저장하면
+    # 그대로 넣고, 재생성이면 교사가 이미 고른 선택 뒤에 새 사진만 더한다. 공개가 아니라 후보라서
+    # 학부모에게는 승인과 게시의 include_photos를 거쳐야 나간다(H-1).
+    selected_media_ids: list[UUID] = Field(default_factory=list)
 
     @field_validator("sentences")
     @classmethod
@@ -59,6 +64,14 @@ class DraftSaveInput(BaseModel):
         if len(ids) != len(set(ids)):
             raise ValueError("duplicate sentence_id")
         return sentences
+
+    @field_validator("selected_media_ids")
+    @classmethod
+    def _unique_media_ids(cls, media_ids: list[UUID]) -> list[UUID]:
+        # PATCH(DraftUpdateRequest)와 같은 규칙이다. 같은 사진이 두 번 저장되지 않게 입구에서 막는다.
+        if len(media_ids) != len(set(media_ids)):
+            raise ValueError("duplicate media_id")
+        return media_ids
 
 
 class DraftVersionInfo(BaseModel):
@@ -91,6 +104,9 @@ class DraftSummary(BaseModel):
     version: int
     # 활성 게시 회차의 게시 시각. 게시 전이면 null이다 (승인·게시 분리).
     published_at: datetime | None
+    # 상세와 같은 값이다. 상세를 미리 받으면 교사 열람 기록이 남아 목록에도 싣는다 (#260).
+    revoke_deadline: datetime | None
+    can_revoke: bool
     preview: str
 
 
@@ -115,6 +131,31 @@ class ClassDraftListResponse(BaseModel):
     next_cursor: str | None = None
 
 
+class ObservationLogSummary(BaseModel):
+    """그 달 관찰일지 한 건. 본문은 싣지 않는다."""
+
+    draft_id: UUID
+    status: DraftStatus
+    # 처음 만든 시각. 교사가 고쳐도 바뀌지 않는다(updated_at과 다름).
+    created_at: datetime
+
+
+class ClassObservationLogItem(BaseModel):
+    """원아 한 명의 그 달 관찰일지 현황 (#225 ⑱)."""
+
+    child_id: UUID
+    # 그 달(record_date 기준)에 지금 게시 중인 알림장 수. 0이면 화면이 생성을 막는다(#225 ⑫).
+    published_note_count: int
+    observation_log: ObservationLogSummary | None
+
+
+class ClassObservationLogListResponse(BaseModel):
+    """GET /api/v1/classes/{class_id}/observation-logs. 반 단위라 페이지를 나누지 않는다."""
+
+    month: str
+    items: list[ClassObservationLogItem]
+
+
 class ChildDraftItem(DraftSummary):
     """원아별 문서 목록 한 줄. 날짜 이동에 필요한 값만 싣는다 — 임시 결정(김진하)."""
 
@@ -133,6 +174,7 @@ class EvidenceView(BaseModel):
     """문장 하나를 뒷받침하는 근거. 사진·계획 근거는 start_ms·end_ms가 없다."""
 
     evidence_id: str
+    source_document_id: UUID | None = None
     source_type: str
     text: str
     media_id: UUID | None
@@ -142,6 +184,7 @@ class EvidenceView(BaseModel):
 
 
 class DraftSentenceView(BaseModel):
+    section: str | None = None
     sentence_id: str
     text: str
     is_edited_by_teacher: bool
@@ -173,6 +216,7 @@ class DraftDetailResponse(BaseModel):
     version: int
     # AI가 제목을 만들지 않아 지금은 늘 null이다.
     title: str | None
+    daily_routine: list[str] = Field(default_factory=list)
     sentences: list[DraftSentenceView]
     selected_media_ids: list[UUID]
     failed_media_ids: list[UUID] = Field(default_factory=list)
@@ -185,9 +229,29 @@ class DraftDetailResponse(BaseModel):
     include_photos: bool | None
     # 활성 게시 회차의 회수 기한. 활성 회차가 없으면 null이다.
     revoke_deadline: datetime | None
-    # 지금 회수할 수 있는가 (기한 이내이고 학부모가 본문을 열기 전).
+    # 지금 회수할 수 있는가 (활성 게시 회차가 있고 기한 이내. 학부모가 열어 봤어도 된다, #266).
     can_revoke: bool
+    # 처음 만든 시각. 교사가 고쳐도 바뀌지 않는다 — 관찰일지 생성 결과 화면의 부제(#263).
+    created_at: datetime
     updated_at: datetime
+
+
+class SelectableMediaItem(BaseModel):
+    """알림장에 고를 수 있는 사진·영상 한 건. 서명 URL은 화면 표시·재생용이다."""
+
+    media_id: UUID
+    type: Literal["photo", "video"]
+    url: str
+    url_expires_at: datetime
+    captured_at: datetime
+
+
+class SelectableMediaListResponse(BaseModel):
+    """GET /api/v1/drafts/{draft_id}/selectable-media. 촬영 순서이고, 하루치라 페이지를 나누지 않는다
+    (임시 결정(송유진))."""
+
+    items: list[SelectableMediaItem]
+    next_cursor: str | None = None
 
 
 class SentenceEdit(BaseModel):
@@ -340,6 +404,8 @@ class ParentNoteSummary(BaseModel):
     # 앞 3장. "사진도 함께 보내기"를 끄고 게시했으면 빈 배열이다.
     photos: list[MediaUrl]
     is_read: bool
+    # 회수 뒤 고쳐 다시 보낸 알림장. 화면이 "선생님이 내용을 고쳤어요"를 띄운다 (#266, 테크스펙 D-6).
+    is_resent: bool
 
 
 class ParentNoteListResponse(BaseModel):
@@ -366,6 +432,8 @@ class ParentNoteDetailResponse(BaseModel):
     photos: list[MediaUrl]
     author_name: str
     published_at: datetime
+    # 목록의 is_resent와 같다.
+    is_resent: bool
     # 같은 자녀의 이전(더 오래된)·다음(더 최근) 게시본 (제안)
     prev: ParentNoteLink | None
     next: ParentNoteLink | None

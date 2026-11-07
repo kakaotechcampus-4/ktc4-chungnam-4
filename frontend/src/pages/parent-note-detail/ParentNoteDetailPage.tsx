@@ -131,14 +131,26 @@ export function ParentNoteDetailPage() {
           <div className="flex flex-col gap-6">
             {photos.length > 0 ? (
               <div className="grid shrink-0 grid-cols-3 gap-4">
-                {photos.map((photo) => (
-                  <img
-                    key={photo.media_id}
-                    src={photo.url}
-                    alt=""
-                    className="h-44 w-full rounded-lg object-cover"
-                  />
-                ))}
+                {photos.map((photo) =>
+                  photo.type === "video" ? (
+                    <video
+                      key={photo.media_id}
+                      src={photo.url}
+                      controls
+                      playsInline
+                      preload="metadata"
+                      aria-label="학부모에게 함께 보낸 영상"
+                      className="h-44 w-full rounded-lg bg-neutral-soft object-cover"
+                    />
+                  ) : (
+                    <img
+                      key={photo.media_id}
+                      src={photo.url}
+                      alt=""
+                      className="h-44 w-full rounded-lg object-cover"
+                    />
+                  ),
+                )}
               </div>
             ) : null}
             {photosSent ? null : (

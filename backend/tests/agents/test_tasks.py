@@ -56,7 +56,10 @@ def _run_failing_task(monkeypatch, error: Exception) -> tuple[object, list[str],
     return result.result, retried, failed
 
 
-def test_LLM_호출_도중_걸린_작업_시간_제한은_SDK가_연결_오류로_감싼다(monkeypatch) -> None:
+@pytest.mark.parametrize("agent_call", [False, True])
+def test_LLM_호출_도중_걸린_작업_시간_제한은_SDK가_연결_오류로_감싼다(
+    monkeypatch, agent_call
+) -> None:
     """generate_drafts가 감싼 예외를 되돌리는 이유. SDK가 바뀌어 감싸지 않게 되면 알려 준다."""
     from domains.agents import llm
 
@@ -73,7 +76,10 @@ def test_LLM_호출_도중_걸린_작업_시간_제한은_SDK가_연결_오류�
     monkeypatch.setattr(llm, "OpenAI", _openai)
 
     with pytest.raises(openai.APIConnectionError) as caught:
-        llm.call_claude("CHILD_A")
+        if agent_call:
+            llm.call_agent([{"role": "user", "content": "CHILD_A"}], [])
+        else:
+            llm.call_claude("CHILD_A")
 
     assert isinstance(caught.value.__cause__, SoftTimeLimitExceeded)
 
@@ -160,3 +166,11 @@ def test_큐_넣기가_실패하면_못_넣은_Job을_failed로_바꾸고_예외
     # 이미 넣은 첫 Job은 worker가 처리하므로 건드리지 않는다.
     assert sent == [str(first)]
     assert failed == [str(second), str(third)]
+
+
+def test_에이전트_시간초과는_LLM_TIMEOUT으로_종료한다(monkeypatch):
+    failures = []
+    monkeypatch.setattr(tasks.service, "mark_job_failed", lambda *a, **kw: failures.append(kw))
+    tasks.generate_drafts.on_failure(SoftTimeLimitExceeded(), "task", ("job", "child"), {}, None)
+    assert failures == [{"error_code": "LLM_TIMEOUT"}]
+    assert tasks.generate_drafts.soft_time_limit == 180

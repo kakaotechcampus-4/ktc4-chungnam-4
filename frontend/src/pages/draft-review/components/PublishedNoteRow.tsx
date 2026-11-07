@@ -33,8 +33,8 @@ export function PublishedNoteRow({
 
   const deadline = revokeDeadlineOf(publishedAt);
   // 반·날짜 목록에는 서버의 can_revoke가 오지 않아 게시 시각으로 기한만 봅니다. **표시일 뿐
-  // 판정이 아닙니다** — 학부모가 이미 열었는지는 여기서 알 수 없고 서버가 409로 막습니다.
-  // 알림장 상세는 서버 can_revoke를 그대로 씁니다.
+  // 판정이 아닙니다** — 그사이 기한이 지나면 서버가 409로 막습니다. 학부모가 열어 봤는지는
+  // 회수와 상관없습니다(#289). 알림장 상세는 서버 can_revoke를 그대로 씁니다.
   const withinWindow = deadline !== null && deadline.getTime() > now;
 
   return (

@@ -111,7 +111,10 @@ describe("ProcessingPage", () => {
       ),
     );
     const { router } = renderProcessing("/t/today/processing?step=send");
-    expect(await screen.findByRole("alert")).toHaveTextContent("재생성을 반영하지 않았어요");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("재생성을 반영하지 않았어요");
+    // 기존 문서를 지킨 것이지 AI가 실패한 것이 아닙니다(11/07 로컬 통합 시험).
+    expect(alert).not.toHaveTextContent("AI 처리에 실패");
     expect(router.state.location.pathname).toBe("/t/today/processing");
     await userEvent.setup().click(screen.getByRole("button", { name: "결과 확인하기" }));
     expect(router.state.location.pathname).toBe(`/t/today/review/${fixtureId("child", 1)}`);
@@ -256,7 +259,7 @@ describe("ProcessingPage", () => {
         client_photo_id: confirmed!.client_id,
         captured_at: "2026-09-15T03:00:00.000Z",
         type: "photo",
-        llm_allowed: !hasUnidentifiedFace,
+        llm_allowed: true,
         child_links: [
           { child_id: fixtureId("child", 1), method: "face_recognition", confidence_score: 0.9 },
           { child_id: fixtureId("child", 2), method: "manual", confidence_score: null },

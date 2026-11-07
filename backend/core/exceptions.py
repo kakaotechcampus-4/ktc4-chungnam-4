@@ -109,13 +109,6 @@ class DraftNotPublished(AidamError):
     status_code = 409
 
 
-class DraftAlreadyViewed(AidamError):
-    """학부모가 본문을 연 알림장을 회수하려 한 경우 (테크스펙 파이프라인 9단계)."""
-
-    code = "DRAFT_ALREADY_VIEWED"
-    status_code = 409
-
-
 class RevokeDeadlinePassed(AidamError):
     """회수 기한(게시 후 24시간)이 지난 알림장을 회수하려 한 경우 (테크스펙 파이프라인 9단계)."""
 
@@ -169,7 +162,7 @@ class MediaNotLinkedToChild(AidamError):
 
 
 class NotParentNote(AidamError):
-    """관찰일지를 학부모에게 게시하려 한 경우. 게시 대상은 알림장뿐이다."""
+    """관찰일지를 게시하거나 사진을 고르려 한 경우. 학부모에게 가는 문서는 알림장뿐이다."""
 
     code = "NOT_PARENT_NOTE"
     status_code = 409
