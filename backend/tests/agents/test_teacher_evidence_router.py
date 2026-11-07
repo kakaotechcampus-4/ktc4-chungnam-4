@@ -242,6 +242,7 @@ def test_글자_수_상한까지는_저장하고_넘으면_422로_거절한다(
 
     over = _put(client, DOYUN, text="가" * (limit + 1))
     assert over.status_code == 422
+    assert _error_code(over) == "VALIDATION_ERROR"
     with session_factory() as db:
         assert db.scalars(select(TeacherEvidence)).first() is None
 

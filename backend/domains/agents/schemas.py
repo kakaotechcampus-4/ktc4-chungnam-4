@@ -166,6 +166,8 @@ class TeacherEvidenceSaveRequest(BaseModel):
         if not stripped:
             raise ValueError("추가 근거 내용이 비어 있습니다.")
         if len(stripped) > TEACHER_EVIDENCE_TEXT_MAX_LENGTH:
+            # 이 메시지는 응답에 실리지 않는다. 공통 검증 핸들러(main.py)가 값이 섞일 수 있는 msg를
+            # 빼고 422 + VALIDATION_ERROR + 통일 문구만 돌려준다(H-4). 로그·테스트에서 읽는 용도다.
             raise ValueError(
                 f"추가 근거 내용은 {TEACHER_EVIDENCE_TEXT_MAX_LENGTH:,}자까지 쓸 수 있습니다."
             )
