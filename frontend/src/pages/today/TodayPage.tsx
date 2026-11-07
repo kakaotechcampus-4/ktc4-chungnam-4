@@ -71,7 +71,7 @@ type TodayCard =
   | { kind: "empty" }
   | { kind: "review"; childId: string }
   | { kind: "generating" }
-  | { kind: "published"; childId: string; count: number }
+  | { kind: "published"; childId: string; count: number; withoutNote: number }
   | { kind: "unclassified"; childId: string };
 
 function pickCard(items: readonly ClassDraftView[]): TodayCard {
@@ -85,7 +85,13 @@ function pickCard(items: readonly ClassDraftView[]): TodayCard {
   const published = items.filter(isPublishedNote);
   const [firstPublished] = published;
   if (firstPublished) {
-    return { kind: "published", childId: firstPublished.child_id, count: published.length };
+    return {
+      kind: "published",
+      childId: firstPublished.child_id,
+      count: published.length,
+      // 초안 없이 끝난 아이는 게시 내역(끝난 화면)에서 직접 씁니다. 카드에서 알려야 놓치지 않습니다.
+      withoutNote: items.filter((item) => item.parent_note === null).length,
+    };
   }
   // 확인이 필요한 원아만 남았으면, 초안 검토 화면에서 그 원아를 골라 직접 씁니다.
   const unclassified = items.find(needsCheck);
@@ -285,6 +291,11 @@ export function TodayPage() {
               학부모님께 알림장 {card.count}건을 보냈어요. 잘못 나간 글은 회수한 뒤에 고칠 수
               있어요.
             </p>
+            {card.withoutNote > 0 ? (
+              <p className="max-w-140 text-lead font-bold text-ink">
+                알림장이 없는 아이 {card.withoutNote}명은 게시 내역에서 직접 쓸 수 있어요.
+              </p>
+            ) : null}
             <Button asChild size="lg">
               <Link to={`/t/today/review/${card.childId}`}>게시 내역 보기</Link>
             </Button>
