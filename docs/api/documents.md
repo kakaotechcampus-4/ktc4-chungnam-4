@@ -26,7 +26,7 @@
   - `NO_LINKED_PARENT` → organization `has_linked_parent`(#188)로 검사하고, 걸리면 회차·버전 변화 없이 그 건만 실패합니다. 임시 결정(한상균). `parent_note_id` 재사용 확정은 아직 열려 있습니다
 - [x] 학부모에게 `llm_allowed == true`인 선택 사진만 보이게 할지(김동건과 함께) → 고를 때와 학부모가 볼 때 모두 media `collect_media_for_llm` 범위(`llm_allowed`, 파기 안 됨, 귀속 원아 전원 ③ 동의)의 사진만 씁니다. 임시 결정(한상균), 범위는 김동건 #172 리뷰에서 확인. 반영: 이 문서 §publications·§학부모 목록·본문
   - **11/04 범위를 넓혔습니다(팀 승인, 테크스펙 D-4).** 그 원아에게 귀속된 사진·영상이면 다른 아이·미동의 원아가 함께 찍혀도 고르고 보낼 수 있습니다. `llm_allowed`와 ③ 동의는 LLM 경로에서만 봅니다. 음성메모는 보내지 않습니다
-- [x] 교사가 고를 사진·영상 후보를 받는 곳(#257 멘토 리뷰) → AI 초안은 `selected_media_ids`가 비어 있고 초안 상세의 `media[]`에는 선택·근거·실패 사진만 와서, "사진도 함께 보내기"를 켜고 게시해도 글만 갔습니다. 임시 결정(송유진): `GET /api/v1/drafts/{draft_id}/selectable-media`를 둡니다. 범위는 바꾸지 않습니다(테크스펙 D-4). 정한 값은 그 절에 표시했습니다. 반영: 이 문서 §`GET /api/v1/drafts/{draft_id}/selectable-media`, [README](README.md) 색인, [screens.md](screens.md)
+- [x] 교사가 고를 사진·영상 후보를 받는 곳(#257 멘토 리뷰) → 초안 상세의 `media[]`에는 선택·근거·실패 사진만 와서, 근거가 아닌 사진·영상은 고를 수 없었습니다. 임시 결정(송유진): `GET /api/v1/drafts/{draft_id}/selectable-media`를 둡니다. 범위는 바꾸지 않습니다(테크스펙 D-4). 정한 값은 그 절에 표시했습니다. 반영: 이 문서 §`GET /api/v1/drafts/{draft_id}/selectable-media`, [README](README.md) 색인, [screens.md](screens.md)
 - [x] `review_confirmed`를 `reviewed`로 개명 → 바꿨습니다(FE도 `reviewed`를 씀). 임시 결정(한상균). 반영: `backend/domains/documents/schemas.py` `ApproveRequest`
 - [ ] `preview` 정의: 앞부분 100자, 문장 경계에서 자름
 - [x] `documents/CLAUDE.md`의 `/documents` 표기 수정
