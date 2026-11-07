@@ -33,7 +33,7 @@ function childLinksBody(item: LocalMedia): ChildLinksInput {
   //             서버에 미분류로 남깁니다(빈 배열 = 미분류). 귀속을 저장해야 Job이 MEDIA_NOT_READY로 막히지 않습니다.
   if (!isPhoto(item)) return { llm_allowed: false, child_links: [] };
   return {
-    llm_allowed: item.llm_allowed && !item.has_unidentified_face,
+    llm_allowed: item.llm_allowed,
     child_links: item.assigned_child_ids.map((childId) => {
       const candidate = item.candidates.find((entry) => entry.child_id === childId);
       return candidate

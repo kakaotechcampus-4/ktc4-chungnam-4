@@ -1,5 +1,6 @@
 import type {
   Job,
+  ObservationJobCreateRequest,
   JobChild,
   JobCreateRequest,
   JobDraftRef,
@@ -10,6 +11,7 @@ import type {
 
 import type {
   JobChildView,
+  ObservationJobInput,
   JobCreateInput,
   JobDraftRefView,
   JobStatusView,
@@ -94,7 +96,7 @@ export function isJobFinished(job: JobView | null | undefined): boolean {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 추가 근거(④ 아이별 하루 확인) — 김동건. 가정 API입니다(types/api-draft/agents.ts 아래쪽).
+// 추가 근거(④ 아이별 하루 확인) — 김동건. 서버 API가 있습니다(types/api-draft/agents.ts 아래쪽).
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function toTeacherEvidenceView(raw: TeacherEvidence): TeacherEvidenceView {
@@ -111,4 +113,8 @@ export function toTeacherEvidenceView(raw: TeacherEvidence): TeacherEvidenceView
 
 export function toTeacherEvidenceBody(input: TeacherEvidenceInput): TeacherEvidenceUpsertRequest {
   return { activity_time: input.activity_time, text: input.text };
+}
+
+export function toObservationJobBody(input: ObservationJobInput): ObservationJobCreateRequest {
+  return { request_id: input.request_id, month: input.month };
 }

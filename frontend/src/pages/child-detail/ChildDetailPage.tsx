@@ -18,6 +18,8 @@ import { ApiError } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { formatDate, formatWeekday, kstToday } from "@/lib/datetime";
 
+import { ObservationGenerator } from "./components/ObservationGenerator";
+
 import { NuriRadarChart } from "./components/NuriRadarChart";
 
 interface NoteItemProps {
@@ -145,6 +147,7 @@ export function ChildDetailPage() {
         </p>
       ) : null}
       <div className="flex flex-col gap-5">
+        <ObservationGenerator key={child.child_id} childId={child.child_id} />
         <div className="flex items-start gap-5">
           <section
             aria-labelledby="child-notes-title"

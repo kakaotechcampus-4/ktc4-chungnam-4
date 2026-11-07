@@ -99,6 +99,7 @@ export function toChildDraftView(raw: ChildDraftItem): ChildDraftView {
 // 서버 객체를 그대로 넘기면 서버가 필드를 바꿀 때 근거 패널까지 함께 바뀝니다.
 function toEvidenceView(raw: Evidence): EvidenceView {
   return {
+    source_document_id: raw.source_document_id ?? null,
     evidence_id: raw.evidence_id,
     source_type: raw.source_type,
     text: raw.text,
@@ -111,6 +112,7 @@ function toEvidenceView(raw: Evidence): EvidenceView {
 
 function toSentenceView(raw: Sentence): SentenceView {
   return {
+    section: raw.section ?? null,
     sentence_id: raw.sentence_id,
     text: raw.text,
     is_edited_by_teacher: raw.is_edited_by_teacher,
@@ -137,6 +139,7 @@ export function toDraftView(raw: DraftDetail): DraftView {
     version: raw.version,
     title: raw.title,
     sentences: raw.sentences.map(toSentenceView),
+    daily_routine: raw.daily_routine ?? [],
     selected_media_ids: raw.selected_media_ids,
     failed_media_ids: raw.failed_media_ids ?? [],
     media: raw.media.map(toDraftMediaView),
@@ -256,6 +259,19 @@ export function selectedPhotos(draft: DraftView | undefined): DraftMediaView[] {
   return draft.selected_media_ids
     .map((id) => draft.media.find((media) => media.media_id === id))
     .filter((media): media is DraftMediaView => media !== undefined && media.type === "photo");
+}
+
+/**
+ * 교사가 아직 고르지 않았지만 보낼 사진으로 고를 수 있는 사진입니다. 초안 상세가 싣는 사진
+ * (문장 근거, 분석 실패)에서만 고릅니다 — 반·날짜의 사진 전체를 주는 API가 아직 경로만 있어서
+ * (docs/api/media-face.md) 거기까지는 보여 줄 수 없습니다. 서버는 고른 사진이 그 원아·그
+ * 날짜에 학부모에게 보여도 되는 것인지 다시 확인합니다(`PATCH /drafts/{draft_id}`).
+ */
+export function selectablePhotos(draft: DraftView | undefined): DraftMediaView[] {
+  if (draft === undefined) return [];
+  return draft.media.filter(
+    (media) => media.type === "photo" && !draft.selected_media_ids.includes(media.media_id),
+  );
 }
 
 /**

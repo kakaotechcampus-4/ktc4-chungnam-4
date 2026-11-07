@@ -96,6 +96,7 @@ function detail(db: MockDb, draft: DraftRecord): DraftDetail {
   const published = publishedAtOf(draft);
   const publishedAt = published === null ? null : Date.parse(published);
   return {
+    daily_routine: draft.daily_routine ?? [],
     draft_id: draft.draft_id,
     child_id: draft.child_id,
     doc_type: draft.doc_type,

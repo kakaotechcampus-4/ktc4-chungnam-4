@@ -20,6 +20,7 @@ import {
   isPublishTarget,
   needsReview,
   isPublished,
+  selectablePhotos,
   selectedPhotos,
   sentPhotos,
   toClassDraftView,
@@ -173,6 +174,26 @@ describe("사진", () => {
     expect(selectedPhotos(undefined)).toEqual([]);
   });
 
+  // 9주차 리뷰 4번: 교사가 보낼 사진을 고를 수 있어야 합니다. 후보는 초안 상세가 싣는 사진뿐입니다.
+  it("고를 수 있는 사진은 아직 안 고른 사진이고, 영상·음성은 뺀다", () => {
+    const other = { ...PHOTO, media_id: "other-photo" };
+    const failed = { ...PHOTO, media_id: "failed-photo" };
+    const video = { ...PHOTO, media_id: "video-1", type: "video" as const };
+    const voice = { ...PHOTO, media_id: "voice-1", type: "voice_memo" as const };
+    const view = toDraftView(
+      detail({
+        failed_media_ids: [failed.media_id],
+        media: [PHOTO, other, failed, video, voice],
+      }),
+    );
+    // 이미 고른 PHOTO는 후보에서 빠지고, 분석 실패 사진은 교사가 눈으로 보고 고를 수 있다.
+    expect(selectablePhotos(view).map((media) => media.media_id)).toEqual([
+      "other-photo",
+      "failed-photo",
+    ]);
+    expect(selectablePhotos(undefined)).toEqual([]);
+  });
+
   // 알림장 상세는 "학부모가 받은 것"을 보는 자리라 실제로 나간 사진만 봅니다.
   it("학부모에게 나간 사진은 include_photos가 true일 때만이다", () => {
     expect(sentPhotos(toDraftView(detail({ include_photos: true })))).toEqual([PHOTO]);
@@ -221,11 +242,13 @@ describe("문장과 근거", () => {
 
     expect(view.sentences).toEqual([
       {
+        section: null,
         sentence_id: "s1",
         text: "블록을 쌓았어요.",
         is_edited_by_teacher: true,
         evidences: [
           {
+            source_document_id: null,
             evidence_id: "ev-0",
             source_type: "video_speech",
             text: "블록 탑을 높이 쌓았어요.",

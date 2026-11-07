@@ -50,6 +50,8 @@ def build_evidence(
         evidence_id: by_id[evidence_id]
         for evidence_id in requested_ids
         if validated_request.child_id in by_id[evidence_id].child_ids
-        and validated_request.record_date == by_id[evidence_id].observed_date
+        and validated_request.record_date
+        <= by_id[evidence_id].observed_date
+        <= (validated_request.period_end or validated_request.record_date)
         and by_id[evidence_id].assignment_status != AssignmentStatus.NEEDS_CONFIRMATION
     }

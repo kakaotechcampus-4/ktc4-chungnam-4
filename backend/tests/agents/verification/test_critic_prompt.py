@@ -70,7 +70,7 @@ def test_메타_주석과_자리표시자가_남지_않고_버전이_있다():
     assert "-->" not in prompt
     assert "{{DOCUMENT}}" not in prompt
     assert "PROMPT_VERSION" not in prompt
-    assert PROMPT_VERSION == "critic.v2"
+    assert PROMPT_VERSION == "critic.v6"
 
 
 def test_본문의_응답_형식은_파서_계약과_같은_필드를_쓴다():
@@ -128,8 +128,22 @@ def test_템플릿이_깨졌으면_RuntimeError(template, content, message):
 
 
 def test_BOM으로_저장된_템플릿도_읽는다(template):
-    template.write_text("\ufeff<!-- 메타 -->\n검증 대상:\n{{DOCUMENT}}", encoding="utf-8")
+    template.write_text(
+        "\ufeff<!-- 메타 -->\n검증 대상:\n{{DOCUMENT}}\n{{SECTION_GUIDANCE}}", encoding="utf-8"
+    )
 
     prompt = build_critic_prompt(_document(), EVIDENCE_BY_ID)
 
     assert prompt.startswith("검증 대상:\n{")
+
+
+def test_작성도구와_Critic이_영역기준을_공유하고_자료는_재치환하지_않는다():
+    from tools.generation.agent_tools import writing_guidance
+
+    guidance = json.loads(writing_guidance("domain_style", age_band="preschool", focus="general"))
+    evidence = EVIDENCE_BY_ID["ev_001"].model_copy(update={"text": "{{SECTION_GUIDANCE}}"})
+    prompt = build_critic_prompt(_document(), {"ev_001": evidence})
+    assert json.dumps(guidance["domains"], ensure_ascii=False) in prompt
+    assert "다른 영역에도 맞는다는 이유만으로 fail" in prompt
+    payload = json.loads(prompt.split("검증 대상:\n", 1)[1])
+    assert payload["sentences"][0]["evidences"][0]["text"] == "{{SECTION_GUIDANCE}}"
