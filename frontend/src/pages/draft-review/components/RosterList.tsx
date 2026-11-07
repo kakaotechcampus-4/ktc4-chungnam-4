@@ -24,7 +24,8 @@ const STATE_LABEL_MAP: Record<RosterStatusView, string> = {
   published: "게시됨",
   approved: "검토 완료",
   review: "검토 필요",
-  none: "검토 필요",
+  // 검토할 초안이 없고 게시도 막지 않아 "검토 필요"로 적지 않습니다(docs/api/documents.md).
+  none: "초안 없음",
   // 아직 만드는 중이라 교사가 할 일이 없습니다. "검토 필요"로 보여 주면 눌러도 할 게 없습니다.
   generating: "생성 중",
   // 게시를 회수했거나 모르는 값이라 교사가 봐야 합니다. 기다린다고 달라지지 않아
@@ -47,13 +48,15 @@ interface RosterListProps {
 
 export function RosterList({ klassName, rows, selectedChildId, onSelect }: RosterListProps) {
   const doneCount = rows.filter((row) => isDone(row.status)).length;
+  // 초안이 없는 아이까지 세면 다 마쳐도 끝나지 않은 것처럼 보입니다.
+  const draftCount = rows.filter((row) => row.note !== null).length;
 
   return (
     <aside className="flex w-55 shrink-0 flex-col gap-4 rounded-xl bg-paper p-5">
       <div className="flex flex-col gap-1">
         <h2 className="text-lead font-bold text-ink">{klassName} 원아</h2>
         <p className="text-label text-ink-muted">
-          {doneCount} / {rows.length}명 검토 완료
+          {draftCount === 0 ? "아직 초안이 없어요" : `${doneCount} / ${draftCount}명 검토 완료`}
         </p>
       </div>
       <ul className="flex flex-col gap-1">
@@ -96,7 +99,7 @@ export function RosterList({ klassName, rows, selectedChildId, onSelect }: Roste
           );
         })}
       </ul>
-      <p className="text-label text-ink-muted">자료 없는 아이는 직접 작성할 수 있어요.</p>
+      <p className="text-label text-ink-muted">초안 없는 아이는 직접 작성할 수 있어요.</p>
     </aside>
   );
 }

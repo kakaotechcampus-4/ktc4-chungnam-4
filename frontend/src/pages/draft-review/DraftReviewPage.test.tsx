@@ -114,12 +114,14 @@ describe("DraftReviewPage", () => {
     expect(screen.getByRole("button", { name: /최지우.*검토 완료/ })).toBeInTheDocument();
   });
 
-  // 임시 결정(김진하): 미분류(박서아)와 자료 없음(정예린)은 교사가 할 일이 같아 "검토 필요"로 묶는다.
-  it("미분류와 자료 없음은 검토 필요로 묶인다", async () => {
+  // 임시 결정(송유진): 미분류(박서아)와 자료 없음(정예린)은 교사가 할 일이 같아 묶고, 검토할 초안이 없어
+  // "검토 필요"로 적지 않는다.
+  it("미분류와 자료 없음은 초안 없음으로 묶고 검토 완료 수의 분모에서 뺀다", async () => {
     await renderAndWait();
 
-    expect(screen.getByRole("button", { name: /박서아.*검토 필요/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /정예린.*검토 필요/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /박서아.*초안 없음/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /정예린.*초안 없음/ })).toBeInTheDocument();
+    expect(screen.getByText(/명 검토 완료$/)).toHaveTextContent("2 / 3명 검토 완료");
   });
 
   // H-1: 교사가 확인하지 않은 초안은 승인되지 않는다 (승인 게이트).
