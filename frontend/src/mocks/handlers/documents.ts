@@ -5,6 +5,8 @@ import type { ListResponse } from "@/types/api-draft/common";
 import type {
   ChildDraftItem,
   ClassDraftItem,
+  ClassObservationLogItem,
+  ClassObservationLogList,
   DocType,
   DraftApproveRequest,
   DraftCreateRequest,
@@ -107,6 +109,8 @@ function detail(db: MockDb, draft: DraftRecord): DraftDetail {
     version: draft.version,
     title: draft.title,
     sentences: draft.sentences,
+    ...(draft.sections ? { sections: draft.sections } : {}),
+    ...(draft.created_at ? { created_at: draft.created_at } : {}),
     selected_media_ids: draft.selected_media_ids,
     media,
     // 게시할 때 정해지는 값이라 게시 전에는 null입니다(API 문서 §GET /drafts/{draft_id}).
@@ -259,6 +263,46 @@ export const handlers = [
       ];
     });
     return HttpResponse.json({ items, next_cursor: null });
+  }),
+
+  // 월별 관찰일지 목록(서버 PR 전이라 계약을 가정한 목). 명단 순서로 모든 원아가 오고 이름은 없습니다.
+  // 게시된 알림장 수는 기록 날짜가 그 달인 게시본으로 셉니다. 월별 관찰일지는 그달 1일 기록입니다.
+  http.get(apiPath("/classes/:classId/observation-logs"), ({ request, params }) => {
+    const denied = requireTeacherOfClass(params.classId);
+    if (denied) return denied;
+    const month = new URL(request.url).searchParams.get("month");
+    if (month === null || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+      return validationError("query.month", "YYYY-MM이 필요합니다");
+    }
+    const drafts = Object.values(readDb().drafts).filter(
+      (draft) => draft.class_id === params.classId && draft.record_date.startsWith(month),
+    );
+    const items = SUNSHINE_CHILDREN.map((child): ClassObservationLogItem => {
+      const log = drafts.find(
+        (draft) =>
+          draft.child_id === child.child_id &&
+          draft.doc_type === "observation_log" &&
+          draft.record_date === `${month}-01`,
+      );
+      return {
+        child_id: child.child_id,
+        published_note_count: drafts.filter(
+          (draft) =>
+            draft.child_id === child.child_id &&
+            draft.doc_type === "parent_note" &&
+            draft.status === "approved" &&
+            draft.published_at !== null,
+        ).length,
+        observation_log: log
+          ? {
+              draft_id: log.draft_id,
+              status: log.status,
+              created_at: log.created_at ?? log.updated_at,
+            }
+          : null,
+      };
+    });
+    return HttpResponse.json<ClassObservationLogList>({ month, items });
   }),
 
   // 원아별 문서 목록(알림장 상세의 ‹ › 날짜 이동). record_date 최신순입니다.

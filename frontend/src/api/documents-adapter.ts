@@ -1,6 +1,7 @@
 import type {
   ChildDraftItem,
   ClassDraftItem,
+  ClassObservationLogList,
   DraftDetail,
   DraftRevokeResponse,
   DraftStatus,
@@ -20,6 +21,7 @@ import type { MediaUrl } from "@/types/api-draft/media";
 import type {
   ChildDraftView,
   ClassDraftView,
+  ClassObservationLogListView,
   DraftMediaView,
   DraftStatusView,
   DraftSummaryView,
@@ -93,6 +95,26 @@ export function toClassDraftView(raw: ClassDraftItem): ClassDraftView {
   };
 }
 
+export function toClassObservationLogListView(
+  raw: ClassObservationLogList,
+): ClassObservationLogListView {
+  return {
+    month: raw.month,
+    items: raw.items.map((item) => ({
+      child_id: item.child_id,
+      published_note_count: item.published_note_count,
+      observation_log:
+        item.observation_log === null
+          ? null
+          : {
+              draft_id: item.observation_log.draft_id,
+              status: toDraftStatusView(item.observation_log.status),
+              created_at: item.observation_log.created_at,
+            },
+    })),
+  };
+}
+
 export function toChildDraftView(raw: ChildDraftItem): ChildDraftView {
   return { ...toDraftSummaryView(raw), record_date: raw.record_date };
 }
@@ -131,6 +153,16 @@ function toDraftMediaView(raw: MediaUrl): DraftMediaView {
   };
 }
 
+// 영역 목록을 서버가 안 주면 문장의 section을 처음 나온 순서로 읽습니다.
+function sectionsOf(raw: DraftDetail): string[] {
+  if (raw.sections && raw.sections.length > 0) return [...raw.sections];
+  const seen: string[] = [];
+  for (const sentence of raw.sentences) {
+    if (sentence.section && !seen.includes(sentence.section)) seen.push(sentence.section);
+  }
+  return seen;
+}
+
 export function toDraftView(raw: DraftDetail): DraftView {
   return {
     draft_id: raw.draft_id,
@@ -141,6 +173,8 @@ export function toDraftView(raw: DraftDetail): DraftView {
     version: raw.version,
     title: raw.title,
     sentences: raw.sentences.map(toSentenceView),
+    sections: sectionsOf(raw),
+    created_at: raw.created_at ?? null,
     daily_routine: raw.daily_routine ?? [],
     selected_media_ids: raw.selected_media_ids,
     failed_media_ids: raw.failed_media_ids ?? [],
