@@ -530,6 +530,13 @@ def _segment_id(evidence_id: str) -> UUID | None:
         return None
 
 
+def _note_captured_at(record_date: date | None) -> datetime | None:
+    """알림장 근거의 날짜. 그 알림장의 기록 날짜를 그날 0시(KST)로 찍는다 (#264)."""
+    if record_date is None:
+        return None
+    return datetime.combine(record_date, time.min, tzinfo=_KST)
+
+
 def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[SentenceEvidenceView]]:
     """초안의 문장별 근거를 sentence_id로 묶어 돌려준다 (FR-07).
 
@@ -551,6 +558,11 @@ def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[Sente
     ).all()
     media = media_service.get_media_meta(
         db, [row.source_media_id for row in rows if row.source_media_id is not None]
+    )
+    # 월 관찰일지가 모은 게시 알림장 근거는 미디어가 없어 촬영 시각이 없다. 그 알림장의 기록 날짜로
+    # 채워 화면이 날짜를 찍고 정렬되게 한다(#264, 임시 결정(정은)). 근거 행에는 저장하지 않는다.
+    record_dates = documents.get_record_dates(
+        db, [row.source_document_id for row in rows if row.source_document_id is not None]
     )
     segment_ids = {row.evidence_id: _segment_id(row.evidence_id) for row in rows}
     end_ms_by_segment = media_service.get_segment_end_ms(
@@ -578,7 +590,11 @@ def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[Sente
                     round(row.source_timestamp * 1000) if row.source_timestamp is not None else None
                 ),
                 end_ms=end_ms_by_segment.get(segment_ids[row.evidence_id]),
-                captured_at=meta.captured_at if meta is not None else None,
+                captured_at=(
+                    meta.captured_at
+                    if meta is not None
+                    else _note_captured_at(record_dates.get(row.source_document_id))
+                ),
             )
         )
     for views in result.values():
