@@ -128,8 +128,8 @@ documents의 상세 작성 엔드포인트는 14개(교사용 10, 학부모용 4
   "items": [
     {
       "child_id": "c41d0000-0000-4000-8000-000000000001",
-      "observation_log": { "draft_id": "d7af0000-0000-4000-8000-000000000011", "status": "verified", "version": 2, "published_at": null, "preview": "블록을 여러 층으로 쌓으며 높이의 변화를 탐색함." },
-      "parent_note": { "draft_id": "d7af0000-0000-4000-8000-000000000012", "status": "verified", "version": 3, "published_at": null, "preview": "도윤이는 색색의 블록을 골라 차곡차곡 쌓아 보았어요." },
+      "observation_log": { "draft_id": "d7af0000-0000-4000-8000-000000000011", "status": "verified", "version": 2, "published_at": null, "revoke_deadline": null, "can_revoke": false, "preview": "블록을 여러 층으로 쌓으며 높이의 변화를 탐색함." },
+      "parent_note": { "draft_id": "d7af0000-0000-4000-8000-000000000012", "status": "verified", "version": 3, "published_at": null, "revoke_deadline": null, "can_revoke": false, "preview": "도윤이는 색색의 블록을 골라 차곡차곡 쌓아 보았어요." },
       "unclassified": null
     },
     {
@@ -147,6 +147,7 @@ documents의 상세 작성 엔드포인트는 14개(교사용 10, 학부모용 4
 - `unclassified`(제안)는 초안 없이 미분류로 끝난 원아의 사유입니다. documents가 소유한 UnclassifiedItem을 조인합니다.
 - `preview`(제안)는 본문 앞부분 최대 100자이고, 문장 경계에서 자릅니다. 첫 문장부터 100자를 넘으면 그 문장을 100자에서 자릅니다(빈 미리보기를 내지 않으려는 것) — 임시 결정(한상균).
 - 게시할 수 있는 행은 FE가 `status == approved && published_at == null`로 판단합니다.
+- `revoke_deadline`·`can_revoke`는 상세(`GET /api/v1/drafts/{draft_id}`)와 같은 값입니다. 활성 게시 회차의 회수 기한이고, `can_revoke`는 기한 이내이면서 학부모가 본문을 열기 전일 때만 `true`입니다. 게시 완료 화면이 회수 버튼을 띄울지 정할 때 씁니다. 상세를 미리 받으면 보지 않은 알림장마다 교사 열람 기록(AccessLog)이 남아서 목록에 싣습니다(#260) — 임시 결정(한상균)
 - 에러:
   - `CLASS_ACCESS_DENIED` (403) — 다른 어린이집의 반일 때(같은 어린이집 교사는 모든 반을 봅니다, FR-25)
   - `CLASS_NOT_FOUND` (404) — 없는 반일 때
@@ -172,6 +173,8 @@ documents의 상세 작성 엔드포인트는 14개(교사용 10, 학부모용 4
       "status": "approved",
       "version": 4,
       "published_at": "2026-09-30T09:40:00Z",
+      "revoke_deadline": "2026-10-01T09:40:00Z",
+      "can_revoke": false,
       "preview": "도윤이는 색색의 블록을 골라 차곡차곡 쌓아 보았어요."
     }
   ],
@@ -182,7 +185,7 @@ documents의 상세 작성 엔드포인트는 14개(교사용 10, 학부모용 4
 - 본문·사진·근거는 `GET /api/v1/drafts/{draft_id}`로 따로 받습니다. 이 목록은 **날짜 이동에 필요한 값만** 담습니다.
 - 화면은 이 목록으로 알림장 목록과 상세의 ‹ › 이동을 함께 만듭니다. 기록이 없는 날짜는 목록에 없으므로 자연스럽게 건너뜁니다.
 - `preview`는 원아별 목록 화면에서 한 줄씩 보여 줍니다. 열지 않고도 무엇을 쓴 날인지 가늠하게 합니다.
-- `published=true`면 지금 게시 중인(회수되지 않은) 회차가 있는 문서만 담습니다. `published_at`은 그 회차의 게시 시각이고, `published`를 빼면 게시 전 문서도 담기며 그 문서는 `null`입니다(반·날짜 목록과 같음).
+- `published=true`면 지금 게시 중인(회수되지 않은) 회차가 있는 문서만 담습니다. `published_at`은 그 회차의 게시 시각이고, `published`를 빼면 게시 전 문서도 담기며 그 문서는 `null`입니다(반·날짜 목록과 같음). `revoke_deadline`·`can_revoke`도 반·날짜 목록과 같습니다.
 - 열람 기록(AccessLog)은 남기지 않습니다. 반·날짜 목록처럼 미리보기만 싣고, 본문·근거 원문은 상세(`GET /api/v1/drafts/{draft_id}`)에서 보며 그쪽이 기록합니다 — 임시 결정(한상균)
 - `doc_type`이 없거나 모르는 값이면 `422 VALIDATION_ERROR`, 없는 원아면 `404 CHILD_NOT_FOUND`입니다.
 - **화면은 한 달치씩 펼칩니다** — 임시 결정(김진하). 알림장은 매일 쌓여 한 해면 200건이 넘는데, 한 번에 다 뿌리면 교사가 최근 것 하나를 보려고 긴 목록을 지나야 합니다. 응답은 그대로 전부 받습니다(한 건이 200바이트 남짓이라 한 해치도 50KB 정도입니다).
