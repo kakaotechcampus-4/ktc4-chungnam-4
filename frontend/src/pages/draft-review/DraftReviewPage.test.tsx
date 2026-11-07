@@ -1436,6 +1436,41 @@ describe("DraftReviewPage", () => {
     expect(screen.queryByRole("button", { name: "직접 수정" })).not.toBeInTheDocument();
   });
 
+  // 끝난 화면만 보여 그날 빠진 아이의 글을 쓸 길이 없었습니다(11/07 배포 점검).
+  it("게시를 마친 날에도 초안 없는 아이를 직접 써서 따로 게시할 수 있다", async () => {
+    const user = userEvent.setup();
+    const { router } = renderRoutes(
+      [
+        { path: "/t/today/review/:childId", element: <DraftReviewPage /> },
+        { path: "/t/notes/publish/done", element: <p>발행 완료</p> },
+      ],
+      { initialEntry: `/t/today/review/${DOYUN}?record_date=${CLOSED_DAY}` },
+    );
+
+    await screen.findByRole("heading", { name: "게시를 마쳤어요" });
+    expect(screen.getByRole("heading", { name: "알림장이 없는 아이 3명" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "이하준 직접 쓰기" }));
+
+    await user.type(
+      await screen.findByRole("textbox", { name: "직접 작성" }),
+      "오늘은 그림책을 보았어요.",
+    );
+    await user.click(screen.getByRole("button", { name: "저장하기" }));
+    await waitFor(() => expect(screen.getByRole("checkbox")).toBeEnabled());
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" })).toBeEnabled());
+
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+    await user.click(await screen.findByRole("button", { name: "게시하기" }));
+
+    expect(await screen.findByText("발행 완료")).toBeInTheDocument();
+    expect(router.state.location.state).toMatchObject({
+      publishedCount: 1,
+      recordDate: CLOSED_DAY,
+    });
+  });
+
   // 회수는 게시 후 24시간 안에만 됩니다. 시드의 그제 게시분은 이미 지났으므로 버튼을 감추고,
   // 왜 못 하는지 알립니다 — 버튼만 사라지면 교사는 기능이 없는 줄 압니다.
   it("회수 기한이 지난 게시분은 회수 버튼을 보여 주지 않는다", async () => {

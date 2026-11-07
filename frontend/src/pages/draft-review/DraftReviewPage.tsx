@@ -146,6 +146,11 @@ export function DraftReviewPage() {
   const [publishOpen, setPublishOpen] = useState(false);
   /** 승인했지만 이번 게시에서는 빼기로 한 원아 */
   const [excludedChildIds, setExcludedChildIds] = useState<Set<string>>(new Set());
+  /**
+   * 게시를 마친 날에 초안 없는 아이를 직접 쓰러 들어온 경우. 이 값이 없으면 끝난 화면만 보여서 들어갈 길이
+   * 없습니다. 글을 저장하면 안 나간 초안이 생겨 그날이 다시 열리고, 게시하면 발행 완료 화면으로 넘어갑니다.
+   */
+  const [writingAfterClose, setWritingAfterClose] = useState(false);
   /** 선택 사진을 학부모에게 함께 보낼지. 기본은 보냄 */
   const [includePhotos, setIncludePhotos] = useState(true);
   /**
@@ -236,6 +241,7 @@ export function DraftReviewPage() {
   if (lastPublishDate !== recordDate) {
     setLastPublishDate(recordDate);
     setExcludedChildIds(new Set());
+    setWritingAfterClose(false);
   }
 
   // 같은 초안이라도 버전이 오르면(버전 충돌 뒤 새로 불러온 본문 등) 확인 체크를 다시 받습니다.
@@ -580,7 +586,8 @@ export function DraftReviewPage() {
 
   // 게시를 마친 날짜는 다시 열어도 고칠 수 없습니다. 검토 화면을 그대로 보여 주면
   // 교사가 고칠 수 있다고 착각하므로, 화면 전체를 끝난 상태로 바꿉니다.
-  if (isDayClosed) {
+  if (isDayClosed && !writingAfterClose) {
+    const noDraftRows = rows.filter((row) => row.note === null);
     const published = rows.flatMap((row) =>
       row.note !== null && row.note.published_at !== null
         ? [{ child: row.child, note: row.note, publishedAt: row.note.published_at }]
@@ -618,6 +625,45 @@ export function DraftReviewPage() {
               />
             ))}
           </ul>
+          {noDraftRows.length > 0 ? (
+            <div className="flex flex-col gap-3 border-t border-line pt-5">
+              <div className="flex flex-col gap-1">
+                <h2 className="text-lead font-bold text-ink">
+                  알림장이 없는 아이 {noDraftRows.length}명
+                </h2>
+                <p className="text-label text-ink-muted">
+                  직접 써서 승인하면 따로 게시할 수 있어요.
+                </p>
+              </div>
+              <ul className="flex flex-col gap-2">
+                {noDraftRows.map((row) => (
+                  <li
+                    key={row.child.child_id}
+                    className="flex items-center justify-between gap-4 rounded-lg bg-tint-2 px-4 py-3"
+                  >
+                    <div className="flex min-w-0 flex-col">
+                      <p className="text-body font-bold text-ink">{row.child.name}</p>
+                      <p className="text-label text-ink-muted">
+                        {unclassifiedReasonText(row.unclassified) ?? "아직 기록이 없어요."}
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      aria-label={`${row.child.name} 직접 쓰기`}
+                      onClick={() => {
+                        setWritingAfterClose(true);
+                        selectChild(row.child.child_id);
+                      }}
+                    >
+                      직접 쓰기
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
         <LeaveRevokedDialog blocker={blocker} childName={unsentRow?.child.name ?? ""} />
       </>
