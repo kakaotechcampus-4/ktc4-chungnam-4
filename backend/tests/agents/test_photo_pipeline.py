@@ -28,6 +28,7 @@ from domains.media.service import PresignedUpload, SignedMediaUrl, StoredObject
 from domains.organization.models import Klass
 from main import app
 from scripts.seed_photo_demo import PARENT_EMAILS, TEACHER_EMAIL, seed
+from tests.agents.fixtures.native_agent import native_fixture
 
 DAY = date(2026, 10, 30)
 PASSWORD = "photo-test-password-only"
@@ -144,6 +145,9 @@ def flow(monkeypatch: pytest.MonkeyPatch) -> Iterator[Flow]:
 
     monkeypatch.setattr(service, "call_vision", vision)
     monkeypatch.setattr(service, "call_claude", llm)
+    monkeypatch.setattr(
+        service, "call_agent", native_fixture(lambda prompt: service.call_claude(prompt))
+    )
     try:
         with TestClient(app, base_url="https://testserver") as client:
             yield client, factory, klass, children, pending, calls
@@ -255,6 +259,9 @@ def test_추가_사진으로_같은_초안을_재생성하고_이전_문장근�
     assert result["children"][0]["drafts"][0]["draft_id"] == draft_id
     after = client.get(f"/api/v1/drafts/{draft_id}").json()
     assert after["version"] == before["version"] + 1
+    # 첫 생성의 기본 선택은 두고, 새 근거 사진만 뒤에 더한다
+    assert before["selected_media_ids"] == [str(first_media)]
+    assert after["selected_media_ids"] == [str(first_media), str(second_media)]
     assert "공을 굴리며" in after["sentences"][0]["text"]
     with factory() as db:
         assert db.get(DraftDocument, UUID(draft_id)).ai_version == 5
@@ -539,16 +546,20 @@ def test_영상음성_업로드_STT_검수_파일귀속_생성_게시_열람(
     monkeypatch.setattr(
         service.media_service, "_speech_chunks", lambda key: [audio.AudioChunk(0, 10, b"RIFF")]
     )
-    monkeypatch.setattr(
-        service.media_service.stt,
-        "transcribe_chunks",
-        lambda chunks: [
+    stt_prompts: list[str | None] = []
+
+    def fake_stt(chunks, names=()):
+        stt_prompts.append(stt.build_name_prompt(names))
+        return [
             stt.SpeechSegment(0, 2, "김도윤은 블록으로 탑을 만들었어요."),
             stt.SpeechSegment(3, 5, "제외할 문장"),
             stt.SpeechSegment(6, 9, "검수하지 않은 문장"),
-        ],
-    )
+        ]
+
+    monkeypatch.setattr(service.media_service.stt, "transcribe_chunks", fake_stt)
     service.media_service.transcribe_media(str(media_id))
+    # STT prompt에는 시드 반 원아의 성명·호칭만 붙습니다(child_id·반 정보 없음, 파이프라인 1-B)
+    assert stt_prompts == ["김도윤, 도윤, 박서아, 서아, 이하준, 하준, 정예린, 예린, 최지우, 지우."]
     result = client.get(f"/api/v1/media/{media_id}/transcript-segments")
     assert result.status_code == 200, result.text
     assert result.json()["transcript_status"] == "done"
@@ -619,7 +630,7 @@ def test_STT_worker가_멈추면_폴링이_failed로_끝내고_늦은_완료는_
         service.media_service, "_speech_chunks", lambda key: [audio.AudioChunk(0, 5, b"RIFF")]
     )
 
-    def late_stt(chunks):
+    def late_stt(chunks, names=()):
         with factory() as db:
             row = db.scalar(select(MediaUpload).where(MediaUpload.media_id == media_id))
             row.verified_at = datetime.now(UTC) - timedelta(hours=2)
@@ -958,6 +969,14 @@ def test_추가_근거는_비식별화되어_생성에_들어가고_교사_근�
     login(client, TEACHER_EMAIL)
     with factory() as db:
         names = organization_service.get_class_child_names(db, klass)[children[0]]
+    native_prompts: list[str] = []
+    respond = service.call_agent
+
+    def native(messages: list[dict], tools: list[dict]):
+        native_prompts.append(json.dumps(messages, ensure_ascii=False))
+        return respond(messages, tools)
+
+    monkeypatch.setattr(service, "call_agent", native)
     secret = "우산을 직접 챙겼어요"
     saved = client.put(
         f"/api/v1/children/{children[0]}/evidence/{DAY}",
@@ -1007,6 +1026,11 @@ def test_추가_근거는_비식별화되어_생성에_들어가고_교사_근�
     draft_prompt = next(prompt for prompt in prompts if '"sentence_id"' not in prompt)
     assert secret in draft_prompt
     assert "teacher_note" in draft_prompt
+    # 통합 후에도 collector와 작성 도구 대화 모두 메모를 비식별 상태로 받는다(H-2).
+    assert native_prompts
+    assert all(not any(name in prompt for name in names) for prompt in native_prompts)
+    assert "teacher_note" in native_prompts[0]
+    assert secret in native_prompts[0]
     # FR-07: 교사 근거 패널에는 비식별화 전 원문이 교사 메모 출처로 보인다
     draft_id = result["children"][0]["drafts"][0]["draft_id"]
     with factory() as db:
@@ -1104,3 +1128,18 @@ def test_생성에는_그_아이_그날의_추가_근거만_들어간다(flow: F
     assert notes[0].child_ids == [str(children[0])]
     assert notes[0].media_id is None
     assert notes[0].evidence_id in inputs.request.evidence_ids
+
+
+# 9주차 #257 리뷰 4번: 사진으로 만든 초안의 선택 사진이 비어 있어 게시해도 학부모에게 글만 갔다.
+def test_사진으로_만든_초안은_근거_사진을_보낼_사진의_기본_선택으로_갖는다(flow: Flow) -> None:
+    client, factory, klass, children, pending, _ = flow
+    login(client, TEACHER_EMAIL)
+    media = photo(factory, klass, [children[0]])
+
+    result = run(client, klass, media, pending)
+
+    draft_id = result["children"][0]["drafts"][0]["draft_id"]
+    detail = client.get(f"/api/v1/drafts/{draft_id}").json()
+    assert detail["selected_media_ids"] == [str(media)]
+    # 선택 사진은 화면이 그릴 수 있게 media에도 실려 온다
+    assert str(media) in {item["media_id"] for item in detail["media"]}

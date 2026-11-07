@@ -58,4 +58,4 @@ def test_본문의_문장_수_상한이_응답_검증과_같다():
     # 본문 규칙만 바뀌면 LLM은 그 수만큼 쓰는데 응답 검증은 초안 전체를 실패로 본다.
     prompt = build_draft_prompt(DocType.PARENT_NOTE, _evidence())
 
-    assert f"문장은 {MAX_SENTENCES}개 이하로 쓴다." in prompt
+    assert prompt.count(f"문장은 {MAX_SENTENCES}개 이하로 쓴다.") == 1

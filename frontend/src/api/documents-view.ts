@@ -75,10 +75,12 @@ export type EvidenceSourceTypeView =
   | "video_scene"
   | "teacher_voice_memo"
   | "teacher_note"
-  | "activity_plan";
+  | "activity_plan"
+  | "parent_note";
 
 /** 문장 하나의 근거 */
 export interface EvidenceView {
+  source_document_id: string | null;
   /** 초안 안에서만 유일한 불투명 문자열(UUID 규약의 예외) */
   evidence_id: string;
   source_type: EvidenceSourceTypeView;
@@ -91,6 +93,7 @@ export interface EvidenceView {
 }
 
 export interface SentenceView {
+  section: string | null;
   /** 초안 안에서만 유일한 문자열입니다. 모양을 해석하지 않습니다 */
   sentence_id: string;
   text: string;
@@ -112,6 +115,7 @@ export interface DraftMediaView {
 
 /** GET /drafts/{draft_id} — 초안 본문과 근거 */
 export interface DraftView {
+  daily_routine: string[];
   draft_id: string;
   child_id: string;
   /** 알림장인지 관찰일지인지. 이 화면은 안 쓰지만 문서에 있는 응답 필드라 버리지 않습니다. */
