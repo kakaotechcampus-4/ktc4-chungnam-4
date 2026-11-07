@@ -181,9 +181,9 @@ class DocumentPublication(Base):
     published_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     revoke_deadline = Column(DateTime(timezone=True), nullable=False)
     revoked_at = Column(DateTime(timezone=True), nullable=True)
-    # 회수 자격 판단용. audit.AccessLog는 컴플라이언스 기록이고 조회 API가 없으므로
-    # (audit/CLAUDE.md — router 없음), 회수 가능 여부는 이 필드로 직접 판단한다.
-    # "목록 조회는 상세 열람으로 취급하지 않는다" — 이 필드는 상세 열람 API에서만 채운다.
+    # 학부모가 이 회차의 본문을 처음 연 시각. 회수 판단에는 쓰지 않는다 — 열어 봤어도 기한
+    # 안이면 회수한다(11/05 팀 논의, #266). "목록 조회는 상세 열람으로 취급하지 않는다" —
+    # 이 필드는 상세 열람 API에서만 채운다.
     first_viewed_at = Column(DateTime(timezone=True), nullable=True)
     # 게시 확인 모달의 "사진도 함께 보내기"(반 전체에 한 번, 임시 결정(김진하)). false면 글만 간다.
     include_photos = Column(Boolean, nullable=False, default=False, server_default=false())
