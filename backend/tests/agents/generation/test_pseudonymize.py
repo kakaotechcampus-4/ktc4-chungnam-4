@@ -178,3 +178,13 @@ def test_세_글자_이름은_목록대로만_바꾼다():
 
 def test_호칭_보완_패턴이_토큰_다음에_다시_걸려_토큰이_깨지지_않는다():
     assert _masked("가나랑 나야 놀자") == "CHILD_A랑 CHILD_A 놀자"
+
+
+def test_호칭이_여러_원아에게_겹치면_대상_원아가_먼저_가져간다():
+    # "가나"와 "다나"는 둘 다 "나야"로 불릴 수 있다. ID 순으로는 child-1이 먼저지만 대상은 child-2다.
+    names = {"child-1": ["가나"], "child-2": ["다나"]}
+    evidence = {"ev-1": _speech("ev-1", "나야 이리 와", ["child-2"])}
+
+    result = pseudonymize_evidence(evidence, target_child_id="child-2", names_by_child_id=names)
+
+    assert result.llm_items[0].text == "CHILD_A 이리 와"

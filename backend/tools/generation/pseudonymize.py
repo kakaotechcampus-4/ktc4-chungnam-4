@@ -94,7 +94,7 @@ def pseudonymize_evidence(
         reverse=True,
     )
 
-    calls = _call_patterns(names_by_child_id, token_by_child_id)
+    calls = _call_patterns(names_by_child_id, token_by_child_id, target_child_id)
 
     llm_items: list[LlmEvidence] = []
     evidence_id_by_ref: dict[str, str] = {}
@@ -215,7 +215,9 @@ _VOCATIVE = "[아야]"
 
 
 def _call_patterns(
-    names_by_child_id: Mapping[str, Sequence[str]], token_by_child_id: Mapping[str, str]
+    names_by_child_id: Mapping[str, Sequence[str]],
+    token_by_child_id: Mapping[str, str],
+    target_child_id: str,
 ) -> list[tuple[re.Pattern[str], str]]:
     """organization 이름 목록이 담지 못하는 호칭을 찾는 패턴 (#202 7번, H-2).
 
@@ -226,12 +228,12 @@ def _call_patterns(
     - 네 글자: 성 한 글자 + 이름 세 글자일 수도, 성 두 글자 + 이름 두 글자일 수도 있어 뒤 세 글자와
       뒤 두 글자를 모두 바꾼다.
     세 글자 이름은 목록이 이미 이름을 담으므로 건드리지 않는다. 성명 길이는 목록에서 가장 긴
-    값으로 본다. 같은 패턴이 여러 원아에게서 나오면 원아 ID 순으로 먼저 오는 쪽에 붙인다 —
-    누구인지 몰라도 실명이 LLM으로 가는 것보다 낫다. 애칭("준이")은 이름에서 만들 수 없어
+    값으로 본다. 같은 패턴이 여러 원아에게서 나오면 대상 원아를 먼저, 그다음 원아 ID 순으로
+    먼저 오는 쪽에 붙인다 — 누구인지 몰라도 실명이 LLM으로 가는 것보다 낫다. 애칭("준이")은 이름에서 만들 수 없어
     다루지 않는다.
     """
     patterns: dict[str, tuple[re.Pattern[str], str, int]] = {}
-    for child_id in sorted(names_by_child_id):
+    for child_id in sorted(names_by_child_id, key=lambda c: (c != target_child_id, c)):
         full_name = max((name.strip() for name in names_by_child_id[child_id]), key=len, default="")
         token = token_by_child_id[child_id]
         candidates: list[str] = []
