@@ -189,6 +189,8 @@ export interface ParentNoteSummary {
   /** 앞 3장. include_photos=false로 게시했으면 빈 배열 */
   photos: MediaUrl[];
   is_read: boolean;
+  /** 회수한 뒤 다시 보낸 게시본(게시 회차 2회째부터)이면 true. 고치지 않고 다시 보내도 true(#289) */
+  is_resent: boolean;
 }
 
 /** GET /children/{child_id}/parent-notes 응답. 목록 봉투를 확장한 필드가 있습니다(제안). */
@@ -209,7 +211,10 @@ export interface ParentNoteDetail {
   content: string;
   photos: MediaUrl[];
   author_name: string;
+  /** 지금 게시 중인 회차의 시각. 다시 보냈으면 다시 보낸 시각입니다. */
   published_at: string;
+  /** 목록의 is_resent와 같습니다. */
+  is_resent: boolean;
   /** (제안) 같은 자녀의 이전·다음 게시본 */
   prev: { parent_note_id: string; record_date: string } | null;
   next: { parent_note_id: string; record_date: string } | null;

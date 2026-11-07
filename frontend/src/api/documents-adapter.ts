@@ -382,6 +382,7 @@ export function toParentNoteListView(raw: ParentNoteList): ParentNoteListView {
       record_date: item.record_date,
       preview: item.preview,
       is_read: item.is_read,
+      is_resent: item.is_resent,
       photos: item.photos.map((photo) => ({
         media_id: photo.media_id,
         type: photo.type,
@@ -403,6 +404,7 @@ export function toParentNoteDetailView(raw: ParentNoteDetail): ParentNoteDetailV
     content: raw.content,
     author_name: raw.author_name,
     published_at: raw.published_at,
+    is_resent: raw.is_resent,
     prev: raw.prev && {
       parent_note_id: raw.prev.parent_note_id,
       record_date: raw.prev.record_date,

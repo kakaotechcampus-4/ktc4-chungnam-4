@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 
@@ -239,5 +239,37 @@ describe("ParentMediaPage", () => {
       expect(await screen.findByText("아직 받은 사진·영상이 없어요")).toBeInTheDocument();
       expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
     });
+  });
+
+  // 표시 URL은 15분이면 만료됩니다. 한 번만 다시 받으면 화면을 오래 열어 둔 뒤 두 번째 만료에서
+  // 사진이 계속 깨져 있었습니다(#287 리뷰). 정말 깨진 사진이 계속 다시 받게 하지는 않습니다.
+  it("사진이 깨지면 목록을 다시 받되 1분에 한 번까지만 받는다", async () => {
+    let listCalls = 0;
+    server.use(
+      http.get(apiPath(`/children/${CHILD}/parent-media`), () => {
+        listCalls += 1;
+        return HttpResponse.json(FIRST_PAGE);
+      }),
+    );
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-10-20T09:00:00Z"));
+      renderPage();
+      const [firstTile] = await screen.findAllByRole("button", { name: /크게 보기/ });
+      const image = firstTile?.querySelector("img");
+      if (!image) throw new Error("사진 타일이 없습니다");
+      expect(listCalls).toBe(1);
+
+      fireEvent.error(image);
+      await waitFor(() => expect(listCalls).toBe(2));
+      fireEvent.error(image);
+      expect(listCalls).toBe(2);
+
+      vi.setSystemTime(new Date("2026-10-20T09:01:01Z"));
+      fireEvent.error(image);
+      await waitFor(() => expect(listCalls).toBe(3));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

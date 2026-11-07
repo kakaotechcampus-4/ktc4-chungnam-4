@@ -1,6 +1,6 @@
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { Download, Images, SearchX } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 
 import {
   canSaveParentMedia,
@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import { ParentSearchBox } from "@/features/parent/ParentSearchBox";
 import { useParentSearch } from "@/features/parent/use-parent-search";
+import { useRefetchOnExpiry } from "@/features/parent/use-refetch-on-expiry";
 import { ApiError } from "@/lib/api-client";
 import { formatDate } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
@@ -64,8 +65,7 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
   const saver = useSaveMedia(childId);
   const [filter, setFilter] = useState<MediaFilter>("all");
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
-  // 표시용 URL이 만료되면 타일마다 오류가 나서, 한 번만 새로 받습니다.
-  const refetchedForExpiry = useRef(false);
+  const handleLoadError = useRefetchOnExpiry(query.refetch);
 
   const pages = query.data?.pages;
   const days = useMemo(
@@ -78,12 +78,6 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
   );
   const viewerItems = useMemo(() => days.flatMap((day) => day.items), [days]);
   const firstPage = pages?.[0];
-
-  function handleLoadError() {
-    if (refetchedForExpiry.current) return;
-    refetchedForExpiry.current = true;
-    void query.refetch();
-  }
 
   function changeFilter(next: MediaFilter) {
     setFilter(next);

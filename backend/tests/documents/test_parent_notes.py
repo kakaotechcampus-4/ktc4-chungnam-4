@@ -323,6 +323,17 @@ def test_검색은_날짜로도_찾고_띄어쓰기와_대소문자를_가리지
     assert _dates(_search(client, "없는 말")) == []
 
 
+def test_검색은_문장_사이를_이어_찾지_않는다(client, db):
+    """앞 문장 끝과 다음 문장 앞이 붙어 찾히면 글에 없는 말이 찾힙니다(#287 리뷰)."""
+    found = _note(db, 20)
+    _set_body(db, found, "블록을 쌓았어요.", "오늘은 비가 왔어요.")
+    _note(db, 21)
+
+    assert _dates(_search(client, "쌓았어요. 오늘")) == []
+    assert _dates(_search(client, "쌓았어요")) == ["2026-10-20"]
+    assert _dates(_search(client, "오늘은 비가")) == ["2026-10-20"]
+
+
 def test_H1_검색해도_게이트_밖_알림장은_나오지_않는다(client, db):
     word = "공통낱말"
     visible = _note(db, 20)

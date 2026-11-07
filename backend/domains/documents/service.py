@@ -1558,11 +1558,12 @@ def _matching_notes(
     notes: Sequence[tuple[DraftDocument, DocumentPublication]],
     keyword: str | None,
 ) -> list[tuple[DraftDocument, DocumentPublication]]:
-    """게이트를 지난 알림장 가운데 본문이나 날짜에 keyword가 든 것만 남긴다 (FR-09, FR-10).
+    """게이트를 지난 알림장 가운데 본문의 한 문장이나 날짜에 keyword가 든 것만 남긴다 (FR-09, FR-10).
 
     게이트(_parent_notes)의 결과만 거르므로 보여도 되는 범위를 넓히지 않는다 (H-1). 검색어가
-    비었으면 그대로 돌려준다. 띄어쓰기와 대소문자는 가리지 않는다. 아이 한 명의 게시본 안에서만
-    찾아 양이 적으므로 파이썬에서 거른다. 검색어는 로그와 AccessLog에 남기지 않는다 (H-4).
+    비었으면 그대로 돌려준다. 띄어쓰기와 대소문자는 가리지 않는다. 문장마다 따로 찾아서, 앞 문장
+    끝과 다음 문장 앞이 붙어 글에 없는 말이 찾히지 않게 한다. 아이 한 명의 게시본 안에서만 찾아
+    양이 적으므로 파이썬에서 거른다. 검색어는 로그와 AccessLog에 남기지 않는다 (H-4).
     """
     needle = _search_key(keyword or "")
     if not needle:
@@ -1578,9 +1579,9 @@ def _matching_notes(
     return [
         (draft, publication)
         for draft, publication in notes
-        if needle
-        in _search_key(
-            " ".join([_date_search_text(draft.record_date), *sentences.get(draft.id, [])])
+        if any(
+            needle in _search_key(text)
+            for text in (_date_search_text(draft.record_date), *sentences.get(draft.id, []))
         )
     ]
 

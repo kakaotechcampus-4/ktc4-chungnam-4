@@ -54,12 +54,20 @@ export function ParentNoteCard({ note, to, onPhotoError }: ParentNoteCardProps) 
           <h2 className="text-nav font-bold text-ink">
             {formatDate(note.record_date, { year: false })}
           </h2>
-          {note.is_read ? null : (
-            <span className="rounded-full bg-brand-ink px-2 py-px text-caption font-bold text-paper">
-              <span aria-hidden="true">NEW</span>
-              <span className="sr-only">새 알림장</span>
-            </span>
-          )}
+          <div className="flex shrink-0 items-center gap-1">
+            {/* 회수한 뒤 다시 보낸 글입니다. 본문에서 "선생님이 내용을 고쳤어요"로 알립니다(#289). */}
+            {note.is_resent ? (
+              <span className="rounded-full border border-line px-2 py-px text-caption text-ink-muted">
+                수정됨
+              </span>
+            ) : null}
+            {note.is_read ? null : (
+              <span className="rounded-full bg-brand-ink px-2 py-px text-caption font-bold text-paper">
+                <span aria-hidden="true">NEW</span>
+                <span className="sr-only">새 알림장</span>
+              </span>
+            )}
+          </div>
         </div>
         <p className="line-clamp-2 text-body text-ink-muted">{note.preview}</p>
       </div>

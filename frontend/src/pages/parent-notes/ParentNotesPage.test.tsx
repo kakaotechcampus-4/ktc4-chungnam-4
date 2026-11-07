@@ -53,6 +53,7 @@ const LIST: ParentNoteList = {
         },
       ],
       is_read: false,
+      is_resent: false,
     },
     {
       parent_note_id: READ_NOTE,
@@ -61,6 +62,7 @@ const LIST: ParentNoteList = {
       preview: "모래놀이를 했어요.",
       photos: [],
       is_read: true,
+      is_resent: false,
     },
     {
       parent_note_id: OLD_NOTE,
@@ -69,6 +71,7 @@ const LIST: ParentNoteList = {
       preview: "나뭇잎을 모았어요.",
       photos: [],
       is_read: true,
+      is_resent: true,
     },
   ],
   next_cursor: null,
@@ -215,6 +218,17 @@ describe("ParentNotesPage 목록", () => {
     expect(within(unread).getByText("새 알림장")).toBeInTheDocument();
     const read = screen.getByRole("link", { name: /모래놀이를 했어요/ });
     expect(within(read).queryByText("새 알림장")).not.toBeInTheDocument();
+  });
+
+  // 회수한 뒤 다시 보낸 알림장은 학부모가 알 수 있게 표시합니다(#266, #289).
+  it("다시 보낸 알림장에만 수정됨을 붙인다", async () => {
+    renderPage(myChild(false), LIST);
+
+    const links = await screen.findAllByRole("link", { name: /수정됨/ });
+    expect(links).toHaveLength(1);
+    expect(screen.getByRole("link", { name: /블록을 높이 쌓았어요/ })).not.toHaveTextContent(
+      "수정됨",
+    );
   });
 
   it("교사가 함께 보낸 사진을 카드에 보여 준다", async () => {
