@@ -542,16 +542,20 @@ def test_영상음성_업로드_STT_검수_파일귀속_생성_게시_열람(
     monkeypatch.setattr(
         service.media_service, "_speech_chunks", lambda key: [audio.AudioChunk(0, 10, b"RIFF")]
     )
-    monkeypatch.setattr(
-        service.media_service.stt,
-        "transcribe_chunks",
-        lambda chunks: [
+    stt_prompts: list[str | None] = []
+
+    def fake_stt(chunks, names=()):
+        stt_prompts.append(stt.build_name_prompt(names))
+        return [
             stt.SpeechSegment(0, 2, "김도윤은 블록으로 탑을 만들었어요."),
             stt.SpeechSegment(3, 5, "제외할 문장"),
             stt.SpeechSegment(6, 9, "검수하지 않은 문장"),
-        ],
-    )
+        ]
+
+    monkeypatch.setattr(service.media_service.stt, "transcribe_chunks", fake_stt)
     service.media_service.transcribe_media(str(media_id))
+    # STT prompt에는 시드 반 원아의 성명·호칭만 붙습니다(child_id·반 정보 없음, 파이프라인 1-B)
+    assert stt_prompts == ["김도윤, 도윤, 박서아, 서아, 이하준, 하준, 정예린, 예린, 최지우, 지우."]
     result = client.get(f"/api/v1/media/{media_id}/transcript-segments")
     assert result.status_code == 200, result.text
     assert result.json()["transcript_status"] == "done"
@@ -622,7 +626,7 @@ def test_STT_worker가_멈추면_폴링이_failed로_끝내고_늦은_완료는_
         service.media_service, "_speech_chunks", lambda key: [audio.AudioChunk(0, 5, b"RIFF")]
     )
 
-    def late_stt(chunks):
+    def late_stt(chunks, names=()):
         with factory() as db:
             row = db.scalar(select(MediaUpload).where(MediaUpload.media_id == media_id))
             row.verified_at = datetime.now(UTC) - timedelta(hours=2)
