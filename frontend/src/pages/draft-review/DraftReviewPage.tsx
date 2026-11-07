@@ -22,7 +22,6 @@ import {
   patchDraft,
   publishParentNotes,
   reopenDraft,
-  selectablePhotos,
   selectedPhotos,
 } from "@/api/documents";
 import { classChildrenQueryOptions } from "@/api/organization";
@@ -463,7 +462,6 @@ export function DraftReviewPage() {
   // 게시 전 초안이라 교사가 고른 사진을 그대로 보여 줍니다. 게시본을 되짚어 보는 화면은
   // adapter의 sentPhotos를 써서 실제로 나간 사진만 봅니다.
   const photos = selectedPhotos(draft);
-  const photoCandidates = selectablePhotos(draft);
   // 제목의 장수와 실제로 그리는 장수가 어긋나지 않게, 그릴 사진을 먼저 걸러 그 길이로 셉니다.
   // `failed_media_ids`에 있어도 `media`에 없는 id는 그릴 수 없습니다.
   const failedPhotos =
@@ -711,8 +709,8 @@ export function DraftReviewPage() {
               ) : null}
               {/* 사진이 없는 초안(직접 쓴 글)에서도 추가 자리는 남겨 둡니다. */}
               <DraftPhotos
+                draftId={draft.draft_id}
                 photos={photos}
-                candidates={photoCandidates}
                 lockedReason={photosLockedReason}
                 saving={photosBusy}
                 error={photoError === null ? null : failureText(photoError)}

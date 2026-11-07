@@ -73,7 +73,7 @@ export interface DraftDetail {
   version: number;
   title: string | null;
   sentences: Sentence[];
-  /** 선택 사진의 순서 */
+  /** 선택 사진·영상의 순서. AI 초안은 비어 있고 교사가 고릅니다 */
   selected_media_ids: string[];
   /** 분석 실패로 근거에서 제외된 사진. 구버전 서버 응답에는 없을 수 있습니다. */
   failed_media_ids?: string[];
@@ -93,6 +93,18 @@ export interface DraftDetail {
    */
   include_photos: boolean | null;
   updated_at: string;
+}
+
+/**
+ * GET /drafts/{draft_id}/selectable-media 항목(교사용). 그 원아에게 귀속된 그날 사진·영상이고
+ * 음성메모는 오지 않습니다(테크스펙 D-4). 초안 상세의 `media`에는 없는 후보까지 옵니다.
+ */
+export interface SelectableMedia {
+  media_id: string;
+  type: "photo" | "video";
+  url: string;
+  url_expires_at: string;
+  captured_at: string;
 }
 
 /**

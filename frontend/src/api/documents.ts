@@ -18,6 +18,7 @@ import type {
   ParentNoteList,
   PublicationRequest,
   PublicationResponse,
+  SelectableMedia,
 } from "@/types/api-draft/documents";
 
 import {
@@ -28,6 +29,7 @@ import {
   toParentMediaListView,
   toParentNoteDetailView,
   toParentNoteListView,
+  toSelectableMediaView,
   toPublicationResultView,
   toRevokedPublicationView,
 } from "./documents-adapter";
@@ -37,6 +39,7 @@ import type { DocTypeView } from "./documents-view";
 export {
   canApprove,
   canReopen,
+  canSelectMedia,
   canSaveParentMedia,
   revokeDeadlineOf,
   didSendPhotos,
@@ -46,7 +49,6 @@ export {
   isUnpublishedDraft,
   needsReview,
   pickRosterStatus,
-  selectablePhotos,
   selectedPhotos,
   sentPhotos,
 } from "./documents-adapter";
@@ -69,6 +71,8 @@ export type {
   PublicationStatusView,
   RevokedPublicationView,
   RosterStatusView,
+  SelectableMediaTypeView,
+  SelectableMediaView,
   SentenceView,
 } from "./documents-view";
 
@@ -102,6 +106,11 @@ export const documentsKeys = {
   childDrafts: (childId: string, docType: DocTypeView, published: boolean) =>
     ["children", childId, "drafts", docType, published] as const,
   draft: (draftId: string) => ["drafts", draftId] as const,
+  /**
+   * 알림장에 고를 후보. `draft` 키 아래에 두지 않습니다 — 초안을 비울 때마다 함께 다시 받아, 부를 때마다
+   * 남는 열람 기록(NFR-05)이 교사가 보지도 않은 조회로 쌓입니다.
+   */
+  selectableMedia: (draftId: string) => ["selectable-media", draftId] as const,
   /** 커서도 키에 넣습니다. 페이지마다 캐시가 따로여야 다음 페이지가 첫 페이지를 덮지 않습니다. */
   parentNotes: (childId: string, cursor: string | null = null) =>
     ["children", childId, "parent-notes", cursor] as const,
@@ -157,6 +166,27 @@ export function draftQueryOptions(draftId: string) {
     queryKey: documentsKeys.draft(draftId),
     queryFn: async ({ signal }) =>
       toDraftView(await api.get<DraftDetail>(`/drafts/${encodeURIComponent(draftId)}`, { signal })),
+  });
+}
+
+/**
+ * 교사용: 알림장에 고를 수 있는 사진·영상 후보(촬영 순). 초안 상세의 `media`에는 이미 고른 것과
+ * 근거·실패 사진만 옵니다. 받을 때마다 열람 기록이 남습니다(NFR-05).
+ *
+ * 서명 URL이 만료되고 귀속·파기로 후보가 바뀌므로, 대화상자를 열 때마다 새로 받고 닫으면 버립니다.
+ */
+export function selectableMediaQueryOptions(draftId: string) {
+  return queryOptions({
+    queryKey: documentsKeys.selectableMedia(draftId),
+    staleTime: 0,
+    gcTime: 0,
+    queryFn: async ({ signal }) =>
+      (
+        await api.get<ListResponse<SelectableMedia>>(
+          `/drafts/${encodeURIComponent(draftId)}/selectable-media`,
+          { signal },
+        )
+      ).items.map(toSelectableMediaView),
   });
 }
 

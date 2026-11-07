@@ -265,21 +265,72 @@ describe("DraftReviewPage", () => {
       );
     });
 
-    it("고를 사진이 더 없으면 사진 추가를 잠그고 이유를 적는다", async () => {
+    it("고를 사진·영상을 모두 고르면 대화상자에 더 없다고 알려 준다", async () => {
       const user = userEvent.setup();
       clearDoyunSelection();
       await renderAndWait();
-      // 후보를 모두 고르면 더 고를 사진이 없다
+
       await user.click(screen.getByRole("button", { name: "사진 추가" }));
       const candidates = await screen.findAllByRole("button", { name: /사진 \d+ 추가/ });
       for (let count = candidates.length; count > 0; count -= 1) {
         await user.click(await screen.findByRole("button", { name: "사진 1 추가" }));
         await screen.findByText(`선택 사진 ${String(candidates.length - count + 1)}장`);
       }
-      await user.keyboard("{Escape}");
 
-      expect(await screen.findByText("더 고를 수 있는 사진이 없어요.")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "사진 추가" })).toBeDisabled();
+      expect(
+        within(screen.getByRole("dialog")).getByText("더 고를 수 있는 사진·영상이 없어요."),
+      ).toBeInTheDocument();
+    });
+
+    // 근거에 없는 그날 사진도 고를 수 있어야 합니다(메모로 쓴 초안·직접 쓴 초안·문장을 고친 초안).
+    it("초안 상세에 없는 그날 사진도 서버 후보로 받아 고른다", async () => {
+      const user = userEvent.setup();
+      clearDoyunSelection();
+      const extra = "c0ffee00-0000-4000-8000-000000000001";
+      server.use(
+        http.get(apiPath("/drafts/:draftId/selectable-media"), () =>
+          HttpResponse.json({
+            items: [
+              {
+                media_id: extra,
+                type: "photo",
+                url: `https://s3.example.com/${extra}`,
+                url_expires_at: "2026-11-07T09:00:00Z",
+                captured_at: "2026-11-07T01:00:00Z",
+              },
+            ],
+            next_cursor: null,
+          }),
+        ),
+        http.patch(apiPath("/drafts/:draftId"), () =>
+          errorResponse(409, "DRAFT_VERSION_CONFLICT", "다시 불러와 주세요."),
+        ),
+      );
+      const sent = capturePatches();
+      await renderAndWait();
+
+      await user.click(screen.getByRole("button", { name: "사진 추가" }));
+      await user.click(await screen.findByRole("button", { name: "사진 1 추가" }));
+
+      await waitFor(() => expect(sent).toHaveLength(1));
+      expect(sent[0]?.selected_media_ids).toEqual([extra]);
+    });
+
+    it("후보를 불러오지 못하면 대화상자에 이유와 다시 시도를 보여 준다", async () => {
+      const user = userEvent.setup();
+      clearDoyunSelection();
+      server.use(
+        http.get(apiPath("/drafts/:draftId/selectable-media"), () =>
+          errorResponse(500, "ACCESS_LOG_FAILED", "열람 기록을 남기지 못했어요."),
+        ),
+      );
+      await renderAndWait();
+
+      await user.click(screen.getByRole("button", { name: "사진 추가" }));
+
+      const dialog = screen.getByRole("dialog");
+      expect(await within(dialog).findByText("열람 기록을 남기지 못했어요.")).toBeInTheDocument();
+      expect(within(dialog).getByRole("button", { name: "다시 불러오기" })).toBeInTheDocument();
     });
 
     it("문장을 수정하는 중에는 사진을 바꿀 수 없다", async () => {

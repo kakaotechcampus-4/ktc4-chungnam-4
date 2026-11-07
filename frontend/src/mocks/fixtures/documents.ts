@@ -109,7 +109,8 @@ export function buildDrafts({
     record_date: recordDate,
     status: "verified" as const,
     version: 1,
-    selected_media_ids: picked.filter((media) => media.type === "photo").map((m) => m.media_id),
+    // 서버 AI 초안처럼 비워 둡니다. 미리 채우면 목에서만 사진이 나가 고르는 단계의 문제가 안 보입니다(#257).
+    selected_media_ids: [],
     author_teacher_id: TEACHER_ME.teacher_id,
     author_name: TEACHER_ME.name,
     approved_at: null,

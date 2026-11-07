@@ -1,6 +1,7 @@
 import { http, HttpResponse } from "msw";
 
-import { kstToday } from "@/lib/datetime";
+import { kstToday, toKstDate } from "@/lib/datetime";
+import type { ListResponse } from "@/types/api-draft/common";
 import type {
   ChildDraftItem,
   ClassDraftItem,
@@ -22,6 +23,7 @@ import type {
   PublicationRequest,
   PublicationResponse,
   PublicationResult,
+  SelectableMedia,
 } from "@/types/api-draft/documents";
 import type { MediaUrl } from "@/types/api-draft/media";
 
@@ -146,19 +148,24 @@ function parentPhotos(
   return parentMedia(db, draft).slice(0, limit).map(toMediaUrl);
 }
 
-// 서버 _parent_note_media_ids와 같은 범위입니다: 사진을 함께 보내기로 게시한 알림장에서, 교사가 고른
-// 것 중 그 원아에게 귀속된 사진·영상. 함께 찍힌 아이의 ③ 동의와 llm_allowed는 보지 않습니다
-// (테크스펙 D-4, FR-10).
+// 서버 _shareable_media와 같은 범위입니다: 그 원아에게 귀속된 그 기록 날짜(KST)의 사진·영상. 함께 찍힌
+// 아이의 ③ 동의와 llm_allowed는 보지 않습니다(테크스펙 D-4, FR-10). 후보 목록, 고를 때, 볼 때가 함께 씁니다.
+function isShareable(media: MediaRecord | undefined, draft: DraftRecord): media is MediaRecord {
+  return (
+    media !== undefined &&
+    (media.type === "photo" || media.type === "video") &&
+    toKstDate(media.captured_at) === draft.record_date &&
+    media.child_links.some((link) => link.child_id === draft.child_id)
+  );
+}
+
+// 서버 _parent_note_media_ids와 같습니다: 사진을 함께 보내기로 게시한 알림장에서, 교사가 고른 것 중
+// 지금도 보여도 되는 것.
 function parentMedia(db: MockDb, draft: DraftRecord): MediaRecord[] {
   if (!draft.include_photos) return [];
   return draft.selected_media_ids
     .map((id) => db.media[id])
-    .filter(
-      (media): media is MediaRecord =>
-        media !== undefined &&
-        (media.type === "photo" || media.type === "video") &&
-        media.child_links.some((link) => link.child_id === draft.child_id),
-    );
+    .filter((media): media is MediaRecord => isShareable(media, draft));
 }
 
 function toParentMediaItem(media: MediaRecord): ParentMediaItem {
@@ -276,6 +283,34 @@ export const handlers = [
     return HttpResponse.json<DraftDetail>(detail(readDb(), draft));
   }),
 
+  // 알림장에 고를 사진·영상 후보(API 문서 §selectable-media). 권한은 초안 상세와 같고 촬영 순서입니다.
+  http.get(apiPath("/drafts/:draftId/selectable-media"), ({ params }) => {
+    const denied = requireTeacher();
+    if (denied) return denied;
+    const draft = findDraft(params.draftId);
+    if (!draft) return errorResponse(404, "DRAFT_NOT_FOUND", "초안을 찾을 수 없어요.");
+    if (draft.class_id !== SUNSHINE_CLASS.class_id) {
+      return errorResponse(403, "CHILD_ACCESS_DENIED", "이 아이의 기록은 볼 수 없어요.");
+    }
+    if (draft.doc_type !== "parent_note") {
+      return errorResponse(409, "NOT_PARENT_NOTE", "알림장에만 사진을 고를 수 있어요.");
+    }
+    const items = Object.values(readDb().media)
+      .filter((media) => isShareable(media, draft))
+      .sort((a, b) => a.captured_at.localeCompare(b.captured_at))
+      .map((media): SelectableMedia => {
+        const { url, url_expires_at } = toMediaUrl(media);
+        return {
+          media_id: media.media_id,
+          type: media.type as SelectableMedia["type"],
+          url,
+          url_expires_at,
+          captured_at: media.captured_at,
+        };
+      });
+    return HttpResponse.json<ListResponse<SelectableMedia>>({ items, next_cursor: null });
+  }),
+
   http.patch(apiPath("/drafts/:draftId"), async ({ request, params }) => {
     const denied = requireTeacher();
     if (denied) return denied;
@@ -314,12 +349,12 @@ export const handlers = [
         return errorResponse(400, "INVALID_SENTENCE_ID", "없는 문장이에요.");
       }
       const selected = body.selected_media_ids;
-      if (
-        selected?.some(
-          (id) => !db.media[id]?.child_links.some((link) => link.child_id === draft.child_id),
-        )
-      ) {
-        return errorResponse(400, "MEDIA_NOT_LINKED_TO_CHILD", "이 원아의 사진이 아니에요.");
+      if (selected?.some((id) => !isShareable(db.media[id], draft))) {
+        return errorResponse(
+          400,
+          "MEDIA_NOT_LINKED_TO_CHILD",
+          "이 원아의 그날 사진·영상만 고를 수 있어요.",
+        );
       }
       for (const edit of edits) {
         const sentence = byId.get(edit.sentence_id);
