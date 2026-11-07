@@ -9,6 +9,7 @@ import {
 } from "@/api/agents";
 import { Button } from "@/components/ui/button";
 import type { ClassChildView } from "@/api/organization";
+import { cn } from "@/lib/utils";
 
 interface EvidenceCardProps {
   child: ClassChildView;
@@ -37,9 +38,11 @@ export function EvidenceCard({ child, recordDate }: EvidenceCardProps) {
 
   const existing = evidence.data?.find((note) => note.child_id === child.child_id);
   const text = draftText ?? existing?.text ?? "";
-  // 서버와 같게 앞뒤 공백을 뺀 글자 수로 셉니다. 넘으면 입력은 막지 않고(붙여넣은 글이 조용히 잘리지
-  // 않게) 저장만 막습니다.
-  const length = text.trim().length;
+  // 서버와 같게 앞뒤 공백을 뺀 글자 수를, 서버(파이썬 len)처럼 코드 포인트 단위로 셉니다. `.length`는
+  // UTF-16 단위라 이모지를 두 글자로 세어 서버보다 엄격해집니다. 넘으면 입력은 막지 않고(붙여넣은 글이
+  // 조용히 잘리지 않게) 저장만 막습니다.
+  const length = [...text.trim()].length;
+  const limitLabel = TEACHER_EVIDENCE_TEXT_MAX_LENGTH.toLocaleString("ko-KR");
   const overLimit = length > TEACHER_EVIDENCE_TEXT_MAX_LENGTH;
   // TODO(김동건): 활동 시각 기본값은 스펙에 없습니다. 비워 두면 서버가 받지 못해 지금은 10:30으로 채웁니다.
   const activityTime = draftTime ?? existing?.activity_time ?? "10:30";
@@ -117,14 +120,15 @@ export function EvidenceCard({ child, recordDate }: EvidenceCardProps) {
         {/* 글자 수는 보조 표시라 스크린 리더에는 읽히지 않게 두고, 넘었을 때의 안내만 읽어 줍니다. */}
         <p
           aria-hidden="true"
-          className={`-mt-2 text-right text-caption ${overLimit ? "font-bold text-destructive" : "text-ink-muted"}`}
+          className={cn(
+            "-mt-2 text-right text-caption",
+            overLimit ? "font-bold text-destructive" : "text-ink-muted",
+          )}
         >
-          {length.toLocaleString()} / {TEACHER_EVIDENCE_TEXT_MAX_LENGTH.toLocaleString()}자
+          {length.toLocaleString("ko-KR")} / {limitLabel}자
         </p>
         <p id="evidence-length-help" aria-live="polite" className="text-caption text-destructive">
-          {overLimit
-            ? `${TEACHER_EVIDENCE_TEXT_MAX_LENGTH.toLocaleString()}자 이하로 줄여 주세요.`
-            : ""}
+          {overLimit ? `${limitLabel}자 이하로 줄여 주세요.` : ""}
         </p>
         {/* TODO(김동건): 음성으로 남기기·관련 사진 연결(Figma 1:3095)은 모양이 정해지면 붙입니다. */}
         <div className="flex items-center justify-between gap-3">

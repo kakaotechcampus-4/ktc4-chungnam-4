@@ -252,6 +252,29 @@ def test_글자_수_상한까지는_저장하고_넘으면_422로_거절한다(
     assert len(exact.json()["text"]) == limit
 
 
+def test_상한을_넘어_거절한_응답에는_입력한_글이_실리지_않는다(client: TestClient) -> None:
+    # 공통 검증 핸들러(main.py)가 입력값과 msg를 응답에서 뺀다는 사실을 회귀 테스트로 남긴다(H-4).
+    response = _put(
+        client, DOYUN, text="서연이가 말했어요. " + "가" * TEACHER_EVIDENCE_TEXT_MAX_LENGTH
+    )
+
+    assert response.status_code == 422
+    assert "서연이가" not in response.text
+
+
+def test_저장된_메모를_상한을_넘는_글로_덮어쓰려_하면_422이고_기존_메모는_그대로다(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    assert _put(client, DOYUN).status_code == 201
+
+    response = _put(client, DOYUN, text="가" * (TEACHER_EVIDENCE_TEXT_MAX_LENGTH + 1))
+
+    assert response.status_code == 422
+    with session_factory() as db:
+        row = db.scalars(select(TeacherEvidence)).one()
+    assert row.text == "나뭇잎을 모아 크기를 비교했어요."
+
+
 def test_오늘보다_뒤_날짜는_거절한다(client: TestClient) -> None:
     tomorrow = datetime.now(ZoneInfo("Asia/Seoul")).date() + timedelta(days=1)
 
