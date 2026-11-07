@@ -65,6 +65,8 @@ function failureText(error: unknown) {
   return error instanceof ApiError ? error.message : "잠시 후 다시 시도해 주세요.";
 }
 
+const PUBLISH_DONE_PATH = "/t/notes/publish/done";
+
 /** 게시 안내에 적을 이름. 여럿이면 줄이 길어져 버튼을 밀어내므로 줄여 적습니다. */
 function summarizeNames(names: string[]) {
   return names.length > 2 ? `${names[0]} 외 ${names.length - 1}명` : names.join(", ");
@@ -202,9 +204,13 @@ export function DraftReviewPage() {
   );
   // 레일에서 원아를 바꾸는 것도 주소가 바뀌지만 **이 화면 안**입니다. 경로만 비교하면
   // 아이를 옮길 때마다 경고가 떠서 아무것도 못 합니다. 검토 화면을 아주 떠날 때만 막습니다.
+  // 발행 완료로 가는 것도 막지 않습니다. 게시가 끝난 뒤의 이동이고, 목록을 다시 받아 그리기 전이라
+  // unsentRow가 아직 남아 있습니다.
   const blocker = useBlocker(
     ({ nextLocation }) =>
-      unsentRow !== undefined && !nextLocation.pathname.startsWith("/t/today/review/"),
+      unsentRow !== undefined &&
+      !nextLocation.pathname.startsWith("/t/today/review/") &&
+      nextLocation.pathname !== PUBLISH_DONE_PATH,
   );
 
   const selectedChildId = childId ?? rows[0]?.child.child_id ?? "";
@@ -431,7 +437,7 @@ export function DraftReviewPage() {
       });
       if (failures.length > 0) return;
       // 발행 완료 화면이 오늘이 아니라 게시한 날짜를 보여 주도록 요청 때의 날짜를 함께 넘깁니다.
-      navigate("/t/notes/publish/done", {
+      navigate(PUBLISH_DONE_PATH, {
         state: { publishedCount: results.length, recordDate: variables.recordDate },
       });
     },
@@ -643,7 +649,11 @@ export function DraftReviewPage() {
             {published.map(({ child, note, publishedAt }) => (
               <PublishedNoteRow
                 key={child.child_id}
-                onRevoked={() => setRevokedDraftId(note.draft_id)}
+                onRevoked={() => {
+                  setRevokedDraftId(note.draft_id);
+                  // 회수하면 이 화면이 다시 열립니다. 주소의 아이가 아니라 방금 회수한 아이를 보여 줍니다.
+                  selectChild(child.child_id);
+                }}
                 childId={child.child_id}
                 childName={child.name}
                 draftId={note.draft_id}
@@ -981,7 +991,14 @@ export function DraftReviewPage() {
           )}
         </section>
 
-        <EvidencePanel sentence={selectedSentence} onClose={() => setSelectedSentenceId(null)} />
+        <EvidencePanel
+          sentence={selectedSentence}
+          media={draft?.media ?? []}
+          onClipFailed={() => {
+            void queryClient.invalidateQueries({ queryKey: documentsKeys.draft(draftId) });
+          }}
+          onClose={() => setSelectedSentenceId(null)}
+        />
       </div>
 
       {isObservation ? (

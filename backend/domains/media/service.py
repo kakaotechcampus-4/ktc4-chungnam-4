@@ -553,6 +553,22 @@ def get_media_meta(db: Session, media_ids: Sequence[UUID]) -> dict[UUID, MediaMe
     }
 
 
+def get_segment_end_ms(db: Session, segment_ids: Sequence[UUID]) -> dict[UUID, int]:
+    """발화 구간의 끝 시각을 밀리초로 찾아 줍니다 (FR-07).
+
+    agents가 근거 구간을 교사 화면 모양으로 바꿀 때 씁니다. 끝 시각이 없는 구간은 빼고 돌려줍니다.
+    """
+    unique_ids = list(dict.fromkeys(segment_ids))
+    if not unique_ids:
+        return {}
+    rows = db.execute(
+        select(TranscriptSegment.id, TranscriptSegment.end_time).where(
+            TranscriptSegment.id.in_(unique_ids), TranscriptSegment.end_time.is_not(None)
+        )
+    ).all()
+    return {row.id: round(row.end_time * 1000) for row in rows}
+
+
 @dataclass(frozen=True)
 class SignedMediaUrl:
     """근거 미디어를 재생·표시할 서명 URL. 모든 도메인이 이 모양 하나로 씁니다(docs/api/media-face.md).

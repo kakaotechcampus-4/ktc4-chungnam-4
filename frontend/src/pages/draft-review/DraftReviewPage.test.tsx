@@ -1506,6 +1506,17 @@ describe("DraftReviewPage", () => {
     expect(screen.queryByText(/되돌릴 수 있습니다/)).not.toBeInTheDocument();
   });
 
+  it("둘째 줄 아이를 회수하면 그 아이 화면으로 옮겨 바로 고칠 수 있다", async () => {
+    const user = userEvent.setup();
+    publishedJustNow();
+    renderClosedDay();
+
+    await user.click((await screen.findAllByRole("button", { name: "회수" }))[1]!);
+    await user.click(await screen.findByRole("button", { name: "회수하기" }));
+
+    expect(await screen.findByRole("button", { name: "다시 검토하기" })).toBeInTheDocument();
+  });
+
   // 학부모가 이미 열어 본 알림장은 서버가 막습니다. 화면은 기한만 보고 버튼을 열기 때문에
   // 눌러 봐야 알 수 있고, 그때 이유가 보여야 교사가 다음 행동을 고릅니다.
   it("학부모가 이미 열어 봤으면 회수가 막힌 이유를 보여 준다", async () => {
@@ -1653,6 +1664,33 @@ describe("DraftReviewPage", () => {
     await act(() => router.navigate("/t/notes"));
 
     expect(await screen.findByText("보내지 않고 나가시겠어요?")).toBeInTheDocument();
+  });
+
+  // 게시가 끝나 넘어가는 길은 막지 않습니다. 목록을 다시 받기 전이라 경고 조건이 아직 남아 있어,
+  // 끝난 화면에 머물고 발행 완료로 넘어가지 못했습니다(11/07 로컬 통합 시험).
+  it("회수한 뒤 고쳐서 다시 게시하면 발행 완료로 넘어간다", async () => {
+    const user = userEvent.setup();
+    publishedJustNow();
+    renderRoutes(
+      [
+        { path: "/t/today/review/:childId", element: <DraftReviewPage /> },
+        { path: "/t/notes/publish/done", element: <p>발행 완료</p> },
+      ],
+      { initialEntry: `/t/today/review/${DOYUN}?record_date=${CLOSED_DAY}` },
+    );
+
+    await user.click((await screen.findAllByRole("button", { name: "회수" }))[0]!);
+    await user.click(await screen.findByRole("button", { name: "회수하기" }));
+    await user.click(await screen.findByRole("button", { name: "다시 검토하기" }));
+    await user.click(await screen.findByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "검토 완료하고 승인하기" }));
+    await screen.findByRole("button", { name: "다시 검토하기" });
+    await user.click(screen.getByRole("button", { name: "게시하기" }));
+    const dialog = await screen.findByRole("alertdialog");
+    await user.click(within(dialog).getByRole("button", { name: "게시하기" }));
+
+    expect(await screen.findByText("발행 완료")).toBeInTheDocument();
+    expect(screen.queryByText("보내지 않고 나가시겠어요?")).not.toBeInTheDocument();
   });
 
   // 평범한 날에는 그날 초안이 전부 미게시라, 상태만 보고 막으면 잠깐 나갈 때마다 경고가 뜹니다.
