@@ -14,7 +14,8 @@
 | ① 송유진 | 홈페이지 · 첫 방문 | 소개와 로그인·시작 버튼뿐 | API 없음(정적) |
 | ① 송유진 | 로그인 | `POST /sessions`, `GET /me`, `GET /classes`(로그인 직후 들어갈 반 고르기), `POST /sessions`에 `remember_me`(확장(경로만), 후보 A를 고르면) | 둘 다 |
 | ① 송유진 | 회원가입 | `POST /accounts` | 경로만 |
-| ① 송유진 | 비밀번호 찾기 | `POST /password-resets` | 경로만 |
+| ① 송유진 | 비밀번호 찾기 | `POST /password-resets` | 상세 작성 |
+| ① 송유진 | 비밀번호 재설정(메일 링크) | `POST /password-resets/confirm` | 상세 작성 |
 | ① 송유진 | 계정 · 설정 | `GET /me`, `PATCH /me`(수정), `DELETE /sessions/current`(로그아웃), (목록에 없음: 알림 설정 3개 읽기·저장) | 둘 다 |
 | ① 송유진 | 접근 권한 없음 | `GET /me`(내 홈으로 돌아가기), `DELETE /sessions/current`(다른 계정으로 로그인) | 상세 작성 |
 | ① 송유진 | W1 초대 링크 열기 | `GET /parent-invites/{token}` | 경로만 |

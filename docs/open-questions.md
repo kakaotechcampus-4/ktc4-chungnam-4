@@ -98,6 +98,7 @@
 - [ ] Celery task의 권한 처리 — `account_id`를 인자로 넘길지, 시스템 권한으로 돌릴지
 - [ ] **CSRF 검사 세부** (인증 방식은 아래 결정 기록) — ① 허용할 `Origin` 설정값 이름과 개발 환경 값(Vite 개발 서버 `http://localhost:5173`) ② 헤더 규칙(제안: `Sec-Fetch-Site`가 있으면 `same-origin`만 통과, `Origin`이 있으면 설정값과 정확히 같아야 통과하고 `null`은 거부, **`Sec-Fetch-Site`와 `Origin`이 둘 다 없으면 거부**. OWASP는 `Origin`이 없을 때 `Referer`로 확인하는 방법도 듦) ③ 거부할 때 상태·에러 코드 이름(테크스펙 공통 에러 코드표에 추가). FE는 403을 모두 "접근 권한 없음" 화면으로 보내므로(`frontend/CLAUDE.md` §데이터) 403을 쓰면 FE 처리도 같이 정합니다 ④ 검사를 둘 곳(공통 미들웨어 등). **`Host`가 아니라 설정값과 비교해야 합니다** — CloudFront가 EC2로 보낼 때 `Host`를 EC2 주소로 바꿉니다(원본 요청 정책 `AllViewerExceptHostHeader`). 같은 설정값을 학부모 초대 링크 주소(`docs/api/organization.md`의 `invite_url`)에도 쓸 수 있습니다. 엄태은
 - [ ] **(멘토 권장, #124 리뷰) API 응답에 `Cache-Control: no-store`를 전역으로 붙일지** — CloudFront `/api/*` 캐시를 꺼 둔 것과 별개로, 설정 실수가 있어도 서버 응답이 캐시되지 않게 하는 두 번째 방어선입니다. 붙이면 `docs/api/media-face.md`의 임베딩 응답 `no-store`(제안)가 여기에 흡수됩니다. 엄태은
+- [ ] **비밀번호 재설정 메일 발송 업체와 키** (정은 제안, 팀 확정 아님) — 재설정 링크는 이메일로 보내기로 임시 결정했으나(`docs/api/auth.md` §비밀번호 재설정) 발송 업체(AWS SES 등)·발신 주소·자격증명 방식이 정해지지 않았습니다. 지금은 발송 인터페이스(`domains/auth/mailer.py`)만 있고 기본 구현은 보내지 않습니다. 업체가 정해지면 구현체와 `.env.example` 키를 더하고 서버 `.env`에도 넣어야 합니다. 함께 정할 것: 유효 시간(임시 30분), 요청 횟수 제한(임시: 같은 계정 1분), 재설정 뒤 기존 로그인 토큰 무효화
 
 ## E. 문서 관리
 
