@@ -21,7 +21,7 @@ from tools.contracts import (
 from tools.json_response import parse_json_response
 
 
-def parse_critic_response(raw_response: str, document: DraftDocument) -> VerificationResult:
+def parse_critic_response(raw_response: str | None, document: DraftDocument) -> VerificationResult:
     """Critic 응답 문자열을 VerificationResult로 정규화한다.
 
     - 앞 설명·코드 블록 처리는 수집·작성과 같은 공통 파서를 따른다(#259 리뷰).

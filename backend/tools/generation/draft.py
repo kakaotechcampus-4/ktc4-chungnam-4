@@ -17,6 +17,7 @@ from datetime import date
 from pydantic import Field, ValidationError
 
 from tools.contracts import ContractModel, DocType, DraftDocument, DraftSentence, NonEmpty
+from tools.generation.agent_tools import SECTIONS
 from tools.json_response import parse_json_response
 
 MAX_SENTENCES = 10
@@ -65,8 +66,6 @@ def parse_draft_response(
         if len(sentence.evidence_refs) != len(set(sentence.evidence_refs)):
             raise DraftResponseError("한 문장에 같은 근거 참조가 중복됐습니다.")
         if doc_type == DocType.OBSERVATION_LOG:
-            from tools.generation.agent_tools import SECTIONS
-
             if sentence.section not in SECTIONS:
                 raise DraftResponseError("관찰일지 영역이 올바르지 않습니다.")
         elif sentence.section is not None:

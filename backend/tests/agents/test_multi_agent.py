@@ -2,14 +2,18 @@
 
 import json
 from datetime import date
+from types import SimpleNamespace
+from unittest.mock import Mock
+from uuid import uuid4
 
 import pytest
 from openai.types.chat import ChatCompletionMessage
 
 from domains.agents import service
+from tests.agents.fixtures.native_agent import native_fixture
 from tools.contracts import AssignmentStatus, EvidenceItem, GenerationRequest, SourceType
 from tools.evidence.builder import build_evidence
-from tools.evidence.routine import parse_routine
+from tools.evidence.routine import parse_routine, routine_json
 from tools.generation.draft import DraftResponseError
 from tools.generation.pseudonymize import LlmEvidence
 
@@ -195,6 +199,153 @@ def test_계획만으로_요약을_만들지_않는다():
         parse_routine(
             '{"facts":[{"text":"놀았다","evidence_refs":["E1"]}]}',
             [LlmEvidence("E1", SourceType.ACTIVITY_PLAN, False, "놀 계획")],
+        )
+
+
+def test_공동_활동과_개인_활동을_하나의_사실로_합치지_않는다():
+    items = [
+        LlmEvidence("E1", SourceType.VIDEO_SPEECH, True, "다 같이 탑을 만들자."),
+        LlmEvidence("E2", SourceType.PHOTO_OBSERVATION, False, "CHILD_A가 블록을 들었다."),
+    ]
+    with pytest.raises(DraftResponseError, match="공동 활동과 개인 활동"):
+        parse_routine(
+            '{"facts":[{"text":"CHILD_A가 탑을 만들었다.","evidence_refs":["E1","E2"]}]}',
+            items,
+        )
+
+
+@pytest.mark.parametrize("shared", [True, False])
+def test_같은_귀속_범위의_여러_근거는_한_사실에_참조할_수_있다(shared):
+    items = [
+        LlmEvidence("E1", SourceType.VIDEO_SPEECH, shared, "블록을 쌓자."),
+        LlmEvidence("E2", SourceType.PHOTO_OBSERVATION, shared, "블록을 쌓았다."),
+    ]
+    routine = parse_routine('{"facts":[{"text":"블록 쌓기","evidence_refs":["E1","E2"]}]}', items)
+    assert routine.facts[0].evidence_refs == ["E1", "E2"]
+
+
+def test_작성자에게_참조한_원문과_귀속을_주고_요약으로_대체하지_않는다():
+    items = [
+        LlmEvidence("E1", SourceType.VIDEO_SPEECH, True, "다 같이 탑을 만들자."),
+        LlmEvidence("E2", SourceType.TEACHER_NOTE, False, "CHILD_A가 블록 두 개를 들었다."),
+        LlmEvidence("E3", SourceType.PHOTO_OBSERVATION, False, "참조하지 않은 사진"),
+    ]
+    routine = parse_routine(
+        json.dumps(
+            {
+                "facts": [
+                    {"text": "공동 탑 놀이", "evidence_refs": ["E1"]},
+                    {"text": "CHILD_A가 탑을 완성했다.", "evidence_refs": ["E2"]},
+                ]
+            }
+        ),
+        items,
+    )
+    payload = json.loads(routine_json(routine, items))
+    assert payload["sources"] == [
+        {
+            "ref": "E1",
+            "source_type": "video_speech",
+            "shared_with_others": True,
+            "text": items[0].text,
+        },
+        {
+            "ref": "E2",
+            "source_type": "teacher_note",
+            "shared_with_others": False,
+            "text": items[1].text,
+        },
+    ]
+    assert payload["sources"][1]["text"] != routine.facts[1].text
+
+
+def test_혼합_요약을_재시도하고_작성과_Critic에_비식별_원문을_유지한다(monkeypatch):
+    day = date(2026, 10, 30)
+    items = [
+        EvidenceItem(
+            evidence_id="photo:private-id",
+            source_type=SourceType.PHOTO_OBSERVATION,
+            child_ids=["a", "b"],
+            observed_date=day,
+            text="가나와 다라가 블록을 쌓았다.",
+            media_id="private-media-id",
+            assignment_status=AssignmentStatus.TEACHER_CONFIRMED,
+        ),
+        EvidenceItem(
+            evidence_id="note:private-id",
+            source_type=SourceType.TEACHER_NOTE,
+            child_ids=["a"],
+            observed_date=day,
+            text="가나가 블록 두 개를 들었다.",
+            assignment_status=AssignmentStatus.TEACHER_CONFIRMED,
+        ),
+    ]
+    inputs = service.GenerationInputs(
+        evidence=items,
+        names_by_child_id={"a": ["가나"], "b": ["다라"]},
+        request=GenerationRequest(
+            request_id="req",
+            class_id=str(uuid4()),
+            child_id="a",
+            record_date=day,
+            evidence_ids=[i.evidence_id for i in items],
+        ),
+    )
+    prompts = []
+    summaries = iter(
+        [
+            {"facts": [{"text": "혼합 요약", "evidence_refs": ["E1", "E2"]}]},
+            {
+                "facts": [
+                    {"text": "공동 요약", "evidence_refs": ["E1"]},
+                    {"text": "개인 요약", "evidence_refs": ["E2"]},
+                ]
+            },
+        ]
+    )
+    writer_prompts = []
+
+    def write(prompt):
+        writer_prompts.append(prompt)
+        return '{"sentences":[{"text":"CHILD_A가 블록 두 개를 들었어요.","evidence_refs":["E2"]}]}'
+
+    writer = native_fixture(write)
+
+    def respond(messages, tools):
+        if tools[0]["function"]["name"] == "activity_plan":
+            prompts.append(messages[0]["content"])
+            return finish(json.dumps(next(summaries)))
+        return writer(messages, tools)
+
+    monkeypatch.setattr(service, "call_agent", respond)
+    monkeypatch.setattr(service, "_agent_trace", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        service.organization_service, "get_class_age_band", lambda *args: "preschool"
+    )
+    bundle = SimpleNamespace(daily_routine=None)
+    prepared = service._prepare_agent_inputs(Mock(), Mock(), bundle, inputs)
+    assert len(prompts) == 2
+    assert "별도 사실로 나누세요" in prompts[1]
+    assert len(bundle.daily_routine["facts"]) == 2
+    generated = service._generate_draft(
+        prepared, draft_id="draft", version=1, previous=None, issues=[]
+    )
+    payload = json.loads(writer_prompts[0].split("근거:\n", 1)[1].split("\n\n직전", 1)[0])
+    assert payload["sources"][1]["text"] == "CHILD_A가 블록 두 개를 들었다."
+    assert payload["facts"][1]["text"] == "개인 요약"
+    critic_prompts = []
+
+    def critic(prompt):
+        critic_prompts.append(prompt)
+        return '[{"sentence_id":"s1","verdict":"pass","reason_code":"ok","detail":"일치","evidence_ids":["E2"]}]'
+
+    monkeypatch.setattr(service, "call_claude", critic)
+    assert service._run_critic(generated.document, generated.masked_evidence_by_id).passed
+    assert "개인 요약" not in critic_prompts[0] and "공동 요약" not in critic_prompts[0]
+    assert "CHILD_A가 블록 두 개를 들었다." in critic_prompts[0]
+    for prompt in [*prompts, *writer_prompts, *critic_prompts]:
+        assert all(
+            value not in prompt for value in ["가나", "다라", "private-id", "private-media-id"]
         )
 
 

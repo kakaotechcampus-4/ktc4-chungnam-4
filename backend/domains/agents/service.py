@@ -1712,7 +1712,7 @@ def _prepare_agent_inputs(
             + json.dumps([asdict(item) for item in observed], ensure_ascii=False)
         )
         if attempt:
-            prompt += "\n이전 응답의 형식·참조가 잘못되었거나 출력 한도를 넘었습니다. 사실 수와 길이를 줄이고 지정한 JSON과 실제 관찰 근거만 사용하세요."
+            prompt += "\n이전 응답의 형식·참조·공동 귀속 구분이 잘못되었거나 출력 한도를 넘었습니다. 사실 수와 길이를 줄이고 지정한 JSON과 실제 관찰 근거만 사용하세요. shared_with_others가 다른 근거는 별도 사실로 나누세요."
         try:
             raw = _agent_conversation(
                 role="collector",
