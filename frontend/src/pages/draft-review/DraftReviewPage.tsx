@@ -930,7 +930,14 @@ export function DraftReviewPage() {
           )}
         </section>
 
-        <EvidencePanel sentence={selectedSentence} onClose={() => setSelectedSentenceId(null)} />
+        <EvidencePanel
+          sentence={selectedSentence}
+          media={draft?.media ?? []}
+          onClipFailed={() => {
+            void queryClient.invalidateQueries({ queryKey: documentsKeys.draft(draftId) });
+          }}
+          onClose={() => setSelectedSentenceId(null)}
+        />
       </div>
 
       <div className="mt-6 flex items-center justify-between border-t border-line pt-4">
