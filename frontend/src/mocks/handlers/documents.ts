@@ -10,6 +10,8 @@ import type {
   DraftDetail,
   DraftPatchRequest,
   DraftReopenRequest,
+  DraftRevokeRequest,
+  DraftRevokeResponse,
   DraftSummary,
   ParentMediaDownload,
   ParentMediaItem,
@@ -27,6 +29,7 @@ import { nextId, nowIso, readDb, toMediaUrl, updateDb } from "../db";
 import type { DraftRecord, MediaRecord, MockDb } from "../db";
 import { TEACHER_ME } from "../fixtures/auth";
 import { previewOf } from "../fixtures/documents";
+import { fixtureId } from "../fixtures/ids";
 import { PARENT_OF_CHILD, SUNSHINE_CHILDREN, SUNSHINE_CLASS } from "../fixtures/organization";
 import { MOCK_PARENT_ID, requireParent, requireTeacher, requireTeacherOfClass } from "../guards";
 import { apiPath, errorResponse, validationError } from "../http";
@@ -36,8 +39,33 @@ import { isMockScenario } from "../scenario";
 // develop의 documents 라우터와 같고, 필드가 다른 곳은 API 문서를 따릅니다. 게시 여부는 status가 아니라
 // published_at으로 나타냅니다.
 // 시나리오: documents.drafts-empty(반·날짜 초안 목록이 비어 있음)
+//          documents.just-published(게시분을 방금 게시한 것으로 — 지난 날짜에서 회수 확인용)
+//          documents.published-today(오늘 게시를 마친 상태로 시작 — mocks/db.ts 시드)
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * 회수 기한. 서버 `_REVOKE_WINDOW`(24시간)를 옮긴 값입니다.
+ *
+ * 화면 쪽 `REVOKE_WINDOW_MS`(documents-adapter)와 **일부러 따로 둡니다.** 한 곳에서 가져다
+ * 쓰면 값이 틀려도 목과 화면이 나란히 틀려서 테스트가 못 잡습니다.
+ */
+const REVOKE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** 시나리오가 쓰는 "방금". 부를 때마다 새로 읽으면 목록·상세·회수가 서로 다른 값을 봅니다. */
+const MOCK_STARTED_AT = new Date().toISOString();
+
+/**
+ * 게시 시각. `documents.just-published` 시나리오면 "방금"으로 당깁니다 — 시드의 게시분은
+ * 그제 것이라 회수 기한(24시간)이 늘 지나 있어 회수 화면을 볼 수 없습니다.
+ *
+ * **목록·상세·회수 처리가 모두 이 함수를 지나야 합니다.** 한쪽만 당기면 버튼은 보이는데
+ * 누르면 "기한이 지났습니다"로 거절합니다(실제로 그렇게 만들었다가 고쳤습니다).
+ */
+function publishedAtOf(draft: DraftRecord): string | null {
+  if (draft.published_at === null) return null;
+  return isMockScenario("documents.just-published") ? MOCK_STARTED_AT : draft.published_at;
+}
 
 /** 교사가 쓴 문장(t1, t2…)의 다음 번호. 지운 문장 번호를 다시 쓰지 않게 최댓값 다음으로 둡니다 */
 function nextTeacherSentenceNo(sentences: readonly { sentence_id: string }[]) {
@@ -50,7 +78,7 @@ function summary(draft: DraftRecord): DraftSummary {
     draft_id: draft.draft_id,
     status: draft.status,
     version: draft.version,
-    published_at: draft.published_at,
+    published_at: publishedAtOf(draft),
     preview: previewOf(draft.sentences),
   };
 }
@@ -65,6 +93,8 @@ function detail(db: MockDb, draft: DraftRecord): DraftDetail {
     .map((id) => db.media[id])
     .filter((record): record is MediaRecord => record !== undefined)
     .map(toMediaUrl);
+  const published = publishedAtOf(draft);
+  const publishedAt = published === null ? null : Date.parse(published);
   return {
     daily_routine: draft.daily_routine ?? [],
     draft_id: draft.draft_id,
@@ -82,7 +112,15 @@ function detail(db: MockDb, draft: DraftRecord): DraftDetail {
     author_teacher_id: draft.author_teacher_id,
     author_name: draft.author_name,
     approved_at: draft.approved_at,
-    published_at: draft.published_at,
+    published_at: published,
+    // 서버는 회차의 revoke_deadline을 그대로 싣고, can_revoke는 기한 이내 + 학부모 미열람으로
+    // 판정합니다(_can_revoke). 목은 열람을 readParentNotes로 흉내 냅니다.
+    revoke_deadline:
+      publishedAt === null ? null : new Date(publishedAt + REVOKE_WINDOW_MS).toISOString(),
+    can_revoke:
+      publishedAt !== null &&
+      publishedAt + REVOKE_WINDOW_MS > Date.now() &&
+      !db.readParentNotes.includes(draft.draft_id),
     updated_at: draft.updated_at,
   };
 }
@@ -428,14 +466,20 @@ export const handlers = [
           "다른 곳에서 먼저 고쳤어요. 새로 불러와 주세요.",
         );
       }
-      if (draft.status !== "approved") {
-        return errorResponse(409, "DRAFT_NOT_APPROVED", "승인한 초안만 되돌릴 수 있어요.");
+      // 서버 reopen_draft는 승인본과 회수본을 모두 받습니다. 회수본을 막으면 교사가 회수만
+      // 하고 아무것도 못 합니다. 문구도 서버와 맞춥니다.
+      if (draft.status !== "approved" && draft.status !== "revoked") {
+        return errorResponse(
+          409,
+          "DRAFT_NOT_APPROVED",
+          "승인했거나 회수한 초안만 되돌릴 수 있습니다.",
+        );
       }
       if (draft.published_at !== null) {
         return errorResponse(
           409,
           "DRAFT_ALREADY_PUBLISHED",
-          "이미 게시한 알림장은 되돌릴 수 없어요.",
+          "게시한 알림장은 회수한 뒤에 고칠 수 있습니다.",
         );
       }
       const now = nowIso();
@@ -444,6 +488,62 @@ export const handlers = [
       draft.version += 1;
       draft.updated_at = now;
       return HttpResponse.json<DraftDetail>(detail(db, draft));
+    });
+  }),
+
+  // 게시 회수. 서버는 기한 이내·학부모 열람 전·활성 회차 있음을 모두 봅니다(파이프라인 9단계).
+  // 학부모가 열었는지는 목에서 readParentNotes로 흉내 냅니다.
+  http.post(apiPath("/drafts/:draftId/revoke"), async ({ request, params }) => {
+    const denied = requireTeacher();
+    if (denied) return denied;
+    const body = (await request.json()) as Partial<DraftRevokeRequest>;
+    if (typeof body.expected_version !== "number") {
+      return validationError("body.expected_version", "expected_version이 필요합니다");
+    }
+    return updateDb((db) => {
+      const draft = db.drafts[String(params.draftId)];
+      if (!draft) return errorResponse(404, "DRAFT_NOT_FOUND", "초안을 찾을 수 없어요.");
+      if (draft.class_id !== SUNSHINE_CLASS.class_id) {
+        return errorResponse(403, "CHILD_ACCESS_DENIED", "이 아이의 기록은 볼 수 없어요.");
+      }
+      if (draft.published_at === null) {
+        return errorResponse(409, "DRAFT_NOT_PUBLISHED", "게시 중인 알림장이 아닙니다.");
+      }
+      if (db.readParentNotes.includes(draft.draft_id)) {
+        return errorResponse(
+          409,
+          "DRAFT_ALREADY_VIEWED",
+          "학부모가 이미 열어 본 알림장은 회수할 수 없습니다.",
+        );
+      }
+      if (Date.parse(publishedAtOf(draft) ?? draft.published_at) + REVOKE_WINDOW_MS <= Date.now()) {
+        return errorResponse(
+          409,
+          "REVOKE_DEADLINE_PASSED",
+          "회수 기한(게시 후 24시간)이 지났습니다.",
+        );
+      }
+      // 버전은 마지막에 봅니다 — 서버도 회차 UPDATE가 먼저이고 상태 전이에서 버전을 봅니다.
+      if (draft.version !== body.expected_version) {
+        return errorResponse(
+          409,
+          "DRAFT_VERSION_CONFLICT",
+          "다른 곳에서 먼저 고쳤어요. 새로 불러와 주세요.",
+        );
+      }
+      const now = nowIso();
+      // published_at을 비우면 상세의 include_photos도 null로 따라갑니다(활성 회차 없음).
+      draft.status = "revoked";
+      draft.published_at = null;
+      draft.version += 1;
+      draft.updated_at = now;
+      return HttpResponse.json<DraftRevokeResponse>({
+        draft_id: draft.draft_id,
+        // 목은 회차를 따로 두지 않습니다. 화면이 쓰지 않는 값이라 초안마다 고정 id를 냅니다.
+        publication_id: fixtureId("publication", 1),
+        revoked_at: now,
+        version: draft.version,
+      });
     });
   }),
 

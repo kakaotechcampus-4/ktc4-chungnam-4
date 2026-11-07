@@ -56,7 +56,13 @@ const FACE_CONFIG: Partial<Config> = {
     enabled: true,
     detector: { enabled: true, maxDetected: MAX_DETECTED_FACES },
     // 정렬. 끄면 잘라내는 그림이 달라져 벡터가 바뀝니다.
-    mesh: { enabled: true },
+    //
+    // `keepInvalid: true`가 핵심입니다. 기본값은 정렬 점수가 낮은 얼굴을 **버리는데**
+    // (`src/face/facemesh.ts`), 옆모습은 한쪽 눈이 가려져 그 대상이 됩니다. 버리면 사진에
+    // 없는 사람이 되어, 미동의 원아가 옆으로 찍혔을 때 미식별 얼굴로도 안 잡히고
+    // `has_unidentified_face`가 거짓이 됩니다 — 그 사진이 외부 LLM으로 나갑니다(H-2).
+    // 받아 두고 `usable`로 가릅니다(#226 재리뷰 송유진 님, #238 김동건 님 둘 다 찬성).
+    mesh: { enabled: true, keepInvalid: true },
     // 벡터를 만드는 모델(faceres).
     description: { enabled: true },
     // 아래는 얼굴 모델이지만 우리가 복사하지 않습니다. iris만 켜도 약 3MB가 늘어납니다.
@@ -200,6 +206,38 @@ export function resetFaceModels(): void {
  * 한 얼굴이라도 던지면 사진 전체가 실패합니다. 그 얼굴만 버리면 미식별 얼굴이 없는
  * 사진처럼 외부 AI에 전달될 수 있습니다(H-2).
  */
+/**
+ * 정렬이 제대로 된 얼굴인가 — 벡터를 믿고 대조에 써도 되는지입니다.
+ *
+ * **`score`가 아니라 `faceScore`를 봅니다.** `score`는 검출·정렬을 합친 값이라 옆모습도
+ * 검출 점수가 높으면 함께 올라갑니다. 정렬 점수만 따로 보는 `faceScore`가 "눈·코·입을
+ * 제대로 잡았나"에 해당합니다.
+ *
+ * **합성 사진 33장으로 잰 값입니다**(dev-face-match.html §1).
+ *
+ * | 묶음 | 얼굴 | 정렬 점수 |
+ * |---|---|---|
+ * | 정면·45도·웃음 | 20 | 전부 1.00 |
+ * | 옆모습 | 10 | 0.01 ~ 0.64 |
+ * | 활동 사진 | 4 | 전부 1.00 |
+ *
+ * 둘이 겹치지 않아 **`yaw`(얼굴 각도) 기준 없이 점수만으로 갈립니다** — 유진 님이 #226
+ * 재리뷰에서 물으신 것입니다. 0.64와 1.00 사이면 되고, 0.7로 둡니다.
+ *
+ * **다만 정면이 전부 1.00인 것은 합성 사진의 특징입니다.** 조명·거리가 모두 같아 정렬이
+ * 완벽하게 됩니다. 실사진 정면은 1.00보다 낮게 나올 수 있어, 0.7이 멀쩡한 정면까지
+ * 버리지 않는지 조원 사진으로 확인해야 합니다(#237). 같은 도구가 그 분포를 그립니다.
+ *
+ * 틀렸을 때 어느 쪽이 나쁜지로 정했습니다 — 기준이 높아 정면을 버리면 교사가 수동으로
+ * 분류하면 그만이지만, 낮아서 옆모습이 새면 미동의 원아가 LLM으로 갑니다(H-2).
+ */
+export const MIN_MESH_SCORE = 0.7;
+
+/** 정렬 점수. 없으면(모델 구성이 바뀌면) 0으로 봅니다 — 애매하면 잠그는 쪽입니다(H-2). */
+function meshScoreOf(face: FaceResult): number {
+  return face.faceScore ?? 0;
+}
+
 function toDetectedFace(face: FaceResult): DetectedFace {
   if (face.embedding?.length !== FACE_DESCRIPTOR_LENGTH) {
     throw new FaceModelError(
@@ -215,6 +253,8 @@ function toDetectedFace(face: FaceResult): DetectedFace {
     // HUMAN의 score는 검출·정렬 점수를 합친 값입니다. 테크스펙 §온디바이스 모델의
     // confidence가 가리키는 "얼굴로 볼 만한 정도"가 이 값입니다.
     confidence: face.score,
+    meshScore: meshScoreOf(face),
+    usable: meshScoreOf(face) >= MIN_MESH_SCORE,
   };
 }
 
