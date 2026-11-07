@@ -185,6 +185,7 @@ _LIST_PHOTOS_PER_NOTE = 3
 _PARENT_MEDIA_TYPES = frozenset({"photo", "video"})
 # 학부모 사진·영상 모아 보기의 한 쪽 알림장 수 (임시 결정(김동건)).
 MEDIA_NOTES_PER_PAGE_MAX = 30
+PARENT_SEARCH_MAX_LENGTH = 100  # 학부모 알림장·사진 검색어 길이 — 임시 결정(송유진)
 _KST = ZoneInfo("Asia/Seoul")
 
 # 반·날짜 목록의 미리보기 길이 (docs/api/documents.md §GET /classes/{class_id}/drafts, 제안).
@@ -1211,7 +1212,13 @@ def _can_revoke(publication: DocumentPublication | None) -> bool:
 
 
 def list_letters_for_parent(
-    db: Session, *, child_id: UUID, parent_id: UUID, limit: int, cursor: str | None
+    db: Session,
+    *,
+    child_id: UUID,
+    parent_id: UUID,
+    limit: int,
+    cursor: str | None,
+    keyword: str | None = None,
 ) -> ParentNoteListResponse:
     """학부모가 자녀의 게시된 알림장 목록을 본다 (FR-09, H-1).
 
@@ -1220,10 +1227,16 @@ def list_letters_for_parent(
       기록을 커밋한 뒤에 돌려준다 — 임시 결정(한상균), docs/api/documents.md. 목록은 회수
       판단용 first_viewed_at을 건드리지 않는다.
     - is_read·unread_count는 이 학부모가 본문을 연 적이 있는지(AccessLog view_detail)로 센다.
+    - keyword가 있으면 본문·날짜에 그 말이 든 알림장만 담는다(_matching_notes). unread_count와
+      this_month_count는 검색과 상관없이 전체를 센다 — 임시 결정(송유진), docs/api/documents.md.
     """
     notes = _parent_notes(db, parent_id=parent_id, child_id=child_id)
     after = _decode_cursor(cursor)
-    remaining = [note for note in notes if after is None or note[0].record_date < after]
+    remaining = [
+        note
+        for note in _matching_notes(db, notes, keyword)
+        if after is None or note[0].record_date < after
+    ]
     page = remaining[:limit]
     viewed = audit_service.viewed_target_ids(
         db,
@@ -1319,7 +1332,13 @@ def get_letter_for_parent(
 
 
 def list_media_for_parent(
-    db: Session, *, child_id: UUID, parent_id: UUID, limit: int, cursor: str | None
+    db: Session,
+    *,
+    child_id: UUID,
+    parent_id: UUID,
+    limit: int,
+    cursor: str | None,
+    keyword: str | None = None,
 ) -> ParentMediaListResponse:
     """학부모가 자녀의 사진·영상을 알림장 날짜별로 모아 본다 (FR-10, H-1).
 
@@ -1328,8 +1347,10 @@ def list_media_for_parent(
     - 보낼 것이 없는 알림장은 건너뛰고, 기록 날짜 최신순으로 limit개 알림장씩 나눈다.
     - 화면에 실린 알림장마다 AccessLog(view_media)를 커밋한 뒤 돌려준다 — 임시 결정(김동건).
       목록과 같이 first_viewed_at은 건드리지 않는다(회수 판단은 본문 열람 기준).
+    - 사진에는 글이 없어 keyword는 함께 게시한 알림장의 본문·날짜에서 찾는다(_matching_notes).
+      그때 photo_count·video_count는 찾은 알림장 안에서 센다 — 임시 결정(송유진).
     """
-    notes = _parent_notes(db, parent_id=parent_id, child_id=child_id)
+    notes = _matching_notes(db, _parent_notes(db, parent_id=parent_id, child_id=child_id), keyword)
     note_media = _parent_note_media_ids(db, notes)
     with_media = [(draft, publication) for draft, publication in notes if note_media[draft.id]]
     after = _decode_cursor(cursor)
@@ -1428,6 +1449,51 @@ def _parent_notes(
         .order_by(DraftDocument.record_date.desc())
     )
     return list(rows.tuples())
+
+
+def _matching_notes(
+    db: Session,
+    notes: Sequence[tuple[DraftDocument, DocumentPublication]],
+    keyword: str | None,
+) -> list[tuple[DraftDocument, DocumentPublication]]:
+    """게이트를 지난 알림장 가운데 본문이나 날짜에 keyword가 든 것만 남긴다 (FR-09, FR-10).
+
+    게이트(_parent_notes)의 결과만 거르므로 보여도 되는 범위를 넓히지 않는다 (H-1). 검색어가
+    비었으면 그대로 돌려준다. 띄어쓰기와 대소문자는 가리지 않는다. 아이 한 명의 게시본 안에서만
+    찾아 양이 적으므로 파이썬에서 거른다. 검색어는 로그와 AccessLog에 남기지 않는다 (H-4).
+    """
+    needle = _search_key(keyword or "")
+    if not needle:
+        return list(notes)
+    sentences: dict[UUID, list[str]] = {}
+    rows = db.execute(
+        select(DraftSentence.draft_id, DraftSentence.text).where(
+            DraftSentence.draft_id.in_([draft.id for draft, _ in notes])
+        )
+    )
+    for draft_id, text in rows:
+        sentences.setdefault(draft_id, []).append(text)
+    return [
+        (draft, publication)
+        for draft, publication in notes
+        if needle
+        in _search_key(
+            " ".join([_date_search_text(draft.record_date), *sentences.get(draft.id, [])])
+        )
+    ]
+
+
+def _search_key(text: str) -> str:
+    return "".join(text.split()).casefold()
+
+
+def _date_search_text(record_date: date) -> str:
+    """화면의 날짜 표기("2026년 11월 7일 토요일")와 ISO 표기 둘 다로 찾을 수 있게 한다."""
+    weekday = "월화수목금토일"[record_date.weekday()]
+    return (
+        f"{record_date.year}년 {record_date.month}월 {record_date.day}일 {weekday}요일 "
+        f"{record_date.isoformat()}"
+    )
 
 
 def _parent_photos(
