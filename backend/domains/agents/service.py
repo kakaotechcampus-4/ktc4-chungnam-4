@@ -174,27 +174,7 @@ def start_generation_job(
 
     if record_date > datetime.now(_KST).date():
         raise InvalidRecordDate("오늘보다 뒤 날짜의 초안은 만들 수 없습니다.")
-    now = datetime.now(UTC)
-    running_id = db.scalar(
-        select(GenerationJob.id)
-        .join(Job, Job.generation_job_id == GenerationJob.id)
-        .where(
-            GenerationJob.class_id == class_id,
-            GenerationJob.record_date == record_date,
-            GenerationJob.doc_type == DAILY_DOC_TYPE.value,
-            or_(
-                and_(
-                    Job.status == JobStatus.RUNNING.value,
-                    Job.updated_at >= now - _STALE_JOB_AFTER,
-                ),
-                and_(
-                    Job.status == JobStatus.PENDING.value,
-                    Job.updated_at >= now - _STALE_PENDING_JOB_AFTER,
-                ),
-            ),
-        )
-        .limit(1)
-    )
+    running_id = _running_daily_job_id(db, class_id, record_date)
     if running_id is not None:
         raise JobAlreadyRunning(
             "같은 날짜의 초안을 이미 만들고 있습니다.", detail={"job_id": str(running_id)}
@@ -242,6 +222,46 @@ def start_generation_job(
 
 def _find_job_by_request_id(db: Session, request_id: UUID) -> GenerationJob | None:
     return db.scalar(select(GenerationJob).where(GenerationJob.request_id == str(request_id)))
+
+
+def _running_daily_job_id(db: Session, class_id: UUID, record_date: date) -> UUID | None:
+    """그 반·날짜에 돌고 있는 알림장 생성 작업. 멈춘 것으로 보는 작업은 빼고 본다."""
+    now = datetime.now(UTC)
+    return db.scalar(
+        select(GenerationJob.id)
+        .join(Job, Job.generation_job_id == GenerationJob.id)
+        .where(
+            GenerationJob.class_id == class_id,
+            GenerationJob.record_date == record_date,
+            GenerationJob.doc_type == DAILY_DOC_TYPE.value,
+            or_(
+                and_(
+                    Job.status == JobStatus.RUNNING.value,
+                    Job.updated_at >= now - _STALE_JOB_AFTER,
+                ),
+                and_(
+                    Job.status == JobStatus.PENDING.value,
+                    Job.updated_at >= now - _STALE_PENDING_JOB_AFTER,
+                ),
+            ),
+        )
+        .limit(1)
+    )
+
+
+def ensure_no_running_daily_job(db: Session, class_id: UUID, record_date: date) -> None:
+    """그 반·날짜의 초안을 만드는 중이면 JobAlreadyRunning(409)을 올린다 (media 귀속 변경 잠금).
+
+    생성 도중 사진 귀속을 바꾸면 worker가 이미 읽은 옛 귀속으로 초안을 만들어, 옮긴 사진이 이전
+    원아 초안과 학부모 화면에 남는다 (#304 4-23). 처리 중인 자원은 잠그는 것이 일반적이라
+    끝날 때까지 귀속 변경을 막는다. media가 agents를 import하면 순환하므로 라우터가 넘겨준다.
+    """
+    running_id = _running_daily_job_id(db, class_id, record_date)
+    if running_id is not None:
+        raise JobAlreadyRunning(
+            "이 날짜의 초안을 만드는 중이라 분류를 바꿀 수 없어요. 끝난 뒤 다시 시도해 주세요.",
+            detail={"job_id": str(running_id)},
+        )
 
 
 def _started_again(

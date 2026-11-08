@@ -7,7 +7,7 @@
 import logging
 import tempfile
 import time as clock
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from functools import cache
@@ -139,6 +139,7 @@ def save_child_links(
     center_id: UUID | None,
     attributions: Sequence[Attribution],
     llm_allowed: bool,
+    ensure_not_generating: Callable[[Session, UUID, date], None] | None = None,
 ) -> tuple[MediaAsset, list[MediaChildLink]]:
     """교사가 고른 귀속과 `llm_allowed`를 저장합니다 (FR-04, FR-14, `PUT /media/{id}/child-links`).
 
@@ -153,6 +154,9 @@ def save_child_links(
     - 파기된 미디어: `MediaDeleted`(409). 파일이 없어 근거로 쓸 수 없으니 귀속도 받지 않습니다 —
       임시 결정(김동건). 재발급처럼 반 판정 뒤에 봐서 남의 미디어가 파기됐는지 알려 주지 않습니다
     - 미디어가 속한 반의 원아가 아님: `ChildNotInClass`(400)
+    - 그 반·날짜의 초안을 만드는 중: `ensure_not_generating`이 올리는 `JobAlreadyRunning`(409).
+      생성 도중 바꾼 귀속이 초안에 반영되지 않아 옮긴 사진이 이전 원아에게 남습니다(#304 4-23).
+      agents 판정이라 순환 import를 피하려고 부르는 쪽(라우터)이 넘깁니다
     - 검사에 걸리면 아무것도 바꾸지 않습니다. flush만 하므로 커밋은 부르는 쪽이 합니다.
     """
     asset = db.get(MediaAsset, media_id)
@@ -161,6 +165,8 @@ def save_child_links(
     ensure_class_access(db, asset.class_id, center_id)
     if asset.storage_tier == "deleted":
         raise MediaDeleted("보관 기간이 끝나 삭제된 파일이에요.")
+    if ensure_not_generating is not None:
+        ensure_not_generating(db, asset.class_id, _record_date_of(asset.captured_at))
     ensure_children_in_class(db, asset.class_id, [link.child_id for link in attributions])
     links = save_attributions(db, media_id, attributions, llm_allowed)
     return asset, links
@@ -172,6 +178,14 @@ def save_child_links(
 
 # 날짜만 있는 값(record_date·target_date)은 한국 시간 기준 하루입니다 (테크스펙 공통 API 규약).
 _KST = ZoneInfo("Asia/Seoul")
+
+
+def _record_date_of(captured_at: datetime) -> date:
+    """찍은 시각의 한국 날짜. 초안 생성 작업의 record_date와 같은 기준입니다. naive면 UTC로 봅니다."""
+    aware = captured_at if captured_at.tzinfo else captured_at.replace(tzinfo=UTC)
+    return aware.astimezone(_KST).date()
+
+
 # ③ 얼굴특징정보처리 동의는 얼굴이 담기는 사진·영상에만 봅니다.
 _FACE_MEDIA_TYPES = frozenset({"photo", "video"})
 # ConsentRecord.consent_type에 저장되는 ③ 동의 영문 값입니다 (#38).
@@ -1197,6 +1211,7 @@ def complete_upload(
     captured_at: datetime,
     model_version: str | None,
     attribution: AttributionInput | None,
+    ensure_not_generating: Callable[[Session, UUID, date], None] | None = None,
 ) -> CompletedUpload:
     """업로드 완료 통지를 받아 `MediaAsset`을 확정합니다 (FR-15, `POST /media`).
 
@@ -1235,6 +1250,10 @@ def complete_upload(
     if record.media_id is not None:
         asset = db.get(MediaAsset, record.media_id)
         if attribution is not None:
+            # 다시 보낸 귀속이 바뀌었을 때만 생성 중 잠금을 본다(#304 4-23). 같은 귀속의 재전송은
+            # 응답이 끊긴 뒤의 재시도라 막지 않는다.
+            if ensure_not_generating is not None and _attribution_changed(db, asset, attribution):
+                ensure_not_generating(db, asset.class_id, _record_date_of(asset.captured_at))
             save_attributions(db, asset.id, attribution.child_links, attribution.llm_allowed)
         return CompletedUpload(
             asset=asset, child_links=_child_links_of(db, asset.id), created=False
@@ -1269,6 +1288,12 @@ def complete_upload(
         created=True,
         to_transcribe=None if is_photo else asset.id,
     )
+
+
+def _attribution_changed(db: Session, asset: MediaAsset, attribution: AttributionInput) -> bool:
+    current = {link.child_id for link in _child_links_of(db, asset.id)}
+    sent = {link.child_id for link in attribution.child_links}
+    return current != sent or asset.llm_allowed != attribution.llm_allowed
 
 
 # STT 진행 상태 (MediaAsset.transcript_status, 파이프라인 1-B)
