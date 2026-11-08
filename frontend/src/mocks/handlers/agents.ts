@@ -20,6 +20,10 @@ import { requireTeacher, requireTeacherOfClass } from "../guards";
 import { apiPath, errorResponse, listResponse, validationError } from "../http";
 import { isMockScenario } from "../scenario";
 
+// 추가 근거 글자 수 상한 — 서버 값(backend `TEACHER_EVIDENCE_TEXT_MAX_LENGTH`)을 그대로 적습니다. 화면의 상수
+// (`@/api/agents`)를 가져오지 않는 것은, 화면 값이 서버와 어긋나면 이 목과 테스트가 잡아내게 하려는 것입니다.
+const SERVER_EVIDENCE_TEXT_LIMIT = 1000;
+
 // API 문서 §agents 목입니다. 서버 전송이 끝나면 FE가 POST /jobs를 한 번 부르고(#60 B안), GET /jobs/{job_id}를 폴링합니다.
 // - 폴링할 때마다 안 끝난 원아가 한 단계씩 나아갑니다(4번이면 끝). 2초 간격이면 약 8초입니다.
 // - 근거는 요청의 media_ids 가운데 그 원아에게 귀속되고 llm_allowed인 자료만 씁니다(김동건 님 #60 [must], 잠정).
@@ -438,6 +442,10 @@ export const handlers = [
     const body = (await request.json()) as TeacherEvidenceUpsertRequest;
     if (!body.text?.trim()) {
       return errorResponse(422, "VALIDATION_ERROR", "관찰 내용을 적어 주세요.");
+    }
+    if ([...body.text.trim()].length > SERVER_EVIDENCE_TEXT_LIMIT) {
+      // 실제 서버는 공통 검증 핸들러가 메시지를 이 문구로 통일합니다(backend/main.py, H-4).
+      return errorResponse(422, "VALIDATION_ERROR", "입력한 값을 다시 확인해 주세요.");
     }
     const childId = String(params.childId);
     const recordDate = String(params.recordDate);
