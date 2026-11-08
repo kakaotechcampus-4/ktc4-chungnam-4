@@ -1029,3 +1029,21 @@ def test_orchestrate_drafts_인식_결과는_재생성해도_한_번만_만든�
     service.orchestrate_drafts(job_id="job-1", child_id="00000000-0000-0000-0000-000000000001")
 
     assert len(loads) == 1
+
+
+@pytest.mark.parametrize(
+    ("text", "unknown"),
+    [
+        ("CHILD_A의 블록 놀이를 했어요.", []),
+        ("CHILD_A는 CHILD_B와 함께 그림을 그렸어요.", []),
+        ("child_a가 웃으며 뛰었어요.", ["child_a"]),
+        ("CHILD_ A가 모래 놀이를 했어요.", ["CHILD_ A"]),
+        ("CHILD_Z와 놀았어요.", ["CHILD_Z"]),
+        ("CHILD_AB가 노래했어요.", ["CHILD_AB"]),
+    ],
+)
+def test_보낸_적_없거나_깨진_토큰을_찾는다(text, unknown) -> None:
+    """통합 환경에서 변형 토큰이 그대로 초안에 남던 문제 (#304 4-24)."""
+    from tools.generation.pseudonymize import unknown_child_tokens
+
+    assert unknown_child_tokens(text, {"CHILD_A", "CHILD_B"}) == unknown

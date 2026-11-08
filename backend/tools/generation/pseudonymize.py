@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 
 from tools.contracts import EvidenceItem, SourceType
@@ -117,6 +117,23 @@ def pseudonymize_evidence(
         evidence_by_id=masked_by_id,
         child_id_by_token={token: child_id for child_id, token in token_by_child_id.items()},
     )
+
+
+# 토큰을 흉내 낸 변형까지 잡는 느슨한 패턴: child_a, CHILD_ A, CHILD-A 등.
+_TOKEN_LIKE_PATTERN = re.compile(r"child[\s_\-]*[a-z]+", re.IGNORECASE)
+
+
+def unknown_child_tokens(text: str, known_tokens: Collection[str]) -> list[str]:
+    """보낸 적 없거나 형식이 깨진 원아 토큰. restore_names가 되돌리지 못해 초안에 그대로 남는다.
+
+    LLM이 CHILD_A를 child_a·CHILD_ A로 바꿔 쓰거나 CHILD_Z처럼 지어내면 실명으로 복원되지
+    않고 토큰이 학부모 화면까지 간다 (#304 4-24). 7-A 출력형식 실패로 보고 재생성한다.
+    """
+    return [
+        match.group(0)
+        for match in _TOKEN_LIKE_PATTERN.finditer(text)
+        if match.group(0) not in known_tokens
+    ]
 
 
 def restore_names(text: str, name_by_token: Mapping[str, str]) -> str:
