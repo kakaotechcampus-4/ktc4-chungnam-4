@@ -64,6 +64,10 @@ export interface DraftRecord {
   version: number;
   title: string | null;
   sentences: Sentence[];
+  /** 관찰일지 양식의 영역 순서. 월별 관찰일지만 가집니다. */
+  sections?: string[];
+  /** 월별 관찰일지를 만든 시각 */
+  created_at?: string;
   selected_media_ids: string[];
   author_teacher_id: string;
   author_name: string;

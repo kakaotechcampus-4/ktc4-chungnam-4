@@ -37,6 +37,29 @@ export interface ClassDraftItem {
   unclassified: { reason: string } | null;
 }
 
+/** GET /classes/{class_id}/observation-logs 항목의 관찰일지 요약 */
+export interface ObservationLogSummary {
+  draft_id: string;
+  status: DraftStatus;
+  created_at: string;
+}
+
+/**
+ * GET /classes/{class_id}/observation-logs?month=YYYY-MM 항목. 명단 순서이고 재원 중인 모든 원아가 옵니다.
+ * 이름은 싣지 않습니다 — 화면이 child_id로 명단과 합칩니다.
+ */
+export interface ClassObservationLogItem {
+  child_id: string;
+  /** 그 달에 게시된 알림장 수. 0이면 관찰일지를 만들 수 없습니다 */
+  published_note_count: number;
+  observation_log: ObservationLogSummary | null;
+}
+
+export interface ClassObservationLogList {
+  month: string;
+  items: ClassObservationLogItem[];
+}
+
 /** GET /children/{child_id}/drafts 항목. 날짜 이동에 필요한 값만 담습니다 — 임시 결정(김진하) */
 export interface ChildDraftItem extends DraftSummary {
   record_date: string;
@@ -77,6 +100,10 @@ export interface DraftDetail {
   version: number;
   title: string | null;
   sentences: Sentence[];
+  /** 관찰일지 양식의 영역 순서(선택). 없으면 문장의 section을 처음 나온 순서로 읽습니다 */
+  sections?: string[];
+  /** 만든 시각(선택) */
+  created_at?: string;
   /** 선택 사진·영상의 순서. AI 초안은 근거 사진이 기본으로 들어 있고 교사가 더하거나 뺍니다 */
   selected_media_ids: string[];
   /** 분석 실패로 근거에서 제외된 사진. 구버전 서버 응답에는 없을 수 있습니다. */

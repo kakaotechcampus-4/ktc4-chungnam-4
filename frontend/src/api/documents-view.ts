@@ -65,6 +65,25 @@ export interface ChildDraftView extends DraftSummaryView {
   record_date: string;
 }
 
+/** 월별 관찰일지 목록의 관찰일지 요약 */
+export interface ObservationLogSummaryView {
+  draft_id: string;
+  status: DraftStatusView;
+  created_at: string;
+}
+
+/** GET /classes/{class_id}/observation-logs 한 줄. 이름은 없고 화면이 명단과 child_id로 합칩니다. */
+export interface ClassObservationLogView {
+  child_id: string;
+  published_note_count: number;
+  observation_log: ObservationLogSummaryView | null;
+}
+
+export interface ClassObservationLogListView {
+  month: string;
+  items: ClassObservationLogView[];
+}
+
 /** 알림장인지 관찰일지인지 */
 export type DocTypeView = "observation_log" | "parent_note";
 
@@ -125,6 +144,10 @@ export interface DraftView {
   version: number;
   title: string | null;
   sentences: SentenceView[];
+  /** 관찰일지 영역 순서. 서버가 안 주면 adapter가 문장의 section을 처음 나온 순서로 채웁니다. */
+  sections: string[];
+  /** 만든 시각. 서버가 안 주면 `null` */
+  created_at: string | null;
   /** 교사가 고른 미디어의 id(고른 순서). 그릴 것은 `selectedPhotos`가 가립니다. */
   selected_media_ids: string[];
   /** 분석 실패로 근거에서 제외된 사진. 구버전 서버 응답에 없으면 adapter가 빈 배열로 채웁니다. */
