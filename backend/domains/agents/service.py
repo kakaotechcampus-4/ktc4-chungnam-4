@@ -106,8 +106,9 @@ DAILY_DOC_TYPE = contracts.DocType.PARENT_NOTE
 _KST = ZoneInfo("Asia/Seoul")
 _UNFINISHED_STATUSES = frozenset({JobStatus.PENDING, JobStatus.RUNNING})
 # generate_drafts task 한 번의 작업 시간 제한(초). tasks.py가 soft_time_limit으로 쓴다.
-# 사진 분석 호출이 최대 10회 늘어 LLM 호출이 약 20회가 됐다(호출 1회 7.6~19.4초 실측, 최악 약 390초).
-# 180초에서 300초로 올린다. 이 값을 넘기면 다시 돌리지 않고 Job을 실패로 끝내며(#102),
+# 사진 분석 호출이 늘어(아이당 최대 MAX_PHOTOS_PER_CHILD=30장, 호출은 보통 30회·응답 오류 재분석까지 최대 60회)
+# 180초를 넘는 작업이 생겼다. 서버와 같은 구성으로 잰 30장 실측은 109~130초라(#288) 300초면 2배 넘게
+# 여유가 있어 충분하다. 180초에서 300초로 올린다. 이 값을 넘기면 다시 돌리지 않고 Job을 실패로 끝내며(#102),
 # 교사는 재시도 API(POST /jobs/{job_id}/retry)로 다시 시작한다.
 # TODO(eun): 임시 결정이다(팀 확정 전). 테크스펙에는 임시 결정으로 표시해 반영했고, backend/CLAUDE.md는 open-questions에 제안으로 올렸다.
 JOB_SOFT_TIME_LIMIT_SECONDS = 300
