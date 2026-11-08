@@ -62,7 +62,11 @@ from tools.generation.agent_tools import (
     writing_guidance,
 )
 from tools.generation.draft import DraftResponseError, parse_draft_response
-from tools.generation.pseudonymize import pseudonymize_evidence, restore_names
+from tools.generation.pseudonymize import (
+    pseudonymize_evidence,
+    restore_names,
+    unknown_child_tokens,
+)
 from tools.perception.merge import failed_photo_ids, merge_perception_results
 from tools.perception.photo import parse_single_photo_analysis
 from tools.perception.transcript import normalize_transcript
@@ -203,7 +207,8 @@ def start_generation_job(
     unready = media_service.find_unready_media(db, class_id, record_date, media_ids)
     if unready:
         raise MediaNotReady(
-            "아직 서버 전송이 끝나지 않은 자료가 있습니다.",
+            # 전송 전·귀속 전·STT 중을 모두 이 코드로 막으므로 셋을 다 덮는 문구로 둔다 (#304)
+            "아직 준비가 끝나지 않은 자료가 있습니다. 전송·분류·음성 변환이 끝난 뒤 다시 시도해 주세요.",
             detail={"media_ids": [str(media_id) for media_id in unready]},
         )
     child_ids = _draft_target_children(db, class_id, record_date)
@@ -1202,6 +1207,13 @@ def _generate_draft(
         draft_id=draft_id,
         version=version,
     )
+    for sentence in document.sentences:
+        if unknown_child_tokens(sentence.text, masked.child_id_by_token):
+            # 토큰 원문은 메시지에 넣지 않는다. 피드백으로 LLM에 다시 가므로 형식만 알린다.
+            raise DraftResponseError(
+                "보낸 적 없는 원아 토큰이나 형식이 깨진 토큰이 있습니다. "
+                "자료에 있는 CHILD_ 토큰만 그대로 쓰세요."
+            )
     if inputs.trace:
         inputs.trace(role, "completed", None)
     return GeneratedDraft(
@@ -1629,7 +1641,10 @@ def _agent_conversation(
                 )
                 continue
             if not response.content:
-                raise AgentExecutionError("AGENT_RESPONSE_INVALID")
+                # 빈 응답도 형식이 틀린 출력이다. 깨진 JSON·출력 한도 초과와 같이 재생성하고, 상한을
+                # 넘으면 미분류함으로 보낸다. 전에는 바로 Job 실패(AGENT_RESPONSE_INVALID)로 끝나
+                # 같은 종류의 오류가 다르게 처리됐다 (#304 4-4).
+                raise DraftResponseError("빈 응답입니다. 요구한 JSON 형식으로 작성하세요.")
             if trace:
                 trace(role, "responded", None)
             return response.content
