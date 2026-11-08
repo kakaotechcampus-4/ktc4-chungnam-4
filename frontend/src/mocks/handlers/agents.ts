@@ -1,5 +1,6 @@
 import { http, HttpResponse } from "msw";
 
+import { isRetryableChild } from "@/api/agents";
 import { kstToday } from "@/lib/datetime";
 import type {
   Job,
@@ -424,9 +425,7 @@ export const handlers = [
       if (found.children.some((child) => !isFinished(child))) {
         return { error: "running" as const };
       }
-      const retryable = found.children.filter(
-        (child) => child.status === "failed" && child.error_code !== "DRAFT_VERSION_CONFLICT",
-      );
+      const retryable = found.children.filter(isRetryableChild);
       if (retryable.length === 0) return { error: "not_retryable" as const };
       for (const child of retryable) {
         child.status = "pending";

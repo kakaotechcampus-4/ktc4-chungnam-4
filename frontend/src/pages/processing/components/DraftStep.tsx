@@ -6,6 +6,7 @@ import {
   agentsKeys,
   createJob,
   isJobFinished,
+  isRetryableChild,
   jobQueryOptions,
   retryJob,
   type JobView,
@@ -66,16 +67,12 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
   const job = polled ?? create.data;
 
   // 실패한 아이만 다시 시작합니다(임시 결정(정은), docs/api/agents.md §재시도). 돌려받은 작업을 캐시에 넣으면
-  // 폴링이 이어져 진행 화면으로 돌아갑니다. DRAFT_VERSION_CONFLICT는 기존 문서를 지키려고 막은 것이라 제외합니다.
+  // 폴링이 이어져 진행 화면으로 돌아갑니다. 같은 이유로 또 실패하는 오류는 서버처럼 제외합니다(isRetryableChild).
   const retry = useMutation({
     mutationFn: retryJob,
     onSuccess: (retried) => queryClient.setQueryData(agentsKeys.job(retried.job_id), retried),
   });
-  const canRetry = Boolean(
-    job?.children.some(
-      (child) => child.status === "failed" && child.error_code !== "DRAFT_VERSION_CONFLICT",
-    ),
-  );
+  const canRetry = Boolean(job?.children.some(isRetryableChild));
 
   useEffect(() => {
     if (started.current || currentClass === null) return;
