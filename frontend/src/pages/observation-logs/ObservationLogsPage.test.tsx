@@ -198,6 +198,23 @@ describe("ObservationLogsPage", () => {
     expect(screen.getByRole("button", { name: "김도윤 관찰일지 생성하기" })).toBeEnabled();
   });
 
+  it("다른 달로 바꾸면 만들던 진행 표시가 따라오지 않는다", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post(apiPath("/children/:childId/observation-jobs"), () =>
+        HttpResponse.json(jobResult("running"), { status: 202 }),
+      ),
+      http.get(apiPath("/jobs/:jobId"), () => HttpResponse.json(jobResult("running"))),
+    );
+    renderList();
+    await user.click(await screen.findByRole("button", { name: "김도윤 관찰일지 생성하기" }));
+    expect(await screen.findByRole("status")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("관찰할 월"), { target: { value: "2026-01" } });
+
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+  });
+
   it("작업이 실패하면 코드에 맞는 안내를 보여 준다", async () => {
     const user = userEvent.setup();
     server.use(

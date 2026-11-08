@@ -73,6 +73,8 @@ export function useObservationGeneration(classId: string) {
     start,
     /** 지금 만들고 있거나 방금 끝난 원아 */
     childId: target?.childId ?? null,
+    /** 그 작업의 월(YYYY-MM). 다른 달 화면에 진행 표시가 따라가지 않게 비교에 씁니다. */
+    month: target?.month ?? null,
     busy,
     stageLabel: STAGE_LABEL_MAP[childJob?.stage ?? ""] ?? "작업을 준비하고 있어요",
     failure: create.isError

@@ -130,7 +130,7 @@ export function ObservationLogsPage() {
           {rows.map((item) => {
             const name = names.get(item.child_id) ?? "";
             const log = item.observation_log;
-            const mine = generation.childId === item.child_id;
+            const mine = generation.childId === item.child_id && generation.month === month;
             const running = mine && generation.busy;
             const noNotes = item.published_note_count === 0;
             const few = !noNotes && item.published_note_count < FEW_NOTES;

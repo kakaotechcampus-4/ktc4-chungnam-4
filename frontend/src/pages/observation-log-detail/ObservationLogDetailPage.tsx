@@ -91,7 +91,7 @@ export function ObservationLogDetailPage() {
   const month = draft.record_date.slice(0, 7);
   const rows = buildRows(draft.sections, draft.sentences);
   const selected = rows.find((row) => row.key === selectedKey) ?? null;
-  const mine = generation.childId === draft.child_id;
+  const mine = generation.childId === draft.child_id && generation.month === month;
   const subtitle = draft.created_at
     ? `생성됨 · ${formatDate(toKstDate(draft.created_at), { year: false, weekday: false })}`
     : undefined;
@@ -169,7 +169,7 @@ export function ObservationLogDetailPage() {
           {regenerateBlockedReason}
         </p>
       ) : null}
-      {generation.busy && !generation.pollError ? (
+      {mine && generation.busy && !generation.pollError ? (
         <p role="status" className="mb-3 text-body text-ink-muted">
           {generation.stageLabel}
         </p>
