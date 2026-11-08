@@ -251,6 +251,32 @@ def test_month가_없거나_YYYY_MM이_아니면_422_VALIDATION_ERROR(client, db
     assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
+@pytest.mark.parametrize("month", ["0000-09", "9999-12"])
+def test_모양은_맞아도_셀_수_없는_달이면_500이_아니라_422_VALIDATION_ERROR(client, db, month):
+    """0년은 없고, 9999-12는 다음 달 1일이 date로 표현되지 않는다 (#267 엄태은 리뷰 [nit])."""
+    center_id, class_id = _class(db)
+    db.commit()
+    _login_as_teacher(center_id)
+
+    response = client.get(PATH.format(class_id=class_id), params={"month": month})
+
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["code"] == "VALIDATION_ERROR"
+    assert error["detail"] == [{"loc": ["query", "month"], "type": "value_error"}]
+
+
+@pytest.mark.parametrize("month", ["0001-01", "9999-11"])
+def test_셀_수_있는_달의_양끝은_받는다(client, db, month):
+    center_id, class_id = _class(db)
+    db.commit()
+    _login_as_teacher(center_id)
+
+    response = client.get(PATH.format(class_id=class_id), params={"month": month})
+
+    assert response.json() == {"month": month, "items": []}
+
+
 def test_다른_어린이집_반이면_403_CLASS_ACCESS_DENIED(client, db):
     _, class_id = _class(db)
     db.commit()
