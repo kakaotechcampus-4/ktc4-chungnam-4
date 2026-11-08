@@ -39,6 +39,24 @@ def test_첫_문장의_주어는_대상_원아로_쓰게_한다():
     assert "첫 문장의 주어는 CHILD_A" in prompt
 
 
+def test_표정_이모티콘은_근거에_웃음이_있을_때만_쓰게_한다():
+    # 학부모는 😊를 "웃었다·즐거워했다"로 읽습니다. 예시에는 활동·물건 이모티콘만 둡니다(#307 리뷰).
+    prompt = build_draft_prompt(DocType.PARENT_NOTE, _evidence())
+    format_example = prompt.rstrip().splitlines()[-1]
+
+    assert "근거 원문에 웃음·즐거움이 적혀 있을 때만" in prompt
+    assert "🧱" in format_example
+    assert "😊" not in format_example
+
+
+def test_이모티콘은_문장_두_개에_하나_정도만_쓰게_한다():
+    # "적극적으로 활용"이면 문장의 약 3/4에 붙어 줄였습니다(#307 리뷰, 팀 확정 전 제안).
+    prompt = build_draft_prompt(DocType.PARENT_NOTE, _evidence())
+
+    assert "문장 두 개에 하나 정도" in prompt
+    assert "적극적으로 활용" not in prompt
+
+
 def test_첫_생성이면_피드백은_빈_배열이다():
     prompt = build_draft_prompt(DocType.PARENT_NOTE, _evidence())
 

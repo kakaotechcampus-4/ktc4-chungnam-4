@@ -70,7 +70,7 @@ def test_메타_주석과_자리표시자가_남지_않고_버전이_있다():
     assert "-->" not in prompt
     assert "{{DOCUMENT}}" not in prompt
     assert "PROMPT_VERSION" not in prompt
-    assert PROMPT_VERSION == "critic.v7"
+    assert PROMPT_VERSION == "critic.v8"
 
 
 def test_공동_근거의_아이들에_대상_원아가_든다고_알려_준다():
@@ -155,3 +155,11 @@ def test_작성도구와_Critic이_영역기준을_공유하고_자료는_재치
     assert "다른 영역에도 맞는다는 이유만으로 fail" in prompt
     payload = json.loads(prompt.split("검증 대상:\n", 1)[1])
     assert payload["sentences"][0]["evidences"][0]["text"] == "{{SECTION_GUIDANCE}}"
+
+
+def test_표정_이모티콘은_문체가_아니라_감정으로_검사하게_한다():
+    # 장식용 이모티콘은 문체로 넘기되, 😊는 근거에 웃음·즐거움이 없으면 fail입니다(#307 리뷰).
+    prompt = build_critic_prompt(_document(), EVIDENCE_BY_ID)
+
+    assert "표정 이모티콘은 문체가 아니라 감정 표현" in prompt
+    assert "assumed_emotion_or_intent로 fail" in prompt
