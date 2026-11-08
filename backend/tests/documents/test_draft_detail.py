@@ -172,6 +172,22 @@ def test_승인_전_초안도_문장별_근거와_사진을_담아_교사에게_
     assert body["selected_media_ids"] == [str(SELECTED), str(PHOTO)]
     assert (body["published_at"], body["include_photos"]) == (None, None)
     assert "ai_version" not in body
+    # 알림장은 양식의 칸이 없다
+    assert body["sections"] == []
+
+
+def test_관찰일지는_양식의_칸_이름을_양식_순서대로_싣는다(client, db):
+    center_id, draft = _draft(db)
+    draft.doc_type = DocType.OBSERVATION_LOG.value
+    db.commit()
+    _login_as_teacher(center_id)
+
+    body = client.get(f"/api/v1/drafts/{draft.id}").json()
+
+    expected = documents_service.agents_service.observation_log_sections()
+    assert expected  # 칸이 하나도 없으면 화면이 빈 표를 그리게 된다
+    assert body["sections"] == expected
+    assert all(isinstance(name, str) and name for name in body["sections"])
 
 
 def test_게시한_초안은_게시_시각과_사진_함께_보내기를_싣는다(client, db):

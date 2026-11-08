@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from core.base import Base
 from domains.agents.models import SentenceEvidence
 from domains.agents.service import TEACHER_NOTE_EVIDENCE_PREFIX, list_sentence_evidences
+from domains.documents.models import DraftDocument as DraftDocumentRow
 from domains.media.models import MediaAsset
 from tools.contracts import (
     AssignmentStatus,
@@ -129,7 +130,11 @@ def test_활동계획만_참조하면_여전히_관찰로_보지_않는다() -> 
 @pytest.fixture
 def db() -> Session:
     engine = create_engine("sqlite://")
-    Base.metadata.create_all(engine, tables=[SentenceEvidence.__table__, MediaAsset.__table__])
+    # 근거 조회가 알림장 근거의 날짜를 채우려고 draft_documents도 읽는다(#264)
+    Base.metadata.create_all(
+        engine,
+        tables=[SentenceEvidence.__table__, MediaAsset.__table__, DraftDocumentRow.__table__],
+    )
     with sessionmaker(bind=engine)() as session:
         yield session
 

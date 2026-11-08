@@ -216,6 +216,8 @@ class DraftDetailResponse(BaseModel):
     version: int
     # AI가 제목을 만들지 않아 지금은 늘 null이다.
     title: str | None
+    # 양식의 칸 이름(양식 순서). 관찰일지만 채우고 알림장은 빈 배열이다 (#264, 임시 결정(정은)).
+    sections: list[str] = Field(default_factory=list)
     daily_routine: list[str] = Field(default_factory=list)
     sentences: list[DraftSentenceView]
     selected_media_ids: list[UUID]

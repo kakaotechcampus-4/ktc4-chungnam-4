@@ -1168,6 +1168,11 @@ def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
         status=DraftStatus(draft.status),
         version=draft.version,
         title=None,
+        sections=(
+            agents_service.observation_log_sections()
+            if draft.doc_type == DocType.OBSERVATION_LOG.value
+            else []
+        ),
         sentences=views,
         daily_routine=agents_service.get_daily_routine(db, draft.evidence_bundle_id),
         selected_media_ids=selected_media_ids,
@@ -1942,6 +1947,21 @@ class PublishedEvidence:
     record_date: date
     text: str
     version: int
+
+
+def get_record_dates(db: Session, draft_ids: Sequence[UUID]) -> dict[UUID, date]:
+    """문서 ID마다 기록 날짜를 찾아 준다. 없는 ID는 뺀다.
+
+    agents가 월 관찰일지 근거의 알림장 날짜를 채울 때 쓴다(#264, 임시 결정(정은)). 본문·상태는
+    읽지 않고 날짜만 돌려주므로 권한 판정은 부르는 쪽(초안 상세)이 이미 했다.
+    """
+    unique_ids = list(dict.fromkeys(draft_ids))
+    if not unique_ids:
+        return {}
+    rows = db.execute(
+        select(DraftDocument.id, DraftDocument.record_date).where(DraftDocument.id.in_(unique_ids))
+    ).all()
+    return {row.id: row.record_date for row in rows}
 
 
 def published_records_for_agents(
