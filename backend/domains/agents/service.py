@@ -202,7 +202,8 @@ def start_generation_job(
     unready = media_service.find_unready_media(db, class_id, record_date, media_ids)
     if unready:
         raise MediaNotReady(
-            "아직 서버 전송이 끝나지 않은 자료가 있습니다.",
+            # 전송 전·귀속 전·STT 중을 모두 이 코드로 막으므로 셋을 다 덮는 문구로 둔다 (#304)
+            "아직 준비가 끝나지 않은 자료가 있습니다. 전송·분류·음성 변환이 끝난 뒤 다시 시도해 주세요.",
             detail={"media_ids": [str(media_id) for media_id in unready]},
         )
     child_ids = _draft_target_children(db, class_id, record_date)
