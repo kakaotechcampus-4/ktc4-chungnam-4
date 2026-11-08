@@ -29,6 +29,20 @@ describe("TypingSentences", () => {
     expect(onDone).toHaveBeenCalled();
   });
 
+  it("새 문장을 쓰기 시작할 때마다 그 문장 번호를 알린다", () => {
+    const onSentence = vi.fn();
+    render(
+      <TypingSentences texts={["하나.", "둘이에요."]} onSentence={onSentence} onDone={vi.fn()} />,
+    );
+
+    expect(onSentence).not.toHaveBeenCalled();
+    tick(1);
+    expect(onSentence).toHaveBeenLastCalledWith(0);
+    tick(10);
+    expect(onSentence).toHaveBeenLastCalledWith(1);
+    expect(onSentence).toHaveBeenCalledTimes(2);
+  });
+
   it("바로 보기를 누르면 전체가 나오고 끝난다", () => {
     const onDone = vi.fn();
     render(<TypingSentences texts={["첫 문장입니다.", "둘째 문장입니다."]} onDone={onDone} />);

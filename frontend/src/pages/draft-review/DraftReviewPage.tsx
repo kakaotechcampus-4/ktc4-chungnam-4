@@ -1,6 +1,6 @@
 // Figma: 53:294 (초안 검토 / 왼쪽 원아 목록)
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Info } from "lucide-react";
+import { Info, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { useBlocker, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 
@@ -498,6 +498,13 @@ export function DraftReviewPage() {
   const emptyReason = unclassifiedReasonText(selectedRow?.unclassified ?? null);
   const selectedSentence =
     draft?.sentences.find((sentence) => sentence.sentence_id === selectedSentenceId) ?? null;
+  // 처리 직후 처음 여는 초안이면 문장을 타이핑하듯 보여 줍니다. 수정 중이거나 이미 보여 준 초안은 제외합니다.
+  const typingNow =
+    draft !== undefined &&
+    editing === null &&
+    isFreshDraft(draft.draft_id) &&
+    !typedDraftIds.has(draft.draft_id) &&
+    !prefersReducedMotion();
   // 게시 전 초안이라 교사가 고른 사진을 그대로 보여 줍니다. 게시본을 되짚어 보는 화면은
   // adapter의 sentPhotos를 써서 실제로 나간 사진만 봅니다.
   const photos = selectedPhotos(draft);
@@ -836,9 +843,17 @@ export function DraftReviewPage() {
                   <span className="rounded-md bg-brand px-6 py-1.5 text-body font-bold text-brand-ink">
                     {isObservation ? "월별 관찰일지" : "알림장"}
                   </span>
-                  <span className="text-caption text-ink-muted">
-                    {editing !== null ? "수정 중" : `버전 ${draft.version}`}
-                  </span>
+                  {typingNow ? (
+                    // 같은 자리의 버전 표시를 대신합니다. 줄이 늘지 않아 연출이 끝나도 글이 움직이지 않습니다.
+                    <span className="inline-flex items-center gap-1.5 text-caption font-bold text-brand-ink">
+                      <Sparkles className="size-3.5 animate-pulse" aria-hidden />
+                      AI가 작성하는 중…
+                    </span>
+                  ) : (
+                    <span className="text-caption text-ink-muted">
+                      {editing !== null ? "수정 중" : `버전 ${draft.version}`}
+                    </span>
+                  )}
                 </div>
                 {(draft.daily_routine?.length ?? 0) > 0 && (
                   <details className="rounded-md border border-line p-3">
@@ -905,12 +920,17 @@ export function DraftReviewPage() {
                       + 문장 추가
                     </button>
                   </>
-                ) : isFreshDraft(draft.draft_id) &&
-                  !typedDraftIds.has(draft.draft_id) &&
-                  !prefersReducedMotion() ? (
+                ) : typingNow ? (
                   <TypingSentences
                     key={draft.draft_id}
                     texts={draft.sentences.map((sentence) => sentence.text)}
+                    // 쓰고 있는 문장의 근거를 옆 패널에 같이 띄웁니다. 근거 없는 문장은 직전 선택을 그대로 둡니다.
+                    onSentence={(index) => {
+                      const sentence = draft.sentences[index];
+                      if (sentence && sentence.evidences.length > 0) {
+                        setSelectedSentenceId(sentence.sentence_id);
+                      }
+                    }}
                     onDone={() => finishTyping(draft.draft_id)}
                   />
                 ) : (
