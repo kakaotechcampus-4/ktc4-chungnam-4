@@ -65,3 +65,23 @@ def test_서비스가_올리는_422와_모양이_같다(client):
     service_error = json.loads(service.body)["error"]
     assert service_error.keys() == pydantic.json()["error"].keys()
     assert service_error["code"] == pydantic.json()["error"]["code"]
+
+
+def test_처리하지_못한_예외도_공통_에러_형식이다() -> None:
+    """Redis가 꺼졌을 때 작업 시작 API가 텍스트 500을 주던 문제 (#304 4-5)."""
+
+    @app.get("/__test__/boom")
+    def _boom() -> None:
+        raise RuntimeError("CHILD_A 김하늘 원문")
+
+    try:
+        with TestClient(app, raise_server_exceptions=False) as test_client:
+            response = test_client.get("/__test__/boom")
+    finally:
+        app.router.routes = [
+            r for r in app.router.routes if getattr(r, "path", "") != "/__test__/boom"
+        ]
+
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "INTERNAL_ERROR"
+    assert "김하늘" not in response.text
