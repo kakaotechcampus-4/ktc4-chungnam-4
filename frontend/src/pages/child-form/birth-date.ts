@@ -12,8 +12,9 @@ function takeUnit(digits: string, maxFirst: string): [unit: string, rest: string
 }
 
 /**
- * 입력 중인 문자열에서 숫자만 뽑아 "YYYY. MM. DD." 모양으로 맞춥니다. 숫자 8자리만 쳐도 점이 들어갑니다.
- * 점은 다음 숫자가 올 때만 붙입니다. 지울 때 끝의 구분자가 되살아나 지워지지 않는 일을 막습니다.
+ * 입력 중인 문자열에서 숫자만 뽑아 "YYYY. MM. DD" 모양으로 맞춥니다. 숫자 8자리만 쳐도 점이 들어갑니다.
+ * 구분자는 다음 숫자가 올 때만 붙이고, 끝의 점은 붙이지 않습니다. 끝에 점을 붙이면 8자리가 찬 뒤
+ * 백스페이스로 점을 지워도 되살아나 더 지울 수 없습니다. parseBirthDate는 끝 점이 없어도 받습니다.
  */
 export function maskBirthDate(input: string): string {
   const digits = input.replace(/\D/g, "").slice(0, 8);
@@ -24,7 +25,7 @@ export function maskBirthDate(input: string): string {
   let masked = year;
   if (month !== "") masked += `. ${month}`;
   if (day !== "") masked += `. ${day}`;
-  return day.length === 2 ? `${masked}.` : masked;
+  return masked;
 }
 
 /** "2022. 03. 14." → "2022-03-14". 형식이 틀렸거나 2월 30일처럼 없는 날짜면 null */
