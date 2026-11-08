@@ -178,6 +178,7 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
   - `CLASS_ACCESS_DENIED` (403) — 담당 반이 아닐 때
   - `CLIENT_PHOTO_ID_CONFLICT` (409) — 같은 `client_photo_id`가 다른 반에 이미 있을 때
   - 사진의 귀속 에러 — `INVALID_ATTRIBUTION_METHOD`·`DUPLICATE_CHILD_LINK`·`CHILD_NOT_IN_CLASS` (400), 뜻은 `PUT child-links` 절과 같습니다
+  - `JOB_ALREADY_RUNNING` (409) — 이미 등록된 사진을 **다른 귀속으로** 다시 보냈는데 그날 초안을 만드는 중일 때. 뜻은 `PUT child-links` 절과 같습니다. 같은 귀속의 재전송은 막지 않습니다 — 임시 결정(김동건)
   - 422 — 사진인데 `child_links`·`llm_allowed`가 없거나, 영상·음성인데 있을 때(공통 검증 오류)
 - [확인 필요: 김동건] 영상·음성 업로드가 끝난 뒤 서버 STT를 어디서 시작할지 정해야 합니다(동기 처리 vs Celery).
 
@@ -230,6 +231,7 @@ media·face는 상세 작성 엔드포인트 9개(media 6, face 3)로 다섯 가
   - `CHILD_NOT_IN_CLASS` (400) — 미디어가 속한 반의 원아가 아닐 때
   - `CLASS_ACCESS_DENIED` (403) — 담당 반이 아닐 때
   - `MEDIA_DELETED` (409) — 보관 기간이 끝나 파기된 미디어일 때. 근거로 쓸 수 없어 귀속도 받지 않습니다 — 임시 결정(김동건)
+  - `JOB_ALREADY_RUNNING` (409) — 그 미디어를 찍은 날(한국 시간)·반의 초안을 만드는 중일 때. `detail.job_id`에 그 작업을 담습니다. 생성 도중 바꾼 귀속은 초안에 반영되지 않아, 옮긴 사진이 이전 원아 초안에 남기 때문입니다(#304 4-23). 작업이 끝난 뒤 다시 저장합니다 — 임시 결정(김동건)
 - [확인 필요: 김동건·정은] `llm_allowed` 최종값을 누가 계산할지 정해야 합니다. 제안은 두 가지입니다.
   - 사진: 서버가 "교사 확인 AND 귀속 원아 전원 ③ 동의"로 계산해 저장합니다.
   - 영상·음성메모: 교사 확인값을 그대로 저장합니다.
