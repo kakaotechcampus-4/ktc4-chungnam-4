@@ -85,11 +85,21 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
   // 폴링 요청이 실패한 것과 작업이 failed인 것은 다른 문구입니다. 작업 실패는 처리 실패 화면이 맡습니다.
   const error = (resumedJobId === undefined ? create.error : null) ?? pollError;
   const noTargets = error instanceof ApiError && error.code === "NO_TARGET_CHILDREN";
+  // AI가 실패한 아이(손댄 초안을 지킨 것은 빼고). 이름을 보여 줘야 이전 버전이 남은 아이를 압니다(#304 4-13).
+  const aiFailedChildren = failedChildren.filter(
+    (child) => child.error_code !== "DRAFT_VERSION_CONFLICT",
+  );
   const children = useQuery({
     ...classChildrenQueryOptions(currentClass?.class_id ?? ""),
-    enabled: noTargets && currentClass !== null,
+    enabled: (noTargets || (finished && aiFailedChildren.length > 0)) && currentClass !== null,
   });
   const firstChildId = children.data?.[0]?.child_id;
+  const nameById = new Map(children.data?.map((child) => [child.child_id, child.name]));
+  const failedNames = aiFailedChildren.flatMap((child) => nameById.get(child.child_id) ?? []);
+  // 원아가 모두 pending이면 큐에서 차례를 기다리는 중입니다. 처리 중과 구분해 알립니다(#304 4-19).
+  const waiting = Boolean(
+    job && !finished && job.children.every((child) => child.status === "pending"),
+  );
 
   return (
     <ProcessingCard
@@ -103,7 +113,11 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
               : "오늘의 기록을 문장으로 정리해요"
       }
       stopped={Boolean(error) || finished}
-      detail="아이별 초안과 문장 근거를 연결하고 있어요"
+      detail={
+        waiting
+          ? "앞선 작업이 끝나기를 기다리고 있어요. 차례가 되면 바로 시작해요"
+          : "아이별 초안과 문장 근거를 연결하고 있어요"
+      }
       percent={job?.progress.percent ?? 0}
       step="draft"
       note={"완성된 초안은 선생님의 검토를 기다려요.\n승인 전에는 보호자에게 공개되지 않아요."}
@@ -112,7 +126,12 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
       {needsAttention && job ? (
         <div role="alert">
           {onlyProtectedDrafts ? null : job.status === "failed" ? (
-            <p>AI 처리에 실패한 자료가 있어요. 저장된 자료와 완성된 초안은 유지돼요.</p>
+            <p>
+              AI 처리에 실패한 아이가 있어요
+              {failedNames.length ? `(${failedNames.join(", ")})` : ""}. 이 아이의 초안은 새로
+              만들지 못해 이전 버전이 있으면 그대로 남아 있어요. 저장된 자료와 완성된 초안은
+              유지돼요.
+            </p>
           ) : hasReason("insufficient_evidence") ? (
             <p>초안을 만들 수 있는 근거가 부족해요. 동의 상태와 사진 분류를 확인해 주세요.</p>
           ) : null}

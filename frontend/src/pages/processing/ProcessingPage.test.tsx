@@ -364,6 +364,49 @@ describe("ProcessingPage", () => {
     expect(router.state.location.pathname).toBe("/t/today/processing");
   });
 
+  it("원아가 모두 차례를 기다리면 처리 중과 구분해 알린다(#304 4-19)", async () => {
+    const queue = useUploadQueue.getState();
+    queue.addFiles([photo("waiting.jpg")]);
+    const [item] = useUploadQueue.getState().items;
+    queue.setReview(item!.client_id, {
+      review_state: "확정",
+      assigned_child_ids: [fixtureId("child", 1)],
+      excluded_reason: null,
+      llm_allowed: true,
+    });
+    server.use(
+      http.get(apiPath("/jobs/:jobId"), ({ params }) =>
+        HttpResponse.json<Job>({
+          job_id: String(params.jobId),
+          class_id: fixtureId("class", 1),
+          record_date: "2026-09-15",
+          status: "pending",
+          stage: null,
+          progress: { percent: 0, total_children: 1, finished_children: 0 },
+          failed_stage: null,
+          error_code: null,
+          children: [
+            {
+              child_id: fixtureId("child", 1),
+              status: "pending",
+              stage: null,
+              outcome: null,
+              unclassified_reason: null,
+              failed_stage: null,
+              error_code: null,
+              drafts: [],
+            },
+          ],
+          created_at: "2026-09-15T06:30:00Z",
+          updated_at: "2026-09-15T06:30:00Z",
+        }),
+      ),
+    );
+    renderProcessing("/t/today/processing?step=send");
+
+    expect(await screen.findByText(/앞선 작업이 끝나기를 기다리고 있어요/)).toBeInTheDocument();
+  });
+
   it("서버가 거절한 파일만 빼고 보낸 뒤 확인을 받고 초안 생성으로 넘어간다(#304 4-10)", async () => {
     const queue = useUploadQueue.getState();
     queue.addFiles([
@@ -536,8 +579,10 @@ describe("ProcessingPage", () => {
     const { router } = renderProcessing("/t/today/processing?step=send");
 
     expect(await screen.findByRole("alert", {}, { timeout: 3000 })).toHaveTextContent(
-      "AI 처리에 실패한 자료가 있어요",
+      "AI 처리에 실패한 아이가 있어요",
     );
+    // 어느 아이가 실패해 이전 버전이 남았는지 이름으로 알린다(#304 4-13).
+    expect(await screen.findByText(/김도윤/)).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/t/today/processing");
     expect(useUploadQueue.getState().items).toHaveLength(1);
   });
