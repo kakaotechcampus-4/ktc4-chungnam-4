@@ -6,6 +6,7 @@ import {
   isImportDone,
   isImportStage,
   mediaKindOf,
+  stableClientId,
   uploadTargets,
   useUploadQueue,
   type LocalMedia,
@@ -134,5 +135,31 @@ describe("업로드 큐", () => {
 
     const names = uploadTargets(useUploadQueue.getState().items).map((item) => item.file.name);
     expect(names).toEqual(["confirmed.jpg", "clip.mp4"]);
+  });
+});
+
+// 전송 중 취소 뒤 같은 파일을 다시 올리면 서버에 중복으로 들어가던 문제(#304 4-11)
+describe("stableClientId", () => {
+  const photoFile = { name: "합성.jpg", size: 3, lastModified: 1_700_000_000_000 };
+
+  it("같은 파일이면 같은 UUID 모양의 ID를 만든다", () => {
+    const id = stableClientId(photoFile);
+    expect(stableClientId({ ...photoFile })).toBe(id);
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
+  it("이름·크기·수정 시각 중 하나라도 다르면 다른 ID다", () => {
+    const id = stableClientId(photoFile);
+    expect(stableClientId({ ...photoFile, name: "합성2.jpg" })).not.toBe(id);
+    expect(stableClientId({ ...photoFile, size: 4 })).not.toBe(id);
+    expect(stableClientId({ ...photoFile, lastModified: 1 })).not.toBe(id);
+  });
+
+  it("같은 파일을 두 번 고르면 큐에 한 번만 담는다", () => {
+    const same = new File(["x"], "같은.jpg", { lastModified: 1 });
+    useUploadQueue.getState().addFiles([same]);
+    useUploadQueue.getState().addFiles([new File(["x"], "같은.jpg", { lastModified: 1 })]);
+    expect(useUploadQueue.getState().items).toHaveLength(1);
+    useUploadQueue.getState().reset();
   });
 });
