@@ -43,6 +43,19 @@ describe("TypingSentences", () => {
     expect(onSentence).toHaveBeenCalledTimes(2);
   });
 
+  it("이모티콘은 반쪽 없이 통째로 나타난다", () => {
+    render(<TypingSentences texts={["잘 놀았어요🧱😊"]} onDone={vi.fn()} />);
+
+    // 앞의 6글자(잘 놀았어요 + 공백 포함)까지 보인 뒤, 한 칸씩 늘면 이모티콘이 하나씩 통째로 붙는다.
+    tick(6);
+    expect(screen.getByText(/^잘 놀았어요/)).toBeInTheDocument();
+    tick(1);
+    expect(screen.getByText(/🧱/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/�|[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    tick(1);
+    expect(screen.getByText(/🧱😊/)).toBeInTheDocument();
+  });
+
   it("바로 보기를 누르면 전체가 나오고 끝난다", () => {
     const onDone = vi.fn();
     render(<TypingSentences texts={["첫 문장입니다.", "둘째 문장입니다."]} onDone={onDone} />);
