@@ -179,6 +179,29 @@ describe("ObservationLogsPage", () => {
     expect(screen.getByText("김도윤")).toBeInTheDocument();
   });
 
+  // 서버가 단계를 새로 늘리거나 아직 못 정했을 때 진행 줄이 비지 않아야 합니다.
+  // 지운 ObservationGenerator.test.tsx가 보던 것을 훅이 이어받아 여기서 봅니다(#316 리뷰, 정은).
+  it("모르는 진행 단계에서도 준비 중 문구를 보여 준다", async () => {
+    const user = userEvent.setup();
+    const running = jobResult("running");
+    const unknownStage = {
+      ...running,
+      stage: "polishing",
+      children: running.children.map((child) => ({ ...child, stage: "polishing" })),
+    };
+    server.use(
+      http.post(apiPath("/children/:childId/observation-jobs"), () =>
+        HttpResponse.json(unknownStage, { status: 202 }),
+      ),
+      http.get(apiPath("/jobs/:jobId"), () => HttpResponse.json(unknownStage)),
+    );
+    renderList();
+
+    await user.click(await screen.findByRole("button", { name: "김도윤 관찰일지 생성하기" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("작업을 준비하고 있어요");
+  });
+
   it("진행 상태를 못 불러오면 생성 버튼을 다시 열어 준다", async () => {
     const user = userEvent.setup();
     server.use(

@@ -27,7 +27,7 @@
 | 네이티브 도구 | `tests/agents/test_multi_agent.py`, `test_llm_gateway.py` | 모델이 고른 도구 실행 후 결과 전달, 임의 도구·ID·URL 거부, 필수 도구 누락·반복·입력 상한에서 종료 |
 | 사진 알림장 | `tests/agents/test_photo_pipeline.py` | API→근거 요약→도구 조회→작성→Critic→저장→교사 승인/게시→자녀 연결된 학부모 열람. 외부 AI·S3만 고정 응답 |
 | 월별 관찰일지 | `tests/agents/test_monthly_pipeline.py` | 게시 알림장 조회→요약→관찰일지 작성→영역/원본 문서 근거 저장→승인, 빈 월·회수본·다른 원아·학부모 권한·중복 요청 차단 |
-| 화면 | `ObservationGenerator.test.tsx` 등 Vitest | 자료 0건 차단, 월별 요청과 검토 링크, 실패 안내·재시도 요청 ID 유지 |
+| 화면 | `ObservationLogsPage.test.tsx`·`ObservationLogDetailPage.test.tsx` 등 Vitest | 자료 0건 차단, 월별 요청과 생성 결과 링크, 실패 안내·재시도 요청 ID 유지 |
 | 기존 동작 | 전체 pytest, `pnpm check`, `pnpm build` | 기존 문서·동의·권한·일별 생성과 프론트 회귀 검사 |
 
 저장소 루트 기준:
@@ -126,7 +126,7 @@ AWS 배포 웹사이트에서 이 브랜치의 전체 흐름을 시연한 결과
 - `tests/agents/test_monthly_pipeline.py::test_월별_재생성도_257의_버전보호를_따른다`: 월 1일의 게시 알림장과 월별 관찰일지를 구분하고, 월별 재생성·수정/승인 보호·생성 중 수정 충돌을 검사합니다.
 - `tests/agents/test_multi_agent.py`: 병렬 중복 도구 요청의 call ID별 응답, 실제 조회 1회, 다른 인자 차단, 반복 턴 상한을 검사합니다.
 - `tests/agents/test_tasks.py`: 네이티브 도구 호출 중 soft time limit을 SDK가 감싸도 복원하며 `LLM_TIMEOUT`으로 종료하는지 검사합니다. 실제 300초를 기다리는 부하 검사는 아닙니다.
-- `ObservationGenerator.test.tsx`·`ProcessingPage.test.tsx`: 문서 보호 오류와 연결 오류를 구분하고, 생성 대상 없음·실패 복구 안내를 검사합니다.
+- `ObservationLogsPage.test.tsx`·`ProcessingPage.test.tsx`: 문서 보호 오류와 연결 오류를 구분하고, 생성 대상 없음·실패 복구 안내를 검사합니다.
 
 모델 응답을 고정하는 회귀 검사입니다. 이 변경으로 실제 모델 품질·AWS 배포 시연을 재검증했다고 해석하지 않습니다.
 
