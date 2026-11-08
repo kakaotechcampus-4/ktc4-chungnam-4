@@ -19,8 +19,15 @@ import {
   type LocalMedia,
 } from "@/features/upload-queue/upload-queue-store";
 
+import { Button } from "@/components/ui/button";
 import { ProcessingCard } from "./ProcessingCard";
 import { captureInstant } from "@/lib/datetime";
+
+/** 서버가 upload-urls에서 그 파일만 거절한 항목(형식·크기). 이 파일은 빼고 나머지를 보냅니다. */
+interface RejectedFile {
+  name: string;
+  message: string;
+}
 
 interface SendStepProps {
   onDone: () => void;
@@ -64,7 +71,8 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
   const started = useRef(false);
 
   const send = useMutation({
-    mutationFn: async (classId: string) => {
+    mutationFn: async (classId: string): Promise<RejectedFile[]> => {
+      const rejected: RejectedFile[] = [];
       const { items } = await requestUploadUrls({
         class_id: classId,
         items: targets.map((item) => ({
@@ -77,6 +85,14 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
       for (const [index, item] of targets.entries()) {
         const ticket = items[index];
         if (!ticket) throw new Error("업로드 URL 응답의 항목 수가 요청과 다릅니다.");
+        // 서버가 그 파일만 거절했으면(형식·크기) 다시 보내도 같으므로 빼고 나머지를 보냅니다.
+        // 전에는 여기서 멈춰 다른 자료까지 초안 생성으로 넘어가지 못했습니다(#304 4-10·4-20).
+        if (ticket.status === "error") {
+          rejected.push({ name: item.file.name, message: ticket.error.message });
+          setUploadState(item.client_id, "실패");
+          setAcked(index + 1);
+          continue;
+        }
         setUploadState(item.client_id, "전송중");
         // 이미 등록된 파일(registered)이면 PUT을 건너뜁니다.
         let mediaId = ticket.status === "registered" ? ticket.media_id : null;
@@ -117,9 +133,14 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
             await saveChildLinks(mediaId, { llm_allowed: false, child_links: [] });
         }
       }
+      return rejected;
     },
-    onSuccess: onDone,
+    // 뺀 파일이 있으면 교사가 확인한 뒤에 넘어갑니다. 말없이 빠지면 그 자료가 초안에 없는 이유를 모릅니다.
+    onSuccess: (rejected) => {
+      if (rejected.length === 0) onDone();
+    },
   });
+  const rejected = send.data ?? [];
 
   useEffect(() => {
     if (started.current || currentClass === null) return;
@@ -132,7 +153,7 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
 
   return (
     <ProcessingCard
-      stopped={Boolean(send.error)}
+      stopped={Boolean(send.error) || rejected.length > 0}
       title="선택한 자료를 전송하고 있어요"
       detail={`선생님이 확인한 자료만 전송 중 · ${acked} / ${targets.length}개`}
       percent={percent}
@@ -140,6 +161,19 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
       note={"선택한 사진과 기록으로 알림장 초안을 준비해요.\n전송이 끝날 때까지 창을 열어 두세요."}
       onCancel={onCancel}
     >
+      {rejected.length > 0 ? (
+        <div role="alert" className="space-y-3 text-body text-coral-ink">
+          <p>올리지 못한 파일 {rejected.length}개를 빼고 나머지를 전송했어요.</p>
+          <ul>
+            {rejected.map((file, index) => (
+              <li key={`${index}-${file.name}`}>
+                {file.name} · {file.message}
+              </li>
+            ))}
+          </ul>
+          <Button onClick={onDone}>이 파일을 빼고 계속</Button>
+        </div>
+      ) : null}
       {/* TODO(정은): 단계 재시도는 처리 실패 화면에서 붙입니다. */}
       {send.error ? (
         <p role="alert" className="text-body text-coral-ink">
