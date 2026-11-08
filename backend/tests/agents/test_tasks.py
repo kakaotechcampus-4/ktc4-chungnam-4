@@ -174,3 +174,40 @@ def test_에이전트_시간초과는_LLM_TIMEOUT으로_종료한다(monkeypatch
     tasks.generate_drafts.on_failure(SoftTimeLimitExceeded(), "task", ("job", "child"), {}, None)
     assert failures == [{"error_code": "LLM_TIMEOUT"}]
     assert tasks.generate_drafts.soft_time_limit == 180
+
+
+def _api_error(error_type: type[openai.APIStatusError], status: int) -> openai.APIStatusError:
+    request = httpx.Request("POST", "http://llm.invalid/v1")
+    return error_type("x", response=httpx.Response(status, request=request), body=None)
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (_connection_error(), "LLM_CALL_FAILED"),
+        (_api_error(openai.InternalServerError, 500), "LLM_CALL_FAILED"),
+        (_api_error(openai.RateLimitError, 429), "LLM_CALL_FAILED"),
+        (_api_error(openai.BadRequestError, 400), "LLM_CALL_FAILED"),
+        (
+            openai.APITimeoutError(request=httpx.Request("POST", "http://llm.invalid/v1")),
+            "LLM_TIMEOUT",
+        ),
+    ],
+)
+def test_LLM_오류는_Celery가_예외를_바꿔도_LLM_코드로_남는다(monkeypatch, error, expected) -> None:
+    """Celery가 SDK 예외를 OpenAIError로 바꿔 저장해 INTERNAL_ERROR가 되던 문제 (#304 4-1)."""
+    codes: list[str] = []
+    monkeypatch.setattr(tasks.service, "record_job_retry", lambda job_id: None)
+    monkeypatch.setattr(
+        tasks.service,
+        "mark_job_failed",
+        lambda job_id, **kwargs: codes.append(kwargs["error_code"]),
+    )
+
+    def _orchestrate(job_id: str, child_id: str) -> None:
+        raise error
+
+    monkeypatch.setattr(tasks.service, "orchestrate_drafts", _orchestrate)
+    tasks.generate_drafts.apply(args=("job-1", "child-1"))
+
+    assert codes == [expected]
