@@ -156,7 +156,7 @@ export function EvidencePanel({ sentence, media, onClipFailed, onClose }: Eviden
   const hasClip = sentence?.evidences.some((evidence) => findClip(media, evidence)) ?? false;
   return (
     // 글 카드가 사진 아래에 있어 스크롤하면 패널이 화면 밖으로 나갑니다. 따라 내려와 글 옆에 계속 보이게 합니다.
-    <aside className="sticky top-6 flex w-58 shrink-0 flex-col gap-5 self-start rounded-xl border border-line bg-paper p-6">
+    <aside className="sticky top-14 flex w-58 shrink-0 flex-col gap-5 self-start rounded-xl border border-line bg-paper p-6">
       <div className="flex items-center justify-between">
         <h3 className="text-lead font-bold text-ink">근거 상세</h3>
         {sentence ? (
