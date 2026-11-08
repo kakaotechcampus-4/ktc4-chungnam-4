@@ -2,6 +2,7 @@ import { Navigate, type RouteObject } from "react-router";
 
 import { AuthErrorBoundary } from "@/app/auth/AuthErrorBoundary";
 import { RequireRole } from "@/app/auth/RequireRole";
+import { ParentLayout } from "@/app/layouts/ParentLayout";
 import { PublicLayout } from "@/app/layouts/PublicLayout";
 import { TeacherLayout } from "@/app/layouts/TeacherLayout";
 import { authRoutes } from "@/app/routes/auth";
@@ -75,7 +76,16 @@ const areaRoutes: RouteObject[] = [
         {
           path: "p",
           children: [
-            { element: <RequireRole role="parent" />, children: parentChildren },
+            {
+              // 학부모 영역: 가드 → 학부모 틀 → 화면. 교사 영역처럼 화면의 401·403은 틀 안의 경계가 받아 메뉴를 남깁니다.
+              element: <RequireRole role="parent" />,
+              children: [
+                {
+                  Component: ParentLayout,
+                  children: [{ ErrorBoundary: AuthErrorBoundary, children: parentChildren }],
+                },
+              ],
+            },
             { Component: PublicLayout, children: [{ path: "*", Component: NotFoundPage }] },
           ],
         },

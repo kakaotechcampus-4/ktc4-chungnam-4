@@ -178,6 +178,79 @@ describe("TodayPage", () => {
     expect(screen.queryByRole("link", { name: /직접 기록/ })).not.toBeInTheDocument();
   });
 
+  // 게시한 뒤에도 "오늘의 초안이 준비돼 있어요"로 나와 끝났는지 알 수 없었습니다(11/07 배포 점검).
+  it("모두 게시했으면 전달했다고 알리고 게시 내역으로 보낸다", async () => {
+    const published = noteItem(DOYUN, "approved", 98);
+    mockDrafts([
+      {
+        ...published,
+        parent_note: { ...published.parent_note!, published_at: "2026-11-07T08:40:00Z" },
+      },
+      unclassifiedItem(SEOA),
+    ]);
+    renderRoute(<TodayPage />);
+
+    expect(await screen.findByRole("heading", { name: "오늘의 기록을 전달했어요" })).toBeVisible();
+    expect(screen.getByText(/알림장 1건을 보냈어요/)).toBeVisible();
+    // 초안 없이 끝난 아이는 게시 내역에서 직접 씁니다. 카드에서 알려야 놓치지 않습니다(#288 리뷰).
+    expect(
+      screen.getByText("알림장이 없는 아이 1명은 게시 내역에서 직접 쓸 수 있어요."),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "게시 내역 보기" })).toHaveAttribute(
+      "href",
+      `/t/today/review/${DOYUN}`,
+    );
+    expect(screen.queryByRole("link", { name: "초안 검토하기" })).not.toBeInTheDocument();
+  });
+
+  it("모두 게시해 남은 아이가 없으면 알림장이 없는 아이를 말하지 않는다", async () => {
+    const published = noteItem(DOYUN, "approved", 98);
+    mockDrafts([
+      {
+        ...published,
+        parent_note: { ...published.parent_note!, published_at: "2026-11-07T08:40:00Z" },
+      },
+    ]);
+    renderRoute(<TodayPage />);
+
+    expect(await screen.findByRole("heading", { name: "오늘의 기록을 전달했어요" })).toBeVisible();
+    expect(screen.queryByText(/알림장이 없는 아이/)).not.toBeInTheDocument();
+  });
+
+  it("게시하지 않은 초안이 남았으면 전달했다고 하지 않는다", async () => {
+    const published = noteItem(DOYUN, "approved", 98);
+    mockDrafts([
+      {
+        ...published,
+        parent_note: { ...published.parent_note!, published_at: "2026-11-07T08:40:00Z" },
+      },
+      noteItem(SEOA, "approved", 99),
+    ]);
+    renderRoute(<TodayPage />);
+
+    expect(await screen.findByRole("link", { name: "초안 검토하기" })).toHaveAttribute(
+      "href",
+      `/t/today/review/${SEOA}`,
+    );
+  });
+
+  it("회수한 초안이 있으면 전달했다고 하기 전에 확인하러 보낸다", async () => {
+    const published = noteItem(DOYUN, "approved", 98);
+    mockDrafts([
+      {
+        ...published,
+        parent_note: { ...published.parent_note!, published_at: "2026-11-07T08:40:00Z" },
+      },
+      noteItem(SEOA, "revoked", 99),
+    ]);
+    renderRoute(<TodayPage />);
+
+    expect(await screen.findByRole("link", { name: "확인하기" })).toHaveAttribute(
+      "href",
+      `/t/today/review/${SEOA}`,
+    );
+  });
+
   it("초안이 모두 생성 중이면 준비됐다고 하지 않는다", async () => {
     mockDrafts([noteItem(SEOA, "draft", 99)]);
     renderRoute(<TodayPage />);

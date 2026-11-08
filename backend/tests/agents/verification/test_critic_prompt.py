@@ -70,7 +70,15 @@ def test_메타_주석과_자리표시자가_남지_않고_버전이_있다():
     assert "-->" not in prompt
     assert "{{DOCUMENT}}" not in prompt
     assert "PROMPT_VERSION" not in prompt
-    assert PROMPT_VERSION == "critic.v6"
+    assert PROMPT_VERSION == "critic.v7"
+
+
+def test_공동_근거의_아이들에_대상_원아가_든다고_알려_준다():
+    # 이 말이 없으면 "아이들이"만 보고 참여를 확인할 수 없다며 맞는 문장을 떨어뜨리고,
+    # 재생성에서 이름이 빠진 글이 나옵니다(11/07 GLM 실측).
+    prompt = build_critic_prompt(_document(), EVIDENCE_BY_ID)
+
+    assert "CHILD_A는 그 아이들 중 한 명" in prompt
 
 
 def test_본문의_응답_형식은_파서_계약과_같은_필드를_쓴다():

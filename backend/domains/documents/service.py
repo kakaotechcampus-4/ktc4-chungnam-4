@@ -144,6 +144,8 @@ from domains.documents.schemas import (
     ChildDraftListResponse,
     ClassDraftItem,
     ClassDraftListResponse,
+    ClassObservationLogItem,
+    ClassObservationLogListResponse,
     DraftCreateRequest,
     DraftDetailResponse,
     DraftSaveInput,
@@ -153,6 +155,7 @@ from domains.documents.schemas import (
     DraftVersionInfo,
     EvidenceView,
     MediaUrl,
+    ObservationLogSummary,
     ParentMediaDay,
     ParentMediaDownloadResponse,
     ParentMediaItem,
@@ -166,6 +169,8 @@ from domains.documents.schemas import (
     PublishRequest,
     PublishResponse,
     RevokeResponse,
+    SelectableMediaItem,
+    SelectableMediaListResponse,
     UnclassifiedSummary,
 )
 from domains.media import service as media_service
@@ -173,6 +178,9 @@ from domains.organization import service as organization_service
 
 # 자동 생성 결과로 덮어쓰지 않는 상태. 승인·회수된 문서는 교사가 확정한 내용이다.
 _AI_LOCKED_STATUSES = (DraftStatus.APPROVED.value, DraftStatus.REVOKED.value)
+
+# 관찰일지에서 교사가 손댄 것으로 치지 않는 이력 (_has_teacher_edits, #284).
+_OBSERVATION_LOG_LIFECYCLE_ACTIONS = (RevisionAction.APPROVE.value, RevisionAction.REOPEN.value)
 
 # 교사가 쓴 문장의 서버 발급 ID (t1, t2…, 임시 결정(정은), #75).
 _TEACHER_SENTENCE_ID = re.compile(r"t(\d+)")
@@ -186,6 +194,7 @@ _LIST_PHOTOS_PER_NOTE = 3
 _PARENT_MEDIA_TYPES = frozenset({"photo", "video"})
 # 학부모 사진·영상 모아 보기의 한 쪽 알림장 수 (임시 결정(김동건)).
 MEDIA_NOTES_PER_PAGE_MAX = 30
+PARENT_SEARCH_MAX_LENGTH = 100  # 학부모 알림장·사진 검색어 길이 — 임시 결정(송유진)
 _KST = ZoneInfo("Asia/Seoul")
 
 # 반·날짜 목록의 미리보기 길이 (docs/api/documents.md §GET /classes/{class_id}/drafts, 제안).
@@ -359,9 +368,21 @@ def _has_teacher_edits() -> ColumnElement[bool]:
     초안은 생성이라 RevisionLog가 없어서, 교사가 쓴 문장(서버가 붙인 `t…`)이 있는지도 본다
     (#139 리뷰). AI 문장 ID는 tools/generation/draft.py가 `s…`로 붙인다. DraftDocument를
     조회·갱신하는 문장 안에서 상관 서브쿼리로 쓴다.
+
+    예외: 관찰일지의 승인·승인 되돌리기(approve·reopen) 이력은 손댄 것으로 치지 않는다
+    (임시 결정(정은), #284). 관찰일지는 앱에서 고칠 수 없어 그 이력에 지킬 교사 내용이 없고,
+    내려받으려고 승인한 뒤에도 같은 달을 다시 만들 수 있어야 한다. doc_type만 보지 않고
+    action까지 보는 것은 API로는 관찰일지도 PATCH할 수 있어서다 — 수정·회수·재게시 이력이나
+    `t…` 문장이 있으면 알림장처럼 그대로 막는다.
     """
     return or_(
-        exists().where(RevisionLog.draft_id == DraftDocument.id),
+        exists().where(
+            RevisionLog.draft_id == DraftDocument.id,
+            or_(
+                DraftDocument.doc_type != DocType.OBSERVATION_LOG.value,
+                RevisionLog.action.notin_(_OBSERVATION_LOG_LIFECYCLE_ACTIONS),
+            ),
+        ),
         exists().where(
             DraftSentence.draft_id == DraftDocument.id,
             DraftSentence.sentence_id.startswith("t"),
@@ -515,6 +536,70 @@ def list_child_drafts(
             )
             for draft, published_at in rows
         ]
+    )
+
+
+def list_class_observation_logs(
+    db: Session, *, class_id: UUID, center_id: UUID | None, month: date
+) -> ClassObservationLogListResponse:
+    """반 전체의 한 달 관찰일지 현황 — 관찰일지 아이 목록 화면 (FR-06, #225 ⑱, #263).
+
+    - 접근 검사와 재원 원아 명단은 organization이 맡는다. 게시 알림장이 없는 원아도 명단
+      순서대로 행을 둔다 — 화면이 그 원아의 「생성하기」를 막아야 해서다(#225 ⑫). 이름은
+      싣지 않는다 — 화면이 명단 API에서 받은 이름을 child_id로 맞춘다(#263).
+    - published_note_count는 그 달(record_date 기준, #225 ⑩)에 지금 게시 중인 알림장 수다.
+      회수됐거나 승인만 된 알림장은 세지 않는다 — 관찰일지 근거가 될 수 없는 문서다.
+    - 월 관찰일지는 record_date가 그 달 1일인 문서다. 테크스펙에 아직 관찰일지 주기가 없어
+      #225 ⑩·⑱과 #259를 따른 값이다 — 임시 결정(한상균), #267 리뷰.
+    - 미래 월도 막지 않는다. 게시 알림장이 0건이라 화면이 같은 규칙으로 막는다 — 임시
+      결정(한상균), #263.
+    - 본문을 싣지 않아 열람 기록을 남기지 않는다(원아별 목록과 같은 기준).
+    """
+    month_start = month.replace(day=1)
+    next_month = (month_start + timedelta(days=32)).replace(day=1)
+    roster = organization_service.list_class_children(db, class_id, center_id)
+    child_ids = [child.child_id for child in roster.items]
+    if not child_ids:
+        return ClassObservationLogListResponse(month=month_start.strftime("%Y-%m"), items=[])
+
+    active = _active_publications()
+    note_counts = dict(
+        db.execute(
+            select(DraftDocument.child_id, func.count(DraftDocument.id))
+            .join(active, active.c.draft_id == DraftDocument.id)
+            .where(
+                DraftDocument.child_id.in_(child_ids),
+                DraftDocument.doc_type == DocType.PARENT_NOTE.value,
+                DraftDocument.record_date >= month_start,
+                DraftDocument.record_date < next_month,
+            )
+            .group_by(DraftDocument.child_id)
+        )
+        .tuples()
+        .all()
+    )
+    logs = {
+        draft.child_id: ObservationLogSummary(
+            draft_id=draft.id, status=DraftStatus(draft.status), created_at=draft.created_at
+        )
+        for draft in db.scalars(
+            select(DraftDocument).where(
+                DraftDocument.child_id.in_(child_ids),
+                DraftDocument.doc_type == DocType.OBSERVATION_LOG.value,
+                DraftDocument.record_date == month_start,
+            )
+        )
+    }
+    return ClassObservationLogListResponse(
+        month=month_start.strftime("%Y-%m"),
+        items=[
+            ClassObservationLogItem(
+                child_id=child.child_id,
+                published_note_count=note_counts.get(child.child_id, 0),
+                observation_log=logs.get(child.child_id),
+            )
+            for child in roster.items
+        ],
     )
 
 
@@ -754,20 +839,68 @@ def _ensure_selectable_photos(db: Session, draft: DraftDocument, media_ids: Sequ
 
 
 def _shareable_media_ids(db: Session, child_id: UUID, record_date: date) -> set[UUID]:
+    """고를 때와 보여 줄 때 판정하는 범위. 정의는 _shareable_media 하나다."""
+    return {media.media_id for media in _shareable_media(db, child_id, record_date)}
+
+
+def _shareable_media(
+    db: Session, child_id: UUID, record_date: date
+) -> list[media_service.MediaMeta]:
     """그 원아·그 날짜에 학부모에게 보여도 되는 사진·영상. 고를 때와 보여 줄 때 같은 범위를 쓴다.
 
     교사가 그 원아에게 귀속시킨 사진·영상이면 다른 아이가 함께 찍혀도 된다(FR-10). 함께 찍힌
     아이의 촬영·공유는 필수 동의(②) 범위로 보고, ③(얼굴특징정보) 동의와 llm_allowed는 LLM
     경로에서만 본다(H-2). 무엇을 보낼지는 교사가 고르고 승인한다(H-1). 음성메모는 보내지 않는다.
     테크스펙 D-4(11/04 팀 승인, open-questions 57번). 이전 범위는 llm_allowed·귀속 원아 전원 ③
-    동의였다(임시 결정(한상균)).
+    동의였다(임시 결정(한상균)). 촬영 순서다.
     """
-    return {
-        media.media_id
-        for media in media_service.list_child_media(
-            db, child_id, record_date, types=_PARENT_MEDIA_TYPES
-        )
+    return media_service.list_child_media(db, child_id, record_date, types=_PARENT_MEDIA_TYPES)
+
+
+def list_selectable_media(
+    db: Session, *, draft_id: UUID, teacher_id: UUID, center_id: UUID | None
+) -> SelectableMediaListResponse:
+    """교사가 이 알림장에 고를 수 있는 사진·영상 후보를 본다 (FR-10, 테크스펙 D-4).
+
+    - 초안 상세의 media에는 선택·근거·실패 사진만 와서 후보를 따로 준다 (#257 멘토 리뷰).
+    - 권한은 get_draft_for_teacher와 같다. 후보를 보는 것은 검수이고, 학부모에게 나가려면 고른 뒤
+      승인·게시해 _parent_notes 게이트를 지나야 한다 (H-1).
+    - 촬영 순서다. 거른 뒤 서명 전에 파기된 것은 서명이 뺀다.
+    - 아이 사진의 서명 URL을 주는 열람이라 AccessLog(teacher, draft_document,
+      view_selectable_media)를 커밋한 뒤 돌려준다 — NFR-05, 임시 결정(송유진). 기록에 실패하면
+      URL 없이 500이다.
+    """
+    draft = _draft_for_teacher(db, draft_id, center_id)
+    if draft.doc_type != DocType.PARENT_NOTE.value:
+        raise NotParentNote("알림장에만 사진을 고를 수 있습니다.")
+    captured_at_by_media = {
+        media.media_id: media.captured_at
+        for media in _shareable_media(db, draft.child_id, draft.record_date)
     }
+    items = [
+        SelectableMediaItem(
+            media_id=signed.media_id,
+            type=signed.type,
+            url=signed.url,
+            url_expires_at=signed.url_expires_at,
+            captured_at=captured_at_by_media[signed.media_id],
+        )
+        for signed in _signed_media(db, list(captured_at_by_media))
+    ]
+    try:
+        audit_service.record_access(
+            db,
+            actor_type="teacher",
+            actor_id=teacher_id,
+            target_type="draft_document",
+            target_id=draft_id,
+            action="view_selectable_media",
+        )
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise AccessLogFailed("열람 기록을 남기지 못해 사진을 보여 드릴 수 없습니다.") from None
+    return SelectableMediaListResponse(items=items)
 
 
 def _not_editable(status: str) -> AidamError:
@@ -1035,6 +1168,11 @@ def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
         status=DraftStatus(draft.status),
         version=draft.version,
         title=None,
+        sections=(
+            agents_service.observation_log_sections()
+            if draft.doc_type == DocType.OBSERVATION_LOG.value
+            else []
+        ),
         sentences=views,
         daily_routine=agents_service.get_daily_routine(db, draft.evidence_bundle_id),
         selected_media_ids=selected_media_ids,
@@ -1051,6 +1189,7 @@ def _teacher_detail(db: Session, draft_id: UUID) -> DraftDetailResponse:
         include_photos=publication.include_photos if publication else None,
         revoke_deadline=publication.revoke_deadline if publication else None,
         can_revoke=_can_revoke(publication),
+        created_at=draft.created_at,
         updated_at=draft.updated_at,
     )
 
@@ -1252,7 +1391,13 @@ def _can_revoke(publication: DocumentPublication | None) -> bool:
 
 
 def list_letters_for_parent(
-    db: Session, *, child_id: UUID, parent_id: UUID, limit: int, cursor: str | None
+    db: Session,
+    *,
+    child_id: UUID,
+    parent_id: UUID,
+    limit: int,
+    cursor: str | None,
+    keyword: str | None = None,
 ) -> ParentNoteListResponse:
     """학부모가 자녀의 게시된 알림장 목록을 본다 (FR-09, H-1).
 
@@ -1261,10 +1406,16 @@ def list_letters_for_parent(
       기록을 커밋한 뒤에 돌려준다 — 임시 결정(한상균), docs/api/documents.md. 목록은 본문을
       처음 연 시각인 first_viewed_at을 건드리지 않는다.
     - is_read·unread_count는 이 학부모가 본문을 연 적이 있는지(AccessLog view_detail)로 센다.
+    - keyword가 있으면 본문·날짜에 그 말이 든 알림장만 담는다(_matching_notes). unread_count와
+      this_month_count는 검색과 상관없이 전체를 센다 — 임시 결정(송유진), docs/api/documents.md.
     """
     notes = _parent_notes(db, parent_id=parent_id, child_id=child_id)
     after = _decode_cursor(cursor)
-    remaining = [note for note in notes if after is None or note[0].record_date < after]
+    remaining = [
+        note
+        for note in _matching_notes(db, notes, keyword)
+        if after is None or note[0].record_date < after
+    ]
     page = remaining[:limit]
     viewed = audit_service.viewed_target_ids(
         db,
@@ -1362,7 +1513,13 @@ def get_letter_for_parent(
 
 
 def list_media_for_parent(
-    db: Session, *, child_id: UUID, parent_id: UUID, limit: int, cursor: str | None
+    db: Session,
+    *,
+    child_id: UUID,
+    parent_id: UUID,
+    limit: int,
+    cursor: str | None,
+    keyword: str | None = None,
 ) -> ParentMediaListResponse:
     """학부모가 자녀의 사진·영상을 알림장 날짜별로 모아 본다 (FR-10, H-1).
 
@@ -1371,8 +1528,10 @@ def list_media_for_parent(
     - 보낼 것이 없는 알림장은 건너뛰고, 기록 날짜 최신순으로 limit개 알림장씩 나눈다.
     - 화면에 실린 알림장마다 AccessLog(view_media)를 커밋한 뒤 돌려준다 — 임시 결정(김동건).
       목록과 같이 first_viewed_at은 건드리지 않는다(본문을 처음 연 시각이라서).
+    - 사진에는 글이 없어 keyword는 함께 게시한 알림장의 본문·날짜에서 찾는다(_matching_notes).
+      그때 photo_count·video_count는 찾은 알림장 안에서 센다 — 임시 결정(송유진).
     """
-    notes = _parent_notes(db, parent_id=parent_id, child_id=child_id)
+    notes = _matching_notes(db, _parent_notes(db, parent_id=parent_id, child_id=child_id), keyword)
     note_media = _parent_note_media_ids(db, notes)
     with_media = [(draft, publication) for draft, publication in notes if note_media[draft.id]]
     after = _decode_cursor(cursor)
@@ -1480,6 +1639,52 @@ def _parent_notes(
         .order_by(DraftDocument.record_date.desc())
     )
     return list(rows.tuples())
+
+
+def _matching_notes(
+    db: Session,
+    notes: Sequence[tuple[DraftDocument, DocumentPublication]],
+    keyword: str | None,
+) -> list[tuple[DraftDocument, DocumentPublication]]:
+    """게이트를 지난 알림장 가운데 본문의 한 문장이나 날짜에 keyword가 든 것만 남긴다 (FR-09, FR-10).
+
+    게이트(_parent_notes)의 결과만 거르므로 보여도 되는 범위를 넓히지 않는다 (H-1). 검색어가
+    비었으면 그대로 돌려준다. 띄어쓰기와 대소문자는 가리지 않는다. 문장마다 따로 찾아서, 앞 문장
+    끝과 다음 문장 앞이 붙어 글에 없는 말이 찾히지 않게 한다. 아이 한 명의 게시본 안에서만 찾아
+    양이 적으므로 파이썬에서 거른다. 검색어는 로그와 AccessLog에 남기지 않는다 (H-4).
+    """
+    needle = _search_key(keyword or "")
+    if not needle:
+        return list(notes)
+    sentences: dict[UUID, list[str]] = {}
+    rows = db.execute(
+        select(DraftSentence.draft_id, DraftSentence.text).where(
+            DraftSentence.draft_id.in_([draft.id for draft, _ in notes])
+        )
+    )
+    for draft_id, text in rows:
+        sentences.setdefault(draft_id, []).append(text)
+    return [
+        (draft, publication)
+        for draft, publication in notes
+        if any(
+            needle in _search_key(text)
+            for text in (_date_search_text(draft.record_date), *sentences.get(draft.id, []))
+        )
+    ]
+
+
+def _search_key(text: str) -> str:
+    return "".join(text.split()).casefold()
+
+
+def _date_search_text(record_date: date) -> str:
+    """화면의 날짜 표기("2026년 11월 7일 토요일")와 ISO 표기 둘 다로 찾을 수 있게 한다."""
+    weekday = "월화수목금토일"[record_date.weekday()]
+    return (
+        f"{record_date.year}년 {record_date.month}월 {record_date.day}일 {weekday}요일 "
+        f"{record_date.isoformat()}"
+    )
 
 
 def _parent_photos(
@@ -1742,6 +1947,21 @@ class PublishedEvidence:
     record_date: date
     text: str
     version: int
+
+
+def get_record_dates(db: Session, draft_ids: Sequence[UUID]) -> dict[UUID, date]:
+    """문서 ID마다 기록 날짜를 찾아 준다. 없는 ID는 뺀다.
+
+    agents가 월 관찰일지 근거의 알림장 날짜를 채울 때 쓴다(#264, 임시 결정(정은)). 본문·상태는
+    읽지 않고 날짜만 돌려주므로 권한 판정은 부르는 쪽(초안 상세)이 이미 했다.
+    """
+    unique_ids = list(dict.fromkeys(draft_ids))
+    if not unique_ids:
+        return {}
+    rows = db.execute(
+        select(DraftDocument.id, DraftDocument.record_date).where(DraftDocument.id.in_(unique_ids))
+    ).all()
+    return {row.id: row.record_date for row in rows}
 
 
 def published_records_for_agents(

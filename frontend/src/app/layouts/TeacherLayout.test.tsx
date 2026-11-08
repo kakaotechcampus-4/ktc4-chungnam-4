@@ -1,9 +1,10 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 
 import { authKeys } from "@/api/auth";
 import { organizationKeys } from "@/api/organization";
 import { selectClass, useCurrentClassStore } from "@/features/class-context/current-class-store";
+import { useUploadQueue } from "@/features/upload-queue/upload-queue-store";
 import { TEACHER_ME } from "@/mocks/fixtures/auth";
 import { fixtureId } from "@/mocks/fixtures/ids";
 import { SUNSHINE_CLASS } from "@/mocks/fixtures/organization";
@@ -20,8 +21,31 @@ function renderAt(path: string) {
   );
 }
 
+/** 브라우저가 새로고침 앞에서 보내는 이벤트입니다. 막혔으면 확인 창이 뜹니다. */
+function reloadIsGuarded() {
+  const event = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(event);
+  return event.defaultPrevented;
+}
+
 describe("TeacherLayout", () => {
-  afterEach(() => useCurrentClassStore.setState({ selectedClassId: null }));
+  afterEach(() => {
+    useCurrentClassStore.setState({ selectedClassId: null });
+    useUploadQueue.getState().reset();
+  });
+
+  // 분류하던 사진이 경고 없이 사라졌습니다(11/07 배포 점검).
+  it("보내지 않은 자료가 있는 동안만 새로고침 앞에서 확인을 받는다", async () => {
+    renderAt("/t/today");
+    await screen.findByRole("navigation", { name: "주 메뉴" });
+    expect(reloadIsGuarded()).toBe(false);
+
+    act(() => useUploadQueue.getState().addFiles([new File(["x"], "IMG_1.jpg")]));
+    expect(reloadIsGuarded()).toBe(true);
+
+    act(() => useUploadQueue.getState().reset());
+    expect(reloadIsGuarded()).toBe(false);
+  });
 
   it("메뉴 다섯 개와 본문을 보여 준다", async () => {
     renderAt("/t/today");

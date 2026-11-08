@@ -405,3 +405,9 @@ def test_작성도구는_연령대와_요청초점에_맞는_지침을_조회한
     assert infant["age_guidance"] != preschool["age_guidance"]
     assert infant["focus_guidance"] != preschool["focus_guidance"]
     assert "진단" in infant["rule"]
+
+
+def test_빈_응답은_형식_오류로_올려_재생성_경로를_탄다(monkeypatch):
+    """빈 응답이 바로 Job 실패(AGENT_RESPONSE_INVALID)로 끝나던 문제 (#304 4-4)."""
+    with pytest.raises(DraftResponseError):
+        run(monkeypatch, [finish("")])

@@ -71,6 +71,8 @@ export interface DraftRecord {
   published_at: string | null;
   /** 게시할 때 "사진 포함해서 보내기"를 골랐는지 */
   include_photos: boolean;
+  /** 회수한 적이 있으면 true. 목은 게시 회차를 따로 두지 않아, 다음 게시가 곧 다시 보낸 회차입니다(#289 is_resent). */
+  resent?: boolean;
   updated_at: string;
 }
 
@@ -251,7 +253,7 @@ export function seedDb(now: Date = new Date()): MockDb {
     evidence: MediaRecord[],
     obs: number,
     note: number,
-  ) =>
+  ): [DraftRecord, DraftRecord] =>
     buildDrafts({
       child: childOf(child),
       recordDate: date,

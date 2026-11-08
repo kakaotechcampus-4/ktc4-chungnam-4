@@ -180,3 +180,54 @@ def test_에이전트_시간초과는_LLM_TIMEOUT으로_종료한다(monkeypatch
     assert failures == [{"error_code": "LLM_TIMEOUT"}]
     # 제한 시간은 service 상수 한 곳에서 정한다(180초에서 300초로 올림, test_작업_시간_제한_...)
     assert tasks.generate_drafts.soft_time_limit == tasks.service.JOB_SOFT_TIME_LIMIT_SECONDS
+
+
+def _api_error(error_type: type[openai.APIStatusError], status: int) -> openai.APIStatusError:
+    request = httpx.Request("POST", "http://llm.invalid/v1")
+    return error_type("x", response=httpx.Response(status, request=request), body=None)
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (_connection_error(), "LLM_CALL_FAILED"),
+        (_api_error(openai.InternalServerError, 500), "LLM_CALL_FAILED"),
+        (_api_error(openai.RateLimitError, 429), "LLM_CALL_FAILED"),
+        (_api_error(openai.BadRequestError, 400), "LLM_CALL_FAILED"),
+        (
+            openai.APITimeoutError(request=httpx.Request("POST", "http://llm.invalid/v1")),
+            "LLM_TIMEOUT",
+        ),
+    ],
+)
+def test_LLM_오류는_Celery가_예외를_바꿔도_LLM_코드로_남는다(monkeypatch, error, expected) -> None:
+    """Celery가 SDK 예외를 OpenAIError로 바꿔 저장해 INTERNAL_ERROR가 되던 문제 (#304 4-1)."""
+    codes: list[str] = []
+    monkeypatch.setattr(tasks.service, "record_job_retry", lambda job_id: None)
+    monkeypatch.setattr(
+        tasks.service,
+        "mark_job_failed",
+        lambda job_id, **kwargs: codes.append(kwargs["error_code"]),
+    )
+
+    def _orchestrate(job_id: str, child_id: str) -> None:
+        raise error
+
+    monkeypatch.setattr(tasks.service, "orchestrate_drafts", _orchestrate)
+    tasks.generate_drafts.apply(args=("job-1", "child-1"))
+
+    assert codes == [expected]
+
+
+def test_worker가_죽어도_미리_받은_메시지가_갇히지_않게_늦게_확인한다() -> None:
+    """미리 받아 둔 메시지가 Redis unacked에 1시간 갇히던 문제 (#304 4-2)."""
+    from celery_app import celery_app
+    from domains.media.tasks import transcribe_media
+
+    conf = celery_app.conf
+    assert conf.task_acks_late is True
+    assert conf.task_reject_on_worker_lost is True
+    assert conf.worker_prefetch_multiplier == 1
+    # 가장 긴 작업보다 짧으면 처리 중인 작업이 다시 전달돼 두 번 돈다.
+    longest = max(transcribe_media.time_limit, tasks.generate_drafts.soft_time_limit * 3)
+    assert conf.broker_transport_options["visibility_timeout"] > longest

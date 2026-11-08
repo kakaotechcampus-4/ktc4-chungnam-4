@@ -48,9 +48,12 @@ class _DraftTask(Task):
 # 시작한다 (테크스펙 파이프라인 4단계에 임시 결정으로 적었다).
 # retry_backoff: 재시도 간격은 스펙에 없다. Celery 기본값(180초 고정)은 교사가 진행 화면을
 # 보는 동안 너무 길어서 1초부터 늘리는 방식을 임시로 골랐다 — 팀 확인 필요.
+# ignore_result: 결과는 Job 행에 남기고 Celery 결과 저장소를 쓰지 않는다. 켜 두면 넣을 때마다
+# 결과 구독을 걸어, Redis가 꺼지면 그 재연결 재시도로 요청이 약 1분 40초 매달린다 (#304 4-17).
 @celery_app.task(
     bind=True,
     base=_DraftTask,
+    ignore_result=True,
     autoretry_for=RETRYABLE_ERRORS,
     max_retries=2,
     retry_backoff=True,
@@ -59,13 +62,22 @@ class _DraftTask(Task):
 def generate_drafts(self, job_id: str, child_id: str) -> None:
     try:
         service.orchestrate_drafts(job_id, child_id)
-    except RETRYABLE_ERRORS as error:
+    except openai.APIError as error:
         # 작업 제한이 LLM 호출 도중에 걸리면 openai SDK가 SoftTimeLimitExceeded를 받아
         # APIConnectionError로 감싸 올린다. 그대로 두면 재시도 대상으로 잡히므로 원래 예외로
         # 되돌려, 위에서 정한 대로 재시도하지 않고 실패로 끝낸다.
         if isinstance(error.__cause__, SoftTimeLimitExceeded):
             raise error.__cause__ from None
-        raise
+        if isinstance(error, RETRYABLE_ERRORS) and self.request.retries < self.max_retries:
+            raise
+        # 더 재시도하지 않는 LLM 오류는 여기서 코드로 바꿔 올린다. Celery가 실패 예외를
+        # 저장하면서 InternalServerError 같은 SDK 예외를 부모 OpenAIError로 바꿔(생성자 인자가
+        # 달라 pickle로 되살리지 못함) on_failure의 타입 분기가 INTERNAL_ERROR로 떨어진다 (#304 4-1).
+        raise service.AgentExecutionError(_llm_error_code(error)) from None
+
+
+def _llm_error_code(error: openai.APIError) -> str:
+    return "LLM_TIMEOUT" if isinstance(error, openai.APITimeoutError) else "LLM_CALL_FAILED"
 
 
 def enqueue_generate_drafts(child_jobs: Sequence[tuple[UUID, UUID]]) -> None:

@@ -80,7 +80,7 @@ class DraftVersionInfo(BaseModel):
     - version: 잠금용 DraftDocument.version. 재생성이면 save_draft(expected_version=...)에
       그대로 넘긴다. AI 회차(ai_version)와 다르다.
     - has_teacher_edits: 교사가 이 초안을 한 번이라도 수정·승인·회수했는지. true면 AI 결과로
-      덮어쓰지 않는다 (#75 6-1).
+      덮어쓰지 않는다 (#75 6-1). 관찰일지는 승인·승인 되돌리기만 있으면 false다 (#284).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -129,6 +129,31 @@ class ClassDraftListResponse(BaseModel):
 
     items: list[ClassDraftItem]
     next_cursor: str | None = None
+
+
+class ObservationLogSummary(BaseModel):
+    """그 달 관찰일지 한 건. 본문은 싣지 않는다."""
+
+    draft_id: UUID
+    status: DraftStatus
+    # 처음 만든 시각. 교사가 고쳐도 바뀌지 않는다(updated_at과 다름).
+    created_at: datetime
+
+
+class ClassObservationLogItem(BaseModel):
+    """원아 한 명의 그 달 관찰일지 현황 (#225 ⑱)."""
+
+    child_id: UUID
+    # 그 달(record_date 기준)에 지금 게시 중인 알림장 수. 0이면 화면이 생성을 막는다(#225 ⑫).
+    published_note_count: int
+    observation_log: ObservationLogSummary | None
+
+
+class ClassObservationLogListResponse(BaseModel):
+    """GET /api/v1/classes/{class_id}/observation-logs. 반 단위라 페이지를 나누지 않는다."""
+
+    month: str
+    items: list[ClassObservationLogItem]
 
 
 class ChildDraftItem(DraftSummary):
@@ -191,6 +216,8 @@ class DraftDetailResponse(BaseModel):
     version: int
     # AI가 제목을 만들지 않아 지금은 늘 null이다.
     title: str | None
+    # 양식의 칸 이름(양식 순서). 관찰일지만 채우고 알림장은 빈 배열이다 (#264, 임시 결정(정은)).
+    sections: list[str] = Field(default_factory=list)
     daily_routine: list[str] = Field(default_factory=list)
     sentences: list[DraftSentenceView]
     selected_media_ids: list[UUID]
@@ -206,7 +233,27 @@ class DraftDetailResponse(BaseModel):
     revoke_deadline: datetime | None
     # 지금 회수할 수 있는가 (활성 게시 회차가 있고 기한 이내. 학부모가 열어 봤어도 된다, #266).
     can_revoke: bool
+    # 처음 만든 시각. 교사가 고쳐도 바뀌지 않는다 — 관찰일지 생성 결과 화면의 부제(#263).
+    created_at: datetime
     updated_at: datetime
+
+
+class SelectableMediaItem(BaseModel):
+    """알림장에 고를 수 있는 사진·영상 한 건. 서명 URL은 화면 표시·재생용이다."""
+
+    media_id: UUID
+    type: Literal["photo", "video"]
+    url: str
+    url_expires_at: datetime
+    captured_at: datetime
+
+
+class SelectableMediaListResponse(BaseModel):
+    """GET /api/v1/drafts/{draft_id}/selectable-media. 촬영 순서이고, 하루치라 페이지를 나누지 않는다
+    (임시 결정(송유진))."""
+
+    items: list[SelectableMediaItem]
+    next_cursor: str | None = None
 
 
 class SentenceEdit(BaseModel):

@@ -26,7 +26,9 @@ class _TranscribeTask(Task):
 # 재시도는 조각 단위로 stt.py 안에서 한다 — 작업을 다시 돌리면 성공한 조각까지 다시 보낸다.
 # 작업 전체 상한은 엘리스가 계속 느릴 때 worker 칸을 끝없이 붙잡지 않게 한다. 넘으면 failed.
 # TODO(donggeon): 10분 음성 실측 뒤 상한 확정 (지금은 임시 600초)
-@celery_app.task(base=_TranscribeTask, soft_time_limit=600, time_limit=630)
+# ignore_result: 결과는 MediaAsset.transcript_status에 남긴다. 결과 구독을 걸면 Redis가 꺼졌을 때
+# OperationalError가 아닌 RuntimeError로 약 1분 40초 뒤에 실패해 아래 처리를 빠져나간다 (#304 4-17).
+@celery_app.task(base=_TranscribeTask, soft_time_limit=600, time_limit=630, ignore_result=True)
 def transcribe_media(media_id: str) -> None:
     service.transcribe_media(media_id)
 
@@ -34,7 +36,7 @@ def transcribe_media(media_id: str) -> None:
 def enqueue_transcription(media_id: UUID | None) -> None:
     """영상·음성의 STT 작업을 큐에 넣는다. worker가 MediaAsset을 읽으므로 커밋한 뒤에 부른다.
 
-    넣기 재시도는 Celery 기본값(3번, 0→0.2→0.4초 간격)이 교사 몰래 한다. 그래도 못 넣으면
+    넣기 재시도는 `celery_app.py`의 `task_publish_retry_policy`(1번)대로 Celery가 한다. 그래도 못 넣으면
     failed로 바꾸고 예외를 올리지 않는다(#219 리뷰). 업로드는 이미 커밋돼 확정됐으므로 완료
     통지는 성공으로 답하고, STT 실패는 transcript_status로 화면에 알린다. 500으로 답하면 교사는
     업로드 실패로 보고 다시 올리지만, 이미 등록된 파일이라 STT가 다시 시작되지 않는다.

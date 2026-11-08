@@ -57,12 +57,17 @@ from tools.generation.agent_tools import (
     COLLECTOR_TOOLS,
     OBSERVATION_TOOLS,
     PARENT_TOOLS,
+    SECTIONS,
     ToolArguments,
     tool_definitions,
     writing_guidance,
 )
 from tools.generation.draft import DraftResponseError, parse_draft_response
-from tools.generation.pseudonymize import pseudonymize_evidence, restore_names
+from tools.generation.pseudonymize import (
+    pseudonymize_evidence,
+    restore_names,
+    unknown_child_tokens,
+)
 from tools.perception.merge import failed_photo_ids, merge_perception_results
 from tools.perception.photo import parse_single_photo_analysis
 from tools.perception.transcript import normalize_transcript
@@ -89,9 +94,10 @@ logger = logging.getLogger(__name__)
 # PASS 초안 저장이 교사 문서와 충돌해 건너뛴 경우의 로그 코드. 원인은 세분화하지 않는다 (#75).
 DRAFT_SAVE_CONFLICT = "draft_save_conflict"
 
-# 원아 1명·하루에 LLM으로 보낼 사진 수 상한. agents CLAUDE.md의 "3~5장 권장"에서 위쪽 값을
-# 골랐다. TODO(eun): 정확한 상한과 고르는 기준(지금은 하루 전체에서 고르게)은 확정 예정이다.
-MAX_PHOTOS_PER_CHILD = 5
+# 원아 1명·하루에 LLM으로 보낼 사진 수 상한. 임시 결정(송유진): 5장이면 나머지 사진이 근거에서
+# 빠져서 올렸다. 서버와 같은 구성에서 약 3MB 사진 30장은 작업 제한(180초) 안인 130초에 끝났고
+# 45장은 넘겼다. TODO(eun): 정확한 상한과 고르는 기준(지금은 하루 전체에서 고르게)은 확정 예정이다.
+MAX_PHOTOS_PER_CHILD = 30
 
 # 매일 도는 Job은 알림장, 관찰일지는 교사의 월별 요청에서 별도로 실행한다(#225).
 DAILY_DOC_TYPE = contracts.DocType.PARENT_NOTE
@@ -181,11 +187,16 @@ def start_generation_job(
 
     if record_date > datetime.now(_KST).date():
         raise InvalidRecordDate("오늘보다 뒤 날짜의 초안은 만들 수 없습니다.")
-    _ensure_not_running(db, class_id, record_date, DAILY_DOC_TYPE.value)
+    running_id = _running_daily_job_id(db, class_id, record_date)
+    if running_id is not None:
+        raise JobAlreadyRunning(
+            "같은 날짜의 초안을 이미 만들고 있습니다.", detail={"job_id": str(running_id)}
+        )
     unready = media_service.find_unready_media(db, class_id, record_date, media_ids)
     if unready:
         raise MediaNotReady(
-            "아직 서버 전송이 끝나지 않은 자료가 있습니다.",
+            # 전송 전·귀속 전·STT 중을 모두 이 코드로 막으므로 셋을 다 덮는 문구로 둔다 (#304)
+            "아직 준비가 끝나지 않은 자료가 있습니다. 전송·분류·음성 변환이 끝난 뒤 다시 시도해 주세요.",
             detail={"media_ids": [str(media_id) for media_id in unready]},
         )
     child_ids = _draft_target_children(db, class_id, record_date)
@@ -345,6 +356,46 @@ def _find_job_by_request_id(db: Session, request_id: UUID) -> GenerationJob | No
     return db.scalar(select(GenerationJob).where(GenerationJob.request_id == str(request_id)))
 
 
+def _running_daily_job_id(db: Session, class_id: UUID, record_date: date) -> UUID | None:
+    """그 반·날짜에 돌고 있는 알림장 생성 작업. 멈춘 것으로 보는 작업은 빼고 본다."""
+    now = datetime.now(UTC)
+    return db.scalar(
+        select(GenerationJob.id)
+        .join(Job, Job.generation_job_id == GenerationJob.id)
+        .where(
+            GenerationJob.class_id == class_id,
+            GenerationJob.record_date == record_date,
+            GenerationJob.doc_type == DAILY_DOC_TYPE.value,
+            or_(
+                and_(
+                    Job.status == JobStatus.RUNNING.value,
+                    Job.updated_at >= now - _STALE_JOB_AFTER,
+                ),
+                and_(
+                    Job.status == JobStatus.PENDING.value,
+                    Job.updated_at >= now - _STALE_PENDING_JOB_AFTER,
+                ),
+            ),
+        )
+        .limit(1)
+    )
+
+
+def ensure_no_running_daily_job(db: Session, class_id: UUID, record_date: date) -> None:
+    """그 반·날짜의 초안을 만드는 중이면 JobAlreadyRunning(409)을 올린다 (media 귀속 변경 잠금).
+
+    생성 도중 사진 귀속을 바꾸면 worker가 이미 읽은 옛 귀속으로 초안을 만들어, 옮긴 사진이 이전
+    원아 초안과 학부모 화면에 남는다 (#304 4-23). 처리 중인 자원은 잠그는 것이 일반적이라
+    끝날 때까지 귀속 변경을 막는다. media가 agents를 import하면 순환하므로 라우터가 넘겨준다.
+    """
+    running_id = _running_daily_job_id(db, class_id, record_date)
+    if running_id is not None:
+        raise JobAlreadyRunning(
+            "이 날짜의 초안을 만드는 중이라 분류를 바꿀 수 없어요. 끝난 뒤 다시 시도해 주세요.",
+            detail={"job_id": str(running_id)},
+        )
+
+
 def _started_again(
     db: Session, existing: GenerationJob, center_id: UUID | None
 ) -> StartedGenerationJob:
@@ -464,6 +515,7 @@ def _overall_status(children: Sequence[ChildJobStatus]) -> JobStatus:
 # 근거 ID 접두. 문장별 근거 행에는 출처 종류가 없어서, 미디어가 없는 근거 중 활동계획(`plan:`)과
 # 교사 메모를 이 접두로 가른다.
 TEACHER_NOTE_EVIDENCE_PREFIX = "note:"
+SEGMENT_EVIDENCE_PREFIX = "seg:"
 
 
 @dataclass(frozen=True)
@@ -620,16 +672,45 @@ class SentenceEvidenceView:
     source_document_id: UUID | None = None
 
 
+def observation_log_sections() -> list[str]:
+    """관찰일지 기본 양식의 영역 이름을 양식 순서대로 돌려준다.
+
+    documents의 초안 상세가 `sections`로 싣는다(#264, 임시 결정(정은)). tools/는 agents만 부를 수
+    있어서 이 함수로 넘긴다. 원별 양식(⑬)이 생기면 출처만 바뀐다.
+    """
+    return list(SECTIONS)
+
+
+def _segment_id(evidence_id: str) -> UUID | None:
+    """발화 근거의 구간 ID. evidence_id는 tools/perception/transcript.py가 seg:<id>로 만든다."""
+    if not evidence_id.startswith(SEGMENT_EVIDENCE_PREFIX):
+        return None
+    try:
+        return UUID(evidence_id.removeprefix(SEGMENT_EVIDENCE_PREFIX))
+    except ValueError:
+        return None
+
+
+def _note_captured_at(record_date: date | None) -> datetime | None:
+    """알림장 근거의 날짜. 그 알림장의 기록 날짜를 그날 0시(KST)로 찍는다 (#264)."""
+    if record_date is None:
+        return None
+    return datetime.combine(record_date, time.min, tzinfo=_KST)
+
+
 def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[SentenceEvidenceView]]:
     """초안의 문장별 근거를 sentence_id로 묶어 돌려준다 (FR-07).
 
     권한 판정과 열람 기록은 부르는 쪽(documents)이 한다. 근거가 없는 문장은 키가 없다 — 교사가
     고친 문장의 근거를 비우는 것도 documents가 정한다 (documents.md §PATCH).
 
-    임시 결정(정은): 근거 행에 출처 종류·끝 시각을 저장하지 않아서 source_type은 미디어 종류로
-    정하고 end_ms는 null이다. 영상 속 교사 관찰 발화는 생성 때 teacher_voice_memo였어도
-    여기서는 video_speech로 보인다. TODO(eun): 영상 근거를 쓰기 시작하면 SentenceEvidence에
-    source_type·end_ms를 저장한다(테크스펙 먼저).
+    end_ms는 근거 행에 없어서 evidence_id가 가리키는 발화 구간에서 읽는다. 재생을 문장 끝까지
+    하기 위함이고, 구간에 끝 시각이 없으면 null이다(임시 결정(송유진)).
+
+    임시 결정(정은): 근거 행에 출처 종류를 저장하지 않아서 source_type은 미디어 종류로
+    정한다. 영상 속 교사 관찰 발화는 생성 때 teacher_voice_memo였어도 여기서는 video_speech로
+    보인다. TODO(eun): 영상 근거를 쓰기 시작하면 SentenceEvidence에 source_type을 저장한다
+    (테크스펙 먼저).
     """
     rows = db.scalars(
         select(SentenceEvidenceRow)
@@ -638,6 +719,15 @@ def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[Sente
     ).all()
     media = media_service.get_media_meta(
         db, [row.source_media_id for row in rows if row.source_media_id is not None]
+    )
+    # 월 관찰일지가 모은 게시 알림장 근거는 미디어가 없어 촬영 시각이 없다. 그 알림장의 기록 날짜로
+    # 채워 화면이 날짜를 찍고 정렬되게 한다(#264, 임시 결정(정은)). 근거 행에는 저장하지 않는다.
+    record_dates = documents.get_record_dates(
+        db, [row.source_document_id for row in rows if row.source_document_id is not None]
+    )
+    segment_ids = {row.evidence_id: _segment_id(row.evidence_id) for row in rows}
+    end_ms_by_segment = media_service.get_segment_end_ms(
+        db, [segment_id for segment_id in segment_ids.values() if segment_id is not None]
     )
     result: dict[str, list[SentenceEvidenceView]] = {}
     for row in rows:
@@ -660,8 +750,12 @@ def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[Sente
                 start_ms=(
                     round(row.source_timestamp * 1000) if row.source_timestamp is not None else None
                 ),
-                end_ms=None,
-                captured_at=meta.captured_at if meta is not None else None,
+                end_ms=end_ms_by_segment.get(segment_ids[row.evidence_id]),
+                captured_at=(
+                    meta.captured_at
+                    if meta is not None
+                    else _note_captured_at(record_dates.get(row.source_document_id))
+                ),
             )
         )
     for views in result.values():
@@ -1259,6 +1353,13 @@ def _generate_draft(
         draft_id=draft_id,
         version=version,
     )
+    for sentence in document.sentences:
+        if unknown_child_tokens(sentence.text, masked.child_id_by_token):
+            # 토큰 원문은 메시지에 넣지 않는다. 피드백으로 LLM에 다시 가므로 형식만 알린다.
+            raise DraftResponseError(
+                "보낸 적 없는 원아 토큰이나 형식이 깨진 토큰이 있습니다. "
+                "자료에 있는 CHILD_ 토큰만 그대로 쓰세요."
+            )
     if inputs.trace:
         inputs.trace(role, "completed", None)
     return GeneratedDraft(
@@ -1686,7 +1787,10 @@ def _agent_conversation(
                 )
                 continue
             if not response.content:
-                raise AgentExecutionError("AGENT_RESPONSE_INVALID")
+                # 빈 응답도 형식이 틀린 출력이다. 깨진 JSON·출력 한도 초과와 같이 재생성하고, 상한을
+                # 넘으면 미분류함으로 보낸다. 전에는 바로 Job 실패(AGENT_RESPONSE_INVALID)로 끝나
+                # 같은 종류의 오류가 다르게 처리됐다 (#304 4-4).
+                raise DraftResponseError("빈 응답입니다. 요구한 JSON 형식으로 작성하세요.")
             if trace:
                 trace(role, "responded", None)
             return response.content

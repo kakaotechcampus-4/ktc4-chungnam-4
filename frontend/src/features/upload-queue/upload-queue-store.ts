@@ -91,9 +91,30 @@ export function mediaKindOf(fileName: string): MediaKind | null {
   return KIND_BY_EXTENSION[extension] ?? null;
 }
 
+/**
+ * 같은 파일이면 항상 같은 client_id(서버의 client_photo_id)를 만듭니다. 이름·크기·수정 시각을 섞은
+ * 128비트 FNV-1a 해시를 UUID 모양으로 씁니다. 전송 중 취소한 뒤 같은 파일을 다시 올리면 무작위 ID라
+ * 서버에 중복으로 들어가던 문제(#304 4-11)를, 서버가 이미 받은 파일을 registered로 돌려주게 해
+ * 막습니다(업로드 멱등 키). 파일 이름은 해시로만 나가고 서버로 보내지 않습니다.
+ */
+export function stableClientId(file: Pick<File, "name" | "size" | "lastModified">) {
+  const source = `${file.name}\u0000${file.size}\u0000${file.lastModified}`;
+  const words = [0x811c9dc5, 0x01000193, 0x2545f491, 0x9e3779b9].map((seed) => {
+    let hash = seed >>> 0;
+    for (let index = 0; index < source.length; index += 1) {
+      hash ^= source.charCodeAt(index);
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    return hash.toString(16).padStart(8, "0");
+  });
+  const hex = words.join("");
+  // 버전 자리는 5, 변형 자리는 8로 고정해 표준 UUID 모양을 맞춥니다.
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
 function toLocalMedia(file: File, kind: MediaKind): LocalMedia {
   const base = {
-    client_id: crypto.randomUUID(),
+    client_id: stableClientId(file),
     file,
     import_progress: 0,
     upload_state: "대기" as const,
@@ -153,10 +174,18 @@ export const useUploadQueue = create<UploadQueueState>()((set) => ({
     set((state) => {
       const accepted: LocalMedia[] = [];
       const rejected = new Set(state.rejected);
+      // 같은 파일을 두 번 고르면 한 번만 담습니다. client_id가 같아 둘을 구분할 수 없습니다.
+      const seen = new Set(state.items.map((item) => item.client_id));
       for (const file of files) {
         const kind = mediaKindOf(file.name);
-        if (kind && (CLIPS_ENABLED || kind === "photo")) accepted.push(toLocalMedia(file, kind));
-        else rejected.add(file.name);
+        if (!kind || !(CLIPS_ENABLED || kind === "photo")) {
+          rejected.add(file.name);
+          continue;
+        }
+        const item = toLocalMedia(file, kind);
+        if (seen.has(item.client_id)) continue;
+        seen.add(item.client_id);
+        accepted.push(item);
       }
       return { items: [...state.items, ...accepted], rejected: [...rejected] };
     }),
@@ -215,6 +244,16 @@ export function isImportDone(items: readonly LocalMedia[]) {
 export function isImportStage(items: readonly LocalMedia[]) {
   return items.every(
     (item) => item.upload_state === "대기" && (!isPhoto(item) || item.classify_state === "pending"),
+  );
+}
+
+/**
+ * 새로고침하면 사라질 작업이 큐에 있는지. 원본과 분류·검수 결과는 메모리에만 있어 처음부터 다시 해야 합니다.
+ * 서버가 받은 자료와 교사가 뺀 사진은 잃을 것이 없습니다.
+ */
+export function hasUnsentWork(items: readonly LocalMedia[]) {
+  return items.some(
+    (item) => item.upload_state !== "확인됨" && !(isPhoto(item) && item.review_state === "제외"),
   );
 }
 

@@ -238,6 +238,18 @@ function meshScoreOf(face: FaceResult): number {
   return face.faceScore ?? 0;
 }
 
+/**
+ * 얼굴이 향한 쪽을 도로 바꿔 돌려줍니다. HUMAN은 라디안으로 주고, 모델 구성에 따라
+ * 아예 안 줄 수도 있어 없으면 `undefined`입니다 — 0으로 채우면 "정면"으로 읽혀
+ * 거르는 쪽이 느슨해집니다(H-2는 애매하면 잠그는 쪽입니다).
+ */
+function angleOf(face: FaceResult): DetectedFace["angle"] {
+  const angle = face.rotation?.angle;
+  if (!angle) return undefined;
+  const deg = (radian: number) => Math.round((radian * 180) / Math.PI);
+  return { yaw: deg(angle.yaw), pitch: deg(angle.pitch), roll: deg(angle.roll) };
+}
+
 function toDetectedFace(face: FaceResult): DetectedFace {
   if (face.embedding?.length !== FACE_DESCRIPTOR_LENGTH) {
     throw new FaceModelError(
@@ -255,6 +267,7 @@ function toDetectedFace(face: FaceResult): DetectedFace {
     confidence: face.score,
     meshScore: meshScoreOf(face),
     usable: meshScoreOf(face) >= MIN_MESH_SCORE,
+    angle: angleOf(face),
   };
 }
 

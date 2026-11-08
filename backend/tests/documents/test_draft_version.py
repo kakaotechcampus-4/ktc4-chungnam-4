@@ -93,6 +93,41 @@ def test_교사_이력이_하나라도_있으면_손댄_문서다(action):
     assert _version(db, draft).has_teacher_edits is True
 
 
+# 관찰일지는 앱에서 고칠 수 없어, 내려받으려고 승인한 이력만으로는 재생성을 막지 않는다 (#284).
+@pytest.mark.parametrize("action", [RevisionAction.APPROVE, RevisionAction.REOPEN])
+def test_관찰일지는_승인과_되돌리기_이력만으로는_손댄_문서가_아니다(action):
+    db = _session()
+    draft = _draft(db, doc_type=DocType.OBSERVATION_LOG.value)
+    db.add(RevisionLog(draft_id=draft.id, editor_id=uuid4(), action=action.value))
+    db.commit()
+
+    assert _version(db, draft).has_teacher_edits is False
+
+
+@pytest.mark.parametrize(
+    "action", [RevisionAction.EDIT, RevisionAction.REVOKE, RevisionAction.RESEND]
+)
+def test_관찰일지도_수정_회수_재게시_이력이_있으면_손댄_문서다(action):
+    # API로는 관찰일지도 PATCH할 수 있어 doc_type만 보면 교사 수정이 덮인다 (#284).
+    db = _session()
+    draft = _draft(db, doc_type=DocType.OBSERVATION_LOG.value)
+    db.add(RevisionLog(draft_id=draft.id, editor_id=uuid4(), action=RevisionAction.APPROVE.value))
+    db.add(RevisionLog(draft_id=draft.id, editor_id=uuid4(), action=action.value))
+    db.commit()
+
+    assert _version(db, draft).has_teacher_edits is True
+
+
+def test_관찰일지도_교사가_쓴_문장이_있으면_승인_이력과_상관없이_손댄_문서다():
+    db = _session()
+    draft = _draft(db, doc_type=DocType.OBSERVATION_LOG.value)
+    db.add(RevisionLog(draft_id=draft.id, editor_id=uuid4(), action=RevisionAction.APPROVE.value))
+    db.add(DraftSentence(draft_id=draft.id, sentence_id="t1", position=0, text="교사가 쓴 문장"))
+    db.commit()
+
+    assert _version(db, draft).has_teacher_edits is True
+
+
 def test_교사가_쓴_문장이_있으면_이력이_없어도_손댄_문서다():
     # 직접 작성 초안은 생성이라 RevisionLog가 없고 t… 문장만 있다 (#139 리뷰, 임시 결정(정은)).
     db = _session()

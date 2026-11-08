@@ -162,7 +162,7 @@ class MediaNotLinkedToChild(AidamError):
 
 
 class NotParentNote(AidamError):
-    """관찰일지를 학부모에게 게시하려 한 경우. 게시 대상은 알림장뿐이다."""
+    """관찰일지를 게시하거나 사진을 고르려 한 경우. 학부모에게 가는 문서는 알림장뿐이다."""
 
     code = "NOT_PARENT_NOTE"
     status_code = 409
