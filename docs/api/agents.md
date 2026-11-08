@@ -13,7 +13,7 @@
 - [x] 근거 범위(날짜 전체 vs `media_ids`), STT 미완료 시 409로 막을지 `transcribing`에서 기다릴지(김동건과 함께) → 임시 결정(정은): 근거는 본문대로 날짜 전체로 모으고, `media_ids`는 준비 확인에만 씀. STT 미완료 확인은 STT 호출(#142)이 생기면 붙임 — 지금은 막지도 기다리지도 않음. 반영: `agents/service.py` `start_generation_job`
 - [x] 반 전체 `status` 규칙, 진행률 계산식, `stage` 4값 → 임시 결정(정은): `status`는 본문 상태값 표대로(모두 대기면 `pending`, 안 끝난 원아가 있으면 `running`, 실패 1명 이상이면 `failed`). Job에 단계 컬럼이 없어 `stage`는 항상 `null`, `progress.percent`는 끝난 원아 비율(끝난 원아 ÷ 전체 × 100, 버림)로 셈. 단계 컬럼이 생기면 본문 계산식으로 바꿈. 반영: `agents/service.py` `_job_status`
 - [x] `POST /jobs/{job_id}/retry`의 범위와 요청·응답 → 임시 결정(정은, 팀 확정 전): 실패한 원아 Job만 pending으로 되돌려 처음부터 다시 돌립니다(원아 단위). 4~7단계가 Celery task 하나라 단계별 이어 하기는 하지 않고, 그래서 `failed_stage` 컬럼도 만들지 않습니다. 반영: 아래 §재시도 엔드포인트, `agents/service.py` `retry_generation_job`
-- [x] task 작업 시간 제한 → 임시 결정(정은, 팀 확정 전): 180초에서 300초로 올립니다. 사진 분석 호출이 최대 10회 늘어 LLM 호출이 약 20회가 됐고(호출 1회 7.6~19.4초 실측), 넘기면 다시 돌리지 않고 `failed / LLM_TIMEOUT`으로 끝나므로 위 재시도로 다시 시작합니다. 테크스펙 파이프라인 4단계의 "타임아웃 180초"(10/02 결정)는 팀 확인 뒤 고칩니다. 반영: `agents/service.py` `JOB_SOFT_TIME_LIMIT_SECONDS`, `agents/tasks.py`
+- [x] task 작업 시간 제한 → 임시 결정(정은, 팀 확정 전): 180초에서 300초로 올립니다. 사진 분석 호출이 최대 10회 늘어 LLM 호출이 약 20회가 됐고(호출 1회 7.6~19.4초 실측), 넘기면 다시 돌리지 않고 `failed / LLM_TIMEOUT`으로 끝나므로 위 재시도로 다시 시작합니다. 테크스펙 파이프라인 4단계·실패 처리 표·에이전트4 문구도 300초로 맞췄고, 팀 확정 전 값이라는 표시를 달았습니다. 반영: `agents/service.py` `JOB_SOFT_TIME_LIMIT_SECONDS`, `agents/tasks.py`
 - [ ] 미분류 사유 코드, 검증 실패로 미분류된 초안의 노출과 근거 저장(한상균과 함께)
 - [x] `SentenceEvidence` 조인 경로(`source_type`·`end_ms`·`captured_at` 없음), `source_text`가 비식별 토큰으로 저장되는지 → 임시 결정(정은): agents `list_sentence_evidences(db, draft_id)`가 문장별로 묶어 줌. `source_type`은 미디어 종류로 정함(사진 `photo_observation`, 음성메모 `teacher_voice_memo`, 영상 `video_speech`, 미디어 없음 `activity_plan`), `captured_at`은 media `get_media_meta`로 붙이고, `end_ms`는 저장하지 않아 `null`. `source_text`는 토큰이 아니라 원문(실명 포함)으로 저장되므로 되살릴 필요 없음 — 교사 화면에만 실음(H-1). 영상 근거를 쓰기 시작하면 `source_type`·`end_ms`를 저장하도록 바꿈. 반영: `agents/service.py` `list_sentence_evidences`
 - [x] `evidence_id`를 불투명 문자열로 둘지, UUID로 바꿀지 → 임시 결정(정은): 불투명 문자열 그대로. 초안 안에서만 유일하면 되고(documents.md), 사진·발화 근거 ID(`photo:…`·`seg:…`)가 어디서 왔는지 드러나 추적이 쉬움
@@ -104,7 +104,7 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
   - `INVALID_RECORD_DATE` (400) — 오늘(KST)보다 뒤 날짜일 때
   - `MEDIA_NOT_READY` (409) — `media_ids` 가운데 완료 통지 전이거나, `attributed_at`이 null이거나, STT 중(`transcript_status == pending`)이거나, 이 반·날짜의 자료가 아닌 것이 있을 때. 해당 ID는 `detail.media_ids`에 담습니다. STT가 `failed`인 영상·음성은 발화 없이 쓰므로 막지 않습니다(임시 결정(김동건), #219 리뷰).
   - `NO_TARGET_CHILDREN` (409) — 그 날짜에 귀속된 자료나 추가 근거가 있는 원아가 없을 때
-  - `JOB_ALREADY_RUNNING` (409) — 같은 반·날짜에 `pending`·`running` 작업이 이미 있을 때. FE는 `detail.job_id`로 그 작업을 이어서 폴링합니다. `running`은 10분(task 최대 소요 180초 × 3회 + 여유) 넘게 갱신이 없으면 worker가 죽어 멈춘 것으로 보고 잠그지 않습니다(#161 리뷰, 임시 결정(정은)). `pending`은 큐에서 차례를 기다리는 동안 갱신이 없는 게 정상이라 10분을 쓰지 않고, 1시간 넘게 시작하지 못했을 때만 큐 메시지가 사라진 것으로 보고 잠그지 않습니다(#185 리뷰, 임시 결정(김동건)).
+  - `JOB_ALREADY_RUNNING` (409) — 같은 반·날짜에 `pending`·`running` 작업이 이미 있을 때. FE는 `detail.job_id`로 그 작업을 이어서 폴링합니다. `running`은 10분(시도 하나 최대 300초 + 여유. 재시도마다 `retry_count`로 갱신되므로 시도 하나가 기준) 넘게 갱신이 없으면 worker가 죽어 멈춘 것으로 보고 잠그지 않습니다(#161 리뷰, 임시 결정(정은)). `pending`은 큐에서 차례를 기다리는 동안 갱신이 없는 게 정상이라 10분을 쓰지 않고, 1시간 넘게 시작하지 못했을 때만 큐 메시지가 사라진 것으로 보고 잠그지 않습니다(#185 리뷰, 임시 결정(김동건)).
 - [확인 필요: 정은·김동건] Job은 이 FE 호출로 시작하기로 정했습니다(09/27, #61). 함께 정할 것 두 가지가 남았습니다(#60).
   - 근거 범위: 그 날짜 전체로 할지, `media_ids`로 한정할지
   - STT가 안 끝났을 때: 409로 막을지, `transcribing` 단계에서 기다릴지 → 임시 결정(김동건): 409(`MEDIA_NOT_READY`)로 막습니다. FE는 STT가 끝나지 않은 파일이 있으면 분류 확인을 끝낼 수 없어 평소에는 여기까지 오지 않고, 서버는 그 확인을 거친 마지막 방어선입니다(#219 리뷰)
@@ -298,5 +298,5 @@ agents의 상세 작성 엔드포인트는 2개입니다. 초안 생성 작업(J
 - 일별·월별 모두 외부 AI 호출 전에 같은 원아·문서 종류·기록일의 초안을 확인합니다. 교사 수정이 없는 `verified`만 같은 ID로 재생성하며, 기존 잠금 버전으로 저장합니다. 수정·승인 문서 또는 생성 도중 바뀐 문서는 보존하고 `DRAFT_VERSION_CONFLICT`로 끝냅니다. 성공한 재생성은 이전 문장 근거를 새 근거로 교체합니다(FR-05·FR-06).
 - 이번 작업이 미분류로 끝났으면 기존 초안이 있어도 새 생성 성공으로 표시하지 않습니다.
 - 같은 도구·같은 인자의 중복 요청은 기존 결과를 각 call ID로 반환합니다. 실제 도구 실행은 대화당 한 번이며 인자가 달라지면 `AGENT_TOOL_LIMIT`, 반복 대화 6턴을 넘으면 `AGENT_STEP_LIMIT`입니다.
-- worker 실행당 180초는 최악의 호출 조합이 모두 완료된다는 보장이 아닙니다. 초과 시 `LLM_TIMEOUT`으로 종료하며 이 시간 초과 자체는 재시도하지 않습니다. SDK가 연결 오류로 감싼 경우도 원래 시간 초과로 복원합니다. Celery prefork의 soft time limit이 전제이며 worker 소실은 기존 폴링의 오래된 작업 종료가 처리합니다.
+- worker 실행당 300초는 최악의 호출 조합이 모두 완료된다는 보장이 아닙니다. 초과 시 `LLM_TIMEOUT`으로 종료하며 이 시간 초과 자체는 재시도하지 않습니다. SDK가 연결 오류로 감싼 경우도 원래 시간 초과로 복원합니다. Celery prefork의 soft time limit이 전제이며 worker 소실은 기존 폴링의 오래된 작업 종료가 처리합니다.
 - 월별 경로는 현재 게시 중인 알림장 **비식별 텍스트**만 사용하고 사진·영상·얼굴 정보를 다시 보내지 않습니다. 따라서 사진 경로의 외부 호출 직전 `face_feature` 동의 필터는 적용하지 않습니다. 게시 상태·버전은 저장 직전 다시 검사합니다. 이는 현재 구현 범위 설명이며 텍스트의 별도 AI 동의 정책을 새로 정한 것은 아닙니다(H-2).
