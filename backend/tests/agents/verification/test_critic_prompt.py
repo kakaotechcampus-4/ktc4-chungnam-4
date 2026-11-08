@@ -70,7 +70,7 @@ def test_메타_주석과_자리표시자가_남지_않고_버전이_있다():
     assert "-->" not in prompt
     assert "{{DOCUMENT}}" not in prompt
     assert "PROMPT_VERSION" not in prompt
-    assert PROMPT_VERSION == "critic.v7"
+    assert PROMPT_VERSION == "critic.v8"
 
 
 def test_공동_근거의_아이들에_대상_원아가_든다고_알려_준다():
