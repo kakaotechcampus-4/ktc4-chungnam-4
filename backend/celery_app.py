@@ -34,8 +34,10 @@ celery_app.conf.update(
     # 연결 대기 2초·넣기 재시도 1번은 임시 결정(김동건) — 팀 확인 필요.
     broker_connection_timeout=2,
     # worker 전체가 죽었을 때 처리 중이던 메시지를 다시 전달하기까지의 시간. 가장 긴 작업
-    # (STT time_limit 630초)보다 길어야 처리 중인 작업이 두 번 전달되지 않는다 (#304 4-2).
-    broker_transport_options={"visibility_timeout": 900},
+    # (STT time_limit 630초, 초안 생성은 제한 300초 × 시도 3번 = 900초)보다 길어야 처리 중인 작업이
+    # 두 번 전달되지 않는다 (#304 4-2). 초안 제한을 180초에서 300초로 올리면서 900에서 1800으로
+    # 올렸다. 1800초는 임시 결정(정은, #290) — 팀 확인 필요.
+    broker_transport_options={"visibility_timeout": 1800},
     task_publish_retry_policy={
         "max_retries": 1,
         "interval_start": 0,

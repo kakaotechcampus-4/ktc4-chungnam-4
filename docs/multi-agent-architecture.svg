@@ -108,6 +108,6 @@
 <rect x="904" y="1995" width="680" height="105" rx="18" fill="#f2f6fe" stroke="#bfd1ee" stroke-width="2"/>
 <text x="1244" y="2038" font-size="29" fill="#3869aa" style="fill:#3869aa" font-weight="700" text-anchor="middle">관찰일지: 생성 결과 · 근거 조회</text>
 <text x="1244" y="2075" font-size="24" fill="#202d43" style="fill:#202d43" font-weight="400" text-anchor="middle">별도 수정·승인 없음 / 내려받기는 후속</text>
-<text x="64" y="2145" font-size="22" fill="#5b697d" style="fill:#5b697d" font-weight="400" text-anchor="start">실행 상한: 에이전트 대화 6턴 · 입력 60,000자 · 작업 180초  |  trace에는 역할·도구명·결과만</text>
+<text x="64" y="2145" font-size="22" fill="#5b697d" style="fill:#5b697d" font-weight="400" text-anchor="start">실행 상한: 에이전트 대화 6턴 · 입력 60,000자 · 작업 300초  |  trace에는 역할·도구명·결과만</text>
 <text x="64" y="2185" font-size="21" fill="#798597" style="fill:#798597" font-weight="400" text-anchor="start">PR #259 구현 기준  ·  원별 양식 · 공식 지침 데이터셋 · Langfuse 연동은 후속 작업</text>
 </svg>

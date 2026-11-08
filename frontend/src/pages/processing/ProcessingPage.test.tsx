@@ -587,6 +587,116 @@ describe("ProcessingPage", () => {
     expect(useUploadQueue.getState().items).toHaveLength(1);
   });
 
+  it("실패한 아이만 다시 시도하면 같은 작업을 이어 보고 끝나면 초안 검토로 간다", async () => {
+    const queue = useUploadQueue.getState();
+    queue.addFiles([photo("confirmed.jpg")]);
+    const [confirmed] = useUploadQueue.getState().items;
+    queue.setReview(confirmed!.client_id, {
+      review_state: "확정",
+      assigned_child_ids: [fixtureId("child", 1)],
+      excluded_reason: null,
+      llm_allowed: true,
+    });
+    const draftId = fixtureId("draft", 1);
+    function job(jobId: string, state: "failed" | "running" | "succeeded"): Job {
+      const finished = state !== "running";
+      return {
+        job_id: jobId,
+        class_id: fixtureId("class", 1),
+        record_date: "2026-09-15",
+        status: state,
+        stage: state === "running" ? "generating" : null,
+        progress: {
+          percent: finished ? 100 : 50,
+          total_children: 1,
+          finished_children: finished ? 1 : 0,
+        },
+        failed_stage: null,
+        error_code: null,
+        children: [
+          {
+            child_id: fixtureId("child", 1),
+            status: state,
+            stage: state === "running" ? "generating" : null,
+            outcome: state === "succeeded" ? "drafted" : null,
+            unclassified_reason: null,
+            failed_stage: null,
+            error_code: state === "failed" ? "LLM_TIMEOUT" : null,
+            drafts: state === "succeeded" ? [{ draft_id: draftId, doc_type: "parent_note" }] : [],
+          },
+        ],
+        created_at: "2026-09-15T06:30:00Z",
+        updated_at: "2026-09-15T06:31:40Z",
+      };
+    }
+    let retried = false;
+    const retryCalls: string[] = [];
+    server.use(
+      http.get(apiPath("/jobs/:jobId"), ({ params }) =>
+        HttpResponse.json<Job>(job(String(params.jobId), retried ? "succeeded" : "failed")),
+      ),
+      http.post(apiPath("/jobs/:jobId/retry"), ({ params }) => {
+        retried = true;
+        retryCalls.push(String(params.jobId));
+        return HttpResponse.json<Job>(job(String(params.jobId), "running"), { status: 202 });
+      }),
+    );
+    const { router } = renderProcessing("/t/today/processing?step=send");
+
+    const button = await screen.findByRole(
+      "button",
+      { name: "실패한 아이만 다시 시도" },
+      { timeout: 3000 },
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("처리 제한 시간이 지났어요");
+    await userEvent.setup().click(button);
+
+    await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/t\/today\/review\//), {
+      timeout: 8000,
+    });
+    expect(retryCalls).toHaveLength(1);
+  }, 15000);
+
+  it("기존 문서를 지키려고 막은 실패만 있으면 다시 시도 버튼을 보여 주지 않는다", async () => {
+    server.use(
+      http.post(apiPath("/classes/:classId/jobs"), () =>
+        errorResponse(409, "JOB_ALREADY_RUNNING", "이미 처리 중", { job_id: fixtureId("job", 9) }),
+      ),
+      http.get(apiPath("/jobs/:jobId"), ({ params }) =>
+        HttpResponse.json<Job>({
+          job_id: String(params.jobId),
+          class_id: fixtureId("class", 1),
+          record_date: "2026-09-15",
+          status: "failed",
+          stage: null,
+          failed_stage: null,
+          error_code: null,
+          progress: { percent: 100, total_children: 1, finished_children: 1 },
+          children: [
+            {
+              child_id: fixtureId("child", 1),
+              status: "failed",
+              stage: null,
+              outcome: null,
+              unclassified_reason: null,
+              failed_stage: null,
+              error_code: "DRAFT_VERSION_CONFLICT",
+              drafts: [],
+            },
+          ],
+          created_at: "2026-09-15T00:00:00Z",
+          updated_at: "2026-09-15T00:00:01Z",
+        }),
+      ),
+    );
+    renderProcessing("/t/today/processing?step=send");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("재생성을 반영하지 않았어요");
+    expect(
+      screen.queryByRole("button", { name: "실패한 아이만 다시 시도" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("불러온 자료 없이 들어오면 자료 올리기로 보낸다", async () => {
     const { router } = renderProcessing("/t/today/processing");
 

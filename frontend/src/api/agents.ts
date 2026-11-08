@@ -44,6 +44,31 @@ export async function createJob(classId: string, input: JobCreateInput) {
   );
 }
 
+/**
+ * 실패한 원아만 다시 시작합니다(임시 결정(정은), docs/api/agents.md §재시도). 응답은 GET /jobs와 같은 모양입니다.
+ * 성공하면 돌려받은 작업을 캐시에 넣어 폴링을 이어 가게 하세요.
+ */
+export async function retryJob(jobId: string) {
+  return toJobView(await api.post<Job>(`/jobs/${encodeURIComponent(jobId)}/retry`));
+}
+
+// 다시 돌려도 같은 이유로 실패해서 서버가 재시도에서 빼는 오류(backend `_NOT_RETRYABLE_ERROR_CODES`와 같은 목록).
+// 서버와 화면이 언어가 달라 두 곳에 있으니 바꿀 때 같이 바꿉니다(#290 리뷰, 엄태은).
+const NOT_RETRYABLE_ERROR_CODES: ReadonlySet<string> = new Set([
+  "DRAFT_VERSION_CONFLICT",
+  "AGENT_INPUT_TOO_LARGE",
+  "AGENT_ROUTINE_MISSING",
+  "AGENT_ROUTINE_INVALID",
+]);
+
+/** 실패한 원아 중 다시 시작할 수 있는 아이인지. 버튼과 목이 서버와 같은 기준을 씁니다. */
+export function isRetryableChild(child: { status: string; error_code: string | null }) {
+  return (
+    child.status === "failed" &&
+    (child.error_code === null || !NOT_RETRYABLE_ERROR_CODES.has(child.error_code))
+  );
+}
+
 /** 작업 진행 상태. succeeded·failed가 되면 폴링을 멈춥니다. 캐시에는 화면용 모양(JobView)이 들어갑니다. */
 export function jobQueryOptions(jobId: string) {
   return queryOptions({
