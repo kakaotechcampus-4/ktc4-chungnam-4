@@ -223,9 +223,18 @@ def start_generation_job(
     )
 
 
-def _ensure_not_running(db: Session, class_id: UUID, record_date: date, doc_type: str) -> None:
+def _ensure_not_running(
+    db: Session,
+    class_id: UUID,
+    record_date: date,
+    doc_type: str,
+    *,
+    child_ids: Sequence[UUID] | None = None,
+) -> None:
     """같은 반·날짜·문서 종류에 진행 중인 원아 Job이 있으면 JOB_ALREADY_RUNNING으로 막는다.
 
+    child_ids를 주면 그 원아의 Job만 본다. 관찰일지는 원아마다 작업이 따로라, 같은 반 다른 원아의
+    작업이 이 원아의 재시도를 막지 않게 한다(#290 리뷰, 엄태은).
     멈춘 것으로 보는 시간(_STALE_*)을 넘긴 Job은 진행 중으로 치지 않는다.
     """
     now = datetime.now(UTC)
@@ -236,6 +245,7 @@ def _ensure_not_running(db: Session, class_id: UUID, record_date: date, doc_type
             GenerationJob.class_id == class_id,
             GenerationJob.record_date == record_date,
             GenerationJob.doc_type == doc_type,
+            True if child_ids is None else Job.child_id.in_(child_ids),
             or_(
                 and_(
                     Job.status == JobStatus.RUNNING.value,
@@ -288,8 +298,18 @@ def retry_generation_job(
     ensure_class_access(db, generation_job.class_id, center_id)
     # 멈춘 Job을 먼저 failed로 정리해, 멈춘 채 남은 원아도 다시 시작할 수 있게 한다.
     _job_status(db, generation_job)
+    # 관찰일지는 원아마다 작업이 따로라 그 원아 기준으로 본다. 알림장은 반 단위 그대로다.
+    own_child_ids = (
+        db.scalars(select(Job.child_id).where(Job.generation_job_id == generation_job.id)).all()
+        if generation_job.doc_type == contracts.DocType.OBSERVATION_LOG.value
+        else None
+    )
     _ensure_not_running(
-        db, generation_job.class_id, generation_job.record_date, generation_job.doc_type
+        db,
+        generation_job.class_id,
+        generation_job.record_date,
+        generation_job.doc_type,
+        child_ids=own_child_ids,
     )
 
     failed_jobs = db.scalars(

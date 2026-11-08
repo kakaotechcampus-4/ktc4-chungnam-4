@@ -649,3 +649,57 @@ def test_다른_어린이집_교사는_재시도하지_못한다(
     assert _error_code(response) == "CLASS_ACCESS_DENIED"
     assert enqueued == []
     assert _job_row(session_factory, YERIN).status == JobStatus.FAILED.value
+
+
+def _add_observation_job(
+    factory: sessionmaker[Session], child_id: uuid.UUID, status: JobStatus
+) -> str:
+    """관찰일지 작업은 원아마다 따로 만든다. 같은 반·같은 달의 작업 하나를 직접 넣는다."""
+    month = date(2026, 9, 1)
+    with factory() as db:
+        parent = GenerationJob(
+            class_id=CLASS_ID,
+            record_date=month,
+            request_id=str(uuid.uuid4()),
+            requested_by_teacher_id=TEACHER_ID,
+            doc_type="observation_log",
+        )
+        db.add(parent)
+        db.flush()
+        db.add(
+            Job(
+                generation_job_id=parent.id,
+                child_id=child_id,
+                target_date=datetime(2026, 9, 1, tzinfo=UTC),
+                status=status.value,
+                error_code="LLM_TIMEOUT" if status == JobStatus.FAILED else None,
+            )
+        )
+        db.commit()
+        return str(parent.id)
+
+
+def test_관찰일지_재시도는_같은_반_다른_원아의_진행_중_작업에_막히지_않는다(
+    client: TestClient, session_factory: sessionmaker[Session], enqueued: list
+) -> None:
+    failed_id = _add_observation_job(session_factory, YERIN, JobStatus.FAILED)
+    _add_observation_job(session_factory, DOYUN, JobStatus.RUNNING)
+
+    response = _retry(client, failed_id)
+
+    assert response.status_code == 202
+    assert [child_id for _, child_id in enqueued] == [YERIN]
+
+
+def test_관찰일지_재시도는_같은_원아의_진행_중_작업이_있으면_그_작업을_담아_막는다(
+    client: TestClient, session_factory: sessionmaker[Session], enqueued: list
+) -> None:
+    failed_id = _add_observation_job(session_factory, YERIN, JobStatus.FAILED)
+    running_id = _add_observation_job(session_factory, YERIN, JobStatus.RUNNING)
+
+    response = _retry(client, failed_id)
+
+    assert response.status_code == 409
+    assert _error_code(response) == "JOB_ALREADY_RUNNING"
+    assert response.json()["error"]["detail"]["job_id"] == running_id
+    assert enqueued == []
