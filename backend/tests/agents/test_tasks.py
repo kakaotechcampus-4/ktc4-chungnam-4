@@ -211,3 +211,17 @@ def test_LLM_오류는_Celery가_예외를_바꿔도_LLM_코드로_남는다(mon
     tasks.generate_drafts.apply(args=("job-1", "child-1"))
 
     assert codes == [expected]
+
+
+def test_worker가_죽어도_미리_받은_메시지가_갇히지_않게_늦게_확인한다() -> None:
+    """미리 받아 둔 메시지가 Redis unacked에 1시간 갇히던 문제 (#304 4-2)."""
+    from celery_app import celery_app
+    from domains.media.tasks import transcribe_media
+
+    conf = celery_app.conf
+    assert conf.task_acks_late is True
+    assert conf.task_reject_on_worker_lost is True
+    assert conf.worker_prefetch_multiplier == 1
+    # 가장 긴 작업보다 짧으면 처리 중인 작업이 다시 전달돼 두 번 돈다.
+    longest = max(transcribe_media.time_limit, tasks.generate_drafts.soft_time_limit * 3)
+    assert conf.broker_transport_options["visibility_timeout"] > longest
