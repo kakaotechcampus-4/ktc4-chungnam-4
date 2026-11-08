@@ -18,7 +18,21 @@ import { faceStatus } from "@/features/organization/labels";
 
 import { extractEmbedding } from "@/workers/face/client";
 
-/** 임시 결정(김동건): 1~3장이면 등록할 수 있습니다. 많을수록 정확하지만 3장을 강제하지 않습니다. */
+/**
+ * 임시 결정(김동건): 1~3장이면 등록할 수 있습니다. 3장을 강제하지 않습니다.
+ *
+ * **장수보다 각도가 중요합니다.** 조원 실사진으로 재 보니 정면 1장만 쓰면 얼굴 63개 중
+ * 36개를 맞혔고, 정면·왼쪽45·오른쪽45 세 각도를 쓰면 46개를 맞혔습니다. 반대로 가진
+ * 사진을 전부 넣으면 맞힘이 47→46으로 줄고 **등록하지 않은 사람이 붙는 점수가
+ * 0.72→0.76으로 올랐습니다** — 내 점수만 오르는 게 아니라 남의 점수도 같이 오릅니다.
+ * 그래서 "많을수록 정확하다"는 틀린 말이라 안내 문구에서 뺐습니다(#293).
+ *
+ * 3장 상한은 그대로 둡니다. 각도마다 2장씩(최대 6장)이 더 나았지만 실제로 쓰인 건 3~4장
+ * 뿐이라, **6장 구성으로 직접 재 본 뒤에 정하기로 했습니다**(#293 엄태은 님 의견).
+ *
+ * 등록 4명(성인)으로 잰 숫자입니다. 실제 원아나 더 큰 반에서도 같은지는 아직 모릅니다
+ * (#293 정은 님 의견).
+ */
 const MAX_PHOTOS = 3;
 
 type Slots = (File | null)[];
@@ -165,8 +179,8 @@ export function FaceRegisterPage() {
         <div className="flex flex-1 flex-col gap-5">
           <h2 className="text-h3 font-bold text-ink">분류용 얼굴 정보 등록</h2>
           <p className="text-body text-ink-muted">
-            정면과 서로 다른 각도의 사진을 최대 {MAX_PHOTOS}장 골라 주세요. 많을수록 분류가
-            정확해요.
+            정면 1장, 왼쪽 45도 1장, 오른쪽 45도 1장을 골라 주세요. 세 각도를 모두 올리면 분류가
+            훨씬 잘돼요.
           </p>
           <ul aria-label="등록 사진" className="flex gap-4">
             {slots.map((file, index) => {
