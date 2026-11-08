@@ -11,8 +11,8 @@ from domains.agents.llm import RETRYABLE_LLM_ERRORS
 
 # 재시도 대상: LLM 호출 실패와 개별 요청 타임아웃(APITimeoutError) (테크스펙 예외 처리 표).
 # 코드 오류는 다시 돌려도 같으므로 재시도하지 않고 바로 실패로 끝낸다.
-# 180초 작업 제한(SoftTimeLimitExceeded)도 뺀다 — 시간 제한을 넘긴 파이프라인을 처음부터 두 번
-# 더 돌리면 최대 약 9분이 걸리고 앞서 성공한 LLM 호출도 반복된다 (#102 리뷰, 엄태은).
+# 작업 시간 제한(SoftTimeLimitExceeded)도 뺀다 — 시간 제한을 넘긴 파이프라인을 처음부터 두 번
+# 더 돌리면 제한 시간의 3배가 걸리고 앞서 성공한 LLM 호출도 반복된다 (#102 리뷰, 엄태은).
 # SDK가 이 예외를 연결 오류로 감싸 올리는 경우는 generate_drafts에서 되돌린다.
 RETRYABLE_ERRORS = RETRYABLE_LLM_ERRORS
 
@@ -42,8 +42,10 @@ class _DraftTask(Task):
         )
 
 
-# 외부 호출 재시도 2회·worker 실행당 180초. 에이전트의 모든 턴이 완료됨을 보장하는 시간이
-# 아니며 초과하면 LLM_TIMEOUT으로 종료한다. 작업 시간 초과 자체는 재시도하지 않는다.
+# 외부 호출 재시도 2회·worker 실행당 service.JOB_SOFT_TIME_LIMIT_SECONDS(300초). 에이전트의 모든 턴이
+# 완료됨을 보장하는 시간이 아니며 초과하면 LLM_TIMEOUT으로 종료한다. 작업 시간 초과 자체는 재시도하지
+# 않는다. 사진 분석과 에이전트 호출이 늘어 180초에서 올렸고, 초과하면 POST /jobs/{id}/retry로 다시
+# 시작한다 (테크스펙 파이프라인 4단계에 임시 결정으로 적었다).
 # retry_backoff: 재시도 간격은 스펙에 없다. Celery 기본값(180초 고정)은 교사가 진행 화면을
 # 보는 동안 너무 길어서 1초부터 늘리는 방식을 임시로 골랐다 — 팀 확인 필요.
 # ignore_result: 결과는 Job 행에 남기고 Celery 결과 저장소를 쓰지 않는다. 켜 두면 넣을 때마다
@@ -55,7 +57,7 @@ class _DraftTask(Task):
     autoretry_for=RETRYABLE_ERRORS,
     max_retries=2,
     retry_backoff=True,
-    soft_time_limit=180,
+    soft_time_limit=service.JOB_SOFT_TIME_LIMIT_SECONDS,
 )
 def generate_drafts(self, job_id: str, child_id: str) -> None:
     try:
@@ -83,9 +85,7 @@ def enqueue_generate_drafts(child_jobs: Sequence[tuple[UUID, UUID]]) -> None:
 
     브로커 장애로 넣기가 실패하면 아직 못 넣은 Job을 failed로 바꾼 뒤 예외를 다시 올린다.
     pending으로 두면 같은 반·날짜가 JOB_ALREADY_RUNNING에 영구히 막힌다 (#161 리뷰, 엄태은).
-    이미 넣은 Job은 worker가 처리하므로 건드리지 않는다.
-
-    TODO(eun): 실패한 Job을 다시 시작하는 POST /jobs/{job_id}/retry는 재시도 API를 만들 때 붙인다.
+    이미 넣은 Job은 worker가 처리하므로 건드리지 않는다. POST /jobs/{job_id}/retry도 이 함수로 넣는다.
     """
     for index, (job_id, child_id) in enumerate(child_jobs):
         try:

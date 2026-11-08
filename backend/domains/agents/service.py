@@ -24,6 +24,7 @@ from core.exceptions import (
     InvalidRecordDate,
     JobAlreadyRunning,
     JobNotFound,
+    JobNotRetryable,
     MediaNotReady,
     NoTargetChildren,
 )
@@ -104,10 +105,18 @@ DAILY_DOC_TYPE = contracts.DocType.PARENT_NOTE
 # record_date는 KST 기준 하루다 (docs/api/agents.md).
 _KST = ZoneInfo("Asia/Seoul")
 _UNFINISHED_STATUSES = frozenset({JobStatus.PENDING, JobStatus.RUNNING})
+# generate_drafts task 한 번의 작업 시간 제한(초). tasks.py가 soft_time_limit으로 쓴다.
+# 사진 분석 호출이 늘어(아이당 최대 MAX_PHOTOS_PER_CHILD=30장, 호출은 보통 30회·응답 오류 재분석까지 최대 60회)
+# 180초를 넘는 작업이 생겼다. 서버와 같은 구성으로 잰 30장 실측은 109~130초라(#288) 300초면 2배 넘게
+# 여유가 있어 충분하다. 180초에서 300초로 올린다. 이 값을 넘기면 다시 돌리지 않고 Job을 실패로 끝내며(#102),
+# 교사는 재시도 API(POST /jobs/{job_id}/retry)로 다시 시작한다.
+# TODO(eun): 임시 결정이다(팀 확정 전). 테크스펙에는 임시 결정으로 표시해 반영했고, backend/CLAUDE.md는 open-questions에 제안으로 올렸다.
+JOB_SOFT_TIME_LIMIT_SECONDS = 300
 # worker가 죽어 running으로 남은 Job이 그 반·날짜를 영구히 막지 않게, 이 시간 넘게 갱신이 없는
-# running Job은 진행 중으로 보지 않는다. task 최대 소요(180초 × 3회)에 여유 60초를 더했다 (#161 리뷰, 엄태은).
-# 시작할 때 RUNNING으로 바꾸며 갱신되므로 "실행을 시작한 뒤 10분"이다.
-_STALE_JOB_AFTER = timedelta(seconds=180 * 3 + 60)
+# running Job은 진행 중으로 보지 않는다 (#161 리뷰, 엄태은). 시작할 때 RUNNING으로 바꾸고 재시도마다
+# retry_count를 올려 갱신하므로 "시도 하나가 시작한 뒤 10분"이다. 시도 하나는 위 제한 시간(300초)을
+# 넘지 못하므로 정상 시도는 이 값에 걸리지 않는다. 600초는 제한 시간이 180초일 때 정한 값 그대로다.
+_STALE_JOB_AFTER = timedelta(seconds=600)
 # pending은 큐에서 차례를 기다리는 중이라 갱신이 없는 게 정상이다. 위 10분을 그대로 쓰면 오래
 # 기다린 Job을 멈춘 것으로 보고 같은 반·날짜 작업을 하나 더 만든다(#185 리뷰). 큐 메시지가
 # 사라져 영영 시작하지 못하는 경우만 풀도록 훨씬 길게 둔다.
@@ -224,6 +233,124 @@ def start_generation_job(
         status=_job_status(db, generation_job),
         to_enqueue=[(job.id, job.child_id) for job in jobs],
     )
+
+
+def _ensure_not_running(
+    db: Session,
+    class_id: UUID,
+    record_date: date,
+    doc_type: str,
+    *,
+    child_ids: Sequence[UUID] | None = None,
+) -> None:
+    """같은 반·날짜·문서 종류에 진행 중인 원아 Job이 있으면 JOB_ALREADY_RUNNING으로 막는다.
+
+    child_ids를 주면 그 원아의 Job만 본다. 관찰일지는 원아마다 작업이 따로라, 같은 반 다른 원아의
+    작업이 이 원아의 재시도를 막지 않게 한다(#290 리뷰, 엄태은).
+    멈춘 것으로 보는 시간(_STALE_*)을 넘긴 Job은 진행 중으로 치지 않는다.
+    """
+    now = datetime.now(UTC)
+    running_id = db.scalar(
+        select(GenerationJob.id)
+        .join(Job, Job.generation_job_id == GenerationJob.id)
+        .where(
+            GenerationJob.class_id == class_id,
+            GenerationJob.record_date == record_date,
+            GenerationJob.doc_type == doc_type,
+            True if child_ids is None else Job.child_id.in_(child_ids),
+            or_(
+                and_(
+                    Job.status == JobStatus.RUNNING.value,
+                    Job.updated_at >= now - _STALE_JOB_AFTER,
+                ),
+                and_(
+                    Job.status == JobStatus.PENDING.value,
+                    Job.updated_at >= now - _STALE_PENDING_JOB_AFTER,
+                ),
+            ),
+        )
+        .limit(1)
+    )
+    if running_id is not None:
+        raise JobAlreadyRunning(
+            "같은 날짜의 초안을 이미 만들고 있습니다.", detail={"job_id": str(running_id)}
+        )
+
+
+# 다시 돌려도 같은 이유로 실패하는 error_code. DRAFT_VERSION_CONFLICT는 기존 문서를 보존하려고 막은 것이고,
+# AGENT_*는 입력 초과·루틴 없음·루틴 오류라 같은 입력으로 다시 해도 같다(임시 결정(정은), docs/api/agents.md).
+_NOT_RETRYABLE_ERROR_CODES = frozenset(
+    {
+        "DRAFT_VERSION_CONFLICT",
+        "AGENT_INPUT_TOO_LARGE",
+        "AGENT_ROUTINE_MISSING",
+        "AGENT_ROUTINE_INVALID",
+    }
+)
+
+
+@dataclass(frozen=True)
+class RetriedGenerationJob:
+    status: GenerationJobStatus
+    # 커밋한 뒤 Celery에 다시 넣을 (Job id, child_id)
+    to_enqueue: list[tuple[UUID, UUID]]
+
+
+def retry_generation_job(
+    db: Session, *, job_id: UUID, center_id: UUID | None
+) -> RetriedGenerationJob:
+    """실패한 원아 Job만 pending으로 되돌려 다시 시작한다 (FR-06, docs/api/agents.md 임시 결정(정은)).
+
+    성공·미분류 원아의 초안은 건드리지 않는다. 4~7단계가 task 하나라 단계별로 이어서 하지 않고
+    원아 단위로 처음부터 다시 돌린다. 커밋과 큐 넣기는 호출자가 한다.
+    """
+    generation_job = db.get(GenerationJob, job_id)
+    if generation_job is None:
+        raise JobNotFound("초안 생성 작업을 찾을 수 없습니다.")
+    ensure_class_access(db, generation_job.class_id, center_id)
+    # 멈춘 Job을 먼저 failed로 정리해, 멈춘 채 남은 원아도 다시 시작할 수 있게 한다.
+    _job_status(db, generation_job)
+    # 관찰일지는 원아마다 작업이 따로라 그 원아 기준으로 본다. 알림장은 반 단위 그대로다.
+    own_child_ids = (
+        db.scalars(select(Job.child_id).where(Job.generation_job_id == generation_job.id)).all()
+        if generation_job.doc_type == contracts.DocType.OBSERVATION_LOG.value
+        else None
+    )
+    _ensure_not_running(
+        db,
+        generation_job.class_id,
+        generation_job.record_date,
+        generation_job.doc_type,
+        child_ids=own_child_ids,
+    )
+
+    failed_jobs = db.scalars(
+        select(Job).where(
+            Job.generation_job_id == generation_job.id,
+            Job.status == JobStatus.FAILED.value,
+            or_(Job.error_code.is_(None), Job.error_code.not_in(_NOT_RETRYABLE_ERROR_CODES)),
+        )
+    ).all()
+    to_enqueue: list[tuple[UUID, UUID]] = []
+    for job in failed_jobs:
+        # 조건을 UPDATE 한 문장에 건다. 같은 요청이 겹쳐 와도 한 번만 되돌리고 큐에 넣는다.
+        changed = db.execute(
+            update(Job)
+            .where(Job.id == job.id, Job.status == JobStatus.FAILED.value)
+            .values(
+                status=JobStatus.PENDING.value,
+                error_code=None,
+                unclassified_reason=None,
+                retry_count=0,
+            )
+        )
+        if changed.rowcount:
+            to_enqueue.append((job.id, job.child_id))
+    if not to_enqueue:
+        raise JobNotRetryable("다시 시도할 수 있는 실패한 원아가 없습니다.")
+    db.flush()
+    db.expire_all()
+    return RetriedGenerationJob(status=_job_status(db, generation_job), to_enqueue=to_enqueue)
 
 
 def _find_job_by_request_id(db: Session, request_id: UUID) -> GenerationJob | None:

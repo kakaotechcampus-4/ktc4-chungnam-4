@@ -125,7 +125,7 @@ AWS 배포 웹사이트에서 이 브랜치의 전체 흐름을 시연한 결과
 - `tests/agents/test_photo_pipeline.py`: 추가 사진으로 같은 초안 재생성, 이전 근거 교체, 교사 수정·승인·회수 보호, 생성 중 버전 충돌, 실패를 기존 초안 성공으로 잘못 표시하지 않는지 검사합니다.
 - `tests/agents/test_monthly_pipeline.py::test_월별_재생성도_257의_버전보호를_따른다`: 월 1일의 게시 알림장과 월별 관찰일지를 구분하고, 월별 재생성·수정/승인 보호·생성 중 수정 충돌을 검사합니다.
 - `tests/agents/test_multi_agent.py`: 병렬 중복 도구 요청의 call ID별 응답, 실제 조회 1회, 다른 인자 차단, 반복 턴 상한을 검사합니다.
-- `tests/agents/test_tasks.py`: 네이티브 도구 호출 중 soft time limit을 SDK가 감싸도 복원하며 `LLM_TIMEOUT`으로 종료하는지 검사합니다. 실제 180초를 기다리는 부하 검사는 아닙니다.
+- `tests/agents/test_tasks.py`: 네이티브 도구 호출 중 soft time limit을 SDK가 감싸도 복원하며 `LLM_TIMEOUT`으로 종료하는지 검사합니다. 실제 300초를 기다리는 부하 검사는 아닙니다.
 - `ObservationLogsPage.test.tsx`·`ProcessingPage.test.tsx`: 문서 보호 오류와 연결 오류를 구분하고, 생성 대상 없음·실패 복구 안내를 검사합니다.
 
 모델 응답을 고정하는 회귀 검사입니다. 이 변경으로 실제 모델 품질·AWS 배포 시연을 재검증했다고 해석하지 않습니다.

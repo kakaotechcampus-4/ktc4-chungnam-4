@@ -457,3 +457,249 @@ def test_다른_어린이집_교사는_작업을_조회하지_못한다(
 
     assert response.status_code == 403
     assert _error_code(response) == "CLASS_ACCESS_DENIED"
+
+
+# ---------------------------------------------------------------------------
+# POST /jobs/{job_id}/retry — 실패한 원아만 다시 시작 (FR-06)
+# ---------------------------------------------------------------------------
+
+
+def _retry(client: TestClient, job_id: str):
+    return client.post(f"/api/v1/jobs/{job_id}/retry")
+
+
+def _fail(factory: sessionmaker[Session], child_id: uuid.UUID, error_code: str | None) -> None:
+    with factory() as db:
+        job = db.scalar(select(Job).where(Job.child_id == child_id))
+        job.status = JobStatus.FAILED.value
+        job.error_code = error_code
+        job.retry_count = 2
+        db.commit()
+
+
+def _job_row(factory: sessionmaker[Session], child_id: uuid.UUID) -> Job:
+    with factory() as db:
+        job = db.scalar(select(Job).where(Job.child_id == child_id))
+        db.expunge(job)
+        return job
+
+
+def _started_with_one_failed(
+    client: TestClient, factory: sessionmaker[Session], enqueued: list, error_code: str | None
+) -> str:
+    """도윤은 성공, 예린은 실패로 끝난 작업을 만들고 큐 기록을 비운다."""
+    photo = _add_photo(factory, DOYUN, YERIN)
+    job_id = _start(client, _body(photo)).json()["job_id"]
+    _set_status(factory, DOYUN, JobStatus.SUCCEEDED)
+    _fail(factory, YERIN, error_code)
+    enqueued.clear()
+    return job_id
+
+
+def test_재시도는_실패한_원아만_pending으로_되돌려_큐에_다시_넣는다(
+    client: TestClient, session_factory: sessionmaker[Session], enqueued: list
+) -> None:
+    job_id = _started_with_one_failed(client, session_factory, enqueued, "LLM_TIMEOUT")
+    succeeded_before = _job_row(session_factory, DOYUN)
+
+    response = _retry(client, job_id)
+
+    assert response.status_code == 202
+    assert response.headers["Location"] == f"/api/v1/jobs/{job_id}"
+    yerin = _job_row(session_factory, YERIN)
+    assert enqueued == [(yerin.id, YERIN)]
+    assert yerin.status == JobStatus.PENDING.value
+    assert yerin.error_code is None
+    assert yerin.retry_count == 0
+    # 성공한 원아의 Job과 초안은 건드리지 않습니다.
+    doyun = _job_row(session_factory, DOYUN)
+    assert (doyun.id, doyun.status) == (succeeded_before.id, JobStatus.SUCCEEDED.value)
+    children = {child["child_id"]: child for child in response.json()["children"]}
+    assert children[str(YERIN)]["status"] == "pending"
+    assert children[str(YERIN)]["error_code"] is None
+    assert response.json()["status"] == "running"
+
+
+def test_error_code가_없는_실패도_다시_시작한다(
+    client: TestClient, session_factory: sessionmaker[Session], enqueued: list
+) -> None:
+    job_id = _started_with_one_failed(client, session_factory, enqueued, None)
+
+    response = _retry(client, job_id)
+
+    assert response.status_code == 202
+    assert len(enqueued) == 1
+
+
+def test_기존_문서를_지키려고_막힌_실패는_다시_돌리지_않는다(
+    client: TestClient, session_factory: sessionmaker[Session], enqueued: list
+) -> None:
+    """DRAFT_VERSION_CONFLICT는 다시 돌려도 같은 이유로 실패합니다. 교사 수정본을 덮지 않기 위해서입니다."""
+    job_id = _started_with_one_failed(client, session_factory, enqueued, "DRAFT_VERSION_CONFLICT")
+
+    response = _retry(client, job_id)
+
+    assert response.status_code == 409
+    assert _error_code(response) == "JOB_NOT_RETRYABLE"
+    assert enqueued == []
+    assert _job_row(session_factory, YERIN).status == JobStatus.FAILED.value
+
+
+@pytest.mark.parametrize(
+    "error_code", ["AGENT_INPUT_TOO_LARGE", "AGENT_ROUTINE_MISSING", "AGENT_ROUTINE_INVALID"]
+)
+def test_같은_입력으로_다시_해도_같은_에이전트_오류는_재시도하지_않는다(
+    client: TestClient, session_factory: sessionmaker[Session], enqueued: list, error_code: str
+) -> None:
+    job_id = _started_with_one_failed(client, session_factory, enqueued, error_code)
+
+    response = _retry(client, job_id)
+
+    assert response.status_code == 409
+    assert _error_code(response) == "JOB_NOT_RETRYABLE"
+    assert enqueued == []
+
+
+def test_모델_응답에_따라_달라질_수_있는_에이전트_오류는_다시_시작한다(
+    client: TestClient, session_factory: sessionmaker[Session], enqueued: list
+) -> None:
+    job_id = _started_with_one_failed(client, session_factory, enqueued, "AGENT_RESPONSE_INVALID")
+
+    response = _retry(client, job_id)
+
+    assert response.status_code == 202
+    assert len(enqueued) == 1
+
+
+def test_실패한_원아가_없으면_409(
+    client: TestClient, session_factory: sessionmaker[Session], enqueued: list
+) -> None:
+    photo = _add_photo(session_factory, DOYUN)
+    job_id = _start(client, _body(photo)).json()["job_id"]
+    _set_status(session_factory, DOYUN, JobStatus.SUCCEEDED)
+    enqueued.clear()
+
+    response = _retry(client, job_id)
+
+    assert response.status_code == 409
+    assert _error_code(response) == "JOB_NOT_RETRYABLE"
+    assert enqueued == []
+
+
+def test_같은_재시도를_두_번_눌러도_큐에는_한_번만_넣는다(
+    client: TestClient, session_factory: sessionmaker[Session], enqueued: list
+) -> None:
+    job_id = _started_with_one_failed(client, session_factory, enqueued, "LLM_CALL_FAILED")
+
+    first = _retry(client, job_id)
+    second = _retry(client, job_id)
+
+    assert first.status_code == 202
+    assert second.status_code == 409
+    assert _error_code(second) == "JOB_ALREADY_RUNNING"
+    assert second.json()["error"]["detail"]["job_id"] == job_id
+    assert len(enqueued) == 1
+
+
+def test_아직_진행_중인_원아가_있으면_재시도를_막는다(
+    client: TestClient, session_factory: sessionmaker[Session], enqueued: list
+) -> None:
+    job_id = _started_with_one_failed(client, session_factory, enqueued, "LLM_TIMEOUT")
+    _set_status(session_factory, DOYUN, JobStatus.RUNNING)
+
+    response = _retry(client, job_id)
+
+    assert response.status_code == 409
+    assert _error_code(response) == "JOB_ALREADY_RUNNING"
+    assert enqueued == []
+
+
+def test_멈춘_채_남은_원아는_실패로_정리한_뒤_다시_시작한다(
+    client: TestClient, session_factory: sessionmaker[Session], enqueued: list
+) -> None:
+    photo = _add_photo(session_factory, DOYUN)
+    job_id = _start(client, _body(photo)).json()["job_id"]
+    _set_status(session_factory, DOYUN, JobStatus.RUNNING)
+    _age_job(session_factory, DOYUN, timedelta(minutes=11))
+    enqueued.clear()
+
+    response = _retry(client, job_id)
+
+    assert response.status_code == 202
+    assert [child_id for _, child_id in enqueued] == [DOYUN]
+    assert _job_row(session_factory, DOYUN).status == JobStatus.PENDING.value
+
+
+def test_없는_작업을_재시도하면_404(client: TestClient) -> None:
+    response = _retry(client, str(uuid.uuid4()))
+
+    assert response.status_code == 404
+    assert _error_code(response) == "JOB_NOT_FOUND"
+
+
+def test_다른_어린이집_교사는_재시도하지_못한다(
+    client: TestClient, session_factory: sessionmaker[Session], enqueued: list
+) -> None:
+    job_id = _started_with_one_failed(client, session_factory, enqueued, "LLM_TIMEOUT")
+    _login_as(uuid.uuid4())
+
+    response = _retry(client, job_id)
+
+    assert response.status_code == 403
+    assert _error_code(response) == "CLASS_ACCESS_DENIED"
+    assert enqueued == []
+    assert _job_row(session_factory, YERIN).status == JobStatus.FAILED.value
+
+
+def _add_observation_job(
+    factory: sessionmaker[Session], child_id: uuid.UUID, status: JobStatus
+) -> str:
+    """관찰일지 작업은 원아마다 따로 만든다. 같은 반·같은 달의 작업 하나를 직접 넣는다."""
+    month = date(2026, 9, 1)
+    with factory() as db:
+        parent = GenerationJob(
+            class_id=CLASS_ID,
+            record_date=month,
+            request_id=str(uuid.uuid4()),
+            requested_by_teacher_id=TEACHER_ID,
+            doc_type="observation_log",
+        )
+        db.add(parent)
+        db.flush()
+        db.add(
+            Job(
+                generation_job_id=parent.id,
+                child_id=child_id,
+                target_date=datetime(2026, 9, 1, tzinfo=UTC),
+                status=status.value,
+                error_code="LLM_TIMEOUT" if status == JobStatus.FAILED else None,
+            )
+        )
+        db.commit()
+        return str(parent.id)
+
+
+def test_관찰일지_재시도는_같은_반_다른_원아의_진행_중_작업에_막히지_않는다(
+    client: TestClient, session_factory: sessionmaker[Session], enqueued: list
+) -> None:
+    failed_id = _add_observation_job(session_factory, YERIN, JobStatus.FAILED)
+    _add_observation_job(session_factory, DOYUN, JobStatus.RUNNING)
+
+    response = _retry(client, failed_id)
+
+    assert response.status_code == 202
+    assert [child_id for _, child_id in enqueued] == [YERIN]
+
+
+def test_관찰일지_재시도는_같은_원아의_진행_중_작업이_있으면_그_작업을_담아_막는다(
+    client: TestClient, session_factory: sessionmaker[Session], enqueued: list
+) -> None:
+    failed_id = _add_observation_job(session_factory, YERIN, JobStatus.FAILED)
+    running_id = _add_observation_job(session_factory, YERIN, JobStatus.RUNNING)
+
+    response = _retry(client, failed_id)
+
+    assert response.status_code == 409
+    assert _error_code(response) == "JOB_ALREADY_RUNNING"
+    assert response.json()["error"]["detail"]["job_id"] == running_id
+    assert enqueued == []
