@@ -1,6 +1,6 @@
 // Figma: 53:294 (초안 검토 / 왼쪽 원아 목록)
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Info } from "lucide-react";
+import { Info, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { useBlocker, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 
@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
+import { isFreshDraft, markTyped, prefersReducedMotion } from "@/features/documents/typing-reveal";
 import { unclassifiedReasonText } from "@/features/documents/unclassified-reason";
 import { ApiError } from "@/lib/api-client";
 import { formatYearMonth, formatDate, isDateOnly, kstToday } from "@/lib/datetime";
@@ -41,6 +42,7 @@ import { LeaveRevokedDialog } from "./components/LeaveRevokedDialog";
 import { PublishedNoteRow } from "./components/PublishedNoteRow";
 import { PublishConfirmDialog } from "./components/PublishConfirmDialog";
 import { RosterList, type RosterRow } from "./components/RosterList";
+import { TypingSentences } from "./components/TypingSentences";
 
 /**
  * 게시가 건별로 실패한 사유입니다. 서버는 코드만 주므로 교사가 읽을 말로 바꿉니다.
@@ -138,6 +140,13 @@ export function DraftReviewPage() {
 
   const [confirmed, setConfirmed] = useState(false);
   const [selectedSentenceId, setSelectedSentenceId] = useState<string | null>(null);
+  // 방금 만든 초안은 처음 한 번만 문장을 타이핑하듯 보여 줍니다(sessionStorage 표시, typing-reveal).
+  // 끝났거나 건너뛴 초안은 여기에 담아 다시 하지 않습니다.
+  const [typedDraftIds, setTypedDraftIds] = useState<Set<string>>(new Set());
+  const finishTyping = (draftId: string) => {
+    markTyped(draftId);
+    setTypedDraftIds((prev) => new Set(prev).add(draftId));
+  };
   /**
    * 편집 중인 문장 텍스트(sentence_id → text)와 편집을 시작할 때 본 초안 version. null이면 읽기 모드.
    * 저장은 이 version으로 합니다. 편집하는 사이 다른 곳에서 고친 본문을 새로 받아도 칸에는 시작할 때의
@@ -489,6 +498,13 @@ export function DraftReviewPage() {
   const emptyReason = unclassifiedReasonText(selectedRow?.unclassified ?? null);
   const selectedSentence =
     draft?.sentences.find((sentence) => sentence.sentence_id === selectedSentenceId) ?? null;
+  // 처리 직후 처음 여는 초안이면 문장을 타이핑하듯 보여 줍니다. 수정 중이거나 이미 보여 준 초안은 제외합니다.
+  const typingNow =
+    draft !== undefined &&
+    editing === null &&
+    isFreshDraft(draft.draft_id) &&
+    !typedDraftIds.has(draft.draft_id) &&
+    !prefersReducedMotion();
   // 게시 전 초안이라 교사가 고른 사진을 그대로 보여 줍니다. 게시본을 되짚어 보는 화면은
   // adapter의 sentPhotos를 써서 실제로 나간 사진만 봅니다.
   const photos = selectedPhotos(draft);
@@ -573,6 +589,8 @@ export function DraftReviewPage() {
   function toggleEditing() {
     if (!draft || !canChangeDraft) return;
     if (editing === null) {
+      // 타이핑 중에 수정을 눌렀다면 연출은 끝난 것으로 봅니다. 수정을 취소해도 다시 시작하지 않습니다.
+      finishTyping(draft.draft_id);
       // 고치기 전 문장을 보고 눌러 둔 체크입니다. 수정이 끝나면 다시 확인해야 합니다.
       setConfirmed(false);
       setSelectedSentenceId(null);
@@ -820,14 +838,22 @@ export function DraftReviewPage() {
                 />
               )}
 
-              <div className="flex flex-col gap-3.5 rounded-xl bg-paper p-7">
+              <div className="relative flex flex-col gap-3.5 rounded-xl bg-paper p-7">
                 <div className="flex items-center justify-between">
                   <span className="rounded-md bg-brand px-6 py-1.5 text-body font-bold text-brand-ink">
                     {isObservation ? "월별 관찰일지" : "알림장"}
                   </span>
-                  <span className="text-caption text-ink-muted">
-                    {editing !== null ? "수정 중" : `버전 ${draft.version}`}
-                  </span>
+                  {typingNow ? (
+                    // 같은 자리의 버전 표시를 대신합니다. 줄이 늘지 않아 연출이 끝나도 글이 움직이지 않습니다.
+                    <span className="inline-flex items-center gap-1.5 text-caption font-bold text-brand-ink">
+                      <Sparkles className="size-3.5 animate-pulse" aria-hidden />
+                      AI가 작성하는 중…
+                    </span>
+                  ) : (
+                    <span className="text-caption text-ink-muted">
+                      {editing !== null ? "수정 중" : `버전 ${draft.version}`}
+                    </span>
+                  )}
                 </div>
                 {(draft.daily_routine?.length ?? 0) > 0 && (
                   <details className="rounded-md border border-line p-3">
@@ -894,6 +920,19 @@ export function DraftReviewPage() {
                       + 문장 추가
                     </button>
                   </>
+                ) : typingNow ? (
+                  <TypingSentences
+                    key={draft.draft_id}
+                    texts={draft.sentences.map((sentence) => sentence.text)}
+                    // 쓰고 있는 문장의 근거를 옆 패널에 같이 띄웁니다. 근거 없는 문장은 직전 선택을 그대로 둡니다.
+                    onSentence={(index) => {
+                      const sentence = draft.sentences[index];
+                      if (sentence && sentence.evidences.length > 0) {
+                        setSelectedSentenceId(sentence.sentence_id);
+                      }
+                    }}
+                    onDone={() => finishTyping(draft.draft_id)}
+                  />
                 ) : (
                   draft.sentences.map((sentence) =>
                     // 근거가 없는 문장은 밑줄·클릭 없이 일반 문단으로 보여 줍니다.
@@ -1044,7 +1083,8 @@ export function DraftReviewPage() {
             <label className="flex items-center gap-2 text-body text-ink">
               <Checkbox
                 checked={confirmed}
-                disabled={!canApproveNow}
+                // 글이 아직 나오는 중에는 읽기 전이라 체크도 승인도 막습니다. 바로 보기로 건너뛸 수 있습니다.
+                disabled={!canApproveNow || typingNow}
                 onCheckedChange={(value) => setConfirmed(value === true)}
               />
               사진과 본문을 확인했어요
@@ -1054,7 +1094,11 @@ export function DraftReviewPage() {
                 draft && approveMutation.mutate({ draftId: draft.draft_id, version: draft.version })
               }
               disabled={
-                !confirmed || !canApproveNow || approveMutation.isPending || photoMutation.isPending
+                !confirmed ||
+                !canApproveNow ||
+                typingNow ||
+                approveMutation.isPending ||
+                photoMutation.isPending
               }
             >
               검토 완료하고 승인하기

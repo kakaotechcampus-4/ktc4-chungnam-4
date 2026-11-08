@@ -7,6 +7,7 @@ import {
   documentsKeys,
   publishedParentNotesQueryOptions,
 } from "@/api/documents";
+import { markFreshDrafts } from "@/features/documents/typing-reveal";
 import { kstToday, shiftDate } from "@/lib/datetime";
 import { readDb, updateDb } from "@/mocks/db";
 import { fixtureId } from "@/mocks/fixtures/ids";
@@ -166,6 +167,20 @@ describe("DraftReviewPage", () => {
     await user.click(screen.getByRole("checkbox"));
 
     expect(screen.getByRole("button", { name: "검토 완료하고 승인하기" })).toBeEnabled();
+  });
+
+  // 글이 아직 나오는 중에는 읽기 전이라 확인 체크와 승인을 막는다. 바로 보기로 건너뛰면 풀린다.
+  it("타이핑 연출 중에는 확인 체크와 승인 버튼이 비활성이다", async () => {
+    const user = userEvent.setup();
+    markFreshDrafts([fixtureId("draft", 12)]);
+    await renderAndWait();
+
+    expect(screen.getByRole("checkbox")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "검토 완료하고 승인하기" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "바로 보기" }));
+
+    await waitFor(() => expect(screen.getByRole("checkbox")).toBeEnabled());
   });
 
   // H-1: 검토가 남은 원아가 있으면 학부모 공개(게시)를 열지 않는다.
