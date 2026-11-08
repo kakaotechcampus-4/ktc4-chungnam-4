@@ -1083,7 +1083,8 @@ export function DraftReviewPage() {
             <label className="flex items-center gap-2 text-body text-ink">
               <Checkbox
                 checked={confirmed}
-                disabled={!canApproveNow}
+                // 글이 아직 나오는 중에는 읽기 전이라 체크도 승인도 막습니다. 바로 보기로 건너뛸 수 있습니다.
+                disabled={!canApproveNow || typingNow}
                 onCheckedChange={(value) => setConfirmed(value === true)}
               />
               사진과 본문을 확인했어요
@@ -1093,7 +1094,11 @@ export function DraftReviewPage() {
                 draft && approveMutation.mutate({ draftId: draft.draft_id, version: draft.version })
               }
               disabled={
-                !confirmed || !canApproveNow || approveMutation.isPending || photoMutation.isPending
+                !confirmed ||
+                !canApproveNow ||
+                typingNow ||
+                approveMutation.isPending ||
+                photoMutation.isPending
               }
             >
               검토 완료하고 승인하기
