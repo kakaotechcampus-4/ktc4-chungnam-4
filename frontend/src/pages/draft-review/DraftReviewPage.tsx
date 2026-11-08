@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
+import { isFreshDraft, markTyped, prefersReducedMotion } from "@/features/documents/typing-reveal";
 import { unclassifiedReasonText } from "@/features/documents/unclassified-reason";
 import { ApiError } from "@/lib/api-client";
 import { formatYearMonth, formatDate, isDateOnly, kstToday } from "@/lib/datetime";
@@ -41,6 +42,7 @@ import { LeaveRevokedDialog } from "./components/LeaveRevokedDialog";
 import { PublishedNoteRow } from "./components/PublishedNoteRow";
 import { PublishConfirmDialog } from "./components/PublishConfirmDialog";
 import { RosterList, type RosterRow } from "./components/RosterList";
+import { TypingSentences } from "./components/TypingSentences";
 
 /**
  * 게시가 건별로 실패한 사유입니다. 서버는 코드만 주므로 교사가 읽을 말로 바꿉니다.
@@ -138,6 +140,13 @@ export function DraftReviewPage() {
 
   const [confirmed, setConfirmed] = useState(false);
   const [selectedSentenceId, setSelectedSentenceId] = useState<string | null>(null);
+  // 방금 만든 초안은 처음 한 번만 문장을 타이핑하듯 보여 줍니다(sessionStorage 표시, typing-reveal).
+  // 끝났거나 건너뛴 초안은 여기에 담아 다시 하지 않습니다.
+  const [typedDraftIds, setTypedDraftIds] = useState<Set<string>>(new Set());
+  const finishTyping = (draftId: string) => {
+    markTyped(draftId);
+    setTypedDraftIds((prev) => new Set(prev).add(draftId));
+  };
   /**
    * 편집 중인 문장 텍스트(sentence_id → text)와 편집을 시작할 때 본 초안 version. null이면 읽기 모드.
    * 저장은 이 version으로 합니다. 편집하는 사이 다른 곳에서 고친 본문을 새로 받아도 칸에는 시작할 때의
@@ -573,6 +582,8 @@ export function DraftReviewPage() {
   function toggleEditing() {
     if (!draft || !canChangeDraft) return;
     if (editing === null) {
+      // 타이핑 중에 수정을 눌렀다면 연출은 끝난 것으로 봅니다. 수정을 취소해도 다시 시작하지 않습니다.
+      finishTyping(draft.draft_id);
       // 고치기 전 문장을 보고 눌러 둔 체크입니다. 수정이 끝나면 다시 확인해야 합니다.
       setConfirmed(false);
       setSelectedSentenceId(null);
@@ -820,7 +831,7 @@ export function DraftReviewPage() {
                 />
               )}
 
-              <div className="flex flex-col gap-3.5 rounded-xl bg-paper p-7">
+              <div className="relative flex flex-col gap-3.5 rounded-xl bg-paper p-7">
                 <div className="flex items-center justify-between">
                   <span className="rounded-md bg-brand px-6 py-1.5 text-body font-bold text-brand-ink">
                     {isObservation ? "월별 관찰일지" : "알림장"}
@@ -894,6 +905,14 @@ export function DraftReviewPage() {
                       + 문장 추가
                     </button>
                   </>
+                ) : isFreshDraft(draft.draft_id) &&
+                  !typedDraftIds.has(draft.draft_id) &&
+                  !prefersReducedMotion() ? (
+                  <TypingSentences
+                    key={draft.draft_id}
+                    texts={draft.sentences.map((sentence) => sentence.text)}
+                    onDone={() => finishTyping(draft.draft_id)}
+                  />
                 ) : (
                   draft.sentences.map((sentence) =>
                     // 근거가 없는 문장은 밑줄·클릭 없이 일반 문단으로 보여 줍니다.
