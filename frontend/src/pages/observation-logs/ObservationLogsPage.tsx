@@ -20,6 +20,8 @@ function failureText(error: unknown) {
 // 이 건수 미만이면 일부 칸이 비어 있을 수 있다고 알립니다(월별 관찰일지 합의).
 const FEW_NOTES = 5;
 
+const MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
+
 function shortDate(isoDateTime: string) {
   const [, month = "", day = ""] = toKstDate(isoDateTime).split("-");
   return `${Number(month)}/${Number(day)}`;
@@ -90,8 +92,8 @@ export function ObservationLogsPage() {
         value={month}
         max={today}
         onChange={(event) => {
-          // 입력을 지우면 빈 문자열이 오는데, 그 달은 조회할 수 없어 이전 값을 유지합니다.
-          if (event.target.value) setMonth(event.target.value);
+          // 입력을 지우거나 month를 지원하지 않는 브라우저에서 치는 중간값("2026-1")은 조회할 수 없어 이전 값을 유지합니다.
+          if (MONTH_PATTERN.test(event.target.value)) setMonth(event.target.value);
         }}
         className="ml-3 rounded-md border border-line bg-paper p-2"
       />

@@ -215,6 +215,25 @@ describe("ObservationLogsPage", () => {
     await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
   });
 
+  it("월 입력이 YYYY-MM이 아니면 그 달로 조회하지 않는다", async () => {
+    const months: (string | null)[] = [];
+    const record = ({ request }: { request: Request }) => {
+      const url = new URL(request.url);
+      if (url.pathname.endsWith("/observation-logs")) months.push(url.searchParams.get("month"));
+    };
+    server.events.on("request:start", record);
+    try {
+      renderList();
+      await screen.findByText("5명 중 1명 생성했어요");
+
+      fireEvent.change(screen.getByLabelText("관찰할 월"), { target: { value: "2026-1" } });
+
+      expect(months).toEqual([MONTH]);
+    } finally {
+      server.events.removeListener("request:start", record);
+    }
+  });
+
   it("작업이 실패하면 코드에 맞는 안내를 보여 준다", async () => {
     const user = userEvent.setup();
     server.use(
