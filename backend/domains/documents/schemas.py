@@ -80,7 +80,7 @@ class DraftVersionInfo(BaseModel):
     - version: 잠금용 DraftDocument.version. 재생성이면 save_draft(expected_version=...)에
       그대로 넘긴다. AI 회차(ai_version)와 다르다.
     - has_teacher_edits: 교사가 이 초안을 한 번이라도 수정·승인·회수했는지. true면 AI 결과로
-      덮어쓰지 않는다 (#75 6-1).
+      덮어쓰지 않는다 (#75 6-1). 관찰일지는 승인·승인 되돌리기만 있으면 false다 (#284).
     """
 
     model_config = ConfigDict(frozen=True)

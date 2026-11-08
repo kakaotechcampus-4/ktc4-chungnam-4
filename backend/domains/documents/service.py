@@ -179,6 +179,9 @@ from domains.organization import service as organization_service
 # 자동 생성 결과로 덮어쓰지 않는 상태. 승인·회수된 문서는 교사가 확정한 내용이다.
 _AI_LOCKED_STATUSES = (DraftStatus.APPROVED.value, DraftStatus.REVOKED.value)
 
+# 관찰일지에서 교사가 손댄 것으로 치지 않는 이력 (_has_teacher_edits, #284).
+_OBSERVATION_LOG_LIFECYCLE_ACTIONS = (RevisionAction.APPROVE.value, RevisionAction.REOPEN.value)
+
 # 교사가 쓴 문장의 서버 발급 ID (t1, t2…, 임시 결정(정은), #75).
 _TEACHER_SENTENCE_ID = re.compile(r"t(\d+)")
 
@@ -365,9 +368,21 @@ def _has_teacher_edits() -> ColumnElement[bool]:
     초안은 생성이라 RevisionLog가 없어서, 교사가 쓴 문장(서버가 붙인 `t…`)이 있는지도 본다
     (#139 리뷰). AI 문장 ID는 tools/generation/draft.py가 `s…`로 붙인다. DraftDocument를
     조회·갱신하는 문장 안에서 상관 서브쿼리로 쓴다.
+
+    예외: 관찰일지의 승인·승인 되돌리기(approve·reopen) 이력은 손댄 것으로 치지 않는다
+    (임시 결정(정은), #284). 관찰일지는 앱에서 고칠 수 없어 그 이력에 지킬 교사 내용이 없고,
+    내려받으려고 승인한 뒤에도 같은 달을 다시 만들 수 있어야 한다. doc_type만 보지 않고
+    action까지 보는 것은 API로는 관찰일지도 PATCH할 수 있어서다 — 수정·회수·재게시 이력이나
+    `t…` 문장이 있으면 알림장처럼 그대로 막는다.
     """
     return or_(
-        exists().where(RevisionLog.draft_id == DraftDocument.id),
+        exists().where(
+            RevisionLog.draft_id == DraftDocument.id,
+            or_(
+                DraftDocument.doc_type != DocType.OBSERVATION_LOG.value,
+                RevisionLog.action.notin_(_OBSERVATION_LOG_LIFECYCLE_ACTIONS),
+            ),
+        ),
         exists().where(
             DraftSentence.draft_id == DraftDocument.id,
             DraftSentence.sentence_id.startswith("t"),
