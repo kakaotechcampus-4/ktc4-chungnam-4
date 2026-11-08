@@ -103,7 +103,7 @@ _UNFINISHED_STATUSES = frozenset({JobStatus.PENDING, JobStatus.RUNNING})
 # 사진 분석 호출이 최대 10회 늘어 LLM 호출이 약 20회가 됐다(호출 1회 7.6~19.4초 실측, 최악 약 390초).
 # 180초에서 300초로 올린다. 이 값을 넘기면 다시 돌리지 않고 Job을 실패로 끝내며(#102),
 # 교사는 재시도 API(POST /jobs/{job_id}/retry)로 다시 시작한다.
-# TODO(eun): 임시 결정이다. 테크스펙 파이프라인 4단계의 "타임아웃 180초"(10/02 결정)는 팀 확인 뒤 고친다.
+# TODO(eun): 임시 결정이다(팀 확정 전). 테크스펙에는 임시 결정으로 표시해 반영했고, backend/CLAUDE.md는 open-questions에 제안으로 올렸다.
 JOB_SOFT_TIME_LIMIT_SECONDS = 300
 # worker가 죽어 running으로 남은 Job이 그 반·날짜를 영구히 막지 않게, 이 시간 넘게 갱신이 없는
 # running Job은 진행 중으로 보지 않는다 (#161 리뷰, 엄태은). 시작할 때 RUNNING으로 바꾸고 재시도마다
