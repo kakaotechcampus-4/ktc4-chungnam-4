@@ -55,7 +55,8 @@ export function useObservationGeneration(classId: string) {
     }
   }, [classId, client, complete, draftIds, jobId]);
 
-  const busy = create.isPending || (jobId !== "" && !complete);
+  // 진행 상태를 못 불러오는 동안은 잠그지 않습니다. 같은 아이를 다시 눌러도 서버가 진행 중 작업을 재사용합니다.
+  const busy = create.isPending || (jobId !== "" && !complete && !job.isError);
 
   function start(childId: string, month: string) {
     // POST 응답만 유실됐다면 같은 request_id를 다시 사용해 중복 실행을 막습니다.

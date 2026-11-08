@@ -179,6 +179,25 @@ describe("ObservationLogsPage", () => {
     expect(screen.getByText("김도윤")).toBeInTheDocument();
   });
 
+  it("진행 상태를 못 불러오면 생성 버튼을 다시 열어 준다", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post(apiPath("/children/:childId/observation-jobs"), () =>
+        HttpResponse.json(jobResult("running"), { status: 202 }),
+      ),
+      http.get(apiPath("/jobs/:jobId"), () => HttpResponse.error()),
+    );
+    renderList();
+
+    await user.click(await screen.findByRole("button", { name: "김도윤 관찰일지 생성하기" }));
+
+    // 폴링 간격(2초) 뒤 첫 조회가 실패해야 오류가 드러납니다.
+    expect(
+      await screen.findByText(/진행 상태를 불러오지 못했어요/, {}, { timeout: 5000 }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "김도윤 관찰일지 생성하기" })).toBeEnabled();
+  });
+
   it("작업이 실패하면 코드에 맞는 안내를 보여 준다", async () => {
     const user = userEvent.setup();
     server.use(
