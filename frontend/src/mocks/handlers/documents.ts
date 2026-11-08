@@ -265,7 +265,7 @@ export const handlers = [
     return HttpResponse.json({ items, next_cursor: null });
   }),
 
-  // 월별 관찰일지 목록(서버 PR 전이라 계약을 가정한 목). 명단 순서로 모든 원아가 오고 이름은 없습니다.
+  // 월별 관찰일지 목록 목. 명단 순서로 모든 원아가 오고 이름은 없습니다.
   // 게시된 알림장 수는 기록 날짜가 그 달인 게시본으로 셉니다. 월별 관찰일지는 그달 1일 기록입니다.
   http.get(apiPath("/classes/:classId/observation-logs"), ({ request, params }) => {
     const denied = requireTeacherOfClass(params.classId);

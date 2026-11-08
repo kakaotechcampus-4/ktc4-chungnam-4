@@ -46,7 +46,7 @@ export interface ObservationLogSummary {
 
 /**
  * GET /classes/{class_id}/observation-logs?month=YYYY-MM 항목. 명단 순서이고 재원 중인 모든 원아가 옵니다.
- * 이름은 싣지 않습니다 — 화면이 child_id로 명단과 합칩니다. 서버 PR 전이라 이 문서의 계약을 가정한 모양입니다.
+ * 이름은 싣지 않습니다 — 화면이 child_id로 명단과 합칩니다.
  */
 export interface ClassObservationLogItem {
   child_id: string;
