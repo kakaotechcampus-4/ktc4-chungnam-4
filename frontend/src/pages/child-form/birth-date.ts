@@ -5,8 +5,9 @@ const DOT_DATE = /^(\d{4})\s*[.-]\s*(\d{1,2})\s*[.-]\s*(\d{1,2})\s*\.?$/;
 
 /** 숫자열 앞에서 월·일 한 칸을 떼어 냅니다. 첫 자리가 maxFirst보다 크면 한 자리 값으로 보고 0을 채웁니다. */
 function takeUnit(digits: string, maxFirst: string): [unit: string, rest: string] {
-  if (digits === "") return ["", ""];
-  if (digits[0] > maxFirst) return [`0${digits[0]}`, digits.slice(1)];
+  const first = digits.slice(0, 1);
+  if (first === "") return ["", ""];
+  if (first > maxFirst) return [`0${first}`, digits.slice(1)];
   return [digits.slice(0, 2), digits.slice(2)];
 }
 
