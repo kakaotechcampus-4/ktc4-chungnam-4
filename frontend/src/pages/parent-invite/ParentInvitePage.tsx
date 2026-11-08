@@ -66,6 +66,14 @@ export function ParentInvitePage() {
   const [media, setMedia] = useState(false);
   const [face, setFace] = useState(false);
   const isParent = me.data?.account_type === "parent";
+  const allAgreed = guardian && personal && media && face;
+  // 전체 동의는 화면 편의일 뿐이고, 서버로는 항목별 값이 그대로 갑니다. 선택 항목(③)도 개별로 풀 수 있습니다.
+  const setAllAgreed = (checked: boolean) => {
+    setGuardian(checked);
+    setPersonal(checked);
+    setMedia(checked);
+    setFace(checked);
+  };
   const login = useMutation({
     mutationFn: () => createSession({ email, password }),
     throwOnError: false,
@@ -283,6 +291,19 @@ export function ParentInvitePage() {
             {isParent || mode === "signup" ? (
               <fieldset className="flex flex-col gap-2 border-t border-line pt-4">
                 <legend className="mb-2 text-body font-bold text-ink">자녀 연결 및 동의</legend>
+                <label className="flex cursor-pointer items-center gap-2.5 rounded-lg bg-tint-2 p-2.5 text-body font-bold text-ink">
+                  <input
+                    type="checkbox"
+                    checked={allAgreed}
+                    onChange={(e) => setAllAgreed(e.target.checked)}
+                    className="size-4 shrink-0 accent-brand-ink"
+                  />
+                  전체 동의
+                </label>
+                <p className="px-1.5 text-caption text-ink-muted">
+                  법정대리인 확인과 선택 동의(얼굴 특징정보)까지 한 번에 체크합니다. 아래에서
+                  항목별로 풀 수 있어요.
+                </p>
                 <ConsentRow checked={guardian} onChange={setGuardian} required>
                   이 원아의 법정대리인입니다.
                 </ConsentRow>
