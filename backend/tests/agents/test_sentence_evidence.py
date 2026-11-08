@@ -5,7 +5,8 @@ documents의 교사용 초안 상세가 부르는 함수입니다. 근거 행과
 """
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import create_engine
@@ -15,6 +16,7 @@ from core.base import Base
 from core.exceptions import MediaAssetNotFound
 from domains.agents.models import SentenceEvidence
 from domains.agents.service import list_sentence_evidences
+from domains.documents.models import DocType, DraftDocument
 from domains.media.models import MediaAsset, TranscriptSegment
 
 DRAFT_ID = uuid.uuid4()
@@ -28,7 +30,13 @@ def db() -> Session:
     engine = create_engine("sqlite://")
     Base.metadata.create_all(
         engine,
-        tables=[SentenceEvidence.__table__, MediaAsset.__table__, TranscriptSegment.__table__],
+        tables=[
+            SentenceEvidence.__table__,
+            MediaAsset.__table__,
+            TranscriptSegment.__table__,
+            # 알림장 근거의 날짜를 채우려고 근거가 가리키는 알림장의 기록 날짜를 읽는다(#264)
+            DraftDocument.__table__,
+        ],
     )
     with sessionmaker(bind=engine)() as session:
         yield session
@@ -59,6 +67,7 @@ def _evidence(
     evidence_id: str,
     media_id: uuid.UUID | None,
     timestamp: float | None = None,
+    source_document_id: uuid.UUID | None = None,
 ) -> None:
     db.add(
         SentenceEvidence(
@@ -66,11 +75,28 @@ def _evidence(
             sentence_id=sentence_id,
             evidence_id=evidence_id,
             source_media_id=media_id,
+            source_document_id=source_document_id,
             source_timestamp=timestamp,
             source_text="합성 근거 원문",
         )
     )
     db.flush()
+
+
+def _note(db: Session, record_date: date) -> uuid.UUID:
+    """월 관찰일지가 근거로 모은 게시 알림장 한 건."""
+    note_id = uuid.uuid4()
+    db.add(
+        DraftDocument(
+            id=note_id,
+            child_id=uuid.uuid4(),
+            author_teacher_id=TEACHER_ID,
+            doc_type=DocType.PARENT_NOTE.value,
+            record_date=record_date,
+        )
+    )
+    db.flush()
+    return note_id
 
 
 def test_근거를_문장별로_묶고_미디어_종류로_출처를_정한다(db: Session) -> None:
@@ -134,6 +160,37 @@ def test_발화_근거의_끝_시각은_발화_구간에서_읽는다(db: Sessio
 
     assert views[f"seg:{with_end}"].end_ms == 4250
     assert views[f"seg:{without_end}"].end_ms is None
+
+
+# 월 관찰일지의 「근거 알림장」 패널이 날짜를 찍으려면 알림장 근거에도 날짜가 있어야 한다(#264).
+def test_알림장_근거는_그_알림장의_기록_날짜를_그날_0시_KST로_채우고_날짜_순으로_정렬한다(
+    db: Session,
+) -> None:
+    earlier = _note(db, date(2026, 9, 3))
+    later = _note(db, date(2026, 9, 15))
+    _evidence(db, "s1", f"note:{later}", None, source_document_id=later)
+    _evidence(db, "s1", f"note:{earlier}", None, source_document_id=earlier)
+    _evidence(db, "s1", "plan:1", None)
+
+    views = list_sentence_evidences(db, DRAFT_ID)["s1"]
+
+    by_id = {view.evidence_id: view for view in views}
+    kst = ZoneInfo("Asia/Seoul")
+    assert by_id[f"note:{later}"].source_type == "parent_note"
+    assert by_id[f"note:{later}"].captured_at == datetime(2026, 9, 15, tzinfo=kst)
+    assert by_id[f"note:{earlier}"].captured_at == datetime(2026, 9, 3, tzinfo=kst)
+    # 날짜가 없는 활동계획은 뒤에 둔다
+    assert [view.evidence_id for view in views] == [f"note:{earlier}", f"note:{later}", "plan:1"]
+
+
+def test_가리키는_알림장이_없으면_날짜는_null이다(db: Session) -> None:
+    missing = uuid.uuid4()
+    _evidence(db, "s1", f"note:{missing}", None, source_document_id=missing)
+
+    [view] = list_sentence_evidences(db, DRAFT_ID)["s1"]
+
+    assert view.source_type == "parent_note"
+    assert view.captured_at is None
 
 
 def test_근거가_없는_초안은_빈_결과다(db: Session) -> None:
