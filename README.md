@@ -81,7 +81,8 @@ pnpm dev                              # MSW 목 API로 실행
 
 - **백엔드:** `pytest`로 API·권한·작업 흐름·에이전트 파이프라인을 검사합니다. `ruff`로 린트와 포맷을 봅니다.
 - **프론트엔드:** Vitest로 화면·API·목 데이터를 검사하고 Prettier, ESLint, `tsc`, 빌드를 돌립니다.
-- PR마다 [CI](.github/workflows/ci.yml)가 위 검사를 모두 돌리고, 통과해야 머지합니다. `develop`에 머지되면 바뀐 쪽이 자동 배포됩니다(백엔드는 EC2, 프론트엔드는 S3).
+- **테스트 코드 위치:** 백엔드는 `backend/tests/`(`test_*.py` 78개), 프론트엔드는 `frontend/src/` 안의 `*.test.ts(x)`(85개)입니다.
+- PR마다 [CI](.github/workflows/ci.yml)가 위 검사를 모두 돌리고, 통과해야 머지합니다. `develop`에 머지되면 바뀐 쪽이 자동 배포됩니다(백엔드는 EC2, 프론트엔드는 S3). 워크플로 파일은 `.github/workflows/`의 `ci.yml`, `deploy.yml`, `deploy-frontend.yml`입니다.
 
 ## 문서
 
