@@ -33,7 +33,7 @@
 - **일별 알림장:** 근거 수집 에이전트가 하루치 근거를 요약하고, 작성 에이전트가 그 요약과 비식별 원문으로 초안을 씁니다.
 - **월별 관찰일지:** 같은 방식으로 게시된 알림장을 모아 관찰일지를 씁니다.
 - **검증 에이전트:** 생성 대화를 공유하지 않고 원본 비식별 근거만으로 초안을 독립 검증합니다. 통과하지 못하면 해당 단계로 돌아가 다시 쓰고, 재시도 상한을 넘으면 교사에게 확인 필요나 실패 사유를 안내합니다.
-- 에이전트는 모델 제공사의 네이티브 도구 호출로 활동계획 조회, 이전 기록 조회, 원아 명단 조회, 발달 지침 조회 같은 도구를 스스로 골라 씁니다. 모델이 임의의 도구·ID·URL을 부르면 거부합니다.
+- 에이전트는 OpenAI 호환 API의 도구 호출(function calling)로 활동계획 조회, 이전 기록 조회, 원아 명단 조회, 발달 지침 조회 같은 도구를 스스로 골라 씁니다. 모델이 임의의 도구·ID·URL을 부르면 거부합니다.
 
 자세한 검증 방법은 [docs/multi-agent-validation.md](docs/multi-agent-validation.md)에 있습니다.
 
@@ -53,7 +53,7 @@
 | 프론트엔드 | React, TypeScript, Vite, React Router, TanStack Query, Zustand, Tailwind, shadcn/ui |
 | 온디바이스 AI | HUMAN (BlazeFace 검출 → FaceMesh 정렬 → faceres 임베딩) |
 | 서버 AI | 초안 작성·검증 에이전트: Claude Sonnet 5.5 (검증은 같은 모델을 별도 세션으로 호출), 사진 분석: GLM 5.3 Flash, 음성 인식(STT): Whisper Large v3. 세 모델은 각각 별도의 게이트웨이 엔드포인트를 거쳐 호출 |
-| 에이전트 구현 | 오케스트레이션 프레임워크 없이 직접 구현(Celery task), 도구 호출은 모델 제공사의 네이티브 function calling |
+| 에이전트 구현 | 오케스트레이션 프레임워크 없이 직접 구현(Celery task), 도구 호출은 OpenAI 호환 API의 function calling을 직접 호출 |
 | 백엔드 | Python, FastAPI, SQLAlchemy, Alembic, PostgreSQL, Redis, Celery |
 | 배포 | S3 + CloudFront(프론트), EC2 + Docker Compose + Caddy(백엔드) |
 | CI/CD | GitHub Actions (PR 검사, `develop` 머지 시 자동 배포) |
