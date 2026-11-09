@@ -11,6 +11,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response
+from pydantic import AfterValidator
 from sqlalchemy.orm import Session
 
 from core.database import get_db
@@ -35,6 +36,7 @@ from domains.documents.schemas import (
     RevokeRequest,
     RevokeResponse,
     SelectableMediaListResponse,
+    valid_month,
 )
 
 router = APIRouter(tags=["documents"])
@@ -68,7 +70,7 @@ def list_class_observation_logs(
     class_id: UUID,
     db: Annotated[Session, Depends(get_db)],
     teacher: CurrentTeacher,
-    month: Annotated[str, Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")],
+    month: Annotated[str, Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$"), AfterValidator(valid_month)],
 ) -> ClassObservationLogListResponse:
     return service.list_class_observation_logs(
         db,

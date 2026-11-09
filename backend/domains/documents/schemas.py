@@ -149,6 +149,20 @@ class ClassObservationLogItem(BaseModel):
     observation_log: ObservationLogSummary | None
 
 
+def valid_month(value: str) -> str:
+    """`YYYY-MM` 모양을 통과한 값이 실제로 셀 수 있는 달인지 봅니다 (#267 엄태은 리뷰 [nit]).
+
+    정규식은 숫자 모양만 봐서 아래 두 값이 통과해 500이 났습니다. 이제 `2026-13`과 같은 422
+    VALIDATION_ERROR입니다. 부르는 쪽이 정규식을 먼저 걸어 두므로 모양은 맞다고 보고 받습니다.
+    - `0000-09`: 0년이 없어 날짜로 바꿀 수 없습니다.
+    - `9999-12`: 서비스가 그 달을 다음 달 1일 전까지로 세는데, 그 날짜가 `date`로 표현되지 않습니다.
+    """
+    start = date.fromisoformat(f"{value}-01")
+    if (start.year, start.month) == (date.max.year, 12):
+        raise ValueError("다음 달을 계산할 수 없는 달입니다.")
+    return value
+
+
 class ClassObservationLogListResponse(BaseModel):
     """GET /api/v1/classes/{class_id}/observation-logs. 반 단위라 페이지를 나누지 않는다."""
 

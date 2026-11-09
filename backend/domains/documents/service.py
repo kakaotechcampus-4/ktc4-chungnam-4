@@ -539,6 +539,12 @@ def list_child_drafts(
     )
 
 
+def _month_label(month_start: date) -> str:
+    """응답의 `YYYY-MM`. `strftime("%Y")`는 Linux에서 1000년 미만을 `0001`이 아니라 `1`로
+    내서(macOS는 채움) 받은 `0001-01`이 `1-01`로 나갔습니다 (#317 엄태은 리뷰)."""
+    return f"{month_start.year:04d}-{month_start.month:02d}"
+
+
 def list_class_observation_logs(
     db: Session, *, class_id: UUID, center_id: UUID | None, month: date
 ) -> ClassObservationLogListResponse:
@@ -560,7 +566,7 @@ def list_class_observation_logs(
     roster = organization_service.list_class_children(db, class_id, center_id)
     child_ids = [child.child_id for child in roster.items]
     if not child_ids:
-        return ClassObservationLogListResponse(month=month_start.strftime("%Y-%m"), items=[])
+        return ClassObservationLogListResponse(month=_month_label(month_start), items=[])
 
     active = _active_publications()
     note_counts = dict(
@@ -591,7 +597,7 @@ def list_class_observation_logs(
         )
     }
     return ClassObservationLogListResponse(
-        month=month_start.strftime("%Y-%m"),
+        month=_month_label(month_start),
         items=[
             ClassObservationLogItem(
                 child_id=child.child_id,
