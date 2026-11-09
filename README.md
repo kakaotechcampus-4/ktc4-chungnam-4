@@ -9,7 +9,6 @@
 | 배포 서비스 | https://d4kl98c6dogl6.cloudfront.net |
 | 기술문서(테크스펙) | [docs/테크스펙.md](docs/테크스펙.md) |
 | API 문서 | [docs/api/](docs/api/README.md) |
-| 시연 영상 · 발표 자료 | (링크 추가 예정) |
 
 ## 어떤 문제를 푸나요
 
