@@ -51,6 +51,8 @@
 |---|---|
 | 프론트엔드 | React, TypeScript, Vite, React Router, TanStack Query, Zustand, Tailwind, shadcn/ui |
 | 온디바이스 AI | HUMAN (BlazeFace 검출 → FaceMesh 정렬 → faceres 임베딩) |
+| 서버 AI | 초안 작성·검증 에이전트: Claude Sonnet 5.5 (검증은 같은 모델을 별도 세션으로 호출), 사진 분석: GLM 5.3 Flash, 음성 인식(STT): Whisper Large v3. 모두 카테캠 AI 게이트웨이를 거쳐 호출 |
+| 에이전트 구현 | 오케스트레이션 프레임워크 없이 직접 구현(Celery task), 도구 호출은 모델 제공사의 네이티브 function calling |
 | 백엔드 | Python, FastAPI, SQLAlchemy, Alembic, PostgreSQL, Redis, Celery |
 | 배포 | S3 + CloudFront(프론트), EC2 + Docker Compose + Caddy(백엔드) |
 | CI/CD | GitHub Actions (PR 검사, `develop` 머지 시 자동 배포) |
