@@ -4,7 +4,7 @@
 """
 
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from sqlalchemy import create_engine
@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from core.base import Base
 from domains.media import service
-from domains.media.models import MediaAsset, MediaChildLink, TranscriptSegment
+from domains.media.models import MediaAsset, MediaChildLink, MediaUpload, TranscriptSegment
 from domains.organization.models import Center, Child, ConsentRecord, Klass
 
 CLASS_ID = uuid.uuid4()
@@ -31,6 +31,7 @@ def db() -> Session:
         tables=[
             MediaAsset.__table__,
             MediaChildLink.__table__,
+            MediaUpload.__table__,
             TranscriptSegment.__table__,
             Center.__table__,
             Klass.__table__,
@@ -87,11 +88,13 @@ def add_media(
     *,
     type: str = "photo",
     captured_at: datetime = MORNING,
+    uploaded_at: datetime = MORNING,
     llm_allowed: bool = True,
     storage_tier: str = "original",
 ) -> MediaAsset:
+    client_photo_id = uuid.uuid4()
     asset = MediaAsset(
-        client_photo_id=uuid.uuid4(),
+        client_photo_id=client_photo_id,
         class_id=CLASS_ID,
         teacher_id=uuid.uuid4(),
         type=type,
@@ -103,10 +106,30 @@ def add_media(
     )
     db.add(asset)
     db.flush()
+    db.add(uploaded(asset, uploaded_at))
     for child_id in children:
         db.add(MediaChildLink(media_id=asset.id, child_id=child_id, method="manual"))
     db.flush()
     return asset
+
+
+def uploaded(asset: MediaAsset, verified_at: datetime) -> MediaUpload:
+    """업로드 확인 기록. 기록 날짜는 이 `verified_at`으로 정해집니다(C-0)."""
+    return MediaUpload(
+        client_photo_id=asset.client_photo_id,
+        class_id=asset.class_id,
+        teacher_id=asset.teacher_id,
+        type=asset.type,
+        content_type="image/jpeg",
+        declared_size_bytes=asset.size_bytes,
+        storage_key=asset.storage_url,
+        state="confirmed",
+        issued_at=verified_at,
+        url_expires_at=verified_at,
+        actual_size_bytes=asset.size_bytes,
+        verified_at=verified_at,
+        media_id=asset.id,
+    )
 
 
 def ids(evidence: list[service.MediaEvidence]) -> list[uuid.UUID]:
@@ -118,25 +141,36 @@ def test_그_원아의_그날_llm_허용_미디어만_돌려준다(db: Session) 
     add_media(db, [DOYUN], llm_allowed=False)
     add_media(db, [DOYUN], storage_tier="deleted")
     add_media(db, [uuid.uuid4()])  # 다른 원아
-    add_media(db, [DOYUN], captured_at=datetime(2026, 9, 16, 1, 0, tzinfo=UTC))  # 다음 날
+    add_media(db, [DOYUN], uploaded_at=datetime(2026, 9, 16, 1, 0, tzinfo=UTC))  # 다음 날 업로드
 
     assert ids(service.collect_media_for_llm(db, DOYUN, DAY)) == [kept.id]
 
 
-def test_날짜는_한국_시간_하루로_본다(db: Session) -> None:
+def test_날짜는_업로드한_날을_한국_시간_하루로_본다(db: Session) -> None:
     # UTC 14일 15:30 = 한국 15일 00:30 → 15일. UTC 15일 15:30 = 한국 16일 00:30 → 16일.
-    early = add_media(db, [DOYUN], captured_at=datetime(2026, 9, 14, 15, 30, tzinfo=UTC))
-    add_media(db, [DOYUN], captured_at=datetime(2026, 9, 15, 15, 30, tzinfo=UTC))
+    early = add_media(db, [DOYUN], uploaded_at=datetime(2026, 9, 14, 15, 30, tzinfo=UTC))
+    add_media(db, [DOYUN], uploaded_at=datetime(2026, 9, 15, 15, 30, tzinfo=UTC))
 
     assert ids(service.collect_media_for_llm(db, DOYUN, DAY)) == [early.id]
 
 
+def test_지난날_찍었어도_그날_올린_자료는_그날_근거다(db: Session) -> None:
+    # 11/11 팀 결정(C-0): 기록 날짜는 촬영일이 아니라 업로드한 날입니다.
+    old_photo = add_media(db, [DOYUN], captured_at=datetime(2026, 9, 1, 1, 0, tzinfo=UTC))
+    add_media(db, [DOYUN], uploaded_at=datetime(2026, 9, 14, 1, 0, tzinfo=UTC))  # 전날 올림
+
+    assert ids(service.collect_media_for_llm(db, DOYUN, DAY)) == [old_photo.id]
+
+
 def test_미동의_원아가_함께_귀속된_사진과_영상은_뺀다(db: Session) -> None:
-    alone = add_media(db, [DOYUN])
-    add_media(db, [DOYUN, YERIN])
-    add_media(db, [DOYUN, YERIN], type="video")
+    # 촬영 시각이 같으면 순서가 정해지지 않아 1분씩 띄웁니다.
+    alone = add_media(db, [DOYUN], captured_at=MORNING)
+    add_media(db, [DOYUN, YERIN], captured_at=MORNING + timedelta(minutes=1))
+    add_media(db, [DOYUN, YERIN], type="video", captured_at=MORNING + timedelta(minutes=2))
     # 음성메모는 얼굴이 없어 ③을 보지 않습니다.
-    voice = add_media(db, [DOYUN, YERIN], type="voice_memo")
+    voice = add_media(
+        db, [DOYUN, YERIN], type="voice_memo", captured_at=MORNING + timedelta(minutes=3)
+    )
 
     assert ids(service.collect_media_for_llm(db, DOYUN, DAY)) == [alone.id, voice.id]
 
