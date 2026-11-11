@@ -63,7 +63,8 @@ def _asset(
     type: str = "photo",
     children: tuple[uuid.UUID, ...] = (CHILD,),
     captured_at: datetime = datetime(2026, 10, 20, 1, 0, tzinfo=UTC),
-    content_type: str | None = None,
+    content_type: str = "image/jpeg",
+    has_upload_record: bool = True,
     **values: object,
 ) -> MediaAsset:
     asset = MediaAsset(
@@ -79,7 +80,8 @@ def _asset(
     db.add(asset)
     db.flush()
     db.add_all(MediaChildLink(media_id=asset.id, child_id=c, method="manual") for c in children)
-    if content_type:
+    # 기록 날짜는 업로드한 날입니다(C-0, 11/11 팀 결정). 촬영한 때 올린 것으로 둡니다.
+    if has_upload_record:
         db.add(
             MediaUpload(
                 client_photo_id=asset.client_photo_id,
@@ -92,6 +94,7 @@ def _asset(
                 state="confirmed",
                 issued_at=captured_at,
                 url_expires_at=captured_at,
+                verified_at=captured_at,
                 media_id=asset.id,
             )
         )
@@ -140,7 +143,7 @@ def test_내려받기_URL은_원본에_attachment로_서명한다(db: Session) -
 
 
 def test_업로드_기록이_없으면_종류로_확장자를_정한다(db: Session) -> None:
-    video = _asset(db, type="video")
+    video = _asset(db, type="video", has_upload_record=False)
 
     assert service.get_download_url(db, video.id).filename.endswith(".mp4")
 
