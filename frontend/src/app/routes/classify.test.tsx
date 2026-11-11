@@ -333,6 +333,28 @@ describe("수동 분류 · 사진", () => {
     expect(screen.getByText("확인 필요 4개")).toBeVisible();
   });
 
+  // 테크스펙 H-2 판정 경로: 자동으로 못 맞힌 사진도 교사가 아이를 고르면 귀속이 끝납니다(FR-14).
+  it("수동 분류한 사진도 확인 체크 뒤에는 LLM을 허용해 보낸다", async () => {
+    seedQueue();
+    const user = userEvent.setup();
+    renderAt("/t/today/manual-sort");
+
+    expect(
+      await screen.findByText(/명단에 없는 사람이 나오면 이 자료를 제외해 주세요/),
+    ).toBeVisible();
+    await user.click(await screen.findByRole("checkbox", { name: "최지우" }));
+    await user.click(screen.getByRole("button", { name: "선택한 아이에게 연결" }));
+    await waitForSpeech();
+    await user.click(screen.getByRole("checkbox", { name: "아이 분류를 확인했어요" }));
+    await user.click(screen.getByRole("button", { name: "확인한 자료로 계속" }));
+
+    expect(photo(5)).toMatchObject({
+      review_state: "확정",
+      assigned_child_ids: [JIWOO],
+      llm_allowed: true,
+    });
+  });
+
   it("제외한 사진은 업로드 목록에서 빠진다", async () => {
     seedQueue();
     const user = userEvent.setup();
@@ -536,6 +558,9 @@ describe("아이별 하루 확인", () => {
 
     const textbox = await screen.findByRole("textbox", { name: "관찰 내용" });
     const save = screen.getByRole("button", { name: "근거 저장" });
+    expect(textbox).toHaveAccessibleDescription(
+      "학부모 이름·전화번호·주소 같은 개인정보는 적지 마세요. 저장한 내용은 다음 AI 생성부터 반영돼요. 이미 만든 초안은 자동으로 바뀌지 않아요.",
+    );
     expect(save).toBeDisabled();
     await waitFor(() => expect(textbox).toBeEnabled());
     await user.type(textbox, "나뭇잎을 비교했어요.");
@@ -571,6 +596,62 @@ describe("아이별 하루 확인", () => {
     expect(screen.getByRole("button", { name: "근거 저장" })).toBeDisabled();
   });
 
+  it("추가 근거는 고른 활동 날짜로 저장한다", async () => {
+    useUploadQueue.getState().setRecordDate("2026-09-01");
+    const saved: string[] = [];
+    server.events.on("request:start", ({ request }) => {
+      if (request.method === "PUT" && request.url.includes("/evidence/")) saved.push(request.url);
+    });
+    const user = userEvent.setup();
+    renderAt(`/t/today/children/${DOYUN}/summary`);
+
+    const textbox = await screen.findByRole("textbox", { name: "관찰 내용" });
+    await waitFor(() => expect(textbox).toBeEnabled());
+    await user.type(textbox, "나뭇잎을 비교했어요.");
+    await user.click(screen.getByRole("button", { name: "근거 저장" }));
+
+    expect(await screen.findByText("저장했어요.")).toBeVisible();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toContain(`/children/${DOYUN}/evidence/2026-09-01`);
+  });
+
+  // 상한이 생기기 전에 저장된 긴 메모를 열면, 저장하다 서버에서 거절당하지 않고 처음부터 줄이라고 안내합니다.
+  it("상한 전에 저장된 1,000자 넘는 메모는 줄이라고 안내하고 저장을 막는다", async () => {
+    const longText = "가".repeat(1001);
+    server.use(
+      http.get(apiPath("/classes/:classId/evidence"), () =>
+        HttpResponse.json({
+          items: [
+            {
+              evidence_id: "e71d0000-0000-4000-8000-000000000099",
+              child_id: DOYUN,
+              record_date: "2026-09-15",
+              activity_time: "10:30",
+              text: longText,
+              source: "teacher_note",
+              created_at: "2026-09-15T01:00:00Z",
+            },
+          ],
+          next_cursor: null,
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderAt(`/t/today/children/${DOYUN}/summary`);
+
+    const textbox = await screen.findByRole("textbox", { name: "관찰 내용" });
+    await waitFor(() => expect(textbox).toHaveValue(longText));
+    expect(screen.getByText("1,001 / 1,000자")).toBeInTheDocument();
+    expect(textbox).toHaveAccessibleDescription(
+      expect.stringContaining("1,000자 이하로 줄여 주세요."),
+    );
+    expect(screen.getByRole("button", { name: "근거 수정" })).toBeDisabled();
+
+    await user.clear(textbox);
+    await user.paste("가".repeat(1000));
+    expect(screen.getByRole("button", { name: "근거 수정" })).toBeEnabled();
+  });
+
   it("추가 근거 저장에 실패하면 이유를 보여 준다", async () => {
     server.use(
       http.put(apiPath("/children/:childId/evidence/:recordDate"), () =>
@@ -588,6 +669,36 @@ describe("아이별 하루 확인", () => {
     await user.click(screen.getByRole("button", { name: "근거 저장" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("관찰 내용을 적어 주세요.");
+  });
+
+  // 서버 상한(1,000자)과 같은 값으로 글자 수를 보여 주고, 넘으면 저장을 막습니다(임시 결정(정은), 11/07).
+  // 입력은 막지 않아 붙여넣은 글이 조용히 잘리지 않습니다.
+  it("추가 근거가 1,000자를 넘으면 글자 수와 안내를 보이고 저장을 막는다", async () => {
+    const user = userEvent.setup();
+    renderAt(`/t/today/children/${DOYUN}/summary`);
+
+    const textbox = await screen.findByRole("textbox", { name: "관찰 내용" });
+    await waitFor(() => expect(textbox).toBeEnabled());
+    expect(screen.getByText("0 / 1,000자")).toBeInTheDocument();
+
+    await user.type(textbox, "나뭇잎을 비교했어요.");
+    expect(screen.getByText("11 / 1,000자")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "근거 저장" })).toBeEnabled();
+
+    await user.clear(textbox);
+    await user.click(textbox);
+    await user.paste("가".repeat(1001));
+    expect(textbox).toHaveValue("가".repeat(1001));
+    expect(screen.getByText("1,001 / 1,000자")).toBeInTheDocument();
+    expect(textbox).toHaveAccessibleDescription(
+      expect.stringContaining("1,000자 이하로 줄여 주세요."),
+    );
+    expect(screen.getByRole("button", { name: "근거 저장" })).toBeDisabled();
+
+    await user.clear(textbox);
+    await user.paste("가".repeat(1000));
+    expect(screen.getByText("1,000 / 1,000자")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "근거 저장" })).toBeEnabled();
   });
 });
 

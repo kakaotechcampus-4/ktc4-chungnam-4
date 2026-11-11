@@ -77,6 +77,8 @@ def test_사진은_상한까지만_남기고_영상_음성은_자르지_않는�
 
 def test_사진은_하루_전체에서_고르게_뽑는다(monkeypatch) -> None:
     """앞에서 자르면 오전 사진만 남는다 (#103 리뷰). 처음·마지막을 포함해 같은 간격으로 고른다."""
+    # 상한 값이 바뀌어도 고르는 규칙을 그대로 보려고 작은 값으로 고정한다.
+    monkeypatch.setattr(service, "MAX_PHOTOS_PER_CHILD", 5)
     photos = [_media("photo", minute) for minute in range(9)]
     # 사진 사이에 낀 영상은 순서 그대로 남는다.
     video = _media("video", 4, spoken=True)

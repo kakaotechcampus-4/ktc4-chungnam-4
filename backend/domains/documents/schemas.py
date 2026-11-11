@@ -24,6 +24,7 @@ class DraftSentenceInput(BaseModel):
     model_config = ConfigDict(hide_input_in_errors=True)
 
     sentence_id: str = Field(min_length=1)
+    section: str | None = None
     text: str = Field(min_length=1)
 
 
@@ -50,6 +51,10 @@ class DraftSaveInput(BaseModel):
     sentences: list[DraftSentenceInput] = Field(min_length=1)
     ai_version: int = Field(ge=1)
     evidence_bundle_id: UUID | None = None
+    # AI가 근거로 쓴 사진. 알림장에 보낼 사진의 기본 선택이다(교사가 PATCH로 바꾼다). 처음 저장하면
+    # 그대로 넣고, 재생성이면 교사가 이미 고른 선택 뒤에 새 사진만 더한다. 공개가 아니라 후보라서
+    # 학부모에게는 승인과 게시의 include_photos를 거쳐야 나간다(H-1).
+    selected_media_ids: list[UUID] = Field(default_factory=list)
 
     @field_validator("sentences")
     @classmethod
@@ -60,6 +65,14 @@ class DraftSaveInput(BaseModel):
             raise ValueError("duplicate sentence_id")
         return sentences
 
+    @field_validator("selected_media_ids")
+    @classmethod
+    def _unique_media_ids(cls, media_ids: list[UUID]) -> list[UUID]:
+        # PATCH(DraftUpdateRequest)와 같은 규칙이다. 같은 사진이 두 번 저장되지 않게 입구에서 막는다.
+        if len(media_ids) != len(set(media_ids)):
+            raise ValueError("duplicate media_id")
+        return media_ids
+
 
 class DraftVersionInfo(BaseModel):
     """get_draft_version() 결과. agents가 재생성으로 저장할지 건너뛸지 정하는 데 쓴다 (#75 5번).
@@ -67,7 +80,7 @@ class DraftVersionInfo(BaseModel):
     - version: 잠금용 DraftDocument.version. 재생성이면 save_draft(expected_version=...)에
       그대로 넘긴다. AI 회차(ai_version)와 다르다.
     - has_teacher_edits: 교사가 이 초안을 한 번이라도 수정·승인·회수했는지. true면 AI 결과로
-      덮어쓰지 않는다 (#75 6-1).
+      덮어쓰지 않는다 (#75 6-1). 관찰일지는 승인·승인 되돌리기만 있으면 false다 (#284).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -118,6 +131,45 @@ class ClassDraftListResponse(BaseModel):
     next_cursor: str | None = None
 
 
+class ObservationLogSummary(BaseModel):
+    """그 달 관찰일지 한 건. 본문은 싣지 않는다."""
+
+    draft_id: UUID
+    status: DraftStatus
+    # 처음 만든 시각. 교사가 고쳐도 바뀌지 않는다(updated_at과 다름).
+    created_at: datetime
+
+
+class ClassObservationLogItem(BaseModel):
+    """원아 한 명의 그 달 관찰일지 현황 (#225 ⑱)."""
+
+    child_id: UUID
+    # 그 달(record_date 기준)에 지금 게시 중인 알림장 수. 0이면 화면이 생성을 막는다(#225 ⑫).
+    published_note_count: int
+    observation_log: ObservationLogSummary | None
+
+
+def valid_month(value: str) -> str:
+    """`YYYY-MM` 모양을 통과한 값이 실제로 셀 수 있는 달인지 봅니다 (#267 엄태은 리뷰 [nit]).
+
+    정규식은 숫자 모양만 봐서 아래 두 값이 통과해 500이 났습니다. 이제 `2026-13`과 같은 422
+    VALIDATION_ERROR입니다. 부르는 쪽이 정규식을 먼저 걸어 두므로 모양은 맞다고 보고 받습니다.
+    - `0000-09`: 0년이 없어 날짜로 바꿀 수 없습니다.
+    - `9999-12`: 서비스가 그 달을 다음 달 1일 전까지로 세는데, 그 날짜가 `date`로 표현되지 않습니다.
+    """
+    start = date.fromisoformat(f"{value}-01")
+    if (start.year, start.month) == (date.max.year, 12):
+        raise ValueError("다음 달을 계산할 수 없는 달입니다.")
+    return value
+
+
+class ClassObservationLogListResponse(BaseModel):
+    """GET /api/v1/classes/{class_id}/observation-logs. 반 단위라 페이지를 나누지 않는다."""
+
+    month: str
+    items: list[ClassObservationLogItem]
+
+
 class ChildDraftItem(DraftSummary):
     """원아별 문서 목록 한 줄. 날짜 이동에 필요한 값만 싣는다 — 임시 결정(김진하)."""
 
@@ -136,6 +188,7 @@ class EvidenceView(BaseModel):
     """문장 하나를 뒷받침하는 근거. 사진·계획 근거는 start_ms·end_ms가 없다."""
 
     evidence_id: str
+    source_document_id: UUID | None = None
     source_type: str
     text: str
     media_id: UUID | None
@@ -145,6 +198,7 @@ class EvidenceView(BaseModel):
 
 
 class DraftSentenceView(BaseModel):
+    section: str | None = None
     sentence_id: str
     text: str
     is_edited_by_teacher: bool
@@ -176,6 +230,9 @@ class DraftDetailResponse(BaseModel):
     version: int
     # AI가 제목을 만들지 않아 지금은 늘 null이다.
     title: str | None
+    # 양식의 칸 이름(양식 순서). 관찰일지만 채우고 알림장은 빈 배열이다 (#264, 임시 결정(정은)).
+    sections: list[str] = Field(default_factory=list)
+    daily_routine: list[str] = Field(default_factory=list)
     sentences: list[DraftSentenceView]
     selected_media_ids: list[UUID]
     failed_media_ids: list[UUID] = Field(default_factory=list)
@@ -190,7 +247,27 @@ class DraftDetailResponse(BaseModel):
     revoke_deadline: datetime | None
     # 지금 회수할 수 있는가 (활성 게시 회차가 있고 기한 이내. 학부모가 열어 봤어도 된다, #266).
     can_revoke: bool
+    # 처음 만든 시각. 교사가 고쳐도 바뀌지 않는다 — 관찰일지 생성 결과 화면의 부제(#263).
+    created_at: datetime
     updated_at: datetime
+
+
+class SelectableMediaItem(BaseModel):
+    """알림장에 고를 수 있는 사진·영상 한 건. 서명 URL은 화면 표시·재생용이다."""
+
+    media_id: UUID
+    type: Literal["photo", "video"]
+    url: str
+    url_expires_at: datetime
+    captured_at: datetime
+
+
+class SelectableMediaListResponse(BaseModel):
+    """GET /api/v1/drafts/{draft_id}/selectable-media. 촬영 순서이고, 하루치라 페이지를 나누지 않는다
+    (임시 결정(송유진))."""
+
+    items: list[SelectableMediaItem]
+    next_cursor: str | None = None
 
 
 class SentenceEdit(BaseModel):

@@ -2,9 +2,11 @@
 vi.mock("@/features/upload-queue/media-capabilities", () => ({ CLIPS_ENABLED: true }));
 
 import {
+  hasUnsentWork,
   isImportDone,
   isImportStage,
   mediaKindOf,
+  stableClientId,
   uploadTargets,
   useUploadQueue,
   type LocalMedia,
@@ -16,6 +18,26 @@ function file(name: string) {
 
 describe("업로드 큐", () => {
   afterEach(() => useUploadQueue.getState().reset());
+
+  it("서버가 받았거나 교사가 뺀 자료만 남으면 잃을 작업이 없다", () => {
+    const queue = useUploadQueue.getState();
+    expect(hasUnsentWork(useUploadQueue.getState().items)).toBe(false);
+
+    queue.addFiles([file("IMG_1.jpg"), file("IMG_2.jpg")]);
+    const [sent, excluded] = useUploadQueue.getState().items as [LocalMedia, LocalMedia];
+    expect(hasUnsentWork(useUploadQueue.getState().items)).toBe(true);
+
+    queue.setUploadState(sent.client_id, "확인됨", "media-1");
+    expect(hasUnsentWork(useUploadQueue.getState().items)).toBe(true);
+
+    queue.setReview(excluded.client_id, {
+      review_state: "제외",
+      assigned_child_ids: [],
+      excluded_reason: "기타",
+      llm_allowed: false,
+    });
+    expect(hasUnsentWork(useUploadQueue.getState().items)).toBe(false);
+  });
 
   it("지원하는 형식만 담고, 사진만 분류·검수 상태를 가진다", () => {
     useUploadQueue
@@ -113,5 +135,31 @@ describe("업로드 큐", () => {
 
     const names = uploadTargets(useUploadQueue.getState().items).map((item) => item.file.name);
     expect(names).toEqual(["confirmed.jpg", "clip.mp4"]);
+  });
+});
+
+// 전송 중 취소 뒤 같은 파일을 다시 올리면 서버에 중복으로 들어가던 문제(#304 4-11)
+describe("stableClientId", () => {
+  const photoFile = { name: "합성.jpg", size: 3, lastModified: 1_700_000_000_000 };
+
+  it("같은 파일이면 같은 UUID 모양의 ID를 만든다", () => {
+    const id = stableClientId(photoFile);
+    expect(stableClientId({ ...photoFile })).toBe(id);
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
+  it("이름·크기·수정 시각 중 하나라도 다르면 다른 ID다", () => {
+    const id = stableClientId(photoFile);
+    expect(stableClientId({ ...photoFile, name: "합성2.jpg" })).not.toBe(id);
+    expect(stableClientId({ ...photoFile, size: 4 })).not.toBe(id);
+    expect(stableClientId({ ...photoFile, lastModified: 1 })).not.toBe(id);
+  });
+
+  it("같은 파일을 두 번 고르면 큐에 한 번만 담는다", () => {
+    const same = new File(["x"], "같은.jpg", { lastModified: 1 });
+    useUploadQueue.getState().addFiles([same]);
+    useUploadQueue.getState().addFiles([new File(["x"], "같은.jpg", { lastModified: 1 })]);
+    expect(useUploadQueue.getState().items).toHaveLength(1);
+    useUploadQueue.getState().reset();
   });
 });

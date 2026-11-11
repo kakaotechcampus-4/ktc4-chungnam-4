@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class EvidenceBundleResponse(BaseModel):
@@ -112,3 +112,79 @@ class GenerationJobResponse(BaseModel):
     children: list[ChildJobResponse]
     created_at: datetime
     updated_at: datetime
+
+
+class ObservationJobCreateRequest(BaseModel):
+    request_id: UUID
+    month: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+
+    @field_validator("month")
+    @classmethod
+    def valid_month(cls, value: str) -> str:
+        date.fromisoformat(value + "-01")
+        return value
+
+
+class AgentTraceEvent(BaseModel):
+    agent: str
+    outcome: str
+    tool: str | None
+
+
+class ChildAgentTrace(BaseModel):
+    child_id: UUID
+    events: list[AgentTraceEvent]
+
+
+class JobTraceResponse(BaseModel):
+    job_id: UUID
+    children: list[ChildAgentTrace]
+
+
+# --- 추가 근거(교사 관찰 메모) API (docs/api/agents.md §추가 근거) ---
+
+
+# 메모 한 건의 글자 수 상한(앞뒤 공백 제외). 측정으로 정한 값이 아니다 — 임시 결정(정은, 11/07),
+# 테크스펙 §④ TeacherEvidence·docs/api/agents.md §추가 근거. FE 입력칸(EvidenceCard)과 같은 값이다.
+TEACHER_EVIDENCE_TEXT_MAX_LENGTH = 1000
+
+
+class TeacherEvidenceSaveRequest(BaseModel):
+    """PUT /children/{child_id}/evidence/{record_date} 본문. 글만 받는다(음성·사진 제외).
+
+    text는 앞뒤 공백을 지우고 비어 있으면 거절하며, TEACHER_EVIDENCE_TEXT_MAX_LENGTH자를 넘어도
+    거절한다. activity_time 필수 여부는 스펙에 없어 지금은 필수로 두고 시각 형식만 본다.
+    """
+
+    activity_time: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    text: str
+
+    @field_validator("text")
+    @classmethod
+    def text_must_fit(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("추가 근거 내용이 비어 있습니다.")
+        if len(stripped) > TEACHER_EVIDENCE_TEXT_MAX_LENGTH:
+            # 이 메시지는 응답에 실리지 않는다. 공통 검증 핸들러(main.py)가 값이 섞일 수 있는 msg를
+            # 빼고 422 + VALIDATION_ERROR + 통일 문구만 돌려준다(H-4). 로그·테스트에서 읽는 용도다.
+            raise ValueError(
+                f"추가 근거 내용은 {TEACHER_EVIDENCE_TEXT_MAX_LENGTH:,}자까지 쓸 수 있습니다."
+            )
+        return stripped
+
+
+class TeacherEvidenceResponse(BaseModel):
+    evidence_id: UUID
+    child_id: UUID
+    record_date: date
+    activity_time: str
+    text: str
+    source: Literal["teacher_note"] = "teacher_note"
+    created_at: datetime
+
+
+class TeacherEvidenceListResponse(BaseModel):
+    items: list[TeacherEvidenceResponse]
+    # 반 한 곳·하루 치라 최대 반 원아 수만큼이다. 다음 쪽은 없다.
+    next_cursor: str | None = None

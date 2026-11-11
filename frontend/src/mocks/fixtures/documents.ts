@@ -81,6 +81,7 @@ export function buildDrafts({
     picked.map((media, index) => {
       const activity = activityOf(media);
       const evidence: Evidence = {
+        source_document_id: null,
         evidence_id: `ev_${String(index + 1).padStart(3, "0")}`,
         source_type: SOURCE_TYPE[media.type],
         text: activity.evidence,
@@ -97,6 +98,7 @@ export function buildDrafts({
             : activity.note;
       // AI 문장 ID는 서버처럼 s1부터 붙입니다(backend/tools/generation/draft.py).
       return {
+        section: docType === "observation_log" ? "자연탐구" : null,
         sentence_id: `s${index + 1}`,
         text,
         is_edited_by_teacher: false,
@@ -104,12 +106,12 @@ export function buildDrafts({
       };
     });
   const base = {
+    daily_routine: picked.map((media) => activityOf(media).evidence),
     child_id: child.child_id,
     class_id: child.class_id,
     record_date: recordDate,
     status: "verified" as const,
     version: 1,
-    selected_media_ids: picked.filter((media) => media.type === "photo").map((m) => m.media_id),
     author_teacher_id: TEACHER_ME.teacher_id,
     author_name: TEACHER_ME.name,
     approved_at: null,
@@ -123,6 +125,7 @@ export function buildDrafts({
       draft_id: draftIds.observation_log,
       doc_type: "observation_log",
       title: null,
+      selected_media_ids: [],
       sentences: sentencesFor("observation_log"),
     },
     {
@@ -130,6 +133,10 @@ export function buildDrafts({
       draft_id: draftIds.parent_note,
       doc_type: "parent_note",
       title: first ? activityOf(first).title : null,
+      // 서버처럼 생성에 쓴 근거 사진이 기본 선택입니다(#283). 영상·음성은 교사가 골라야 들어갑니다.
+      selected_media_ids: evidenceMedia
+        .filter((media) => media.type === "photo")
+        .map((media) => media.media_id),
       sentences: sentencesFor("parent_note"),
     },
   ];

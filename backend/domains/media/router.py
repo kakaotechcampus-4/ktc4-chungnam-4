@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, Response
 from sqlalchemy.orm import Session
 
 from core.database import get_db
+from domains.agents import service as agents_service
 from domains.auth.middleware import CurrentTeacher
 from domains.media import service
 from domains.media.schemas import (
@@ -85,6 +86,7 @@ def complete_upload(
         captured_at=body.captured_at,
         model_version=body.model_version,
         attribution=body.to_attribution(),
+        ensure_not_generating=agents_service.ensure_no_running_daily_job,
     )
     # 이 응답이 ack입니다. FE는 이걸 받고 원본을 지우므로 커밋이 끝난 뒤에 돌려줍니다
     db.commit()
@@ -118,6 +120,7 @@ def save_child_links(
         center_id=teacher.center_id,
         attributions=body.to_attributions(),
         llm_allowed=body.llm_allowed,
+        ensure_not_generating=agents_service.ensure_no_running_daily_job,
     )
     # agents가 attributed_at으로 Job 시작을 판정하므로 커밋이 끝난 뒤에 돌려줍니다
     db.commit()

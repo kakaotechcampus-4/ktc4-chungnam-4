@@ -11,8 +11,9 @@ import { MATCH_MIN_SCORE } from "@/workers/face/matcher";
 // 영상·음성 메모는 로컬 분류·검수 대상이 아닙니다(테크스펙 ⑧, 업로드 큐의 LocalClip).
 
 /**
- * (미정) 자동 귀속 신뢰도 임계값. 테크스펙 파이프라인 2단계 "신뢰도 임계값 미달 시 자동 결정하지 않음"의 값이
- * 정해지지 않았습니다. 화면들이 같은 값을 보도록 여기 하나만 둡니다.
+ * (제안 0.76, #322, 팀 확정 전) 자동 귀속 신뢰도 임계값. 테크스펙 파이프라인 2단계 "신뢰도 임계값
+ * 미달 시 자동 결정하지 않음"의 값이 명세로 확정되지 않았습니다(`docs/open-questions.md`).
+ * 화면들이 같은 값을 보도록 여기 하나만 두고, `matcher.ts`의 값을 그대로 따릅니다.
  */
 export const CONFIDENCE_THRESHOLD = MATCH_MIN_SCORE;
 
@@ -66,8 +67,8 @@ export const EXCLUDE_RESULT: ReviewResult = {
  * 분류 결과 화면의 확인 체크("아이 분류를 확인했어요")를 누르고 넘어갈 때의 확정 값입니다.
  * - 자동 분류가 확실한 사진: 확실한 후보로 확정
  * - 교사가 이미 고른 사진: 그대로
- * 귀속 확인만으로 미식별 얼굴이 사라지지는 않습니다. 얼굴이 남으면 LLM 허용을 끕니다(H-2).
- * 미동의 원아는 서버가 LLM 경로에서 다시 뺍니다(09/28 (b)).
+ * 교사가 아이를 고른 사진은 귀속이 끝난 것이라 미식별 얼굴이 남지 않습니다(테크스펙 H-2 판정 경로, FR-14).
+ * 명단에 없는 사람이 나오면 교사가 제외합니다. 미동의 원아는 서버가 LLM 경로에서 다시 뺍니다(09/28 (b)).
  * 수동 확인을 안 한 사진은 미검수로 남아 업로드 대상에서 빠집니다(uploadTargets, H-3).
  */
 export function confirmReview(photo: LocalPhoto): ReviewResult | null {
@@ -77,7 +78,7 @@ export function confirmReview(photo: LocalPhoto): ReviewResult | null {
       review_state: "확정",
       assigned_child_ids: photo.assigned_child_ids,
       excluded_reason: null,
-      llm_allowed: !photo.has_unidentified_face,
+      llm_allowed: true,
     };
   }
   if (needsManualReview(photo)) return null;

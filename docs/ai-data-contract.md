@@ -69,6 +69,12 @@
   `photo_observation`·`activity_plan`에서 금지하고(값이 있으면 거부),
   영상·음성에서만 허용한다 — 이때도 STT가 한쪽 시간만 제공하거나 둘 다
   없어도 통과한다(없는 값을 추측해서 채우지 않는다, PR #15 리뷰 반영).
+- 교사가 글로 남긴 추가 근거(`TeacherEvidence`)는 `source_type="teacher_note"`로 넣는다
+  (2026-11-06 결정, 정은·엄태은). 기존 값으로는 담을 수 없다 — `teacher_voice_memo`는
+  `media_id`가 필수이고 `activity_plan`은 관찰이 아니라 계획이다. `teacher_note`는 미디어에서
+  온 근거가 아니므로 `media_id`와 `start_ms`/`end_ms`가 없어야 한다(`activity_plan`과 같은
+  제약). 아이의 말이 아니라 교사의 관찰이므로 Critic의 `teacher_note_as_child_speech` 검사
+  대상이다. `tools/contracts.py`의 `SourceType`과 검증 코드는 이 문서가 합의된 뒤 고친다.
 - 근거 부족은 빈 정상 초안으로 표현하지 않는다. 태은님(AI 근거 통합·관찰일지·알림장 생성 담당)의
   근거 준비 단계에서 생성하지 않고 백엔드에 부족 상태를 전달해야 한다. 구체적인 부족 상태 계약은
   태은님·정은님과 합의한다.
@@ -88,3 +94,15 @@ Critic 응답은 전송용 사본의 ID로 검사한 후 서버 ID로 복원한�
 연결 필드·배경자료의 구체적인 형식은 태은님·정은님과 합의한다.
 현재 검증 코드는 고정 응답으로 테스트한 초안이며 실제 Critic 품질과 서비스 통합은 별도 확인한다.
 호출 가능한 예제는 `backend/tests/agents/fixtures/verification_flow.py`에 있다.
+
+
+## 멀티에이전트·월별 관찰일지 계약 (FR-06·FR-07·FR-27)
+
+- `DailyRoutine.facts[]`는 비식별 `text`와 원본 임시 `evidence_refs`를 가진다. 새 근거가 아니며, Agent2·3은 이 요약을 사용하고 Agent4는 원본 `EvidenceItem`으로 판정한다.
+- 네이티브 tool calling의 범위는 인증된 Job으로 고정한다. 도구 인자는 `focus` 열거값만 허용한다. 원아 ID·URL·SQL을 받지 않는다.
+- `EvidenceItem.source_type=parent_note`는 **교사가 승인해 현재 게시 중인 알림장**이다. `source_document_id` 필수, media_id·시간 구간은 금지한다. 학부모 작성 메모를 뜻하지 않는다.
+- 월별 요청은 `record_date=월 1일`, `GenerationRequest.period_end=월 말일`이며 코드가 원아·기간을 검사한다. 매일 알림장은 `period_end=None`으로 하루만 허용한다.
+- 월별 원본은 생성 직전 읽고 저장 직전 게시 상태·버전을 재확인한다. 변경·회수되었으면 `AGENT_SOURCE_CHANGED`로 종료한다.
+- `DraftSentence.section`은 관찰일지 기본 5영역·종합의견 중 하나이며 알림장은 null이다. 근거 없는 영역을 채우지 않는다.
+- 초안의 문장 근거에는 원본 게시 문서 ID·원문을 저장한다. 하루 일과는 비식별 상태로 보관하고 교사 상세에서만 대상 이름을 복원한다. 다른 원아 토큰은 반 구성 변경으로 잘못 복원되지 않도록 `친구`로 표시한다.
+- 내부 작성 가이드 v1은 관찰 서술용이다. 공식 교육과정 원문이나 의료적 발달 평가 데이터셋이 아니다. 데이터셋 확대는 AI 담당자 검토 후 진행한다.

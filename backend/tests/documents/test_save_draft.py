@@ -99,6 +99,34 @@ def test_최초_저장은_VERIFIED_상태_버전1로_남는다():
     assert row.author_teacher_id == data.author_teacher_id
 
 
+# 9주차 #257 리뷰 4번: AI가 만든 초안의 선택 사진이 비어 있어 게시해도 글만 나갔다.
+def test_최초_저장은_AI가_넘긴_근거_사진을_기본_선택으로_남긴다():
+    db = _session()
+    photos = [uuid4(), uuid4()]
+
+    draft = save_draft(db, _input(selected_media_ids=photos), expected_version=None)
+    db.commit()
+
+    assert db.get(DraftDocument, draft.id).selected_media_ids == [str(p) for p in photos]
+
+
+def test_사진을_넘기지_않은_최초_저장은_선택_사진이_비어_있다():
+    db = _session()
+
+    draft = save_draft(db, _input(), expected_version=None)
+    db.commit()
+
+    assert db.get(DraftDocument, draft.id).selected_media_ids == []
+
+
+def test_같은_사진을_두_번_넘기면_입력에서_거부한다():
+    # PATCH(DraftUpdateRequest)와 같은 규칙이다. 같은 사진이 두 번 저장되지 않게 입구에서 막는다.
+    photo = uuid4()
+
+    with pytest.raises(ValidationError):
+        _input(selected_media_ids=[photo, photo])
+
+
 def test_본문은_받은_문장_ID와_순서_그대로_저장된다():
     db = _session()
     sentences = [
@@ -219,6 +247,46 @@ def test_재생성은_문서_ID를_유지하고_버전을_올린다():
     # 작성 교사는 최초 생성 시점 값을 유지한다 (FR-26)
     assert draft.author_teacher_id == first.author_teacher_id
     assert db.query(DraftDocument).count() == 1
+
+
+def test_재생성은_이미_고른_사진을_두고_새_근거_사진만_뒤에_더한다():
+    db = _session()
+    kept, other, new = uuid4(), uuid4(), uuid4()
+    first = _saved(db, selected_media_ids=[kept, other])
+
+    draft = save_draft(
+        db,
+        _input(
+            draft_id=first.id,
+            child_id=first.child_id,
+            # kept는 이미 있으니 한 번만, new만 뒤에 붙는다
+            selected_media_ids=[new, kept],
+            ai_version=2,
+        ),
+        expected_version=1,
+    )
+    db.commit()
+
+    assert db.get(DraftDocument, draft.id).selected_media_ids == [
+        str(kept),
+        str(other),
+        str(new),
+    ]
+
+
+def test_재생성이_사진을_넘기지_않아도_고른_사진을_지우지_않는다():
+    db = _session()
+    chosen = uuid4()
+    first = _saved(db, selected_media_ids=[chosen])
+
+    draft = save_draft(
+        db,
+        _input(draft_id=first.id, child_id=first.child_id, ai_version=2),
+        expected_version=1,
+    )
+    db.commit()
+
+    assert db.get(DraftDocument, draft.id).selected_media_ids == [str(chosen)]
 
 
 def test_재생성은_이전_문장을_남기지_않고_모두_바꿔_넣는다():
@@ -360,6 +428,53 @@ def test_교사가_손댄_문서는_버전이_같아도_재생성_결과로_덮�
     assert _stored_sentences(db, first.id) == [("s1", 0, "블록을 여러 층으로 쌓았어요.")]
     assert row.version == 1
     assert row.ai_version == 1
+
+
+def test_관찰일지는_승인했다가_되돌린_뒤_재생성_결과로_바뀐다():
+    # 내려받으려고 승인한 관찰일지도 같은 달을 다시 만들 수 있어야 한다 (#284).
+    db = _session()
+    first = _saved(db, doc_type=DocType.OBSERVATION_LOG)
+    for action in (RevisionAction.APPROVE, RevisionAction.REOPEN):
+        db.add(RevisionLog(draft_id=first.id, editor_id=uuid4(), action=action.value))
+    db.commit()
+
+    draft = save_draft(
+        db,
+        _input(
+            draft_id=first.id,
+            child_id=first.child_id,
+            doc_type=DocType.OBSERVATION_LOG,
+            sentences=_sentences("다시 만든 내용"),
+            ai_version=2,
+        ),
+        expected_version=1,
+    )
+    db.commit()
+
+    assert _stored_sentences(db, draft.id) == [("s1", 0, "다시 만든 내용")]
+    assert db.get(DraftDocument, draft.id, populate_existing=True).version == 2
+
+
+def test_관찰일지도_승인된_상태로는_재생성_결과로_덮어쓰지_않는다():
+    # 이력 가드(②)만 좁히고 상태 가드(①)는 그대로다 — 되돌리지 않은 승인본은 지킨다 (#284).
+    db = _session()
+    first = _saved(db, doc_type=DocType.OBSERVATION_LOG)
+    first.status = DraftStatus.APPROVED.value
+    db.add(RevisionLog(draft_id=first.id, editor_id=uuid4(), action=RevisionAction.APPROVE.value))
+    db.commit()
+
+    with pytest.raises(DraftVersionConflict):
+        save_draft(
+            db,
+            _input(
+                draft_id=first.id,
+                child_id=first.child_id,
+                doc_type=DocType.OBSERVATION_LOG,
+                sentences=_sentences("늦게 도착한 AI 결과"),
+                ai_version=2,
+            ),
+            expected_version=1,
+        )
 
 
 def test_교사가_쓴_문장이_있으면_수정_이력이_없어도_재생성_결과로_덮어쓰지_않는다():

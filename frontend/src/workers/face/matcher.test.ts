@@ -37,6 +37,24 @@ it("비교할 등록 원아가 한 명뿐이면 점수가 높아도 자동 확�
 it("아무 얼굴도 없으면 LLM 가능 사진으로 확정하지 않는다", () => {
   expect(matchFaces([], registered, () => 1).has_unidentified_face).toBe(true);
 });
+it("등록된 원아가 아무도 없으면 자동 확정하지 않는다", () => {
+  // 반에 얼굴을 등록한 원아가 없는 상태. 비교할 대상이 없으니 전부 교사에게 보낸다.
+  expect(matchFaces([face], [], () => 1)).toMatchObject({
+    classify_state: "unclassified",
+    has_unidentified_face: true,
+    candidates: [],
+  });
+});
+it("등록 명단에 없는 사람의 얼굴은 1위 점수가 높아도 자동 확정하지 않는다(H-2)", () => {
+  // 조원 실사진 측정(#293)에서 가장 무서웠던 경우다. 등록하지 않은 사람이 단체 사진에
+  // 찍히면 누구와도 어중간하게 닮아, **1위 점수는 기준을 넘는데 2등과 차이가 안 벌어진다.**
+  // 막는 것은 점수가 아니라 차이다 — 실측에서 미등록 29개 중 자동 확정은 0개였다.
+  expect(matchFaces([face], registered, (_, b) => (b[0] === 0.1 ? 0.84 : 0.79))).toMatchObject({
+    classify_state: "unclassified",
+    has_unidentified_face: true,
+    candidates: [],
+  });
+});
 it("알 수 없는 얼굴이 섞이면 확실한 후보를 남기되 사진 전체는 미분류다", () => {
   const result = matchFaces(
     [face, { descriptor: vector(0.3), confidence: 0.9, meshScore: 0.9, usable: true }],

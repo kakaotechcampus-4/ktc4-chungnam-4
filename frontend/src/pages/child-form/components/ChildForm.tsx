@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-import { parseBirthDate } from "../birth-date";
+import { maskBirthDate, parseBirthDate } from "../birth-date";
 
 const schema = z.object({
   name: z.string().trim().min(1, "원아 이름을 입력해 주세요."),
@@ -51,6 +51,7 @@ export function ChildForm({ childId, classes, defaultValues }: ChildFormProps) {
     handleSubmit,
     formState: { errors },
   } = useForm<ChildFormValues>({ resolver: zodResolver(schema), defaultValues });
+  const birthDateField = register("birthDate");
 
   const mutation = useMutation({
     mutationFn: (body: ChildInput) => (childId ? updateChild(childId, body) : createChild(body)),
@@ -123,7 +124,12 @@ export function ChildForm({ childId, classes, defaultValues }: ChildFormProps) {
               aria-invalid={errors.birthDate ? true : undefined}
               aria-describedby={errors.birthDate ? "child-birth-date-error" : undefined}
               className={FIELD_CLASS}
-              {...register("birthDate")}
+              {...birthDateField}
+              onChange={(event) => {
+                // 숫자만 쳐도 점이 들어가도록, 폼에 넘기기 전에 입력값을 맞춥니다.
+                event.target.value = maskBirthDate(event.target.value);
+                void birthDateField.onChange(event);
+              }}
             />
             {errors.birthDate ? (
               <p id="child-birth-date-error" className="text-label text-destructive">

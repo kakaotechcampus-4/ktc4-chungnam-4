@@ -103,10 +103,8 @@ export function LoginPage() {
         </Button>
       </form>
       <nav aria-label="계정 도움" className="mt-6 flex items-center gap-3 text-label">
-        <Link viewTransition to="/forgot-password" className="text-ink-muted hover:text-ink">
-          비밀번호 찾기
-        </Link>
-        <span aria-hidden="true" className="h-3 w-px bg-line" />
+        {/* TODO(정은): 비밀번호 찾기 링크를 뺐다. 화면(/forgot-password)은 있지만 서버 재설정 API와 메일 발송이
+            없어서 눌러도 동작하지 않는다. 팀이 범위를 정하면 링크를 되살린다(테크스펙 FR에 없는 기능). */}
         <Link viewTransition to="/signup" className="font-bold text-ink">
           회원가입
         </Link>

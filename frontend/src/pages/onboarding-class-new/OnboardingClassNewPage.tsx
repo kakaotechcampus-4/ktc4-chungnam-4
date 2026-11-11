@@ -64,6 +64,13 @@ export function OnboardingClassNewPage() {
     });
   });
 
+  // 어린이집 이름은 반 목록에 붙어 와서, 반이 하나도 없는 첫 교사는 이름을 알 수 없습니다.
+  // 그 교사는 코드로 들어온 것도 아니라 코드 이야기를 하지 않습니다.
+  const centerLabel = !teacherCenterId
+    ? ""
+    : centerName
+      ? `${centerName} (코드로 확인됨)`
+      : "가입할 때 등록한 어린이집";
   const centerMessage = isPending
     ? "어린이집 정보를 불러오고 있어요"
     : isError
@@ -93,7 +100,7 @@ export function OnboardingClassNewPage() {
               id={centerId}
               readOnly
               aria-describedby={centerMessage ? `${centerId}-message` : undefined}
-              value={teacherCenterId ? `${centerName ?? "등록한 어린이집"} (코드로 확인됨)` : ""}
+              value={centerLabel}
               className="border text-ink-muted"
             />
             {centerMessage ? (

@@ -16,7 +16,7 @@ export const TOKEN_THEME = {
     "landing-step",
     "status-card",
   ],
-  shadow: ["dropdown"],
+  shadow: ["dropdown", "card", "card-hover"],
 };
 
 export const cn = createCn({ extend: { theme: TOKEN_THEME } });

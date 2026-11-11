@@ -1,6 +1,6 @@
 /* 아이담 디자인 토큰
  * 값의 근거는 Figma "아이담 · 담당별 화면 (확정)" 파일의 교사 화면 실측입니다.
- * 학부모 화면(W1~W5) 테마는 어느 안으로 갈지 정해진 뒤에 추가합니다.
+ * 학부모 화면(W1~W5)도 같은 색을 씁니다. Figma "1차 결과본"의 짜임만 따르고 파란 테마는 가져오지 않았습니다.
  */
 
 @layer base {
@@ -110,6 +110,25 @@
   /* shadows */
   --shadow-xs: 0 1px 2px 0 #0000000d;
   --shadow-dropdown: 0 8px 24px 0 rgb(0 0 0 / 0.12); /* W5 자녀 전환 드롭다운 */
+  --shadow-card:
+    0 1px 2px 0 rgb(41 53 46 / 0.04), 0 8px 24px -16px rgb(41 53 46 / 0.12); /* 학부모 카드 */
+  --shadow-card-hover:
+    0 2px 6px 0 rgb(41 53 46 / 0.05), 0 24px 40px -20px rgb(41 53 46 / 0.24); /* 학부모 카드 호버 */
+
+  /* 움직임. 쓸 때는 motion-safe:로 감싸 동작 줄이기 설정을 지킵니다. */
+  --ease-soft: cubic-bezier(0.22, 1, 0.36, 1); /* 빠르게 시작해 부드럽게 멈춤 */
+  --animate-rise: rise 0.6s var(--ease-soft) both; /* 아래에서 살짝 올라오며 나타남 */
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
 
   /* type scale (교사: Noto Sans KR, 줄높이 160%) → text-caption 등 */
   --text-caption: 12px;

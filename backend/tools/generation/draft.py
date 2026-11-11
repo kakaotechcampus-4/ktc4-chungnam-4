@@ -11,18 +11,16 @@
 
 from __future__ import annotations
 
-import json
-import re
 from collections.abc import Mapping
 from datetime import date
 
 from pydantic import Field, ValidationError
 
 from tools.contracts import ContractModel, DocType, DraftDocument, DraftSentence, NonEmpty
+from tools.generation.agent_tools import SECTIONS
+from tools.json_response import parse_json_response
 
 MAX_SENTENCES = 10
-
-_CODE_FENCE = re.compile(r"\A```(?:json)?\s*(.*?)\s*```\Z", re.DOTALL)
 
 
 class DraftResponseError(ValueError):
@@ -30,6 +28,7 @@ class DraftResponseError(ValueError):
 
 
 class _AnswerSentence(ContractModel):
+    section: NonEmpty | None = None
     text: NonEmpty
     evidence_refs: list[NonEmpty] = Field(default_factory=list)
 
@@ -55,14 +54,9 @@ def parse_draft_response(
     """
     if not raw_response:
         raise DraftResponseError("초안 생성 응답이 비어 있습니다.")
-    text = raw_response.strip()
-    fenced = _CODE_FENCE.match(text)
-    if fenced:
-        text = fenced.group(1)
-
     try:
-        answer = _Answer.model_validate(json.loads(text))
-    except (json.JSONDecodeError, ValidationError):
+        answer = _Answer.model_validate(parse_json_response(raw_response))
+    except (ValueError, ValidationError):
         raise DraftResponseError("초안 생성 응답이 약속한 JSON 형식이 아닙니다.") from None
 
     sentences: list[DraftSentence] = []
@@ -71,9 +65,15 @@ def parse_draft_response(
             raise DraftResponseError("초안 생성 응답이 주지 않은 근거 참조를 썼습니다.")
         if len(sentence.evidence_refs) != len(set(sentence.evidence_refs)):
             raise DraftResponseError("한 문장에 같은 근거 참조가 중복됐습니다.")
+        if doc_type == DocType.OBSERVATION_LOG:
+            if sentence.section not in SECTIONS:
+                raise DraftResponseError("관찰일지 영역이 올바르지 않습니다.")
+        elif sentence.section is not None:
+            raise DraftResponseError("알림장에는 관찰일지 영역을 지정할 수 없습니다.")
         sentences.append(
             DraftSentence(
                 sentence_id=f"s{index}",
+                section=sentence.section,
                 text=sentence.text,
                 evidence_ids=[evidence_id_by_ref[ref] for ref in sentence.evidence_refs],
             )

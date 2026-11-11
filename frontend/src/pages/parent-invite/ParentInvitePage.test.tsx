@@ -43,7 +43,9 @@ describe("ParentInvitePage", () => {
     );
     const user = userEvent.setup();
     renderPage();
-    await screen.findByRole("heading", { name: "합성원아의 보호자 초대" });
+    await screen.findByRole("heading", { name: /성원아의 하루를.*함께 받아 보세요/ });
+    await user.click(screen.getByRole("button", { name: "시작하기" }));
+    await screen.findByRole("heading", { name: "계정 만들기" });
     const submit = screen.getByRole("button", { name: "동의하고 자녀 연결" });
     expect(submit).toBeDisabled();
     expect(screen.getByRole("checkbox", { name: /얼굴 특징/ })).not.toBeChecked();
@@ -86,6 +88,52 @@ describe("ParentInvitePage", () => {
         consents: { personal_info: true, activity_media: true, face_feature: true },
       },
     ]);
+  });
+  it("전체 동의는 모든 항목을 체크하고 항목을 풀면 같이 풀리며, 선택 동의는 개별로 푼 대로 보낸다", async () => {
+    const bodies: unknown[] = [];
+    server.use(
+      http.get(apiPath("/me"), () => HttpResponse.json(PARENT_ME)),
+      http.post(apiPath("/parent-invites/:token/accept"), async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json({ child_id: "child1" }, { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText(/보호자님의 계정에 이 자녀를 연결/);
+    const all = screen.getByRole("checkbox", { name: "전체 동의" });
+    const face = screen.getByRole("checkbox", { name: /얼굴 특징/ });
+    await user.click(all);
+    expect(all).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /법정대리인/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /개인정보 수집/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /활동 사진/ })).toBeChecked();
+    expect(face).toBeChecked();
+    await user.click(face);
+    expect(all).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "동의하고 자녀 연결" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "동의하고 자녀 연결" }));
+    expect(await screen.findByText("자녀 알림장")).toBeVisible();
+    expect(bodies).toEqual([
+      {
+        is_legal_guardian: true,
+        consents: { personal_info: true, activity_media: true, face_feature: false },
+      },
+    ]);
+  });
+  it("이미 계정이 있으면 소개 화면에서 로그인 양식으로 바로 간다", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "이미 계정이 있어요" }));
+    expect(await screen.findByRole("heading", { name: "로그인" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("보호자 이름")).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /법정대리인/ })).not.toBeInTheDocument();
+  });
+  it("로그인 전 소개 화면에는 입력 양식과 동의가 없다", async () => {
+    renderPage();
+    await screen.findByRole("button", { name: "시작하기" });
+    expect(screen.queryByLabelText("이메일")).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
   it("만료되거나 사용한 링크는 입력 양식을 보여 주지 않는다", async () => {
     server.use(

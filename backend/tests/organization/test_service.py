@@ -363,3 +363,22 @@ def test_원아가_없는_반은_빈_딕셔너리():
 
     assert get_class_child_names(db, _class(db)) == {}
     assert get_class_enrolled_child_names(db, _class(db)) == {}
+
+
+@pytest.mark.parametrize("age", ["infant", "preschool"])
+def test_반의_연령대를_enum으로_반환한다(age):
+    from domains.organization.schemas import AgeBand
+    from domains.organization.service import get_class_age_band
+
+    with _session() as db:
+        klass = _class(db)
+        db.get(Klass, klass).age_band = age
+        db.flush()
+        assert get_class_age_band(db, klass) is AgeBand(age)
+
+
+def test_없는_반의_연령대를_unknown으로_숨기지_않는다():
+    from domains.organization.service import get_class_age_band
+
+    with _session() as db, pytest.raises(ClassNotFound):
+        get_class_age_band(db, uuid4())

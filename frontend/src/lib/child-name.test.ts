@@ -1,4 +1,4 @@
-import { nickname } from "./nickname";
+import { nickname } from "./child-name";
 
 describe("nickname", () => {
   it.each([

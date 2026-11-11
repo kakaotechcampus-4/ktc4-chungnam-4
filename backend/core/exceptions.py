@@ -162,7 +162,7 @@ class MediaNotLinkedToChild(AidamError):
 
 
 class NotParentNote(AidamError):
-    """관찰일지를 학부모에게 게시하려 한 경우. 게시 대상은 알림장뿐이다."""
+    """관찰일지를 게시하거나 사진을 고르려 한 경우. 학부모에게 가는 문서는 알림장뿐이다."""
 
     code = "NOT_PARENT_NOTE"
     status_code = 409
@@ -403,6 +403,17 @@ class JobNotFound(AidamError):
 
     code = "JOB_NOT_FOUND"
     status_code = 404
+
+
+class JobNotRetryable(AidamError):
+    """다시 시도할 실패 원아가 없습니다 (docs/api/agents.md `POST /jobs/{job_id}/retry`).
+
+    실패한 원아가 없거나, 실패 원인이 `DRAFT_VERSION_CONFLICT`뿐이라 다시 돌려도 같은 이유로
+    실패할 때입니다.
+    """
+
+    code = "JOB_NOT_RETRYABLE"
+    status_code = 409
 
 
 class CenterNotFound(AidamError):
