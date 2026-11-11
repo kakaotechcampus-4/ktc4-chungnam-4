@@ -115,9 +115,13 @@
   --shadow-card-hover:
     0 2px 6px 0 rgb(41 53 46 / 0.05), 0 24px 40px -20px rgb(41 53 46 / 0.24); /* 학부모 카드 호버 */
 
-  /* 움직임. 쓸 때는 motion-safe:로 감싸 동작 줄이기 설정을 지킵니다. */
+  /* 움직임. 쓸 때는 motion-safe:로 감싸 동작 줄이기 설정을 지킵니다.
+     목록을 차례로 띄울 때는 lib/motion.ts의 staggerStyle을 style에 넘깁니다. */
   --ease-soft: cubic-bezier(0.22, 1, 0.36, 1); /* 빠르게 시작해 부드럽게 멈춤 */
-  --animate-rise: rise 0.6s var(--ease-soft) both; /* 아래에서 살짝 올라오며 나타남 */
+  --animate-rise: rise 0.6s var(--ease-soft) both; /* 아래에서 살짝 올라오며 나타남. 학부모·첫 화면 */
+  --animate-enter: enter 0.35s var(--ease-soft) both; /* rise보다 짧고 가볍게 나타남. 교사가 반복해 보는 화면 */
+  --animate-pop: pop 0.24s var(--ease-soft) both; /* 선택 표시(체크·개수)가 톡 하고 나타남 */
+  --animate-nudge: nudge 0.4s ease-in-out both; /* 제출 뒤 나온 오류 안내가 좌우로 짧게 흔들림 */
 
   @keyframes rise {
     from {
@@ -127,6 +131,43 @@
     to {
       opacity: 1;
       transform: none;
+    }
+  }
+
+  @keyframes enter {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: scale(0.6);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes nudge {
+    0%,
+    100% {
+      transform: none;
+    }
+    20%,
+    60% {
+      transform: translateX(-4px);
+    }
+    40%,
+    80% {
+      transform: translateX(4px);
     }
   }
 

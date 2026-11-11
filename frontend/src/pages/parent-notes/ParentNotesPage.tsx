@@ -12,15 +12,13 @@ import { ParentSearchBox } from "@/features/parent/ParentSearchBox";
 import { useParentSearch } from "@/features/parent/use-parent-search";
 import { useRefetchOnExpiry } from "@/features/parent/use-refetch-on-expiry";
 import { nickname } from "@/lib/child-name";
+import { staggerStyle } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 import { ParentNoteCard } from "./components/ParentNoteCard";
 import { ParentNotesRail } from "./components/ParentNotesRail";
 
 const NOTICE_CARD_CLASS = "rounded-3xl border border-line/70 shadow-card motion-safe:animate-rise";
-/** 카드가 차례로 올라오는 간격. 너무 뒤의 카드까지 기다리지 않게 앞 몇 장만 늦춥니다. */
-const STAGGER_MS = 70;
-const STAGGER_LIMIT = 6;
 
 function NotesSkeleton() {
   return (
@@ -223,7 +221,7 @@ export function ParentNotesPage() {
                 <li
                   key={note.parent_note_id}
                   className="motion-safe:animate-rise"
-                  style={{ animationDelay: `${Math.min(index, STAGGER_LIMIT) * STAGGER_MS}ms` }}
+                  style={staggerStyle(index)}
                 >
                   <ParentNoteCard
                     note={note}

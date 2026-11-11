@@ -14,6 +14,7 @@ import { useParentSearch } from "@/features/parent/use-parent-search";
 import { useRefetchOnExpiry } from "@/features/parent/use-refetch-on-expiry";
 import { ApiError } from "@/lib/api-client";
 import { formatDate } from "@/lib/datetime";
+import { staggerStyle } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 import { MediaTile } from "./MediaTile";
@@ -30,9 +31,6 @@ const FILTER_LABEL_MAP: Record<MediaFilter, string> = { all: "전체", photo: "�
 const FILTERS: MediaFilter[] = ["all", "photo", "video"];
 const MEDIA_GRID_CLASS = "grid grid-cols-3 gap-1.5 sm:grid-cols-4 sm:gap-2 lg:grid-cols-6";
 const CARD_CLASS = "rounded-3xl border border-line/70 bg-paper shadow-card";
-/** 날짜 묶음이 차례로 올라오는 간격. 뒤쪽까지 오래 기다리지 않게 앞 몇 개만 늦춥니다. */
-const STAGGER_MS = 70;
-const STAGGER_LIMIT = 6;
 
 function matchesFilter(item: ParentMediaItemView, filter: MediaFilter) {
   return filter === "all" || item.type === filter;
@@ -227,7 +225,7 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
               key={day.parent_note_id}
               aria-label={formatDate(day.record_date)}
               className={cn(CARD_CLASS, "p-4 motion-safe:animate-rise sm:p-6")}
-              style={{ animationDelay: `${Math.min(dayIndex, STAGGER_LIMIT) * STAGGER_MS}ms` }}
+              style={staggerStyle(dayIndex)}
             >
               <div className="mb-3 flex items-center gap-2">
                 <h2 className="text-nav font-bold text-ink">
