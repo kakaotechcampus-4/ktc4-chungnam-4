@@ -166,7 +166,7 @@ def save_child_links(
     if asset.storage_tier == "deleted":
         raise MediaDeleted("보관 기간이 끝나 삭제된 파일이에요.")
     if ensure_not_generating is not None:
-        ensure_not_generating(db, asset.class_id, _record_date_of(asset.captured_at))
+        _ensure_not_generating_on_upload_date(db, asset, ensure_not_generating)
     ensure_children_in_class(db, asset.class_id, [link.child_id for link in attributions])
     links = save_attributions(db, media_id, attributions, llm_allowed)
     return asset, links
@@ -180,10 +180,29 @@ def save_child_links(
 _KST = ZoneInfo("Asia/Seoul")
 
 
-def _record_date_of(captured_at: datetime) -> date:
-    """찍은 시각의 한국 날짜. 초안 생성 작업의 record_date와 같은 기준입니다. naive면 UTC로 봅니다."""
-    aware = captured_at if captured_at.tzinfo else captured_at.replace(tzinfo=UTC)
+def _kst_date_of(moment: datetime) -> date:
+    """그 시각의 한국 날짜. naive면 UTC로 봅니다."""
+    aware = moment if moment.tzinfo else moment.replace(tzinfo=UTC)
     return aware.astimezone(_KST).date()
+
+
+def _ensure_not_generating_on_upload_date(
+    db: Session,
+    asset: MediaAsset,
+    ensure_not_generating: Callable[[Session, UUID, date], None],
+) -> None:
+    """이 미디어를 올린 날(KST)의 초안을 만드는 중이면 귀속 변경을 막습니다 (#304 4-23, C-0).
+
+    초안이 이 미디어를 쓰는 날짜는 촬영일이 아니라 업로드 확인일(`_uploaded_on`)이라 잠금도 같은
+    날짜로 봅니다. 업로드 확인 기록이 없으면 어느 날 초안에도 들어가지 않으니 막지 않습니다.
+    """
+    verified_at = db.scalars(
+        select(MediaUpload.verified_at).where(
+            MediaUpload.media_id == asset.id, MediaUpload.verified_at.is_not(None)
+        )
+    ).first()
+    if verified_at is not None:
+        ensure_not_generating(db, asset.class_id, _kst_date_of(verified_at))
 
 
 # ③ 얼굴특징정보처리 동의는 얼굴이 담기는 사진·영상에만 봅니다.
@@ -1263,7 +1282,7 @@ def complete_upload(
             # 다시 보낸 귀속이 바뀌었을 때만 생성 중 잠금을 본다(#304 4-23). 같은 귀속의 재전송은
             # 응답이 끊긴 뒤의 재시도라 막지 않는다.
             if ensure_not_generating is not None and _attribution_changed(db, asset, attribution):
-                ensure_not_generating(db, asset.class_id, _record_date_of(asset.captured_at))
+                _ensure_not_generating_on_upload_date(db, asset, ensure_not_generating)
             save_attributions(db, asset.id, attribution.child_links, attribution.llm_allowed)
         return CompletedUpload(
             asset=asset, child_links=_child_links_of(db, asset.id), created=False
