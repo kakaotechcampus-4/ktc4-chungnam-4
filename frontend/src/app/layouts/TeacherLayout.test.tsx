@@ -1,4 +1,5 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 
 import { authKeys } from "@/api/auth";
@@ -19,6 +20,13 @@ function renderAt(path: string) {
     [{ path: "/t", Component: TeacherLayout, children: [{ path: "*", element: <p>본문</p> }] }],
     { initialEntry: path },
   );
+}
+
+// 같은 파일에서 두 번째로 포인터를 눌러 열면 jsdom에서 Radix 메뉴가 바로 닫힙니다(ParentLayout.test.tsx와 같음). 키보드로 엽니다.
+async function openClassMenu(user: UserEvent, name: RegExp) {
+  const trigger = await screen.findByRole("button", { name });
+  act(() => trigger.focus());
+  await user.keyboard("{Enter}");
 }
 
 /** 브라우저가 새로고침 앞에서 보내는 이벤트입니다. 막혔으면 확인 창이 뜹니다. */
@@ -101,6 +109,50 @@ describe("TeacherLayout", () => {
     renderAt("/t/today");
 
     expect(await screen.findByText("햇살어린이집 / 별님반")).toBeInTheDocument();
+  });
+
+  it("올리지 않은 자료가 있으면 다른 반을 고를 수 없다", async () => {
+    const user = userEvent.setup();
+    const star = { ...SUNSHINE_CLASS, class_id: fixtureId("class", 2), name: "별님반" };
+    server.use(http.get(apiPath("/classes"), () => listResponse([SUNSHINE_CLASS, star])));
+    renderAt("/t/today");
+    act(() => useUploadQueue.getState().addFiles([new File(["x"], "IMG_1.jpg")]));
+
+    await openClassMenu(user, /햇살반/);
+
+    expect(
+      await screen.findByText(/올리지 않은 자료가 있어 반을 바꿀 수 없어요/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /별님반/ })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(useCurrentClassStore.getState().selectedClassId).toBeNull();
+  });
+
+  it("반 이름을 누르면 같은 어린이집의 다른 반으로 바꾸고 보던 메뉴의 첫 화면을 연다", async () => {
+    const user = userEvent.setup();
+    const star = { ...SUNSHINE_CLASS, class_id: fixtureId("class", 2), name: "별님반" };
+    server.use(http.get(apiPath("/classes"), () => listResponse([SUNSHINE_CLASS, star])));
+    const { router } = renderAt("/t/observations/child-1");
+
+    await openClassMenu(user, /햇살반/);
+    expect(await screen.findByRole("menuitem", { name: /햇살반/ })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    await user.click(screen.getByRole("menuitem", { name: /별님반/ }));
+
+    expect(await screen.findByText("햇살어린이집 / 별님반")).toBeInTheDocument();
+    expect(useCurrentClassStore.getState().selectedClassId).toBe(star.class_id);
+    expect(router.state.location.pathname).toBe("/t/observations");
+
+    // 바꾼 뒤에도 메뉴를 다시 열 수 있고, 고른 반이 지금 반으로 보입니다.
+    await openClassMenu(user, /별님반/);
+    expect(await screen.findByRole("menuitem", { name: /별님반/ })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
   });
 
   it("교사 이름을 /me에서 받아 보여 준다", async () => {
