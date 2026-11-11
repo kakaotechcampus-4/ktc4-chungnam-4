@@ -9,6 +9,7 @@ import { FocusCard } from "@/components/common/FocusCard";
 import { NameAvatar } from "@/components/common/NameAvatar";
 import { Button } from "@/components/ui/button";
 import { formatDate, formatDateTime } from "@/lib/datetime";
+import { staggerStyle } from "@/lib/motion";
 
 import { NotePhotoViewer } from "./components/NotePhotoViewer";
 import { PhotoMosaic } from "./components/PhotoMosaic";
@@ -92,12 +93,17 @@ export function ParentNoteReaderPage() {
           />
         </>
       ) : note.error ? (
-        <FocusCard centered className="mt-6 rounded-3xl border border-line/70 shadow-card">
+        <FocusCard
+          centered
+          className="mt-6 rounded-3xl border border-line/70 shadow-card motion-safe:animate-rise"
+        >
           <p role="alert" className="text-body text-ink">
             {note.error.message}
           </p>
           <Button asChild variant="outline">
-            <Link to={listPath}>목록으로 돌아가기</Link>
+            <Link viewTransition to={listPath}>
+              목록으로 돌아가기
+            </Link>
           </Button>
         </FocusCard>
       ) : (
@@ -114,7 +120,7 @@ export function ParentNoteReaderPage() {
           <div className="flex flex-col gap-8 lg:flex-row lg:items-start">
             <article
               className="flex min-w-0 flex-1 flex-col gap-6 motion-safe:animate-rise"
-              style={{ animationDelay: "60ms" }}
+              style={staggerStyle(1)}
             >
               {media.length > 0 ? (
                 <PhotoMosaic
@@ -134,7 +140,7 @@ export function ParentNoteReaderPage() {
             </article>
             <aside
               className="flex w-full shrink-0 flex-col gap-3 motion-safe:animate-rise lg:sticky lg:top-24 lg:w-rail"
-              style={{ animationDelay: "120ms" }}
+              style={staggerStyle(2)}
             >
               <div className={`${RAIL_CARD_CLASS} flex items-center gap-3`}>
                 {/* 서버가 교사 이름을 못 찾으면 빈 문자열을 줍니다. " 선생님"만 남기지 않습니다. */}

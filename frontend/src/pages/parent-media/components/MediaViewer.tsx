@@ -18,10 +18,12 @@ interface MediaViewerProps {
   saveError: string | null;
 }
 
+// 세로 가운데는 위아래 여백으로 맞춥니다. -translate-y-1/2로 맞추면 Button의 누름 효과(translate-y-px)가
+// 그 값을 덮어써, 누르는 동안 단추가 반 칸 아래로 미끄러졌습니다. 호버·누름 반응은 알림장 사진 보기와 같습니다.
 const NAV_BUTTON_CLASS =
-  "absolute top-1/2 -translate-y-1/2 rounded-full bg-paper/15 text-paper hover:bg-paper/30 disabled:invisible";
+  "absolute inset-y-0 my-auto rounded-full bg-paper/15 text-paper transition duration-200 ease-soft hover:bg-paper/30 disabled:invisible motion-safe:hover:scale-105 motion-safe:active:scale-95";
 
-// 화면 전체를 쓰는 사진·영상 보기. 좌우 화살표 키로도 넘깁니다.
+// 화면 전체를 쓰는 사진·영상 보기. 좌우 화살표 키로도 넘기고, 넘길 때 서서히 바뀝니다(알림장 사진 보기와 같음).
 export function MediaViewer({
   items,
   index,
@@ -85,7 +87,7 @@ export function MediaViewer({
               </DialogClose>
             </header>
             {saveError && (
-              <p role="alert" className="px-4 pb-2 text-label text-coral">
+              <p role="alert" className="px-4 pb-2 text-label text-coral motion-safe:animate-nudge">
                 {saveError}
               </p>
             )}
@@ -95,7 +97,7 @@ export function MediaViewer({
                   key={item.media_id}
                   src={item.url}
                   alt={`사진 ${formatDateTime(item.captured_at)}`}
-                  className="max-h-full max-w-full object-contain"
+                  className="max-h-full max-w-full object-contain motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 motion-safe:duration-300"
                 />
               )}
               {item.type === "video" && (
@@ -105,7 +107,7 @@ export function MediaViewer({
                   controls
                   autoPlay
                   playsInline
-                  className="max-h-full max-w-full"
+                  className="max-h-full max-w-full motion-safe:animate-in motion-safe:fade-in motion-safe:duration-300"
                 />
               )}
               {item.type === "unknown" && (

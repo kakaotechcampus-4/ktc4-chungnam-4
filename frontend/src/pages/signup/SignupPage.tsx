@@ -30,7 +30,7 @@ export function SignupPage() {
   });
 
   return (
-    <div className="flex w-full max-w-form-md flex-col items-center">
+    <div className="flex w-full max-w-form-md flex-col items-center motion-safe:animate-enter">
       <Stepper steps={SIGNUP_STEPS} current={0} className="mb-9" />
       <div className="mb-7 flex flex-col items-center text-center">
         <h1 className="text-h2 font-bold text-ink">이메일로 가입하기</h1>
@@ -72,7 +72,11 @@ export function SignupPage() {
       </form>
       <p className="mt-5 flex gap-1.5 text-body text-ink-muted">
         이미 계정이 있으신가요?
-        <Link viewTransition to="/login" className="font-bold text-ink">
+        <Link
+          viewTransition
+          to="/login"
+          className="font-bold text-ink transition-colors hover:text-brand-ink"
+        >
           로그인
         </Link>
       </p>

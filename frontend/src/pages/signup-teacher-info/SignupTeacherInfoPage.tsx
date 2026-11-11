@@ -1,6 +1,7 @@
 // Figma: 1:434 (후보 A 1:2470)
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { Navigate, useNavigate } from "react-router";
@@ -96,9 +97,11 @@ export function SignupTeacherInfoPage() {
   });
   const onSubmit = handleSubmit((values) => complete.mutate(values));
   const centerCodeField = register("centerCode");
+  // 바깥 div는 가입 폼 카드와 같은 요소로 이어져 카드 효과가 다시 돌지 않습니다.
+  // 완료 안내가 눈에 띄도록 새로 그려지는 안의 내용(*:)을 띄웁니다.
   if (issuedCode)
     return (
-      <div className="flex max-w-form-md flex-col gap-5 rounded-xl bg-paper p-8">
+      <div className="flex max-w-form-md flex-col gap-5 rounded-xl bg-paper p-8 *:motion-safe:animate-enter">
         <h1 className="text-h2 font-bold">가입이 완료됐어요</h1>
         <p>다른 선생님이 가입할 때 사용할 어린이집 코드예요. 지금 복사해 보관해 주세요.</p>
         <code className="select-all text-h2">{issuedCode}</code>
@@ -110,7 +113,7 @@ export function SignupTeacherInfoPage() {
   if (!credentials && !signedUp) return <Navigate to="/signup" replace />;
 
   return (
-    <div className="flex w-full max-w-reading flex-col items-center rounded-xl bg-paper p-11 shadow-xs">
+    <div className="flex w-full max-w-reading flex-col items-center rounded-xl bg-paper p-11 shadow-xs motion-safe:animate-enter">
       <Stepper steps={SIGNUP_STEPS} current={1} className="mb-6" />
       <div className="mb-7 flex flex-col items-center gap-1.5 text-center">
         <h1 className="text-h3 font-bold text-ink">선생님 계정을 확인할게요</h1>
@@ -154,6 +157,8 @@ export function SignupTeacherInfoPage() {
               </TabsTrigger>
             </TabsList>
 
+            {/* 탭 내용에는 등장 효과를 걸지 않습니다. Radix는 처음 열린 탭의 효과를 첫 렌더에서만 막아서,
+                다음 리렌더 때 끝난 효과가 처음부터 다시 돌며 깜박입니다. */}
             <TabsContent value="code" className="flex flex-col gap-2.5">
               <div className="flex items-start gap-2">
                 <FormField
@@ -193,12 +198,22 @@ export function SignupTeacherInfoPage() {
         </fieldset>
 
         {complete.isError ? (
-          <p role="alert" className="mt-4 text-label text-destructive">
+          <p role="alert" className="mt-4 text-label text-destructive motion-safe:animate-nudge">
             {complete.error.message}
           </p>
         ) : null}
         <Button type="submit" size="block" className="mt-7.5" disabled={complete.isPending}>
-          {complete.isPending ? "저장하고 있어요" : "가입 완료하기"}
+          {complete.isPending ? (
+            <>
+              <LoaderCircle
+                aria-hidden="true"
+                className="size-4 shrink-0 motion-safe:animate-spin"
+              />
+              저장하고 있어요
+            </>
+          ) : (
+            "가입 완료하기"
+          )}
         </Button>
       </form>
     </div>

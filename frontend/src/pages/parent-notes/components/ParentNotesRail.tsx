@@ -7,6 +7,7 @@ import { NameAvatar } from "@/components/common/NameAvatar";
 import { Button } from "@/components/ui/button";
 import { ChildSwitcher } from "@/features/parent/ChildSwitcher";
 import { givenName } from "@/lib/child-name";
+import { staggerStyle } from "@/lib/motion";
 
 interface ParentNotesRailProps {
   child: MyChildView;
@@ -20,10 +21,14 @@ const RAIL_CARD_CLASS = "rounded-3xl border border-line/70 bg-paper shadow-card"
 
 // 학부모 목록 오른쪽 칸(Figma W3의 프로필 · 이번 달). 스크롤해도 따라옵니다.
 // 좁은 화면에서는 목록 아래로 내려옵니다.
+// 카드는 목록 카드와 같은 박자로 떠오릅니다. 이번 달 칸은 알림장을 받은 뒤에 생기므로 그때 따로 올라옵니다.
 export function ParentNotesRail({ child, childList, list }: ParentNotesRailProps) {
   return (
     <aside className="flex w-full shrink-0 flex-col gap-4 lg:sticky lg:top-24 lg:w-rail">
-      <section className={`${RAIL_CARD_CLASS} flex flex-col items-center gap-4 p-6 text-center`}>
+      <section
+        className={`${RAIL_CARD_CLASS} flex flex-col items-center gap-4 p-6 text-center motion-safe:animate-rise`}
+        style={staggerStyle(1)}
+      >
         <NameAvatar name={givenName(child.name)} className="size-16 text-h3" />
         <div className="flex flex-col">
           <p className="text-lead font-bold text-ink">{givenName(child.name)}</p>
@@ -58,7 +63,11 @@ export function ParentNotesRail({ child, childList, list }: ParentNotesRailProps
         </div>
       </section>
       {list ? (
-        <section aria-labelledby="note-counts" className={`${RAIL_CARD_CLASS} p-6`}>
+        <section
+          aria-labelledby="note-counts"
+          className={`${RAIL_CARD_CLASS} p-6 motion-safe:animate-rise`}
+          style={staggerStyle(2)}
+        >
           <h2 id="note-counts" className="text-body font-bold text-ink">
             이번 달
           </h2>

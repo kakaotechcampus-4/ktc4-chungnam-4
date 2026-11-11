@@ -1,6 +1,6 @@
 // Figma: 140:4104 (알림장 상세)
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, LoaderCircle } from "lucide-react";
 import { useNavigate, useParams } from "react-router";
 
 import {
@@ -57,7 +57,10 @@ export function ParentNoteDetailPage() {
     return (
       <>
         {header}
-        <p className="text-body text-ink-muted">알림장을 불러오는 중이에요.</p>
+        <p className="flex items-center gap-2 text-body text-ink-muted">
+          <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
+          알림장을 불러오는 중이에요.
+        </p>
       </>
     );
   }
@@ -98,7 +101,7 @@ export function ParentNoteDetailPage() {
           disabled={olderNote === undefined}
           onClick={() => olderNote && goTo(olderNote.draft_id)}
           aria-label="이전 기록"
-          className="flex size-7 items-center justify-center rounded-md text-ink-muted outline-none hover:bg-tint-2 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-40 disabled:hover:bg-transparent"
+          className="flex size-7 items-center justify-center rounded-md text-ink-muted outline-none transition-colors duration-200 hover:bg-tint-2 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-40 disabled:hover:bg-transparent"
         >
           <ChevronLeft className="size-4" />
         </button>
@@ -108,7 +111,7 @@ export function ParentNoteDetailPage() {
           disabled={newerNote === undefined}
           onClick={() => newerNote && goTo(newerNote.draft_id)}
           aria-label="다음 기록"
-          className="flex size-7 items-center justify-center rounded-md text-ink-muted outline-none hover:bg-tint-2 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-40 disabled:hover:bg-transparent"
+          className="flex size-7 items-center justify-center rounded-md text-ink-muted outline-none transition-colors duration-200 hover:bg-tint-2 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-40 disabled:hover:bg-transparent"
         >
           <ChevronRight className="size-4" />
         </button>
@@ -124,11 +127,15 @@ export function ParentNoteDetailPage() {
         {current === undefined ? (
           <p className="text-body text-ink-muted">이 알림장을 찾을 수 없어요.</p>
         ) : draftQuery.isPending ? (
-          <p className="text-body text-ink-muted">본문을 불러오는 중이에요.</p>
+          <p className="flex items-center gap-2 text-body text-ink-muted">
+            <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
+            본문을 불러오는 중이에요.
+          </p>
         ) : draft === undefined ? (
           <p className="text-body text-ink-muted">{failureText(draftQuery.error)}</p>
         ) : (
-          <div className="flex flex-col gap-6">
+          // 불러오는 문구 자리에 본문이 들어올 때 한 번 올라옵니다. 이미 받아 둔 날로 넘기면 그대로 바뀝니다.
+          <div className="flex flex-col gap-6 motion-safe:animate-enter">
             {photos.length > 0 ? (
               <div className="grid shrink-0 grid-cols-3 gap-4">
                 {photos.map((photo) =>

@@ -1,6 +1,6 @@
 // Figma: 1차 결과본 W3 106:4388 (FR-09 학부모 자녀별 알림장). 값은 그대로 옮기지 않고 서비스 토큰에 맞췄습니다.
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { CalendarClock, CheckCheck, MailOpen, SearchX, Users } from "lucide-react";
+import { CalendarClock, CheckCheck, LoaderCircle, MailOpen, SearchX, Users } from "lucide-react";
 import { useParams, useSearchParams } from "react-router";
 
 import { parentNotesQueryOptions } from "@/api/documents";
@@ -143,7 +143,13 @@ export function ParentNotesPage() {
           <p className="flex items-center gap-2 text-label font-bold text-brand-ink" role="status">
             {keyword ? (
               !notes.data || notes.isPlaceholderData ? (
-                "찾고 있어요"
+                <>
+                  <LoaderCircle
+                    aria-hidden="true"
+                    className="size-4 shrink-0 motion-safe:animate-spin"
+                  />
+                  찾고 있어요
+                </>
               ) : notes.data.next_cursor ? (
                 `${items.length}건 넘게 찾았어요`
               ) : (

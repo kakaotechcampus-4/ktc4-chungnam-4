@@ -12,8 +12,10 @@ interface NotePhotoViewerProps {
   onIndexChange: (index: number | null) => void;
 }
 
+// 세로 가운데는 위아래 여백으로 맞춥니다. -translate-y-1/2로 맞추면 Button의 누름 효과(translate-y-px)가
+// 그 값을 덮어써, 누르는 동안 단추가 반 칸 아래로 미끄러졌습니다.
 const NAV_BUTTON_CLASS =
-  "absolute top-1/2 -translate-y-1/2 rounded-full bg-paper/15 text-paper backdrop-blur-sm transition duration-200 ease-soft hover:scale-105 hover:bg-paper/30 active:scale-95 disabled:invisible";
+  "absolute inset-y-0 my-auto rounded-full bg-paper/15 text-paper backdrop-blur-sm transition duration-200 ease-soft hover:bg-paper/30 disabled:invisible motion-safe:hover:scale-105 motion-safe:active:scale-95";
 
 // 알림장 사진을 화면 가득 봅니다. 좌우 화살표 키로도 넘기고, 넘길 때 서서히 바뀝니다. 저장은 모아 보기 화면에 있습니다.
 export function NotePhotoViewer({ media, index, onIndexChange }: NotePhotoViewerProps) {

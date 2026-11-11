@@ -1,6 +1,13 @@
 // Figma: 1차 결과본 W1 106:4284 · W2 106:4328 (FR-28 초대·가입·동의 연결). 처음 안(1:610 · 1:690)의 동의 항목은 그대로 둡니다.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, CircleCheck, FileText, LockKeyhole, ShieldCheck } from "lucide-react";
+import {
+  ChevronLeft,
+  CircleCheck,
+  FileText,
+  LoaderCircle,
+  LockKeyhole,
+  ShieldCheck,
+} from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
@@ -16,6 +23,7 @@ import { FormField } from "@/components/common/FormField";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api-client";
 import { nickname } from "@/lib/child-name";
+import { staggerStyle } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 import { InviteIntro } from "./components/InviteIntro";
@@ -104,7 +112,10 @@ export function ParentInvitePage() {
   if (invite.error)
     return (
       <div role="alert" className="w-full max-w-reading">
-        <FocusCard centered className="rounded-3xl border border-line/70 shadow-card">
+        <FocusCard
+          centered
+          className="rounded-3xl border border-line/70 shadow-card motion-safe:animate-rise"
+        >
           <LockKeyhole aria-hidden="true" className="size-10 text-line" strokeWidth={1.5} />
           <h1 className="text-h3 font-bold text-ink">초대를 열 수 없어요</h1>
           <p className="text-body text-ink-muted">{invite.error.message}</p>
@@ -115,7 +126,10 @@ export function ParentInvitePage() {
   if (me.error && (!(me.error instanceof ApiError) || me.error.status !== 401))
     return (
       <div role="alert" className="w-full max-w-reading">
-        <FocusCard centered className="rounded-3xl border border-line/70 shadow-card">
+        <FocusCard
+          centered
+          className="rounded-3xl border border-line/70 shadow-card motion-safe:animate-rise"
+        >
           <p className="text-body text-ink">로그인 상태를 확인하지 못했어요. {me.error.message}</p>
           <Button variant="outline" onClick={() => void me.refetch()}>
             다시 확인
@@ -123,7 +137,13 @@ export function ParentInvitePage() {
         </FocusCard>
       </div>
     );
-  if (!invite.data || me.isPending) return <p role="status">초대를 확인하고 있어요.</p>;
+  if (!invite.data || me.isPending)
+    return (
+      <p role="status" className="flex items-center gap-2">
+        <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
+        초대를 확인하고 있어요.
+      </p>
+    );
 
   const call = nickname(invite.data.child_name);
   // 로그인 전에는 초대 소개(W1)부터 보여 줍니다. 이미 로그인했으면 바로 연결 화면입니다.
@@ -196,7 +216,7 @@ export function ParentInvitePage() {
       </div>
       <section
         className="flex flex-col gap-5 rounded-3xl border border-line/70 bg-paper p-6 shadow-card motion-safe:animate-rise sm:p-8"
-        style={{ animationDelay: "80ms" }}
+        style={staggerStyle(1)}
       >
         {me.data?.account_type === "teacher" ? (
           <>
@@ -207,7 +227,7 @@ export function ParentInvitePage() {
               로그아웃
             </Button>
             {logout.error ? (
-              <p role="alert" className="text-label text-destructive">
+              <p role="alert" className="text-label text-destructive motion-safe:animate-nudge">
                 {logout.error.message}
               </p>
             ) : null}
@@ -339,14 +359,22 @@ export function ParentInvitePage() {
                 ((isParent || mode === "signup") && (!guardian || !personal || !media))
               }
             >
-              {accept.isPending
-                ? "연결하고 있어요"
-                : !isParent && mode === "login"
-                  ? "로그인"
-                  : "동의하고 자녀 연결"}
+              {accept.isPending ? (
+                <>
+                  <LoaderCircle
+                    aria-hidden="true"
+                    className="size-4 shrink-0 motion-safe:animate-spin"
+                  />
+                  연결하고 있어요
+                </>
+              ) : !isParent && mode === "login" ? (
+                "로그인"
+              ) : (
+                "동의하고 자녀 연결"
+              )}
             </Button>
             {accept.error || login.error || logout.error ? (
-              <p role="alert" className="text-label text-destructive">
+              <p role="alert" className="text-label text-destructive motion-safe:animate-nudge">
                 {(accept.error ?? login.error ?? logout.error)?.message}
               </p>
             ) : null}

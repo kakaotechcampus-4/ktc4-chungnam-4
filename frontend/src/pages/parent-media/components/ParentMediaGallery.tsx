@@ -1,5 +1,5 @@
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
-import { Download, Images, SearchX } from "lucide-react";
+import { Download, Images, LoaderCircle, SearchX } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import {
@@ -109,7 +109,10 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
     return (
       <section className="flex flex-col gap-6">
         {header}
-        <div role="alert" className={cn(CARD_CLASS, "flex flex-col items-start gap-3 p-6")}>
+        <div
+          role="alert"
+          className={cn(CARD_CLASS, "flex flex-col items-start gap-3 p-6 motion-safe:animate-rise")}
+        >
           <p className="text-body text-ink">{failureText(query.error)}</p>
           {!(query.error instanceof ApiError && query.error.code === "CHILD_ACCESS_EXPIRED") && (
             <Button size="sm" variant="outline" onClick={() => void query.refetch()}>
@@ -187,7 +190,7 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
       </div>
 
       {saver.errorText && viewerIndex === null && (
-        <p role="alert" className="text-label text-destructive">
+        <p role="alert" className="text-label text-destructive motion-safe:animate-nudge">
           {saver.errorText}
         </p>
       )}
@@ -207,7 +210,7 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
           </Button>
         </div>
       ) : days.length === 0 && !query.hasNextPage ? (
-        <p className="py-10 text-center text-body text-ink-muted">
+        <p className="py-10 text-center text-body text-ink-muted motion-safe:animate-rise">
           {FILTER_LABEL_MAP[filter]}이 아직 없어요.
         </p>
       ) : null}
@@ -265,7 +268,17 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
           disabled={query.isFetchingNextPage}
           onClick={() => void query.fetchNextPage()}
         >
-          {query.isFetchingNextPage ? "불러오는 중…" : "이전 날짜 더 보기"}
+          {query.isFetchingNextPage ? (
+            <>
+              <LoaderCircle
+                aria-hidden="true"
+                className="size-4 shrink-0 motion-safe:animate-spin"
+              />
+              불러오는 중…
+            </>
+          ) : (
+            "이전 날짜 더 보기"
+          )}
         </Button>
       )}
 
