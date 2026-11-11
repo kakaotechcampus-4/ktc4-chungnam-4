@@ -1,0 +1,53 @@
+# E2E 전용 인프라입니다. 운영·개발 DB와 섞이지 않게 포트와 프로젝트 이름을 따로 둡니다.
+# API·Celery worker·화면·가짜 LLM 서버는 Playwright(playwright.config.ts의 webServer)가 띄웁니다.
+#
+# 데이터는 tmpfs에 두어 `down`하면 사라집니다. 매 실행이 빈 DB에서 시작합니다.
+# 실행: docker compose -f e2e/docker-compose.yml up -d --wait   (frontend 폴더에서)
+name: aidam-e2e
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: aidam_e2e
+      # 로컬 컨테이너 전용 테스트 값입니다. 운영 비밀번호가 아닙니다.
+      POSTGRES_PASSWORD: aidam-e2e-password
+      POSTGRES_DB: aidam_e2e
+    ports:
+      - "127.0.0.1:55432:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aidam_e2e -d aidam_e2e"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "127.0.0.1:56379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # S3 대체. 백엔드는 AWS_ENDPOINT_URL_S3=http://127.0.0.1:59000 으로 여기를 봅니다.
+  # 주소를 IP로 주면 boto3가 path-style URL을 만들어서, *.localhost 이름 해석 없이 브라우저와
+  # 서버가 같은 URL로 접근합니다. MinIO 공식 이미지는 2025년에 배포가 중단되어 SeaweedFS를 씁니다.
+  # presigned PUT(서명된 Content-Length·If-None-Match), CORS, HeadObject를 그대로 지원합니다.
+  # 인증 설정을 두지 않아 아무 키로나 접근됩니다 — 127.0.0.1에만 열고 테스트에만 씁니다.
+  s3:
+    image: chrislusf/seaweedfs:4.53
+    # tmpfs는 빈 공간이 작게 잡혀 기본 볼륨 크기(30GB)로는 쓸 볼륨을 못 만듭니다. 작게 나눠 둡니다.
+    command: ["server", "-s3", "-dir=/data", "-master.volumeSizeLimitMB=64", "-volume.max=32"]
+    ports:
+      - "127.0.0.1:59000:8333"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8333/status || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
