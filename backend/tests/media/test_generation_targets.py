@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from core.base import Base
 from domains.media import service
-from domains.media.models import MediaAsset, MediaChildLink
+from domains.media.models import MediaAsset, MediaChildLink, MediaUpload
 
 CLASS_ID = uuid.uuid4()
 OTHER_CLASS_ID = uuid.uuid4()
@@ -23,7 +23,9 @@ MORNING = datetime(2026, 9, 15, 1, 10, tzinfo=UTC)
 @pytest.fixture
 def db() -> Session:
     engine = create_engine("sqlite://")
-    Base.metadata.create_all(engine, tables=[MediaAsset.__table__, MediaChildLink.__table__])
+    Base.metadata.create_all(
+        engine, tables=[MediaAsset.__table__, MediaChildLink.__table__, MediaUpload.__table__]
+    )
     with Session(engine) as session:
         yield session
 
@@ -33,16 +35,18 @@ def add_media(
     *child_ids: uuid.UUID,
     class_id: uuid.UUID = CLASS_ID,
     captured_at: datetime = MORNING,
+    uploaded_at: datetime = MORNING,
     attributed: bool = True,
     storage_tier: str = "original",
     media_type: str = "photo",
     transcript_status: str | None = None,
 ) -> uuid.UUID:
     media_id = uuid.uuid4()
+    client_photo_id = uuid.uuid4()
     db.add(
         MediaAsset(
             id=media_id,
-            client_photo_id=uuid.uuid4(),
+            client_photo_id=client_photo_id,
             class_id=class_id,
             teacher_id=uuid.uuid4(),
             type=media_type,
@@ -50,8 +54,27 @@ def add_media(
             storage_url=f"s3://bucket/{media_id}.jpg",
             size_bytes=2048,
             storage_tier=storage_tier,
-            attributed_at=captured_at if attributed else None,
+            attributed_at=uploaded_at if attributed else None,
             transcript_status=transcript_status,
+        )
+    )
+    db.flush()
+    # 기록 날짜는 이 업로드 확인 시각으로 정해집니다(C-0, 11/11 팀 결정).
+    db.add(
+        MediaUpload(
+            client_photo_id=client_photo_id,
+            class_id=class_id,
+            teacher_id=uuid.uuid4(),
+            type=media_type,
+            content_type="image/jpeg",
+            declared_size_bytes=2048,
+            storage_key=f"s3://bucket/{media_id}.jpg",
+            state="confirmed",
+            issued_at=uploaded_at,
+            url_expires_at=uploaded_at,
+            actual_size_bytes=2048,
+            verified_at=uploaded_at,
+            media_id=media_id,
         )
     )
     db.flush()
@@ -61,12 +84,12 @@ def add_media(
     return media_id
 
 
-def test_귀속_저장이_끝난_이_반_이_날짜의_미디어만_준비된_것으로_본다(db: Session) -> None:
+def test_귀속_저장이_끝난_이_반_이_날짜에_올린_미디어만_준비된_것으로_본다(db: Session) -> None:
     ready = add_media(db, DOYUN)
     not_attributed = add_media(db, DOYUN, attributed=False)
     other_class = add_media(db, DOYUN, class_id=OTHER_CLASS_ID)
-    # 한국 9/16 00:10. UTC로는 9/15지만 KST로는 다음 날입니다.
-    next_day = add_media(db, DOYUN, captured_at=datetime(2026, 9, 15, 15, 10, tzinfo=UTC))
+    # 한국 9/16 00:10에 올림. UTC로는 9/15지만 KST로는 다음 날입니다.
+    next_day = add_media(db, DOYUN, uploaded_at=datetime(2026, 9, 15, 15, 10, tzinfo=UTC))
     unknown = uuid.uuid4()
 
     unready = service.find_unready_media(
@@ -74,6 +97,13 @@ def test_귀속_저장이_끝난_이_반_이_날짜의_미디어만_준비된_�
     )
 
     assert unready == [not_attributed, other_class, next_day, unknown]
+
+
+def test_지난날_찍었어도_그날_올렸으면_준비된_것으로_본다(db: Session) -> None:
+    old_photo = add_media(db, DOYUN, captured_at=datetime(2026, 9, 1, 1, 10, tzinfo=UTC))
+
+    assert service.find_unready_media(db, CLASS_ID, DAY, [old_photo]) == []
+    assert service.get_attributed_children(db, CLASS_ID, DAY) == [DOYUN]
 
 
 def test_파기된_미디어는_준비되지_않은_것으로_본다(db: Session) -> None:
@@ -102,9 +132,9 @@ def test_그_날짜에_귀속된_자료가_있는_원아를_한_번씩_돌려준
     assert set(service.get_attributed_children(db, CLASS_ID, DAY)) == {DOYUN, YERIN}
 
 
-def test_파기된_미디어와_다른_반_다른_날짜의_귀속은_세지_않는다(db: Session) -> None:
+def test_파기된_미디어와_다른_반_다른_날짜에_올린_귀속은_세지_않는다(db: Session) -> None:
     add_media(db, DOYUN, storage_tier="deleted")
     add_media(db, YERIN, class_id=OTHER_CLASS_ID)
-    add_media(db, YERIN, captured_at=datetime(2026, 9, 16, 1, 10, tzinfo=UTC))
+    add_media(db, YERIN, uploaded_at=datetime(2026, 9, 16, 1, 10, tzinfo=UTC))
 
     assert service.get_attributed_children(db, CLASS_ID, DAY) == []

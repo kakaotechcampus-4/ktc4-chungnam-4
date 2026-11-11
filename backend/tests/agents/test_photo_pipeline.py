@@ -23,7 +23,7 @@ from core.database import get_db
 from domains.agents import router, service
 from domains.agents.models import Job
 from domains.documents.models import DraftDocument, UnclassifiedItem
-from domains.media.models import MediaAsset, MediaChildLink
+from domains.media.models import MediaAsset, MediaChildLink, MediaUpload
 from domains.media.service import PresignedUpload, SignedMediaUrl, StoredObject
 from domains.organization.models import Klass
 from main import app
@@ -31,6 +31,8 @@ from scripts.seed_photo_demo import PARENT_EMAILS, TEACHER_EMAIL, seed
 from tests.agents.fixtures.native_agent import native_fixture
 
 DAY = date(2026, 10, 30)
+# 기록 날짜는 업로드한 날입니다(C-0, 11/11 팀 결정). 테스트 자료는 DAY 낮(KST 12시)에 올린 것으로 둡니다.
+UPLOADED_ON_DAY = datetime(2026, 10, 30, 3, tzinfo=UTC)
 PASSWORD = "photo-test-password-only"
 Flow = tuple[
     TestClient,
@@ -183,10 +185,39 @@ def photo(
         )
         db.add(row)
         db.flush()
+        db.add(
+            MediaUpload(
+                client_photo_id=row.client_photo_id,
+                class_id=klass,
+                teacher_id=row.teacher_id,
+                type="photo",
+                content_type="image/png",
+                declared_size_bytes=500,
+                storage_key=row.storage_url,
+                state="confirmed",
+                issued_at=UPLOADED_ON_DAY,
+                url_expires_at=UPLOADED_ON_DAY,
+                actual_size_bytes=500,
+                verified_at=UPLOADED_ON_DAY,
+                media_id=row.id,
+            )
+        )
         for child in children:
             db.add(MediaChildLink(media_id=row.id, child_id=child, method="manual"))
         db.commit()
         return row.id
+
+
+def upload_on_day(factory: sessionmaker[Session], media_id: UUID) -> None:
+    """실제 업로드 API로 올린 자료를 DAY에 올린 것으로 옮깁니다.
+
+    업로드 API는 지금 시각을 남기는데 테스트의 기록 날짜는 DAY로 고정이라, 초안 생성 직전에
+    맞춥니다. STT가 끝난 뒤에 불러야 합니다 — STT 멈춤 판정도 이 시각을 봅니다.
+    """
+    with factory() as db:
+        row = db.scalar(select(MediaUpload).where(MediaUpload.media_id == media_id))
+        row.verified_at = UPLOADED_ON_DAY
+        db.commit()
 
 
 def run(
@@ -369,7 +400,7 @@ def test_재생성_분석실패를_기존_초안의_생성성공으로_안내하
 
 
 def test_사진부터_교사_검토_게시_자녀_열람까지(flow: Flow) -> None:
-    client, _factory, klass, children, pending, calls = flow
+    client, factory, klass, children, pending, calls = flow
     login(client, TEACHER_EMAIL)
     client_photo = str(uuid4())
     issued = client.post(
@@ -404,6 +435,7 @@ def test_사진부터_교사_검토_게시_자녀_열람까지(flow: Flow) -> No
     )
     assert completed.status_code == 201, completed.text
     media = UUID(completed.json()["media_id"])
+    upload_on_day(factory, media)
     status = run(client, klass, media, pending)
     assert status["status"] == "succeeded"
     draft = status["children"][0]["drafts"][0]["draft_id"]
@@ -583,6 +615,7 @@ def test_영상음성_업로드_STT_검수_파일귀속_생성_게시_열람(
     assert linked.json()["llm_allowed"] is True
     checked = client.get(f"/api/v1/media/{media_id}/transcript-segments").json()
     assert checked["child_links"][0]["child_id"] == str(child)
+    upload_on_day(flow[1], media_id)
     status = run(client, klass, media_id, pending)
     assert status["status"] == "succeeded", status
     assert [kind for kind, _ in calls] == ["llm", "llm"]  # 영상 프레임은 vision에 보내지 않는다.

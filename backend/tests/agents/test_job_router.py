@@ -22,7 +22,7 @@ from domains.agents.models import GenerationJob, Job, JobStatus, TeacherEvidence
 from domains.auth.middleware import get_current_teacher
 from domains.auth.service import TeacherProfile
 from domains.documents.models import DraftDocument, DraftSentence, RevisionLog
-from domains.media.models import MediaAsset, MediaChildLink
+from domains.media.models import MediaAsset, MediaChildLink, MediaUpload
 from domains.organization.models import Center, Child, Klass
 from main import app
 
@@ -49,6 +49,7 @@ def session_factory() -> sessionmaker[Session]:
             Job.__table__,
             MediaAsset.__table__,
             MediaChildLink.__table__,
+            MediaUpload.__table__,
             Center.__table__,
             Klass.__table__,
             Child.__table__,
@@ -125,26 +126,45 @@ def _login_as(center_id: uuid.UUID | None) -> None:
 def _add_photo(
     factory: sessionmaker[Session],
     *child_ids: uuid.UUID,
-    captured_at: datetime = MORNING,
+    uploaded_at: datetime = MORNING,
     attributed: bool = True,
 ) -> uuid.UUID:
     media_id = uuid.uuid4()
+    client_photo_id = uuid.uuid4()
     with factory() as db:
         db.add(
             MediaAsset(
                 id=media_id,
-                client_photo_id=uuid.uuid4(),
+                client_photo_id=client_photo_id,
                 class_id=CLASS_ID,
                 teacher_id=TEACHER_ID,
                 type="photo",
-                captured_at=captured_at,
+                captured_at=MORNING,
                 storage_url=f"s3://bucket/{media_id}.jpg",
                 size_bytes=2048,
                 llm_allowed=True,
-                attributed_at=captured_at if attributed else None,
+                attributed_at=uploaded_at if attributed else None,
             )
         )
         db.flush()
+        # 기록 날짜는 촬영일이 아니라 업로드 확인 시각으로 정해집니다(C-0, 11/11 팀 결정).
+        db.add(
+            MediaUpload(
+                client_photo_id=client_photo_id,
+                class_id=CLASS_ID,
+                teacher_id=TEACHER_ID,
+                type="photo",
+                content_type="image/jpeg",
+                declared_size_bytes=2048,
+                storage_key=f"s3://bucket/{media_id}.jpg",
+                state="confirmed",
+                issued_at=uploaded_at,
+                url_expires_at=uploaded_at,
+                actual_size_bytes=2048,
+                verified_at=uploaded_at,
+                media_id=media_id,
+            )
+        )
         for child_id in child_ids:
             db.add(MediaChildLink(media_id=media_id, child_id=child_id, method="manual"))
         db.commit()
@@ -283,12 +303,12 @@ def test_귀속_저장_전이거나_없는_미디어가_있으면_그_ID를_담�
     assert enqueued == []
 
 
-def test_다른_날짜의_미디어도_준비되지_않은_것으로_본다(
+def test_다른_날짜에_올린_미디어도_준비되지_않은_것으로_본다(
     client: TestClient, session_factory: sessionmaker[Session]
 ) -> None:
     # 한국 9/16 00:10 = UTC 9/15 15:10. UTC로는 같은 날이지만 KST로는 다음 날입니다.
     next_day = _add_photo(
-        session_factory, DOYUN, captured_at=datetime(2026, 9, 15, 15, 10, tzinfo=UTC)
+        session_factory, DOYUN, uploaded_at=datetime(2026, 9, 15, 15, 10, tzinfo=UTC)
     )
 
     response = _start(client, _body(next_day))

@@ -39,8 +39,14 @@ function renderProcessing(initialEntry: string) {
 }
 
 // jsdom의 File은 Node fetch가 본문으로 받지 않아 S3 PUT이 실패합니다. 브라우저에서는 문제없고, 테스트만 Node의 File을 씁니다.
+// 활동 날짜(09/15)와 다른 날 수정한 파일. 기록 날짜는 서버가 업로드일로 정해 촬영 시각을 그대로 보냅니다(C-0).
+const PHOTO_MODIFIED_AT = "2026-09-10T01:00:00.000Z";
+
 function photo(name: string) {
-  return new NodeFile(["x"], name, { type: "image/jpeg" }) as unknown as File;
+  return new NodeFile(["x"], name, {
+    type: "image/jpeg",
+    lastModified: Date.parse(PHOTO_MODIFIED_AT),
+  }) as unknown as File;
 }
 
 describe("ProcessingPage", () => {
@@ -257,7 +263,7 @@ describe("ProcessingPage", () => {
       });
       expect(writes[2]?.body).toMatchObject({
         client_photo_id: confirmed!.client_id,
-        captured_at: "2026-09-15T03:00:00.000Z",
+        captured_at: PHOTO_MODIFIED_AT,
         type: "photo",
         llm_allowed: true,
         child_links: [

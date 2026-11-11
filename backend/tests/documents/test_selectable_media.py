@@ -33,7 +33,7 @@ from domains.documents.models import (
     RevisionLog,
 )
 from domains.documents.models import UnclassifiedItem as FailureItem
-from domains.media.models import MediaAsset, MediaChildLink
+from domains.media.models import MediaAsset, MediaChildLink, MediaUpload
 from domains.media.service import SignedMediaUrl
 from domains.organization.models import Center, Child, Klass
 from main import app
@@ -53,7 +53,8 @@ def db() -> Iterator[Session]:
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
     tables = [Center, Klass, Child, DraftDocument, DraftSentence, DocumentPublication, RevisionLog]
-    tables += [AccessLog, MediaAsset, MediaChildLink, LookupAccount, LookupTeacher, FailureItem]
+    tables += [AccessLog, MediaAsset, MediaChildLink, MediaUpload, LookupAccount, LookupTeacher]
+    tables += [FailureItem]
     Base.metadata.create_all(engine, tables=[table.__table__ for table in tables])
     session = sessionmaker(bind=engine)()
     yield session
@@ -161,6 +162,24 @@ def _media(
     db.add(asset)
     db.flush()
     db.add_all(MediaChildLink(media_id=asset.id, child_id=c, method="manual") for c in children)
+    # 기록 날짜는 업로드한 날입니다(C-0, 11/11 팀 결정). 촬영한 때 올린 것으로 둡니다.
+    db.add(
+        MediaUpload(
+            client_photo_id=asset.client_photo_id,
+            class_id=asset.class_id,
+            teacher_id=asset.teacher_id,
+            type=type,
+            content_type="image/jpeg",
+            declared_size_bytes=2048,
+            storage_key=asset.storage_url,
+            state="confirmed",
+            issued_at=captured_at,
+            url_expires_at=captured_at,
+            actual_size_bytes=2048,
+            verified_at=captured_at,
+            media_id=asset.id,
+        )
+    )
     db.commit()
     return asset.id
 

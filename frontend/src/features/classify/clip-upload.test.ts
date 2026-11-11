@@ -16,19 +16,22 @@ describe("클립의 활동 날짜", () => {
     vi.clearAllMocks();
   });
 
-  it.each(["mp4", "wav"])("다른 날 수정한 %s도 선택한 활동 날짜로 등록한다", async (extension) => {
-    useUploadQueue.getState().setRecordDate("2026-10-30");
-    useUploadQueue
-      .getState()
-      .addFiles([
-        new File(["x"], `clip.${extension}`, { lastModified: Date.parse("2020-01-01T00:00:00Z") }),
+  it.each(["mp4", "wav"])(
+    "다른 날 수정한 %s도 실제 시각을 보낸다 (기록 날짜는 업로드일, C-0)",
+    async (extension) => {
+      useUploadQueue.getState().setRecordDate("2026-10-30");
+      useUploadQueue.getState().addFiles([
+        new File(["x"], `clip.${extension}`, {
+          lastModified: Date.parse("2020-01-01T00:00:00Z"),
+        }),
       ]);
-    await startClipUploads("class");
-    expect(completeUpload).toHaveBeenCalledWith(
-      expect.objectContaining({ captured_at: "2026-10-30T03:00:00.000Z" }),
-    );
-    expect(useUploadQueue.getState().items[0]?.upload_state).toBe("확인됨");
-  });
+      await startClipUploads("class");
+      expect(completeUpload).toHaveBeenCalledWith(
+        expect.objectContaining({ captured_at: "2020-01-01T00:00:00.000Z" }),
+      );
+      expect(useUploadQueue.getState().items[0]?.upload_state).toBe("확인됨");
+    },
+  );
 
   it("활동 날짜에 수정한 파일은 실제 시각을 그대로 보낸다", async () => {
     useUploadQueue.getState().setRecordDate("2026-10-30");
