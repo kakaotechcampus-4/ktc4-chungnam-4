@@ -53,7 +53,9 @@ export function ManualSortPage() {
       actions={
         // Figma에는 없는 버튼입니다. 하위 단계에서 뒤로 가기에만 기대지 않게 둡니다.
         <Button asChild variant="outline">
-          <Link to={CLASSIFICATION}>분류 결과로</Link>
+          <Link viewTransition to={CLASSIFICATION}>
+            분류 결과로
+          </Link>
         </Button>
       }
     />
@@ -93,11 +95,13 @@ export function ManualSortPage() {
         {header}
         {renderTabs(processed, entries.length)}
         <FocusCard
-          className="mt-7"
+          className="mt-7 motion-safe:animate-enter"
           centered
           footer={
             <Button asChild size="lg">
-              <Link to={CLASSIFICATION}>분류 결과로 돌아가기</Link>
+              <Link viewTransition to={CLASSIFICATION}>
+                분류 결과로 돌아가기
+              </Link>
             </Button>
           }
         >

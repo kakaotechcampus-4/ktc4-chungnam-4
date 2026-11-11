@@ -1,6 +1,6 @@
 // Figma: 53:294 (초안 검토 / 선택 사진)
 import { useQuery } from "@tanstack/react-query";
-import { Play, Plus, X } from "lucide-react";
+import { LoaderCircle, Play, Plus, X } from "lucide-react";
 import { useState } from "react";
 
 import { canSelectMedia, type DraftMediaView, selectableMediaQueryOptions } from "@/api/documents";
@@ -72,16 +72,18 @@ export function DraftPhotos({
   const candidates = (candidatesQuery.data ?? []).filter(
     (media) => canSelectMedia(media) && !selectedIds.includes(media.media_id),
   );
+  // 사진을 넣거나 뺀 뒤 저장이 실패하면 짧게 흔들어, 고른 것이 반영되지 않았음을 알아채게 합니다.
   const errorAlert =
     error !== null ? (
-      <p role="alert" className="text-caption text-destructive">
+      <p role="alert" className="text-caption text-destructive motion-safe:animate-nudge">
         {error}
       </p>
     ) : null;
 
   return (
     <>
-      <div className="grid grid-cols-3 gap-4">
+      {/* 초안이 도착하면 아래 글 카드와 함께 떠오릅니다. 사진 칸마다 띄우면 두 번 움직입니다. */}
+      <div className="grid grid-cols-3 gap-4 motion-safe:animate-enter">
         {photos.map((photo, index) => (
           <div key={photo.media_id} className="relative">
             <MediaThumb
@@ -95,7 +97,7 @@ export function DraftPhotos({
                 aria-label={`선택 사진 ${String(index + 1)} 빼기`}
                 disabled={saving}
                 onClick={() => onChange(selectedIds.filter((id) => id !== photo.media_id))}
-                className="absolute top-2 right-2 flex size-7 items-center justify-center rounded-full bg-ink/70 text-paper outline-none hover:bg-ink focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+                className="absolute top-2 right-2 flex size-7 items-center justify-center rounded-full bg-ink/70 text-paper outline-none transition hover:bg-ink focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 motion-safe:active:scale-90"
               >
                 <X className="size-4" />
               </button>
@@ -113,8 +115,13 @@ export function DraftPhotos({
           <span className="text-label">사진 추가</span>
         </button>
       </div>
-      <p className="text-caption text-ink-muted">선택 사진 {photos.length}장</p>
-      {lockedReason !== null ? <p className="text-caption text-ink-muted">{lockedReason}</p> : null}
+      <p className="text-caption text-ink-muted motion-safe:animate-enter">
+        선택 사진 {photos.length}장
+      </p>
+      {/* 승인하거나 수정을 시작해 사진이 잠기면 그 이유가 떠오르며 나타납니다. */}
+      {lockedReason !== null ? (
+        <p className="text-caption text-ink-muted motion-safe:animate-enter">{lockedReason}</p>
+      ) : null}
       {/* 대화상자가 열려 있으면 안에서 알립니다. 밖에 두면 대화상자 뒤에 가려집니다. */}
       {pickerOpen ? null : errorAlert}
 
@@ -128,7 +135,11 @@ export function DraftPhotos({
             </DialogDescription>
           </DialogHeader>
           {candidatesQuery.isPending ? (
-            <p role="status" className="text-body text-ink-muted">
+            <p role="status" className="flex items-center gap-2 text-body text-ink-muted">
+              <LoaderCircle
+                aria-hidden="true"
+                className="size-4 shrink-0 motion-safe:animate-spin"
+              />
               사진을 불러오고 있어요.
             </p>
           ) : candidatesQuery.isError ? (
@@ -153,7 +164,8 @@ export function DraftPhotos({
                   aria-label={`${media.type === "video" ? "영상" : "사진"} ${String(index + 1)} 추가`}
                   disabled={saving}
                   onClick={() => onChange([...selectedIds, media.media_id])}
-                  className="relative overflow-hidden rounded-lg outline-none transition-opacity hover:opacity-85 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+                  // 누르는 순간 살짝 눌려, 저장이 끝나 후보에서 빠지기 전에도 고른 것이 바로 느껴집니다.
+                  className="relative overflow-hidden rounded-lg outline-none transition hover:opacity-85 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 motion-safe:active:scale-95"
                 >
                   <MediaThumb
                     type={media.type}

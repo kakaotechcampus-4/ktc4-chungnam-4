@@ -29,7 +29,7 @@ export function ImportList({ items }: ImportListProps) {
   const finished = done === items.length;
 
   return (
-    <section className="flex flex-col overflow-hidden rounded-xl border border-line bg-paper">
+    <section className="flex flex-col overflow-hidden rounded-xl border border-line bg-paper motion-safe:animate-enter">
       <div className="flex items-center gap-2.75 px-5.5 pt-5.5 pb-3.5">
         <h2 className="text-lead font-bold text-ink">
           {finished ? "모두 불러왔어요" : "불러오는 중"}
@@ -50,8 +50,9 @@ export function ImportList({ items }: ImportListProps) {
           return (
             <li
               key={item.client_id}
+              // 행에 등장 효과를 걸면 끝난 뒤에도 opacity가 1로 남아 대기 행이 흐려지지 않습니다. 행은 흐림만 부드럽게 풉니다.
               className={cn(
-                "flex items-center gap-4 border-b border-line px-4.5 py-3.75 last:border-b-0",
+                "flex items-center gap-4 border-b border-line px-4.5 py-3.75 last:border-b-0 motion-safe:transition-opacity motion-safe:duration-300",
                 waiting && "opacity-55",
               )}
             >
@@ -65,7 +66,10 @@ export function ImportList({ items }: ImportListProps) {
                 </p>
                 <div className="h-1.25 w-full overflow-hidden rounded-full bg-canvas">
                   <div
-                    className={cn("h-full rounded-full", complete ? "bg-brand-ink" : "bg-ink")}
+                    className={cn(
+                      "h-full rounded-full motion-safe:transition-all motion-safe:duration-500 motion-safe:ease-soft",
+                      complete ? "bg-brand-ink" : "bg-ink",
+                    )}
                     style={{ width: `${item.import_progress}%` }}
                   />
                 </div>

@@ -93,14 +93,15 @@ export function RosterList({
                 onClick={() => onSelect(child.child_id)}
                 aria-current={isSelected ? "true" : undefined}
                 className={cn(
-                  "flex w-full items-center justify-between rounded-md p-2 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+                  "flex w-full items-center justify-between rounded-md p-2 text-left outline-none transition-colors duration-200 focus-visible:ring-3 focus-visible:ring-ring/50",
                   isSelected ? "bg-brand" : "hover:bg-tint-2",
                 )}
               >
                 <span className="flex items-center gap-2.5">
+                  {/* 승인하면 동그라미가 이어서 채워지고 체크가 톡 나타나, 레일에서 검토를 마친 것이 바로 보입니다. */}
                   <span
                     className={cn(
-                      "flex size-5 items-center justify-center rounded-full border",
+                      "flex size-5 items-center justify-center rounded-full border transition-colors",
                       done
                         ? "border-transparent bg-brand-ink text-paper"
                         : isSelected

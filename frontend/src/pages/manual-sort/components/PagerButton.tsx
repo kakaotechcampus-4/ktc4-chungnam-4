@@ -13,7 +13,7 @@ export function PagerButton({ disabled, onClick, children }: PagerButtonProps) {
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="rounded-xs outline-none hover:text-brand-ink focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-40"
+      className="rounded-xs outline-none transition hover:text-brand-ink focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-40"
     >
       {children}
     </button>

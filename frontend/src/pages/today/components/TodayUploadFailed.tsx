@@ -61,7 +61,7 @@ export function TodayUploadFailed({
         title="올리지 못한 파일이 있어요"
         subtitle="완료된 자료는 유지하고, 실패한 파일만 다시 올릴 수 있어요."
       />
-      <div className="mx-25 flex flex-col gap-8 pb-11">
+      <div className="mx-25 flex flex-col gap-8 pb-11 motion-safe:animate-enter">
         <section className="flex flex-col gap-3.5 rounded-xl bg-paper p-8">
           <h2 className="text-h3 font-bold text-ink">
             {total}개 중 {done}개 완료 · {failures.length}개 확인 필요

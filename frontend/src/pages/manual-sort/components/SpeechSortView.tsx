@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { saveChildLinks, mediaKeys, type TranscriptView } from "@/api/media";
+import { LoaderCircle } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
@@ -77,12 +78,15 @@ export function SpeechSortView({ renderTabs }: SpeechSortViewProps) {
     return (
       <>
         {renderTabs(processed, entries.length)}
+        {/* 글로 바꾸기가 끝나 안내가 바뀌면 카드는 그대로 두고 바뀐 내용만 떠올라, 상태가 바뀐 것이 보입니다. */}
         <FocusCard
           centered
-          className="mt-7"
+          className="mt-7 *:motion-safe:animate-enter"
           footer={
             <Button asChild size="lg">
-              <Link to={CLASSIFICATION}>분류 결과로 돌아가기</Link>
+              <Link viewTransition to={CLASSIFICATION}>
+                분류 결과로 돌아가기
+              </Link>
             </Button>
           }
         >
@@ -91,7 +95,11 @@ export function SpeechSortView({ renderTabs }: SpeechSortViewProps) {
               발화를 불러오지 못했어요. ({transcripts.error.message})
             </p>
           ) : transcripts.workingCount > 0 ? (
-            <p role="status" className="text-lead text-ink-muted">
+            <p role="status" className="flex items-center gap-2 text-lead text-ink-muted">
+              <LoaderCircle
+                aria-hidden="true"
+                className="size-4 shrink-0 motion-safe:animate-spin"
+              />
               영상·음성을 글로 바꾸고 있어요. 잠시 뒤에 발화가 여기에 모여요.
             </p>
           ) : (
@@ -198,8 +206,9 @@ export function SpeechSortView({ renderTabs }: SpeechSortViewProps) {
         파일의 모든 발화에 같은 원아가 연결돼요. 다른 아이의 목소리가 들리면 함께 선택해 주세요.
         문장·화자·제외는 발화별로 저장됩니다.
       </p>
+      {/* 연결·검수 완료·제외를 누른 뒤 저장이 실패한 것이라 짧게 흔들어 눈에 띄게 합니다. */}
       {update.error || linkFile.error ? (
-        <p role="alert" className="mt-4 text-body text-destructive">
+        <p role="alert" className="mt-4 text-body text-destructive motion-safe:animate-nudge">
           {(update.error ?? linkFile.error)?.message}
         </p>
       ) : null}

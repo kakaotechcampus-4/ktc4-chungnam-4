@@ -32,6 +32,7 @@ export function StackedPhotos({ items, compact = false, reassignLabel }: Stacked
         return (
           <Link
             key={item.client_id}
+            viewTransition
             to={`/t/today/manual-sort?photo=${encodeURIComponent(item.client_id)}`}
             aria-label={`${reassignLabel} · ${item.file.name} 아이 바꾸기`}
             className={cn(

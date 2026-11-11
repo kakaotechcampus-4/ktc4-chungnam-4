@@ -31,7 +31,8 @@ export function SortTabs({ active, photoCount, speechCount, processed, total }: 
             to={tab.to}
             aria-current={active === tab.key ? "page" : undefined}
             className={cn(
-              "flex h-12 w-40 items-center justify-center rounded-md border text-body font-bold outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+              // 같은 화면 안의 탭이라 겹쳐 바뀌기(viewTransition)는 두지 않고, 버튼처럼 색이 이어서 바뀌고 눌리게만 합니다.
+              "flex h-12 w-40 items-center justify-center rounded-md border text-body font-bold outline-none transition focus-visible:ring-3 focus-visible:ring-ring/50 motion-safe:active:translate-y-px",
               active === tab.key
                 ? "border-brand-border bg-brand text-brand-ink"
                 : "border-transparent bg-tint-2 text-ink hover:bg-brand",

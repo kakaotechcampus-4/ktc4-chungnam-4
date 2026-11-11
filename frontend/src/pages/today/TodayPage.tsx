@@ -1,6 +1,7 @@
 // Figma: 1:1895 (오늘의 기록 · 빈 상태), 후보 A 1:1913
 import { UPLOAD_GUIDE } from "@/features/upload-queue/media-capabilities";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { LoaderCircle } from "lucide-react";
 import { useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
 
@@ -185,7 +186,7 @@ export function TodayPage() {
           setDragging(false);
         }}
         onDrop={handleDrop}
-        className={cn("rounded-2xl", dragging && "bg-tint-2")}
+        className={cn("rounded-2xl transition-colors duration-200", dragging && "bg-tint-2")}
       >
         {children}
       </div>
@@ -245,9 +246,13 @@ export function TodayPage() {
     <>
       <PageHeader eyebrow="오늘의 기록" title="오늘은 어떤 순간이 있었나요?" subtitle={subtitle} />
       {/* TODO(정은): Figma에는 빈 상태(1:1895)만 있어, 다른 상태도 같은 카드 틀에 문구와 버튼만 바꿉니다. */}
-      <FocusCard centered className="min-h-140 justify-center">
+      {/* 카드 틀은 상태가 바뀌어도 다시 그려지지 않아, 틀에 걸면 결과가 도착해도 움직이지 않습니다. 그래서 안의 내용(*:)에만 겁니다. */}
+      <FocusCard centered className="min-h-140 justify-center *:motion-safe:animate-enter">
         {card.kind === "loading" ? (
-          <p className="text-lead text-ink-muted">오늘 기록을 확인하는 중이에요.</p>
+          <p className="flex items-center gap-2 text-lead text-ink-muted">
+            <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
+            오늘 기록을 확인하는 중이에요.
+          </p>
         ) : card.kind === "error" ? (
           <>
             <h2 className="text-h3 font-bold text-ink">오늘 기록을 불러오지 못했어요</h2>
@@ -266,9 +271,11 @@ export function TodayPage() {
               검토를 마치지 않았거나 게시에서 뺀 아이가 있다면 이어서 확인해 주세요.
             </p>
             <Button asChild size="lg">
-              <Link to={`/t/today/review/${card.childId}`}>초안 검토하기</Link>
+              <Link viewTransition to={`/t/today/review/${card.childId}`}>
+                초안 검토하기
+              </Link>
             </Button>
-            <Link to="/t/today/upload" className={TEXT_LINK_CLASS}>
+            <Link viewTransition to="/t/today/upload" className={TEXT_LINK_CLASS}>
               {"자료 더 올리기  →"}
             </Link>
           </>
@@ -279,7 +286,7 @@ export function TodayPage() {
             <p className="max-w-140 text-lead text-ink-muted">
               잠시 뒤 다시 들어오면 초안을 검토할 수 있어요.
             </p>
-            <Link to="/t/today/upload" className={TEXT_LINK_CLASS}>
+            <Link viewTransition to="/t/today/upload" className={TEXT_LINK_CLASS}>
               {"자료 더 올리기  →"}
             </Link>
           </>
@@ -297,9 +304,11 @@ export function TodayPage() {
               </p>
             ) : null}
             <Button asChild size="lg">
-              <Link to={`/t/today/review/${card.childId}`}>게시 내역 보기</Link>
+              <Link viewTransition to={`/t/today/review/${card.childId}`}>
+                게시 내역 보기
+              </Link>
             </Button>
-            <Link to="/t/today/upload" className={TEXT_LINK_CLASS}>
+            <Link viewTransition to="/t/today/upload" className={TEXT_LINK_CLASS}>
               {"자료 더 올리기  →"}
             </Link>
           </>
@@ -311,9 +320,11 @@ export function TodayPage() {
               초안 검토 화면에서 사진을 더하거나 직접 써서 기록을 마무리해 주세요.
             </p>
             <Button asChild size="lg">
-              <Link to={`/t/today/review/${card.childId}`}>확인하기</Link>
+              <Link viewTransition to={`/t/today/review/${card.childId}`}>
+                확인하기
+              </Link>
             </Button>
-            <Link to="/t/today/upload" className={TEXT_LINK_CLASS}>
+            <Link viewTransition to="/t/today/upload" className={TEXT_LINK_CLASS}>
               {"자료 더 올리기  →"}
             </Link>
           </>
@@ -326,7 +337,9 @@ export function TodayPage() {
               오늘 찍은 사진·영상·음성 메모를 올려 주세요.
             </p>
             <Button asChild size="lg">
-              <Link to="/t/today/upload">오늘 찍은 자료 올리기</Link>
+              <Link viewTransition to="/t/today/upload">
+                오늘 찍은 자료 올리기
+              </Link>
             </Button>
             <p className="text-caption text-ink-muted">파일을 이곳으로 끌어다 놓아도 돼요</p>
           </>

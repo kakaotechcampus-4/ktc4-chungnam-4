@@ -8,7 +8,7 @@ export function RejectedList({ fileNames, onRemove }: RejectedListProps) {
   return (
     <section
       role="alert"
-      className="flex flex-col gap-3 rounded-xl border border-line bg-paper px-5.5 py-4.5"
+      className="flex flex-col gap-3 rounded-xl border border-line bg-paper px-5.5 py-4.5 motion-safe:animate-enter"
     >
       <h2 className="text-lead font-bold text-ink">
         지원하지 않는 형식이라 {fileNames.length}개를 담지 않았어요

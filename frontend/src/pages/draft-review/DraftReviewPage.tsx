@@ -1,6 +1,6 @@
 // Figma: 53:294 (초안 검토 / 왼쪽 원아 목록)
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Info, Sparkles } from "lucide-react";
+import { Info, LoaderCircle, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { useBlocker, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 
@@ -476,7 +476,10 @@ export function DraftReviewPage() {
     return (
       <>
         <PageHeader eyebrow={reviewEyebrow} title={reviewTitle} />
-        <p className="text-body text-ink-muted">반 정보를 불러오는 중이에요.</p>
+        <p className="flex items-center gap-2 text-body text-ink-muted">
+          <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
+          {"반 정보를 불러오는 중이에요."}
+        </p>
       </>
     );
   }
@@ -651,7 +654,8 @@ export function DraftReviewPage() {
           title="게시를 마쳤어요"
           subtitle={`${reviewDate}  ·  ${klassName}`}
         />
-        <div className="flex flex-col gap-5 rounded-xl bg-paper p-7">
+        {/* 검토 화면이 게시를 마친 화면으로 바뀐 것을 알도록 카드가 떠오르며 나타납니다. 안의 줄까지 띄우면 두 번 움직입니다. */}
+        <div className="flex flex-col gap-5 rounded-xl bg-paper p-7 motion-safe:animate-enter">
           <div className="flex flex-col gap-1">
             <h2 className="text-lead font-bold text-ink">
               학부모님께 알림장 {published.length}건을 보냈어요
@@ -742,13 +746,24 @@ export function DraftReviewPage() {
         />
 
         <section className="flex min-w-0 flex-1 flex-col gap-3.5">
+          {/* 아래 갈래는 내용이 도착해 새로 그려질 때마다 떠오르며 나타납니다(motion-safe:animate-enter).
+              이미 받아 둔 원아끼리 옮길 때는 같은 자리를 다시 쓰므로 움직이지 않습니다. */}
           {draftQuery.isPending && draftId !== "" ? (
-            <p className="text-body text-ink-muted">초안을 불러오는 중이에요.</p>
+            <p className="flex items-center gap-2 text-body text-ink-muted">
+              <LoaderCircle
+                aria-hidden="true"
+                className="size-4 shrink-0 motion-safe:animate-spin"
+              />
+              초안을 불러오는 중이에요.
+            </p>
           ) : draftQuery.isError && draft === undefined ? (
             // 초안이 있는 원아인데 본문을 못 받았습니다. 빈 상태로 보이면 교사가 새로 쓰고, 저장하면
             // 이미 초안이 있어 실패합니다. 같은 원아를 다시 눌러도 그대로라 다시 받는 버튼을 둡니다.
             // Figma에 없는 상태라 발화 목록(TranscriptStatus)의 '다시 불러오기'를 따릅니다.
-            <div role="alert" className="flex flex-col items-start gap-3 rounded-xl bg-paper p-7">
+            <div
+              role="alert"
+              className="flex flex-col items-start gap-3 rounded-xl bg-paper p-7 motion-safe:animate-enter"
+            >
               <p className="text-lead font-bold text-ink">초안을 불러오지 못했어요</p>
               <p className="text-body text-ink-muted">{failureText(draftQuery.error)}</p>
               <Button variant="outline" size="sm" onClick={() => void draftQuery.refetch()}>
@@ -756,11 +771,11 @@ export function DraftReviewPage() {
               </Button>
             </div>
           ) : draft === undefined && isObservation ? (
-            <p className="rounded-xl bg-paper p-7 text-body text-ink-muted">
+            <p className="rounded-xl bg-paper p-7 text-body text-ink-muted motion-safe:animate-enter">
               아직 이 아이의 관찰일지가 없어요. 원아 개인 페이지에서 월을 골라 생성해 주세요.
             </p>
           ) : draft === undefined ? (
-            <div className="flex flex-col gap-5 rounded-xl bg-paper p-7">
+            <div className="flex flex-col gap-5 rounded-xl bg-paper p-7 motion-safe:animate-enter">
               {/* TODO(김진하): 빈 상태 문구와 디자인이 Figma에 없어 임시로 둡니다. */}
               {emptyReason ? (
                 <p className="flex items-start gap-2 rounded-lg bg-tint-2 p-3 text-body text-ink">
@@ -782,7 +797,9 @@ export function DraftReviewPage() {
               />
               <p className="text-caption text-ink-muted">저장한 뒤에 보낼 사진을 고를 수 있어요.</p>
               {createError ? (
-                <p className="text-caption text-destructive">{failureText(createError)}</p>
+                <p className="text-caption text-destructive motion-safe:animate-enter">
+                  {failureText(createError)}
+                </p>
               ) : null}
               <Button
                 className="self-start"
@@ -799,7 +816,7 @@ export function DraftReviewPage() {
               {failedPhotos.length > 0 ? (
                 <section
                   aria-label="분석하지 못한 사진"
-                  className="rounded-xl border border-line bg-paper p-5"
+                  className="rounded-xl border border-line bg-paper p-5 motion-safe:animate-enter"
                 >
                   <h2 className="text-body font-bold text-coral-ink">
                     AI가 분석하지 못한 사진 {failedPhotos.length}장
@@ -838,7 +855,7 @@ export function DraftReviewPage() {
                 />
               )}
 
-              <div className="relative flex flex-col gap-3.5 rounded-xl bg-paper p-7">
+              <div className="relative flex flex-col gap-3.5 rounded-xl bg-paper p-7 motion-safe:animate-enter">
                 <div className="flex items-center justify-between">
                   <span className="rounded-md bg-brand px-6 py-1.5 text-body font-bold text-brand-ink">
                     {isObservation ? "월별 관찰일지" : "알림장"}
@@ -857,7 +874,7 @@ export function DraftReviewPage() {
                 </div>
                 {(draft.daily_routine?.length ?? 0) > 0 && (
                   <details className="rounded-md border border-line p-3">
-                    <summary className="cursor-pointer text-label font-bold">
+                    <summary className="cursor-pointer text-label font-bold transition-colors hover:text-brand-ink">
                       {isObservation ? "기간별 관찰 요약" : "AI 하루 일과 요약"}
                     </summary>
                     <p className="text-caption text-ink-muted">
@@ -1017,12 +1034,14 @@ export function DraftReviewPage() {
                   </button>
                 ) : null}
                 {emptyEdit ? (
-                  <p className="text-caption text-destructive">
+                  <p className="text-caption text-destructive motion-safe:animate-enter">
                     비어 있는 문장은 저장할 수 없어요. 내용을 채운 뒤 수정 완료를 눌러 주세요.
                   </p>
                 ) : null}
                 {draftError ? (
-                  <p className="text-caption text-destructive">{failureText(draftError)}</p>
+                  <p className="text-caption text-destructive motion-safe:animate-enter">
+                    {failureText(draftError)}
+                  </p>
                 ) : null}
               </div>
             </>
@@ -1047,13 +1066,16 @@ export function DraftReviewPage() {
         <div className="mt-6 flex items-center justify-between border-t border-line pt-4">
           <p className="text-caption text-ink-muted">승인 전에는 학부모에게 공개되지 않아요.</p>
           <div className="flex items-center gap-4">
+            {/* 승인·게시를 누른 뒤 생긴 실패는 작은 글씨라 놓치기 쉬워 떠오르며 나타나게 합니다. */}
             {footerError ? (
-              <p className="text-caption text-destructive">{failureText(footerError)}</p>
+              <p className="text-caption text-destructive motion-safe:animate-enter">
+                {failureText(footerError)}
+              </p>
             ) : null}
             {/* 건별 실패는 HTTP 200 안에 섞여 오므로 isError로는 잡히지 않습니다.
               성공 수를 함께 알립니다 — 실패만 뜨면 나머지가 나갔는지 교사가 알 수 없습니다. */}
             {shownPublishOutcome && shownPublishOutcome.failures.length > 0 ? (
-              <p className="text-caption text-destructive">
+              <p className="text-caption text-destructive motion-safe:animate-enter">
                 {shownPublishOutcome.publishedCount > 0
                   ? `${String(shownPublishOutcome.publishedCount)}명은 게시했고, `
                   : ""}

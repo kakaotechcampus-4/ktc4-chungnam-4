@@ -9,9 +9,12 @@ export function EmptyQueueCard() {
   return (
     <FocusCard
       centered
+      className="motion-safe:animate-enter"
       footer={
         <Button asChild size="lg">
-          <Link to="/t/today/upload">자료 올리러 가기</Link>
+          <Link viewTransition to="/t/today/upload">
+            자료 올리러 가기
+          </Link>
         </Button>
       }
     >

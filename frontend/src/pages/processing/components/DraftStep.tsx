@@ -141,7 +141,7 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
       onCancel={onCancel}
     >
       {needsAttention && job ? (
-        <div role="alert">
+        <div role="alert" className="motion-safe:animate-enter">
           {onlyProtectedDrafts ? null : job.status === "failed" ? (
             <p>
               AI 처리에 실패한 아이가 있어요
@@ -179,7 +179,10 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
           {job.children.some((child) => child.unclassified_reason === "no_consent") ? (
             <p>AI 분석 동의가 없는 아이는 자동 생성에서 제외했어요.</p>
           ) : null}
-          {retry.isError ? <p>{retry.error.message}</p> : null}
+          {/* 다시 시도를 누른 뒤 생긴 오류라 짧게 흔들어 알립니다. */}
+          {retry.isError ? (
+            <p className="motion-safe:animate-nudge">{retry.error.message}</p>
+          ) : null}
           {canRetry ? (
             <Button
               disabled={retry.isPending}
@@ -194,7 +197,7 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
         </div>
       ) : null}
       {noTargets ? (
-        <div role="alert" className="space-y-3 text-body text-coral-ink">
+        <div role="alert" className="space-y-3 text-body text-coral-ink motion-safe:animate-enter">
           <p>
             {recordDate}에 원아에게 연결된 자료가 없어요. 사진 분류를 확인하거나 직접 작성해 주세요.
           </p>
@@ -212,7 +215,7 @@ export function DraftStep({ onDone, onCancel }: DraftStepProps) {
           ) : null}
         </div>
       ) : error ? (
-        <div role="alert" className="space-y-3 text-body text-coral-ink">
+        <div role="alert" className="space-y-3 text-body text-coral-ink motion-safe:animate-enter">
           <p>{error.message}</p>
           <p>올린 자료는 유지돼요. 연결을 확인한 뒤 다시 시도해 주세요.</p>
           <Button
