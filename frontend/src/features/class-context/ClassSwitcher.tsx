@@ -1,5 +1,5 @@
 import { Check, ChevronDown } from "lucide-react";
-import { Link } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import {
   DropdownMenu,
@@ -25,8 +25,14 @@ const ITEM_CLASS = "gap-3 rounded-xl p-2 transition-colors duration-200";
 // 같은 어린이집 교사는 모든 반을 봅니다(docs/api/organization.md GET /classes).
 // - 다른 반을 고르면 보던 메뉴의 첫 화면으로 갑니다. 원아 상세처럼 반에 딸린 화면은 다른 반에서 열 수 없습니다.
 // - 반은 이동이 끝난 뒤에 바뀝니다(class-switch.ts). 떠나는 이동이 막히면 반도 그대로입니다.
+// - 반 항목은 링크가 아니라 메뉴 항목입니다. 반은 주소에 없고 이 기기에 저장된 값이라, 링크를 새 탭으로 열면
+//   새 탭이 이전 반으로 열리기 때문입니다.
 // - 올리지 않은 자료가 있으면 바꾸지 않습니다. 큐의 자료는 지금 반 아이들에게 연결한 것이라 다른 반으로 보내면 안 됩니다.
 export function ClassSwitcher({ to }: ClassSwitcherProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  // Link처럼 지금 있는 주소로 갈 때는 기록을 늘리지 않고 바꿉니다. 늘리면 뒤로 가기가 같은 화면에 한 번 더 멈춥니다.
+  const replace = `${location.pathname}${location.search}${location.hash}` === to;
   const { currentClass, classes } = useCurrentClass();
   const locked = useUploadQueue((state) => hasUnsentWork(state.items));
   if (!currentClass) return null;
@@ -55,33 +61,29 @@ export function ClassSwitcher({ to }: ClassSwitcherProps) {
         ) : null}
         {classes.map((klass) => {
           const isCurrent = klass.class_id === currentClass.class_id;
-          const label = (
-            <>
+          return (
+            <DropdownMenuItem
+              key={klass.class_id}
+              disabled={locked && !isCurrent}
+              aria-current={isCurrent ? "true" : undefined}
+              className={cn(ITEM_CLASS, isCurrent && "bg-primary")}
+              // 지금 반은 고르기만 하고 화면을 옮기지 않습니다.
+              onSelect={
+                isCurrent
+                  ? undefined
+                  : () =>
+                      void navigate(to, {
+                        state: classSwitchState(klass.class_id),
+                        replace,
+                        viewTransition: true,
+                      })
+              }
+            >
               <span className="flex min-w-0 flex-1 flex-col">
                 <span className="truncate text-body font-bold text-ink">{klass.name}</span>
                 <span className="truncate text-caption text-ink-muted">{klass.age_group}</span>
               </span>
               {isCurrent ? <Check aria-hidden="true" className="text-brand-ink" /> : null}
-            </>
-          );
-          // 지금 반은 고르기만 하고 화면을 옮기지 않습니다.
-          if (isCurrent || locked) {
-            return (
-              <DropdownMenuItem
-                key={klass.class_id}
-                disabled={!isCurrent}
-                aria-current={isCurrent ? "true" : undefined}
-                className={cn(ITEM_CLASS, isCurrent && "bg-primary")}
-              >
-                {label}
-              </DropdownMenuItem>
-            );
-          }
-          return (
-            <DropdownMenuItem key={klass.class_id} asChild className={ITEM_CLASS}>
-              <Link viewTransition to={to} state={classSwitchState(klass.class_id)}>
-                {label}
-              </Link>
             </DropdownMenuItem>
           );
         })}

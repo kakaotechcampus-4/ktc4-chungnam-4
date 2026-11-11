@@ -160,6 +160,8 @@ describe("TeacherLayout", () => {
       "aria-current",
       "true",
     );
+    // 반은 주소에 없어서 새 탭으로 열 수 있는 링크로 두지 않습니다(새 탭이 이전 반으로 열림).
+    expect(screen.getByRole("menuitem", { name: /별님반/ })).not.toHaveAttribute("href");
     await user.click(screen.getByRole("menuitem", { name: /별님반/ }));
 
     expect(await screen.findByText("햇살어린이집 / 별님반")).toBeInTheDocument();
