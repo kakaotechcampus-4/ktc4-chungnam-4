@@ -1,5 +1,6 @@
 // Figma: 1:1997
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { LoaderCircle } from "lucide-react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { createPlan, organizationKeys, planQueryOptions, updatePlan } from "@/api/organization";
@@ -45,11 +46,13 @@ export function EducationPlanFormPage() {
     return (
       <>
         <PageHeader eyebrow={eyebrow} title="이번 주의 배움을 적어요" />
-        <FocusCard centered>
+        <FocusCard centered className="motion-safe:animate-enter">
           <h2 className="text-h3 font-bold text-ink">계획을 찾을 수 없어요</h2>
           <p className="text-lead text-ink-muted">{loadError.message}</p>
           <Button asChild className="w-65">
-            <Link to="/t/plans">교육 계획 목록으로</Link>
+            <Link viewTransition to="/t/plans">
+              교육 계획 목록으로
+            </Link>
           </Button>
         </FocusCard>
       </>
@@ -62,13 +65,21 @@ export function EducationPlanFormPage() {
         <PageHeader eyebrow={eyebrow} title="이번 주의 배움을 적어요" />
         <p
           role={loadError ? "alert" : "status"}
-          className="py-10 text-center text-body text-ink-muted"
+          className="flex items-center justify-center gap-2 py-10 text-center text-body text-ink-muted"
         >
-          {loadError
-            ? loadError.message
-            : loading
-              ? "계획을 불러오고 있어요."
-              : "담당하는 반이 아직 없어요."}
+          {loadError ? (
+            loadError.message
+          ) : loading ? (
+            <>
+              <LoaderCircle
+                aria-hidden="true"
+                className="size-4 shrink-0 motion-safe:animate-spin"
+              />
+              계획을 불러오고 있어요.
+            </>
+          ) : (
+            "담당하는 반이 아직 없어요."
+          )}
         </p>
       </>
     );

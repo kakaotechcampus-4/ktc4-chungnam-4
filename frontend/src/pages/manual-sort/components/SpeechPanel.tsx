@@ -37,7 +37,8 @@ export function SpeechPanel({
   const seconds = Math.round(segment.end_time - segment.start_time);
 
   return (
-    <div className="my-auto flex flex-col gap-5">
+    // 발화가 바뀔 때마다(key) 새로 그려지므로 새 문장이 떠오르며 나타나, 다음 발화로 넘어간 것이 보입니다.
+    <div className="my-auto flex flex-col gap-5 motion-safe:animate-enter">
       <p className="text-body text-ink-muted">
         {speechLabel(number)} · {formatTime(spokenAt)}
       </p>
@@ -57,7 +58,7 @@ export function SpeechPanel({
         <button
           type="button"
           onClick={() => setEditing(true)}
-          className="w-fit rounded-xs text-body font-bold text-ink outline-none hover:text-brand-ink focus-visible:ring-3 focus-visible:ring-ring/50"
+          className="w-fit rounded-xs text-body font-bold text-ink outline-none transition-colors hover:text-brand-ink focus-visible:ring-3 focus-visible:ring-ring/50"
         >
           인식한 문장 수정하기
         </button>

@@ -1,5 +1,6 @@
 // Figma: 없음 (디자인 미정). 알림장 게시판(140:4015)의 행 모양을 따릅니다.
 import { useQuery } from "@tanstack/react-query";
+import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
@@ -65,7 +66,10 @@ export function ParentNoteListPage() {
     return (
       <>
         {header}
-        <p className="text-body text-ink-muted">알림장을 불러오는 중이에요.</p>
+        <p className="flex items-center gap-2 text-body text-ink-muted">
+          <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
+          알림장을 불러오는 중이에요.
+        </p>
       </>
     );
   }
@@ -104,8 +108,9 @@ export function ParentNoteListPage() {
       />
 
       <div className="flex flex-col gap-8">
+        {/* 달 묶음은 처음 한 달, 그 뒤로는 "더 보기"를 누를 때마다 하나씩 붙습니다. 새로 펼친 달이 올라와 눈에 띕니다. */}
         {shown.map((month) => (
-          <section key={month.key} className="flex flex-col gap-3">
+          <section key={month.key} className="flex flex-col gap-3 motion-safe:animate-enter">
             <h2 className="text-label font-bold text-ink-muted">{month.label}</h2>
             <ul className="divide-y divide-line overflow-hidden rounded-xl bg-paper">
               {month.items.map((note) => (
@@ -113,7 +118,7 @@ export function ParentNoteListPage() {
                   <button
                     type="button"
                     onClick={() => navigate(`/t/notes/children/${childId}/${note.draft_id}`)}
-                    className="flex w-full flex-col gap-1.5 px-7 py-5 text-left outline-none hover:bg-tint-2 focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/50"
+                    className="flex w-full flex-col gap-1.5 px-7 py-5 text-left outline-none transition-colors duration-200 hover:bg-tint-2 focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/50"
                   >
                     <span className="text-body font-bold text-ink">
                       {formatDate(note.record_date)}

@@ -1,23 +1,29 @@
 import { http, HttpResponse } from "msw";
 
+import { isRetryableChild } from "@/api/agents";
 import { kstToday } from "@/lib/datetime";
 import type {
   Job,
   JobChild,
   JobCreateRequest,
+  ObservationJobCreateRequest,
   JobStage,
   TeacherEvidence,
   TeacherEvidenceUpsertRequest,
 } from "@/types/api-draft/agents";
 
 import { nextId, nowIso, readDb, updateDb } from "../db";
-import type { JobChildRecord, JobRecord, MediaRecord, MockDb } from "../db";
+import type { DraftRecord, JobChildRecord, JobRecord, MediaRecord, MockDb } from "../db";
 import { nextEvidenceId, teacherEvidence } from "../fixtures/agents";
 import { buildDrafts } from "../fixtures/documents";
 import { FACE_CONSENTED_CHILD_IDS, SUNSHINE_CHILDREN } from "../fixtures/organization";
 import { requireTeacher, requireTeacherOfClass } from "../guards";
 import { apiPath, errorResponse, listResponse, validationError } from "../http";
 import { isMockScenario } from "../scenario";
+
+// 추가 근거 글자 수 상한 — 서버 값(backend `TEACHER_EVIDENCE_TEXT_MAX_LENGTH`)을 그대로 적습니다. 화면의 상수
+// (`@/api/agents`)를 가져오지 않는 것은, 화면 값이 서버와 어긋나면 이 목과 테스트가 잡아내게 하려는 것입니다.
+const SERVER_EVIDENCE_TEXT_LIMIT = 1000;
 
 // API 문서 §agents 목입니다. 서버 전송이 끝나면 FE가 POST /jobs를 한 번 부르고(#60 B안), GET /jobs/{job_id}를 폴링합니다.
 // - 폴링할 때마다 안 끝난 원아가 한 단계씩 나아갑니다(4번이면 끝). 2초 간격이면 약 8초입니다.
@@ -95,8 +101,93 @@ function jobView(job: JobRecord): Job {
   };
 }
 
+function monthlyNotes(db: MockDb, childId: string, month: string) {
+  return Object.values(db.drafts).filter(
+    (draft) =>
+      draft.child_id === childId &&
+      draft.doc_type === "parent_note" &&
+      draft.record_date.startsWith(month) &&
+      draft.status === "approved" &&
+      draft.published_at !== null,
+  );
+}
+
+function finishObservation(db: MockDb, job: JobRecord, child: JobChildRecord, now: string) {
+  const existing = Object.values(db.drafts).find(
+    (draft) =>
+      draft.child_id === child.child_id &&
+      draft.doc_type === "observation_log" &&
+      draft.record_date === job.record_date,
+  );
+  const notes = monthlyNotes(db, child.child_id, job.record_date.slice(0, 7));
+  if (!existing && notes.length === 0) {
+    child.status = "failed";
+    child.error_code = "LLM_CALL_FAILED";
+    return;
+  }
+  const source = notes
+    .flatMap((note) => note.sentences.map((sentence) => ({ note, sentence })))
+    .slice(0, 10);
+  // 승인된 관찰일지는 덮어쓰지 않습니다(H-1). 서버처럼 DRAFT_VERSION_CONFLICT로 끝냅니다.
+  if (existing?.status === "approved") {
+    child.status = "failed";
+    child.error_code = "DRAFT_VERSION_CONFLICT";
+    return;
+  }
+  const sentences = source.map(({ note, sentence }, index) => ({
+    sentence_id: `s${index + 1}`,
+    section: "종합의견",
+    text: sentence.text,
+    is_edited_by_teacher: false,
+    evidences: [
+      {
+        evidence_id: `ev_${index + 1}`,
+        source_document_id: note.draft_id,
+        source_type: "parent_note" as const,
+        text: sentence.text,
+        media_id: null,
+        start_ms: null,
+        end_ms: null,
+        // 근거 알림장의 기록 날짜(한국 정오)를 촬영 시각 자리에 담습니다.
+        captured_at: `${note.record_date}T03:00:00Z`,
+      },
+    ],
+  }));
+  // 서버처럼 다시 만들면 같은 초안의 내용만 새로 바뀌고 version이 오릅니다. 양식 영역은 목이 정한 값입니다.
+  const content = {
+    daily_routine: source.map(({ sentence }) => sentence.text),
+    sentences,
+    sections: ["사회관계", "자연탐구", "종합의견"],
+    created_at: now,
+    updated_at: now,
+  };
+  const draft: DraftRecord = existing
+    ? { ...existing, ...content, version: existing.version + 1 }
+    : {
+        ...notes[0]!,
+        ...content,
+        draft_id: nextId(db, "draft"),
+        doc_type: "observation_log",
+        record_date: job.record_date,
+        status: "verified",
+        version: 1,
+        title: null,
+        selected_media_ids: [],
+        approved_at: null,
+        published_at: null,
+        include_photos: false,
+      };
+  db.drafts[draft.draft_id] = draft;
+  child.outcome = "drafted";
+  child.drafts = [{ draft_id: draft.draft_id, doc_type: "observation_log" }];
+}
+
 function finishChild(db: MockDb, job: JobRecord, child: JobChildRecord, now: string) {
   child.status = "succeeded";
+  if (job.doc_type === "observation_log") {
+    finishObservation(db, job, child, now);
+    return;
+  }
   const evidence = job.media_ids
     .map((id) => db.media[id])
     .filter(
@@ -154,7 +245,12 @@ function advance(db: MockDb, job: JobRecord) {
       continue;
     }
     child.steps += 1;
-    if (failsFirstChild && child === job.children[0] && STAGES[child.steps] === "generating") {
+    if (
+      failsFirstChild &&
+      !child.retried &&
+      child === job.children[0] &&
+      STAGES[child.steps] === "generating"
+    ) {
       child.status = "failed";
       child.failed_stage = "generating";
       child.error_code = "LLM_TIMEOUT";
@@ -176,6 +272,66 @@ function requireClassChild(childId: unknown): Response | null {
 }
 
 export const handlers = [
+  http.post(apiPath("/children/:childId/observation-jobs"), async ({ request, params }) => {
+    const childId = String(params.childId);
+    const denied = requireClassChild(childId);
+    if (denied) return denied;
+    const body = (await request.json()) as Partial<ObservationJobCreateRequest>;
+    if (
+      typeof body.request_id !== "string" ||
+      typeof body.month !== "string" ||
+      !/^\d{4}-(0[1-9]|1[0-2])$/.test(body.month)
+    ) {
+      return validationError("body", "request_id, YYYY-MM 형식의 month가 필요합니다");
+    }
+    const { request_id: requestId, month } = body;
+    if (month > kstToday().slice(0, 7)) {
+      return errorResponse(400, "INVALID_RECORD_DATE", "미래 월의 관찰일지를 만들 수 없어요.");
+    }
+    const job = updateDb((db) => {
+      const repeated = Object.values(db.jobs).find(
+        (item) =>
+          item.request_id === requestId ||
+          (item.doc_type === "observation_log" &&
+            item.record_date === `${month}-01` &&
+            item.children.some((child) => child.child_id === childId && !isFinished(child))),
+      );
+      if (repeated) return repeated;
+      const notes = monthlyNotes(db, childId, month);
+      if (notes.length === 0) return null;
+      const now = nowIso();
+      const created: JobRecord = {
+        job_id: nextId(db, "job"),
+        request_id: requestId,
+        class_id: notes[0]!.class_id,
+        doc_type: "observation_log",
+        record_date: `${month}-01`,
+        media_ids: [],
+        children: [
+          {
+            child_id: childId,
+            steps: 0,
+            status: "pending",
+            outcome: null,
+            unclassified_reason: null,
+            failed_stage: null,
+            error_code: null,
+            drafts: [],
+          },
+        ],
+        created_at: now,
+        updated_at: now,
+      };
+      db.jobs[created.job_id] = created;
+      return created;
+    });
+    if (!job) return errorResponse(409, "NO_TARGET_CHILDREN", "이 달에 게시된 알림장이 없어요.");
+    return HttpResponse.json<Job>(jobView(job), {
+      status: 202,
+      headers: { Location: apiPath(`/jobs/${job.job_id}`) },
+    });
+  }),
+
   http.post(apiPath("/classes/:classId/jobs"), async ({ request, params }) => {
     const classId = String(params.classId);
     const denied = requireTeacherOfClass(classId);
@@ -200,6 +356,7 @@ export const handlers = [
 
       const running = Object.values(db.jobs).find(
         (job) =>
+          job.doc_type !== "observation_log" &&
           job.class_id === classId &&
           job.record_date === recordDate &&
           job.children.some((child) => !isFinished(child)),
@@ -276,6 +433,48 @@ export const handlers = [
     return HttpResponse.json<Job>(jobView(job));
   }),
 
+  // 임시 결정(정은): 실패한 원아만 처음부터 다시 돌립니다(docs/api/agents.md §재시도). 성공·미분류 원아는 그대로 둡니다.
+  http.post(apiPath("/jobs/:jobId/retry"), ({ params }) => {
+    const denied = requireTeacher();
+    if (denied) return denied;
+    const outcome = updateDb((db) => {
+      const found = db.jobs[String(params.jobId)];
+      if (!found) return { error: "not_found" as const };
+      const classDenied = requireTeacherOfClass(found.class_id);
+      if (classDenied) return { error: "denied" as const, response: classDenied };
+      if (found.children.some((child) => !isFinished(child))) {
+        return { error: "running" as const };
+      }
+      const retryable = found.children.filter(isRetryableChild);
+      if (retryable.length === 0) return { error: "not_retryable" as const };
+      for (const child of retryable) {
+        child.status = "pending";
+        child.steps = 0;
+        child.failed_stage = null;
+        child.error_code = null;
+        child.retried = true;
+      }
+      found.updated_at = nowIso();
+      return { job: found };
+    });
+    if ("error" in outcome) {
+      if (outcome.error === "denied") return outcome.response;
+      if (outcome.error === "not_found") {
+        return errorResponse(404, "JOB_NOT_FOUND", "작업을 찾을 수 없어요.");
+      }
+      if (outcome.error === "running") {
+        return errorResponse(409, "JOB_ALREADY_RUNNING", "이미 처리하고 있어요.", {
+          job_id: String(params.jobId),
+        });
+      }
+      return errorResponse(409, "JOB_NOT_RETRYABLE", "다시 시도할 수 있는 실패가 없어요.");
+    }
+    return HttpResponse.json<Job>(jobView(outcome.job), {
+      status: 202,
+      headers: { Location: apiPath(`/jobs/${outcome.job.job_id}`) },
+    });
+  }),
+
   // (가정) API 문서에는 경로만 있습니다(정은 님이 agents 페이지에 채울 예정). 목은 그 반·날짜의 Job 목록을 최신순으로 줍니다.
   // 조회만 하고 진행시키지 않습니다. 진행은 GET /jobs/{job_id} 폴링이 합니다.
   http.get(apiPath("/classes/:classId/jobs"), ({ request, params }) => {
@@ -307,6 +506,10 @@ export const handlers = [
     const body = (await request.json()) as TeacherEvidenceUpsertRequest;
     if (!body.text?.trim()) {
       return errorResponse(422, "VALIDATION_ERROR", "관찰 내용을 적어 주세요.");
+    }
+    if ([...body.text.trim()].length > SERVER_EVIDENCE_TEXT_LIMIT) {
+      // 실제 서버는 공통 검증 핸들러가 메시지를 이 문구로 통일합니다(backend/main.py, H-4).
+      return errorResponse(422, "VALIDATION_ERROR", "입력한 값을 다시 확인해 주세요.");
     }
     const childId = String(params.childId);
     const recordDate = String(params.recordDate);

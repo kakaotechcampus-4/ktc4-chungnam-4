@@ -29,10 +29,7 @@ export function ForbiddenPage() {
         subtitle="현재 계정으로 접근할 수 있는 반과 원아를 확인해 주세요."
         focusOnMount
       />
-      <FocusCard
-        centered
-        className="min-h-status-card justify-center motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300"
-      >
+      <FocusCard centered className="min-h-status-card justify-center motion-safe:animate-enter">
         <LockKeyhole aria-hidden="true" className="size-12 text-line" strokeWidth={1.5} />
         <h2 className="text-h3 font-bold text-ink">계정 또는 반을 확인해 주세요</h2>
         <p className="text-nav text-ink-muted">
@@ -40,16 +37,22 @@ export function ForbiddenPage() {
           접근이 필요하다면 담당 교사나 관리자에게 문의해 주세요.
         </p>
         <Button asChild>
-          <Link to={home}>내 홈으로 돌아가기</Link>
+          <Link viewTransition to={home}>
+            내 홈으로 돌아가기
+          </Link>
         </Button>
         <button
           type="button"
           disabled={logout.isPending}
           onClick={() => logout.mutate()}
-          className="flex items-center gap-2 rounded-xs text-body font-bold text-brand-ink outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+          className="group flex items-center gap-2 rounded-xs text-body font-bold text-brand-ink outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
         >
           다른 계정으로 로그인
-          <ArrowRight aria-hidden="true" className="size-4" />
+          {/* 올리거나 초점이 오면 화살표가 앞으로 나가, 눌러서 넘어가는 버튼임을 알립니다. */}
+          <ArrowRight
+            aria-hidden="true"
+            className="size-4 transition-transform duration-300 ease-soft motion-safe:group-hover:translate-x-1 motion-safe:group-focus-visible:translate-x-1"
+          />
         </button>
         <p className="text-caption text-ink-muted">원아의 사진과 기록은 표시되지 않아요.</p>
       </FocusCard>

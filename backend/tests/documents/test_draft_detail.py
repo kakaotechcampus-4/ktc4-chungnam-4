@@ -172,6 +172,22 @@ def test_승인_전_초안도_문장별_근거와_사진을_담아_교사에게_
     assert body["selected_media_ids"] == [str(SELECTED), str(PHOTO)]
     assert (body["published_at"], body["include_photos"]) == (None, None)
     assert "ai_version" not in body
+    # 알림장은 양식의 칸이 없다
+    assert body["sections"] == []
+
+
+def test_관찰일지는_양식의_칸_이름을_양식_순서대로_싣는다(client, db):
+    center_id, draft = _draft(db)
+    draft.doc_type = DocType.OBSERVATION_LOG.value
+    db.commit()
+    _login_as_teacher(center_id)
+
+    body = client.get(f"/api/v1/drafts/{draft.id}").json()
+
+    expected = documents_service.agents_service.observation_log_sections()
+    assert expected  # 칸이 하나도 없으면 화면이 빈 표를 그리게 된다
+    assert body["sections"] == expected
+    assert all(isinstance(name, str) and name for name in body["sections"])
 
 
 def test_게시한_초안은_게시_시각과_사진_함께_보내기를_싣는다(client, db):
@@ -195,6 +211,21 @@ def test_게시한_초안은_게시_시각과_사진_함께_보내기를_싣는�
 
     assert body["published_at"].removesuffix("Z") == "2026-10-27T08:40:00"
     assert body["include_photos"] is False
+
+
+def test_처음_만든_시각을_싣고_교사가_고친_시각과_구분한다(client, db):
+    """관찰일지 생성 결과 화면의 "9월 30일에 만들었어요"에 쓴다 (#263)."""
+    center_id, draft = _draft(db)
+    draft.created_at = datetime(2026, 10, 27, 9, 0, tzinfo=UTC)
+    draft.updated_at = datetime(2026, 10, 28, 15, 0, tzinfo=UTC)  # 교사가 다음 날 고침
+    db.commit()
+    _login_as_teacher(center_id)
+
+    body = client.get(f"/api/v1/drafts/{draft.id}").json()
+
+    # 테스트 DB(SQLite)는 시간대를 저장하지 않아 "Z"가 빠진다. PostgreSQL은 timestamptz라 UTC로 온다.
+    assert body["created_at"].removesuffix("Z") == "2026-10-27T09:00:00"
+    assert body["updated_at"].removesuffix("Z") == "2026-10-28T15:00:00"
 
 
 def test_볼_때마다_교사_열람_기록이_남는다(client, db):

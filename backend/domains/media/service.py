@@ -7,7 +7,7 @@
 import logging
 import tempfile
 import time as clock
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from functools import cache
@@ -19,7 +19,7 @@ import boto3
 from botocore.client import BaseClient
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import ColumnElement, delete, or_, select, update
 from sqlalchemy.orm import Session
 
 from core.config import get_settings
@@ -45,6 +45,7 @@ from domains.media.models import MediaAsset, MediaChildLink, MediaUpload, Transc
 from domains.organization.service import (
     ensure_children_in_class,
     ensure_class_access,
+    get_class_enrolled_child_names,
     get_consented_children,
 )
 
@@ -138,6 +139,7 @@ def save_child_links(
     center_id: UUID | None,
     attributions: Sequence[Attribution],
     llm_allowed: bool,
+    ensure_not_generating: Callable[[Session, UUID, date], None] | None = None,
 ) -> tuple[MediaAsset, list[MediaChildLink]]:
     """교사가 고른 귀속과 `llm_allowed`를 저장합니다 (FR-04, FR-14, `PUT /media/{id}/child-links`).
 
@@ -152,6 +154,9 @@ def save_child_links(
     - 파기된 미디어: `MediaDeleted`(409). 파일이 없어 근거로 쓸 수 없으니 귀속도 받지 않습니다 —
       임시 결정(김동건). 재발급처럼 반 판정 뒤에 봐서 남의 미디어가 파기됐는지 알려 주지 않습니다
     - 미디어가 속한 반의 원아가 아님: `ChildNotInClass`(400)
+    - 그 반·날짜의 초안을 만드는 중: `ensure_not_generating`이 올리는 `JobAlreadyRunning`(409).
+      생성 도중 바꾼 귀속이 초안에 반영되지 않아 옮긴 사진이 이전 원아에게 남습니다(#304 4-23).
+      agents 판정이라 순환 import를 피하려고 부르는 쪽(라우터)이 넘깁니다
     - 검사에 걸리면 아무것도 바꾸지 않습니다. flush만 하므로 커밋은 부르는 쪽이 합니다.
     """
     asset = db.get(MediaAsset, media_id)
@@ -160,6 +165,8 @@ def save_child_links(
     ensure_class_access(db, asset.class_id, center_id)
     if asset.storage_tier == "deleted":
         raise MediaDeleted("보관 기간이 끝나 삭제된 파일이에요.")
+    if ensure_not_generating is not None:
+        _ensure_not_generating_on_upload_date(db, asset, ensure_not_generating)
     ensure_children_in_class(db, asset.class_id, [link.child_id for link in attributions])
     links = save_attributions(db, media_id, attributions, llm_allowed)
     return asset, links
@@ -171,6 +178,33 @@ def save_child_links(
 
 # 날짜만 있는 값(record_date·target_date)은 한국 시간 기준 하루입니다 (테크스펙 공통 API 규약).
 _KST = ZoneInfo("Asia/Seoul")
+
+
+def _kst_date_of(moment: datetime) -> date:
+    """그 시각의 한국 날짜. naive면 UTC로 봅니다."""
+    aware = moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+    return aware.astimezone(_KST).date()
+
+
+def _ensure_not_generating_on_upload_date(
+    db: Session,
+    asset: MediaAsset,
+    ensure_not_generating: Callable[[Session, UUID, date], None],
+) -> None:
+    """이 미디어를 올린 날(KST)의 초안을 만드는 중이면 귀속 변경을 막습니다 (#304 4-23, C-0).
+
+    초안이 이 미디어를 쓰는 날짜는 촬영일이 아니라 업로드 확인일(`_uploaded_on`)이라 잠금도 같은
+    날짜로 봅니다. 업로드 확인 기록이 없으면 어느 날 초안에도 들어가지 않으니 막지 않습니다.
+    """
+    verified_at = db.scalars(
+        select(MediaUpload.verified_at).where(
+            MediaUpload.media_id == asset.id, MediaUpload.verified_at.is_not(None)
+        )
+    ).first()
+    if verified_at is not None:
+        ensure_not_generating(db, asset.class_id, _kst_date_of(verified_at))
+
+
 # ③ 얼굴특징정보처리 동의는 얼굴이 담기는 사진·영상에만 봅니다.
 _FACE_MEDIA_TYPES = frozenset({"photo", "video"})
 # ConsentRecord.consent_type에 저장되는 ③ 동의 영문 값입니다 (#38).
@@ -228,8 +262,25 @@ def _kst_day_range(target_date: date) -> tuple[datetime, datetime]:
     return start, start + timedelta(days=1)
 
 
+def _uploaded_on(target_date: date) -> ColumnElement[bool]:
+    """그 날짜(KST)에 업로드 확인을 마친 미디어인지 거르는 조건 (C-0, 11/11 팀 결정).
+
+    기록 날짜는 촬영 시각(`captured_at`)이 아니라 업로드한 날입니다 — 지난날 찍은 자료도 오늘
+    올리면 오늘 기록입니다. 업로드한 날은 S3 실측을 마친 시각(`MediaUpload.verified_at`)으로 봅니다.
+    """
+    start, end = _kst_day_range(target_date)
+    return MediaAsset.id.in_(
+        select(MediaUpload.media_id).where(
+            MediaUpload.media_id.is_not(None),
+            MediaUpload.verified_at >= start,
+            MediaUpload.verified_at < end,
+        )
+    )
+
+
 def collect_media_for_llm(db: Session, child_id: UUID, target_date: date) -> list[MediaEvidence]:
-    """그 원아에게 귀속된 그 날짜(KST) 미디어 중 LLM 근거로 써도 되는 것만 돌려줍니다 (H-2, FR-07).
+    """그 원아에게 귀속된, 그 날짜(KST)에 업로드된 미디어 중 LLM 근거로 써도 되는 것만 돌려줍니다
+    (H-2, FR-07). 촬영일은 보지 않습니다(`_uploaded_on`).
 
     세 가지를 모두 통과해야 합니다.
     - 교사가 확정한 `llm_allowed`가 참
@@ -245,7 +296,6 @@ def collect_media_for_llm(db: Session, child_id: UUID, target_date: date) -> lis
         # datetime을 받으면 한국 시간 날짜로 읽습니다. naive면 UTC로 봅니다(DB는 UTC 저장).
         aware = target_date if target_date.tzinfo else target_date.replace(tzinfo=UTC)
         target_date = aware.astimezone(_KST).date()
-    start, end = _kst_day_range(target_date)
 
     assets = db.scalars(
         select(MediaAsset)
@@ -254,8 +304,7 @@ def collect_media_for_llm(db: Session, child_id: UUID, target_date: date) -> lis
             MediaChildLink.child_id == child_id,
             MediaAsset.llm_allowed.is_(True),
             MediaAsset.storage_tier != "deleted",
-            MediaAsset.captured_at >= start,
-            MediaAsset.captured_at < end,
+            _uploaded_on(target_date),
         )
         .order_by(MediaAsset.captured_at)
     ).all()
@@ -327,18 +376,16 @@ def find_unready_media(
     """초안 생성 작업을 시작하기 전에, 보낸 미디어 중 아직 쓸 수 없는 것을 돌려줍니다.
 
     완료 통지 전(행 없음)이거나, 귀속 저장 전(`attributed_at` null)이거나, STT 중(`transcript_status`
-    pending)이거나, 파기됐거나, 이 반·날짜(KST)의 자료가 아니면 걸립니다 (docs/api/agents.md
-    `MEDIA_NOT_READY`). STT가 failed면 발화 없이 쓰므로 준비된 것으로 봅니다. 보낸 순서를 지킵니다.
+    pending)이거나, 파기됐거나, 이 반의 자료가 아니거나 그 날짜(KST)에 업로드된 자료가 아니면
+    걸립니다 — 촬영일은 보지 않습니다(docs/api/agents.md `MEDIA_NOT_READY`). STT가 failed면 발화 없이 쓰므로 준비된 것으로 봅니다. 보낸 순서를 지킵니다.
     """
-    start, end = _kst_day_range(target_date)
     ready = set(
         db.scalars(
             select(MediaAsset.id).where(
                 MediaAsset.id.in_(media_ids),
                 MediaAsset.class_id == class_id,
                 MediaAsset.storage_tier != "deleted",
-                MediaAsset.captured_at >= start,
-                MediaAsset.captured_at < end,
+                _uploaded_on(target_date),
                 MediaAsset.attributed_at.is_not(None),
                 # 사진은 null. STT 전에 시작하면 발화 없이 초안이 만들어집니다(#219 리뷰)
                 or_(
@@ -352,12 +399,11 @@ def find_unready_media(
 
 
 def get_attributed_children(db: Session, class_id: UUID, target_date: date) -> list[UUID]:
-    """그 반·날짜(KST)에 귀속된 자료가 하나라도 있는 원아 (초안 생성 대상, docs/api/agents.md).
+    """그 반·날짜(KST)에 업로드된 귀속 자료가 하나라도 있는 원아 (초안 생성 대상, docs/api/agents.md).
 
     ③ 미동의 원아도 빼지 않습니다. 그 원아가 귀속된 사진은 `collect_media_for_llm`이 LLM
-    근거에서 뺍니다(H-2·H-3). 파기된 미디어의 귀속은 세지 않습니다.
+    근거에서 뺍니다(H-2·H-3). 파기된 미디어의 귀속은 세지 않습니다. 날짜는 업로드한 날입니다.
     """
-    start, end = _kst_day_range(target_date)
     return list(
         db.scalars(
             select(MediaChildLink.child_id)
@@ -365,8 +411,7 @@ def get_attributed_children(db: Session, class_id: UUID, target_date: date) -> l
             .where(
                 MediaAsset.class_id == class_id,
                 MediaAsset.storage_tier != "deleted",
-                MediaAsset.captured_at >= start,
-                MediaAsset.captured_at < end,
+                _uploaded_on(target_date),
             )
             .distinct()
             .order_by(MediaChildLink.child_id)
@@ -552,6 +597,22 @@ def get_media_meta(db: Session, media_ids: Sequence[UUID]) -> dict[UUID, MediaMe
     }
 
 
+def get_segment_end_ms(db: Session, segment_ids: Sequence[UUID]) -> dict[UUID, int]:
+    """발화 구간의 끝 시각을 밀리초로 찾아 줍니다 (FR-07).
+
+    agents가 근거 구간을 교사 화면 모양으로 바꿀 때 씁니다. 끝 시각이 없는 구간은 빼고 돌려줍니다.
+    """
+    unique_ids = list(dict.fromkeys(segment_ids))
+    if not unique_ids:
+        return {}
+    rows = db.execute(
+        select(TranscriptSegment.id, TranscriptSegment.end_time).where(
+            TranscriptSegment.id.in_(unique_ids), TranscriptSegment.end_time.is_not(None)
+        )
+    ).all()
+    return {row.id: round(row.end_time * 1000) for row in rows}
+
+
 @dataclass(frozen=True)
 class SignedMediaUrl:
     """근거 미디어를 재생·표시할 서명 URL. 모든 도메인이 이 모양 하나로 씁니다(docs/api/media-face.md).
@@ -689,14 +750,14 @@ def get_download_url(db: Session, media_id: UUID) -> MediaDownload:
 def list_child_media(
     db: Session, child_id: UUID, target_date: date, *, types: frozenset[str]
 ) -> list[MediaMeta]:
-    """그 원아에게 귀속된 그 날짜(KST) 미디어 중 파기되지 않은 것. 촬영 순서입니다.
+    """그 원아에게 귀속된, 그 날짜(KST)에 업로드된 미디어 중 파기되지 않은 것. 촬영 순서입니다.
+    날짜는 `collect_media_for_llm`과 같이 업로드한 날로 봅니다(`_uploaded_on`).
 
     교사가 확정한 귀속(`MediaChildLink`)만 봅니다. `collect_media_for_llm`과 달리
     `llm_allowed`와 ③ 동의는 보지 않습니다 — LLM 경로가 아니라 사람에게 보여 주는 경로라,
     함께 찍힌 아이의 동의는 촬영·공유 범위(②)로 판단합니다. 누구에게 보여 줄지는 부르는 쪽이
     정합니다(H-1).
     """
-    start, end = _kst_day_range(target_date)
     rows = db.execute(
         select(MediaAsset.id, MediaAsset.type, MediaAsset.captured_at)
         .join(MediaChildLink, MediaChildLink.media_id == MediaAsset.id)
@@ -704,8 +765,7 @@ def list_child_media(
             MediaChildLink.child_id == child_id,
             MediaAsset.type.in_(types),
             MediaAsset.storage_tier != "deleted",
-            MediaAsset.captured_at >= start,
-            MediaAsset.captured_at < end,
+            _uploaded_on(target_date),
         )
         .order_by(MediaAsset.captured_at)
     ).all()
@@ -1180,6 +1240,7 @@ def complete_upload(
     captured_at: datetime,
     model_version: str | None,
     attribution: AttributionInput | None,
+    ensure_not_generating: Callable[[Session, UUID, date], None] | None = None,
 ) -> CompletedUpload:
     """업로드 완료 통지를 받아 `MediaAsset`을 확정합니다 (FR-15, `POST /media`).
 
@@ -1218,6 +1279,10 @@ def complete_upload(
     if record.media_id is not None:
         asset = db.get(MediaAsset, record.media_id)
         if attribution is not None:
+            # 다시 보낸 귀속이 바뀌었을 때만 생성 중 잠금을 본다(#304 4-23). 같은 귀속의 재전송은
+            # 응답이 끊긴 뒤의 재시도라 막지 않는다.
+            if ensure_not_generating is not None and _attribution_changed(db, asset, attribution):
+                _ensure_not_generating_on_upload_date(db, asset, ensure_not_generating)
             save_attributions(db, asset.id, attribution.child_links, attribution.llm_allowed)
         return CompletedUpload(
             asset=asset, child_links=_child_links_of(db, asset.id), created=False
@@ -1254,6 +1319,12 @@ def complete_upload(
     )
 
 
+def _attribution_changed(db: Session, asset: MediaAsset, attribution: AttributionInput) -> bool:
+    current = {link.child_id for link in _child_links_of(db, asset.id)}
+    sent = {link.child_id for link in attribution.child_links}
+    return current != sent or asset.llm_allowed != attribution.llm_allowed
+
+
 # STT 진행 상태 (MediaAsset.transcript_status, 파이프라인 1-B)
 TRANSCRIPT_PENDING = "pending"
 TRANSCRIPT_DONE = "done"
@@ -1286,11 +1357,14 @@ def transcribe_media(media_id: str) -> None:
         if asset.transcript_status != TRANSCRIPT_PENDING:
             return
         storage_key, source = asset.storage_url, _TRANSCRIPT_SOURCE[asset.type]
+        # 교사가 호칭이나 성명으로 부른 원아 이름을 같은 글자로 받아 적게, 반 재원 원아의 [호칭, 성명]을
+        # 넘깁니다. 졸업·퇴소 원아의 실명은 밖으로 보내지 않습니다(#269 리뷰)
+        names = list(get_class_enrolled_child_names(session, asset.class_id).values())
 
     started = clock.monotonic()
     try:
         chunks = _speech_chunks(storage_key)
-        speech = stt.transcribe_chunks(chunks) if chunks else []
+        speech = stt.transcribe_chunks(chunks, names=names) if chunks else []
     except (audio.AudioExtractionError, stt.SttError, ClientError, BotoCoreError) as error:
         logger.warning("transcription failed for media %s: %s", media_id, type(error).__name__)
         mark_transcription_failed(media_id)

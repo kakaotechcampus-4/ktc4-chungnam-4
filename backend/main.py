@@ -84,6 +84,27 @@ def handle_request_validation_error(
     )
 
 
+@app.exception_handler(Exception)
+def handle_unexpected_error(_request: Request, _error: Exception) -> JSONResponse:
+    """처리하지 못한 예외도 공통 에러 형식으로 답합니다 (테크스펙 §공통 API 규약 "500 서버").
+
+    기본 응답은 JSON이 아닌 "Internal Server Error" 텍스트라 프론트가 code로 분기하지
+    못합니다. Redis가 꺼졌을 때 작업 시작 API에서 확인했습니다 (#304 4-5). 예외 원문은
+    실명·토큰이 섞일 수 있어 응답에 싣지 않고(H-4), 추적 기록은 Starlette가 그대로 남깁니다.
+    코드 INTERNAL_ERROR는 Job error_code와 같은 단어로 맞춘 임시 결정(김동건)입니다.
+    """
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": "요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.",
+                "detail": None,
+            }
+        },
+    )
+
+
 @app.get("/health", tags=["health"])
 def health() -> dict[str, str]:
     return {"status": "ok"}

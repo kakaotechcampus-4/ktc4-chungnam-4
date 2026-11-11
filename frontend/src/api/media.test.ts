@@ -20,6 +20,19 @@ describe("uploadContentType", () => {
   it("모르는 확장자는 빈 값으로 두어 서버가 사유와 함께 거절하게 한다", () => {
     expect(uploadContentType({ name: "합성.zip", type: "" })).toBe("");
   });
+
+  // 일부 기기·브라우저는 형식을 모르면 빈 값 대신 octet-stream을 줍니다(#304 4-9).
+  it("octet-stream이면 확장자로 채운다", () => {
+    expect(uploadContentType({ name: "합성.m4a", type: "application/octet-stream" })).toBe(
+      "audio/mp4",
+    );
+  });
+
+  it("octet-stream인데 모르는 확장자면 그대로 보내 서버가 사유와 함께 거절하게 한다", () => {
+    expect(uploadContentType({ name: "합성.zip", type: "application/octet-stream" })).toBe(
+      "application/octet-stream",
+    );
+  });
 });
 
 describe("uploadFile", () => {

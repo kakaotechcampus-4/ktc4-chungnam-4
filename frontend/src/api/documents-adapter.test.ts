@@ -6,6 +6,7 @@ import type {
   Evidence,
   ParentMediaList,
   PublicationResult,
+  SelectableMedia,
   Sentence,
 } from "@/types/api-draft/documents";
 import type { MediaUrl } from "@/types/api-draft/media";
@@ -14,19 +15,20 @@ import {
   canApprove,
   canReopen,
   canSaveParentMedia,
+  canSelectMedia,
   toParentMediaListView,
   didSendPhotos,
   isNotReady,
   isPublishTarget,
   needsReview,
   isPublished,
-  selectablePhotos,
   selectedPhotos,
   sentPhotos,
   toClassDraftView,
   toDraftStatusView,
   toDraftView,
   toPublicationResultView,
+  toSelectableMediaView,
 } from "./documents-adapter";
 import type { DraftSummaryView, DraftView, RosterStatusView } from "./documents-view";
 
@@ -174,26 +176,6 @@ describe("사진", () => {
     expect(selectedPhotos(undefined)).toEqual([]);
   });
 
-  // 9주차 리뷰 4번: 교사가 보낼 사진을 고를 수 있어야 합니다. 후보는 초안 상세가 싣는 사진뿐입니다.
-  it("고를 수 있는 사진은 아직 안 고른 사진이고, 영상·음성은 뺀다", () => {
-    const other = { ...PHOTO, media_id: "other-photo" };
-    const failed = { ...PHOTO, media_id: "failed-photo" };
-    const video = { ...PHOTO, media_id: "video-1", type: "video" as const };
-    const voice = { ...PHOTO, media_id: "voice-1", type: "voice_memo" as const };
-    const view = toDraftView(
-      detail({
-        failed_media_ids: [failed.media_id],
-        media: [PHOTO, other, failed, video, voice],
-      }),
-    );
-    // 이미 고른 PHOTO는 후보에서 빠지고, 분석 실패 사진은 교사가 눈으로 보고 고를 수 있다.
-    expect(selectablePhotos(view).map((media) => media.media_id)).toEqual([
-      "other-photo",
-      "failed-photo",
-    ]);
-    expect(selectablePhotos(undefined)).toEqual([]);
-  });
-
   // 알림장 상세는 "학부모가 받은 것"을 보는 자리라 실제로 나간 사진만 봅니다.
   it("학부모에게 나간 사진은 include_photos가 true일 때만이다", () => {
     expect(sentPhotos(toDraftView(detail({ include_photos: true })))).toEqual([PHOTO]);
@@ -212,6 +194,60 @@ describe("사진", () => {
     expect(selectedPhotos(view)).toEqual([]);
     // 근거 패널이 쓰므로 미디어 자체는 버리지 않습니다.
     expect(view.media).toEqual([PHOTO, voice]);
+  });
+
+  // 음성메모만 학부모에게 가지 않습니다(테크스펙 D-4). 빼면 고른 영상이 화면에서 사라집니다.
+  it("고른 영상은 사진과 함께 고른 순서대로 나온다", () => {
+    const video: MediaUrl = { ...PHOTO, media_id: fixtureId("media", 45), type: "video" };
+    const view = toDraftView(
+      detail({
+        selected_media_ids: [video.media_id, PHOTO.media_id],
+        media: [PHOTO, video],
+        include_photos: true,
+      }),
+    );
+
+    expect(selectedPhotos(view)).toEqual([video, PHOTO]);
+    expect(sentPhotos(view)).toEqual([video, PHOTO]);
+  });
+
+  it("고를 후보는 문서에 있는 필드만 옮긴다", () => {
+    const raw = {
+      media_id: PHOTO.media_id,
+      type: "video",
+      url: PHOTO.url,
+      url_expires_at: PHOTO.url_expires_at,
+      captured_at: "2026-10-06T01:10:00Z",
+      storage_url: "media/secret",
+    } as SelectableMedia;
+
+    const view = toSelectableMediaView(raw);
+
+    expect(view).toEqual({
+      media_id: PHOTO.media_id,
+      type: "video",
+      url: PHOTO.url,
+      url_expires_at: PHOTO.url_expires_at,
+      captured_at: "2026-10-06T01:10:00Z",
+    });
+    expect(canSelectMedia(view)).toBe(true);
+  });
+
+  // 모르는 종류를 고르게 하면 무엇이 학부모에게 나갈지 알 수 없습니다(H-1 방향).
+  it("모르는 종류의 후보는 unknown으로 두고 고를 수 없다", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const view = toSelectableMediaView({
+      media_id: PHOTO.media_id,
+      type: "hologram" as SelectableMedia["type"],
+      url: PHOTO.url,
+      url_expires_at: PHOTO.url_expires_at,
+      captured_at: "2026-10-06T01:10:00Z",
+    });
+
+    expect(view.type).toBe("unknown");
+    expect(canSelectMedia(view)).toBe(false);
+    warn.mockRestore();
   });
 });
 
@@ -242,11 +278,13 @@ describe("문장과 근거", () => {
 
     expect(view.sentences).toEqual([
       {
+        section: null,
         sentence_id: "s1",
         text: "블록을 쌓았어요.",
         is_edited_by_teacher: true,
         evidences: [
           {
+            source_document_id: null,
             evidence_id: "ev-0",
             source_type: "video_speech",
             text: "블록 탑을 높이 쌓았어요.",

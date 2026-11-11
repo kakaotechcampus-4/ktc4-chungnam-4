@@ -430,6 +430,53 @@ def test_교사가_손댄_문서는_버전이_같아도_재생성_결과로_덮�
     assert row.ai_version == 1
 
 
+def test_관찰일지는_승인했다가_되돌린_뒤_재생성_결과로_바뀐다():
+    # 내려받으려고 승인한 관찰일지도 같은 달을 다시 만들 수 있어야 한다 (#284).
+    db = _session()
+    first = _saved(db, doc_type=DocType.OBSERVATION_LOG)
+    for action in (RevisionAction.APPROVE, RevisionAction.REOPEN):
+        db.add(RevisionLog(draft_id=first.id, editor_id=uuid4(), action=action.value))
+    db.commit()
+
+    draft = save_draft(
+        db,
+        _input(
+            draft_id=first.id,
+            child_id=first.child_id,
+            doc_type=DocType.OBSERVATION_LOG,
+            sentences=_sentences("다시 만든 내용"),
+            ai_version=2,
+        ),
+        expected_version=1,
+    )
+    db.commit()
+
+    assert _stored_sentences(db, draft.id) == [("s1", 0, "다시 만든 내용")]
+    assert db.get(DraftDocument, draft.id, populate_existing=True).version == 2
+
+
+def test_관찰일지도_승인된_상태로는_재생성_결과로_덮어쓰지_않는다():
+    # 이력 가드(②)만 좁히고 상태 가드(①)는 그대로다 — 되돌리지 않은 승인본은 지킨다 (#284).
+    db = _session()
+    first = _saved(db, doc_type=DocType.OBSERVATION_LOG)
+    first.status = DraftStatus.APPROVED.value
+    db.add(RevisionLog(draft_id=first.id, editor_id=uuid4(), action=RevisionAction.APPROVE.value))
+    db.commit()
+
+    with pytest.raises(DraftVersionConflict):
+        save_draft(
+            db,
+            _input(
+                draft_id=first.id,
+                child_id=first.child_id,
+                doc_type=DocType.OBSERVATION_LOG,
+                sentences=_sentences("늦게 도착한 AI 결과"),
+                ai_version=2,
+            ),
+            expected_version=1,
+        )
+
+
 def test_교사가_쓴_문장이_있으면_수정_이력이_없어도_재생성_결과로_덮어쓰지_않는다():
     # 직접 작성 초안은 생성이라 RevisionLog가 없고 t… 문장만 있다 (#139 리뷰, 임시 결정(정은)).
     db = _session()

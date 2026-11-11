@@ -39,8 +39,14 @@ function renderProcessing(initialEntry: string) {
 }
 
 // jsdom의 File은 Node fetch가 본문으로 받지 않아 S3 PUT이 실패합니다. 브라우저에서는 문제없고, 테스트만 Node의 File을 씁니다.
+// 활동 날짜(09/15)와 다른 날 수정한 파일. 기록 날짜는 서버가 업로드일로 정해 촬영 시각을 그대로 보냅니다(C-0).
+const PHOTO_MODIFIED_AT = "2026-09-10T01:00:00.000Z";
+
 function photo(name: string) {
-  return new NodeFile(["x"], name, { type: "image/jpeg" }) as unknown as File;
+  return new NodeFile(["x"], name, {
+    type: "image/jpeg",
+    lastModified: Date.parse(PHOTO_MODIFIED_AT),
+  }) as unknown as File;
 }
 
 describe("ProcessingPage", () => {
@@ -111,7 +117,10 @@ describe("ProcessingPage", () => {
       ),
     );
     const { router } = renderProcessing("/t/today/processing?step=send");
-    expect(await screen.findByRole("alert")).toHaveTextContent("재생성을 반영하지 않았어요");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("재생성을 반영하지 않았어요");
+    // 기존 문서를 지킨 것이지 AI가 실패한 것이 아닙니다(11/07 로컬 통합 시험).
+    expect(alert).not.toHaveTextContent("AI 처리에 실패");
     expect(router.state.location.pathname).toBe("/t/today/processing");
     await userEvent.setup().click(screen.getByRole("button", { name: "결과 확인하기" }));
     expect(router.state.location.pathname).toBe(`/t/today/review/${fixtureId("child", 1)}`);
@@ -254,7 +263,7 @@ describe("ProcessingPage", () => {
       });
       expect(writes[2]?.body).toMatchObject({
         client_photo_id: confirmed!.client_id,
-        captured_at: "2026-09-15T03:00:00.000Z",
+        captured_at: PHOTO_MODIFIED_AT,
         type: "photo",
         llm_allowed: true,
         child_links: [
@@ -361,6 +370,84 @@ describe("ProcessingPage", () => {
     expect(router.state.location.pathname).toBe("/t/today/processing");
   });
 
+  it("원아가 모두 차례를 기다리면 처리 중과 구분해 알린다(#304 4-19)", async () => {
+    const queue = useUploadQueue.getState();
+    queue.addFiles([photo("waiting.jpg")]);
+    const [item] = useUploadQueue.getState().items;
+    queue.setReview(item!.client_id, {
+      review_state: "확정",
+      assigned_child_ids: [fixtureId("child", 1)],
+      excluded_reason: null,
+      llm_allowed: true,
+    });
+    server.use(
+      http.get(apiPath("/jobs/:jobId"), ({ params }) =>
+        HttpResponse.json<Job>({
+          job_id: String(params.jobId),
+          class_id: fixtureId("class", 1),
+          record_date: "2026-09-15",
+          status: "pending",
+          stage: null,
+          progress: { percent: 0, total_children: 1, finished_children: 0 },
+          failed_stage: null,
+          error_code: null,
+          children: [
+            {
+              child_id: fixtureId("child", 1),
+              status: "pending",
+              stage: null,
+              outcome: null,
+              unclassified_reason: null,
+              failed_stage: null,
+              error_code: null,
+              drafts: [],
+            },
+          ],
+          created_at: "2026-09-15T06:30:00Z",
+          updated_at: "2026-09-15T06:30:00Z",
+        }),
+      ),
+    );
+    renderProcessing("/t/today/processing?step=send");
+
+    expect(await screen.findByText(/앞선 작업이 끝나기를 기다리고 있어요/)).toBeInTheDocument();
+  });
+
+  it("서버가 거절한 파일만 빼고 보낸 뒤 확인을 받고 초안 생성으로 넘어간다(#304 4-10)", async () => {
+    const queue = useUploadQueue.getState();
+    queue.addFiles([
+      photo("ok.jpg"),
+      new NodeFile(["x"], "bad.png", { type: "image/gif" }) as unknown as File,
+    ]);
+    for (const item of useUploadQueue.getState().items) {
+      queue.setReview(item.client_id, {
+        review_state: "확정",
+        assigned_child_ids: [fixtureId("child", 1)],
+        excluded_reason: null,
+        llm_allowed: true,
+      });
+    }
+    let creates = 0;
+    server.use(
+      http.post(apiPath("/classes/:classId/jobs"), () => {
+        creates += 1;
+        return errorResponse(409, "NO_TARGET_CHILDREN", "생성할 원아가 없습니다.");
+      }),
+    );
+    renderProcessing("/t/today/processing?step=send");
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("올리지 못한 파일 1개");
+    expect(alert).toHaveTextContent("bad.png");
+    const [ok, bad] = useUploadQueue.getState().items;
+    expect(ok!.upload_state).toBe("확인됨");
+    expect(bad!.upload_state).toBe("실패");
+    expect(creates).toBe(0);
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "이 파일을 빼고 계속" }));
+    await waitFor(() => expect(creates).toBe(1));
+  });
+
   it("초안이 없으면 이유를 확인한 뒤 그날의 초안 검토로 간다", async () => {
     const queue = useUploadQueue.getState();
     queue.addFiles([photo("confirmed.jpg")]);
@@ -412,6 +499,51 @@ describe("ProcessingPage", () => {
     expect(useUploadQueue.getState().items).toEqual([]);
   });
 
+  it("검증 실패는 근거 부족이 아니라 검증 실패로 안내한다(#304 4-15)", async () => {
+    const queue = useUploadQueue.getState();
+    queue.addFiles([photo("confirmed.jpg")]);
+    const [confirmed] = useUploadQueue.getState().items;
+    queue.setReview(confirmed!.client_id, {
+      review_state: "확정",
+      assigned_child_ids: [fixtureId("child", 1)],
+      excluded_reason: null,
+      llm_allowed: true,
+    });
+    server.use(
+      http.get(apiPath("/jobs/:jobId"), ({ params }) =>
+        HttpResponse.json<Job>({
+          job_id: String(params.jobId),
+          class_id: fixtureId("class", 1),
+          record_date: "2026-09-15",
+          status: "succeeded",
+          stage: null,
+          progress: { percent: 100, total_children: 1, finished_children: 1 },
+          failed_stage: null,
+          error_code: null,
+          children: [
+            {
+              child_id: fixtureId("child", 1),
+              status: "succeeded",
+              stage: null,
+              outcome: "unclassified",
+              unclassified_reason: "verification_failed",
+              failed_stage: null,
+              error_code: null,
+              drafts: [],
+            },
+          ],
+          created_at: "2026-09-15T06:30:00Z",
+          updated_at: "2026-09-15T06:31:40Z",
+        }),
+      ),
+    );
+    renderProcessing("/t/today/processing?step=send");
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("사실 검증을 통과하지 못한");
+    expect(alert).not.toHaveTextContent("근거가 부족해요");
+  });
+
   it("작업이 실패해 초안이 없으면 이동하지 않고 알리며 큐도 비우지 않는다", async () => {
     const queue = useUploadQueue.getState();
     queue.addFiles([photo("confirmed.jpg")]);
@@ -453,10 +585,122 @@ describe("ProcessingPage", () => {
     const { router } = renderProcessing("/t/today/processing?step=send");
 
     expect(await screen.findByRole("alert", {}, { timeout: 3000 })).toHaveTextContent(
-      "AI 처리에 실패한 자료가 있어요",
+      "AI 처리에 실패한 아이가 있어요",
     );
+    // 어느 아이가 실패해 이전 버전이 남았는지 이름으로 알린다(#304 4-13).
+    expect(await screen.findByText(/김도윤/)).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/t/today/processing");
     expect(useUploadQueue.getState().items).toHaveLength(1);
+  });
+
+  it("실패한 아이만 다시 시도하면 같은 작업을 이어 보고 끝나면 초안 검토로 간다", async () => {
+    const queue = useUploadQueue.getState();
+    queue.addFiles([photo("confirmed.jpg")]);
+    const [confirmed] = useUploadQueue.getState().items;
+    queue.setReview(confirmed!.client_id, {
+      review_state: "확정",
+      assigned_child_ids: [fixtureId("child", 1)],
+      excluded_reason: null,
+      llm_allowed: true,
+    });
+    const draftId = fixtureId("draft", 1);
+    function job(jobId: string, state: "failed" | "running" | "succeeded"): Job {
+      const finished = state !== "running";
+      return {
+        job_id: jobId,
+        class_id: fixtureId("class", 1),
+        record_date: "2026-09-15",
+        status: state,
+        stage: state === "running" ? "generating" : null,
+        progress: {
+          percent: finished ? 100 : 50,
+          total_children: 1,
+          finished_children: finished ? 1 : 0,
+        },
+        failed_stage: null,
+        error_code: null,
+        children: [
+          {
+            child_id: fixtureId("child", 1),
+            status: state,
+            stage: state === "running" ? "generating" : null,
+            outcome: state === "succeeded" ? "drafted" : null,
+            unclassified_reason: null,
+            failed_stage: null,
+            error_code: state === "failed" ? "LLM_TIMEOUT" : null,
+            drafts: state === "succeeded" ? [{ draft_id: draftId, doc_type: "parent_note" }] : [],
+          },
+        ],
+        created_at: "2026-09-15T06:30:00Z",
+        updated_at: "2026-09-15T06:31:40Z",
+      };
+    }
+    let retried = false;
+    const retryCalls: string[] = [];
+    server.use(
+      http.get(apiPath("/jobs/:jobId"), ({ params }) =>
+        HttpResponse.json<Job>(job(String(params.jobId), retried ? "succeeded" : "failed")),
+      ),
+      http.post(apiPath("/jobs/:jobId/retry"), ({ params }) => {
+        retried = true;
+        retryCalls.push(String(params.jobId));
+        return HttpResponse.json<Job>(job(String(params.jobId), "running"), { status: 202 });
+      }),
+    );
+    const { router } = renderProcessing("/t/today/processing?step=send");
+
+    const button = await screen.findByRole(
+      "button",
+      { name: "실패한 아이만 다시 시도" },
+      { timeout: 3000 },
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("처리 제한 시간이 지났어요");
+    await userEvent.setup().click(button);
+
+    await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/t\/today\/review\//), {
+      timeout: 8000,
+    });
+    expect(retryCalls).toHaveLength(1);
+  }, 15000);
+
+  it("기존 문서를 지키려고 막은 실패만 있으면 다시 시도 버튼을 보여 주지 않는다", async () => {
+    server.use(
+      http.post(apiPath("/classes/:classId/jobs"), () =>
+        errorResponse(409, "JOB_ALREADY_RUNNING", "이미 처리 중", { job_id: fixtureId("job", 9) }),
+      ),
+      http.get(apiPath("/jobs/:jobId"), ({ params }) =>
+        HttpResponse.json<Job>({
+          job_id: String(params.jobId),
+          class_id: fixtureId("class", 1),
+          record_date: "2026-09-15",
+          status: "failed",
+          stage: null,
+          failed_stage: null,
+          error_code: null,
+          progress: { percent: 100, total_children: 1, finished_children: 1 },
+          children: [
+            {
+              child_id: fixtureId("child", 1),
+              status: "failed",
+              stage: null,
+              outcome: null,
+              unclassified_reason: null,
+              failed_stage: null,
+              error_code: "DRAFT_VERSION_CONFLICT",
+              drafts: [],
+            },
+          ],
+          created_at: "2026-09-15T00:00:00Z",
+          updated_at: "2026-09-15T00:00:01Z",
+        }),
+      ),
+    );
+    renderProcessing("/t/today/processing?step=send");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("재생성을 반영하지 않았어요");
+    expect(
+      screen.queryByRole("button", { name: "실패한 아이만 다시 시도" }),
+    ).not.toBeInTheDocument();
   });
 
   it("불러온 자료 없이 들어오면 자료 올리기로 보낸다", async () => {

@@ -1,5 +1,6 @@
 // Figma: 140:4015 (알림장 게시판 · 원아 명단)
 import { useQuery } from "@tanstack/react-query";
+import { LoaderCircle } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import { publishedParentNotesQueryOptions } from "@/api/documents";
@@ -56,7 +57,10 @@ export function ParentNoteBoardPage() {
     return (
       <>
         {header}
-        <p className="text-body text-ink-muted">알림장을 불러오는 중이에요.</p>
+        <p className="flex items-center gap-2 text-body text-ink-muted">
+          <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
+          알림장을 불러오는 중이에요.
+        </p>
       </>
     );
   }
@@ -94,7 +98,8 @@ export function ParentNoteBoardPage() {
         title="우리 반 알림장"
         subtitle="아이를 눌러 알림장을 확인해요."
       />
-      <ul className="divide-y divide-line overflow-hidden rounded-xl bg-paper">
+      {/* 교사가 자주 오가는 화면이라 행을 하나씩 띄우지 않고 명단 카드 전체를 한 번에 짧게 올립니다. */}
+      <ul className="divide-y divide-line overflow-hidden rounded-xl bg-paper motion-safe:animate-enter">
         {children.map((child) => {
           const hasNote = publishedChildIds.has(child.child_id);
           return (
@@ -104,7 +109,7 @@ export function ParentNoteBoardPage() {
                 disabled={!hasNote}
                 onClick={() => navigate(`/t/notes/children/${child.child_id}`)}
                 className={cn(
-                  "flex w-full items-center justify-between px-8 py-7 text-left outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/50",
+                  "group flex w-full items-center justify-between px-8 py-7 text-left outline-none transition-colors duration-200 focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/50",
                   hasNote ? "hover:bg-tint-2" : "cursor-default",
                 )}
               >
@@ -118,7 +123,11 @@ export function ParentNoteBoardPage() {
                     <span className="text-body text-ink-muted">아직 게시된 알림장이 없어요</span>
                   )}
                 </span>
-                {hasNote ? <span className="text-body text-ink-muted">보기 →</span> : null}
+                {hasNote ? (
+                  <span className="text-body text-ink-muted transition-colors duration-200 group-hover:text-brand-ink">
+                    보기 →
+                  </span>
+                ) : null}
               </button>
             </li>
           );

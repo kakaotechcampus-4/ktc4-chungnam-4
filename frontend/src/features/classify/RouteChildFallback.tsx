@@ -1,3 +1,5 @@
+import { LoaderCircle } from "lucide-react";
+
 import { NotFoundPage } from "@/pages/not-found/NotFoundPage";
 
 import type { RouteChild } from "./use-route-child";
@@ -17,7 +19,8 @@ export function RouteChildFallback({ state }: RouteChildFallbackProps) {
     );
   }
   return (
-    <p role="status" className="py-11 text-lead text-ink-muted">
+    <p role="status" className="flex items-center gap-2 py-11 text-lead text-ink-muted">
+      <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
       원아 명단을 불러오는 중이에요
     </p>
   );

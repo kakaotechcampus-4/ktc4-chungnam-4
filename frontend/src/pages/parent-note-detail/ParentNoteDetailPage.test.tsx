@@ -65,6 +65,50 @@ describe("ParentNoteDetailPage", () => {
     expect(screen.queryByText("사진 없이 글만 게시한 알림장이에요.")).not.toBeInTheDocument();
   });
 
+  // 영상도 고를 수 있어 학부모에게 함께 갑니다. 교사 화면에서 빠지면 보낸 것과 본 것이 달라집니다.
+  it("영상을 함께 보낸 알림장은 영상도 video로 보여 준다", async () => {
+    const video = fixtureId("media", 45);
+    server.use(
+      http.get(apiPath("/drafts/:draftId"), () =>
+        HttpResponse.json({
+          draft_id: TWO_DAYS_AGO,
+          child_id: DOYUN,
+          doc_type: "parent_note",
+          record_date: "2026-10-04",
+          status: "approved",
+          version: 4,
+          title: "모래 놀이터",
+          sentences: [
+            {
+              sentence_id: "s1",
+              text: "조개껍데기를 하나씩 모았어요.",
+              is_edited_by_teacher: false,
+              evidences: [],
+            },
+          ],
+          selected_media_ids: [video],
+          media: [
+            {
+              media_id: video,
+              type: "video",
+              url: "https://example.com/v.mp4",
+              url_expires_at: "2026-10-04T09:00:00Z",
+            },
+          ],
+          published_at: "2026-10-04T08:40:00Z",
+          include_photos: true,
+        }),
+      ),
+    );
+    const { container } = renderDetail(TWO_DAYS_AGO);
+    await screen.findByText(/조개껍데기를 하나씩 모았어요/);
+
+    const player = screen.getByLabelText("학부모에게 함께 보낸 영상");
+    expect(player.tagName).toBe("VIDEO");
+    expect(player).toHaveAttribute("src", "https://example.com/v.mp4");
+    expect(container.querySelectorAll("img")).toHaveLength(0);
+  });
+
   // 사진 없이 게시한 알림장은 학부모에게 글만 갔습니다. 교사 화면도 같아야 합니다.
   it("사진 없이 게시한 알림장에는 사진을 보여 주지 않는다", async () => {
     const { container } = renderDetail(THREE_DAYS_AGO);

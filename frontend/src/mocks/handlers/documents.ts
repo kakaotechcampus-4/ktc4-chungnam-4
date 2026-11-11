@@ -1,9 +1,12 @@
 import { http, HttpResponse } from "msw";
 
-import { kstToday } from "@/lib/datetime";
+import { formatDate, kstToday, toKstDate } from "@/lib/datetime";
+import type { ListResponse } from "@/types/api-draft/common";
 import type {
   ChildDraftItem,
   ClassDraftItem,
+  ClassObservationLogItem,
+  ClassObservationLogList,
   DocType,
   DraftApproveRequest,
   DraftCreateRequest,
@@ -22,6 +25,7 @@ import type {
   PublicationRequest,
   PublicationResponse,
   PublicationResult,
+  SelectableMedia,
 } from "@/types/api-draft/documents";
 import type { MediaUrl } from "@/types/api-draft/media";
 
@@ -96,6 +100,7 @@ function detail(db: MockDb, draft: DraftRecord): DraftDetail {
   const published = publishedAtOf(draft);
   const publishedAt = published === null ? null : Date.parse(published);
   return {
+    daily_routine: draft.daily_routine ?? [],
     draft_id: draft.draft_id,
     child_id: draft.child_id,
     doc_type: draft.doc_type,
@@ -104,6 +109,8 @@ function detail(db: MockDb, draft: DraftRecord): DraftDetail {
     version: draft.version,
     title: draft.title,
     sentences: draft.sentences,
+    ...(draft.sections ? { sections: draft.sections } : {}),
+    ...(draft.created_at ? { created_at: draft.created_at } : {}),
     selected_media_ids: draft.selected_media_ids,
     media,
     // 게시할 때 정해지는 값이라 게시 전에는 null입니다(API 문서 §GET /drafts/{draft_id}).
@@ -146,19 +153,24 @@ function parentPhotos(
   return parentMedia(db, draft).slice(0, limit).map(toMediaUrl);
 }
 
-// 서버 _parent_note_media_ids와 같은 범위입니다: 사진을 함께 보내기로 게시한 알림장에서, 교사가 고른
-// 것 중 그 원아에게 귀속된 사진·영상. 함께 찍힌 아이의 ③ 동의와 llm_allowed는 보지 않습니다
-// (테크스펙 D-4, FR-10).
+// 서버 _shareable_media와 같은 범위입니다: 그 원아에게 귀속된 그 기록 날짜(KST)의 사진·영상. 함께 찍힌
+// 아이의 ③ 동의와 llm_allowed는 보지 않습니다(테크스펙 D-4, FR-10). 후보 목록, 고를 때, 볼 때가 함께 씁니다.
+function isShareable(media: MediaRecord | undefined, draft: DraftRecord): media is MediaRecord {
+  return (
+    media !== undefined &&
+    (media.type === "photo" || media.type === "video") &&
+    toKstDate(media.captured_at) === draft.record_date &&
+    media.child_links.some((link) => link.child_id === draft.child_id)
+  );
+}
+
+// 서버 _parent_note_media_ids와 같습니다: 사진을 함께 보내기로 게시한 알림장에서, 교사가 고른 것 중
+// 지금도 보여도 되는 것.
 function parentMedia(db: MockDb, draft: DraftRecord): MediaRecord[] {
   if (!draft.include_photos) return [];
   return draft.selected_media_ids
     .map((id) => db.media[id])
-    .filter(
-      (media): media is MediaRecord =>
-        media !== undefined &&
-        (media.type === "photo" || media.type === "video") &&
-        media.child_links.some((link) => link.child_id === draft.child_id),
-    );
+    .filter((media): media is MediaRecord => isShareable(media, draft));
 }
 
 function toParentMediaItem(media: MediaRecord): ParentMediaItem {
@@ -170,6 +182,19 @@ function toParentMediaItem(media: MediaRecord): ParentMediaItem {
     url,
     url_expires_at,
   };
+}
+
+// 서버 _matching_notes와 같은 규칙입니다. 띄어쓰기·대소문자를 가리지 않고 본문과 날짜에서 찾습니다.
+function searchKey(text: string) {
+  return text.replace(/\s+/g, "").toLowerCase();
+}
+
+function matchesSearch(draft: DraftRecord, keyword: string | null) {
+  const needle = searchKey(keyword ?? "");
+  if (!needle) return true;
+  const sentences = draft.sentences.map((sentence) => sentence.text);
+  const text = [formatDate(draft.record_date), draft.record_date, ...sentences].join(" ");
+  return searchKey(text).includes(needle);
 }
 
 function visibleNotesOfChild(db: MockDb, childId: string) {
@@ -240,6 +265,46 @@ export const handlers = [
     return HttpResponse.json({ items, next_cursor: null });
   }),
 
+  // 월별 관찰일지 목록 목. 명단 순서로 모든 원아가 오고 이름은 없습니다.
+  // 게시된 알림장 수는 기록 날짜가 그 달인 게시본으로 셉니다. 월별 관찰일지는 그달 1일 기록입니다.
+  http.get(apiPath("/classes/:classId/observation-logs"), ({ request, params }) => {
+    const denied = requireTeacherOfClass(params.classId);
+    if (denied) return denied;
+    const month = new URL(request.url).searchParams.get("month");
+    if (month === null || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+      return validationError("query.month", "YYYY-MM이 필요합니다");
+    }
+    const drafts = Object.values(readDb().drafts).filter(
+      (draft) => draft.class_id === params.classId && draft.record_date.startsWith(month),
+    );
+    const items = SUNSHINE_CHILDREN.map((child): ClassObservationLogItem => {
+      const log = drafts.find(
+        (draft) =>
+          draft.child_id === child.child_id &&
+          draft.doc_type === "observation_log" &&
+          draft.record_date === `${month}-01`,
+      );
+      return {
+        child_id: child.child_id,
+        published_note_count: drafts.filter(
+          (draft) =>
+            draft.child_id === child.child_id &&
+            draft.doc_type === "parent_note" &&
+            draft.status === "approved" &&
+            draft.published_at !== null,
+        ).length,
+        observation_log: log
+          ? {
+              draft_id: log.draft_id,
+              status: log.status,
+              created_at: log.created_at ?? log.updated_at,
+            }
+          : null,
+      };
+    });
+    return HttpResponse.json<ClassObservationLogList>({ month, items });
+  }),
+
   // 원아별 문서 목록(알림장 상세의 ‹ › 날짜 이동). record_date 최신순입니다.
   http.get(apiPath("/children/:childId/drafts"), ({ request, params }) => {
     const denied = requireTeacher();
@@ -274,6 +339,34 @@ export const handlers = [
     const classDenied = requireTeacherOfClass(draft.class_id);
     if (classDenied) return classDenied;
     return HttpResponse.json<DraftDetail>(detail(readDb(), draft));
+  }),
+
+  // 알림장에 고를 사진·영상 후보(API 문서 §selectable-media). 권한은 초안 상세와 같고 촬영 순서입니다.
+  http.get(apiPath("/drafts/:draftId/selectable-media"), ({ params }) => {
+    const denied = requireTeacher();
+    if (denied) return denied;
+    const draft = findDraft(params.draftId);
+    if (!draft) return errorResponse(404, "DRAFT_NOT_FOUND", "초안을 찾을 수 없어요.");
+    if (draft.class_id !== SUNSHINE_CLASS.class_id) {
+      return errorResponse(403, "CHILD_ACCESS_DENIED", "이 아이의 기록은 볼 수 없어요.");
+    }
+    if (draft.doc_type !== "parent_note") {
+      return errorResponse(409, "NOT_PARENT_NOTE", "알림장에만 사진을 고를 수 있어요.");
+    }
+    const items = Object.values(readDb().media)
+      .filter((media) => isShareable(media, draft))
+      .sort((a, b) => a.captured_at.localeCompare(b.captured_at))
+      .map((media): SelectableMedia => {
+        const { url, url_expires_at } = toMediaUrl(media);
+        return {
+          media_id: media.media_id,
+          type: media.type as SelectableMedia["type"],
+          url,
+          url_expires_at,
+          captured_at: media.captured_at,
+        };
+      });
+    return HttpResponse.json<ListResponse<SelectableMedia>>({ items, next_cursor: null });
   }),
 
   http.patch(apiPath("/drafts/:draftId"), async ({ request, params }) => {
@@ -314,12 +407,12 @@ export const handlers = [
         return errorResponse(400, "INVALID_SENTENCE_ID", "없는 문장이에요.");
       }
       const selected = body.selected_media_ids;
-      if (
-        selected?.some(
-          (id) => !db.media[id]?.child_links.some((link) => link.child_id === draft.child_id),
-        )
-      ) {
-        return errorResponse(400, "MEDIA_NOT_LINKED_TO_CHILD", "이 원아의 사진이 아니에요.");
+      if (selected?.some((id) => !isShareable(db.media[id], draft))) {
+        return errorResponse(
+          400,
+          "MEDIA_NOT_LINKED_TO_CHILD",
+          "이 원아의 그날 사진·영상만 고를 수 있어요.",
+        );
       }
       for (const edit of edits) {
         const sentence = byId.get(edit.sentence_id);
@@ -508,13 +601,7 @@ export const handlers = [
       if (draft.published_at === null) {
         return errorResponse(409, "DRAFT_NOT_PUBLISHED", "게시 중인 알림장이 아닙니다.");
       }
-      if (db.readParentNotes.includes(draft.draft_id)) {
-        return errorResponse(
-          409,
-          "DRAFT_ALREADY_VIEWED",
-          "학부모가 이미 열어 본 알림장은 회수할 수 없습니다.",
-        );
-      }
+      // 학부모가 열어 봤어도 기한 안이면 회수합니다(#289, 테크스펙 D-6).
       if (Date.parse(publishedAtOf(draft) ?? draft.published_at) + REVOKE_WINDOW_MS <= Date.now()) {
         return errorResponse(
           409,
@@ -536,6 +623,9 @@ export const handlers = [
       draft.published_at = null;
       draft.version += 1;
       draft.updated_at = now;
+      draft.resent = true;
+      // 열람 기록은 게시 회차마다 따로라, 다시 보내면 전에 읽었어도 안 읽은 글이 됩니다.
+      db.readParentNotes = db.readParentNotes.filter((id) => id !== draft.draft_id);
       return HttpResponse.json<DraftRevokeResponse>({
         draft_id: draft.draft_id,
         // 목은 회차를 따로 두지 않습니다. 화면이 쓰지 않는 값이라 초안마다 고정 id를 냅니다.
@@ -619,7 +709,8 @@ export const handlers = [
     }
     const db = readDb();
     const notes = visibleNotesOfChild(db, childId);
-    const page = notes.slice(offset, offset + limit);
+    const found = notes.filter((draft) => matchesSearch(draft, query.get("q")));
+    const page = found.slice(offset, offset + limit);
     const thisMonth = kstToday().slice(0, 7);
     const items = page.map((draft): ParentNoteSummary => ({
       parent_note_id: draft.draft_id,
@@ -628,10 +719,11 @@ export const handlers = [
       preview: previewOf(draft.sentences),
       photos: parentPhotos(db, draft, 3),
       is_read: db.readParentNotes.includes(draft.draft_id),
+      is_resent: draft.resent ?? false,
     }));
     return HttpResponse.json<ParentNoteList>({
       items,
-      next_cursor: offset + limit < notes.length ? String(offset + limit) : null,
+      next_cursor: offset + limit < found.length ? String(offset + limit) : null,
       unread_count: notes.filter((draft) => !db.readParentNotes.includes(draft.draft_id)).length,
       // 게시 시각이 아니라 기록 날짜(KST)로 셉니다(API 문서 §학부모 목록, #174).
       this_month_count: notes.filter((draft) => draft.record_date.slice(0, 7) === thisMonth).length,
@@ -659,6 +751,7 @@ export const handlers = [
         photos: parentPhotos(db, draft),
         author_name: draft.author_name,
         published_at: draft.published_at as string,
+        is_resent: draft.resent ?? false,
         // 목록이 최신순이라 뒤 칸이 이전 게시본입니다.
         prev: link(siblings[index + 1]),
         next: link(siblings[index - 1]),
@@ -685,6 +778,7 @@ export const handlers = [
     }
     const db = readDb();
     const notes = visibleNotesOfChild(db, childId)
+      .filter((draft) => matchesSearch(draft, query.get("q")))
       .map((draft) => ({ draft, media: parentMedia(db, draft) }))
       .filter((note) => note.media.length > 0);
     const all = notes.flatMap((note) => note.media);

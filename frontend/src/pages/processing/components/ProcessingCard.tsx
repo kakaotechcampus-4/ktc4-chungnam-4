@@ -67,8 +67,9 @@ export function ProcessingCard({
   const { steps, hint } = PHASES[phase];
 
   return (
+    // 단계가 바뀌면 이 카드가 새로 그려집니다. 틀은 그대로 두고 제목 줄만 떠오르게 해 같은 카드가 이어지는 것처럼 보이게 합니다.
     <FocusCard centered className="min-h-140 justify-between px-12">
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2 motion-safe:animate-enter">
         <h2 className="text-h3 font-bold text-ink">{title}</h2>
         <p className="text-body text-ink-muted">{detail}</p>
       </div>
@@ -83,8 +84,9 @@ export function ProcessingCard({
           aria-valuenow={percent}
           className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-soft"
         >
+          {/* 공통 Progress와 같은 속도(0.5초, ease-soft)로 맞춥니다. 진행률이 띄엄띄엄 와도 막대는 툭 바뀌지 않고 차오릅니다. */}
           <div
-            className="h-full rounded-full bg-ink transition-all"
+            className="h-full rounded-full bg-ink motion-safe:transition-all motion-safe:duration-500 motion-safe:ease-soft"
             style={{ width: `${percent}%` }}
           />
         </div>
@@ -117,7 +119,9 @@ export function ProcessingCard({
                 />
                 <span className="mt-1">{label}</span>
                 <span className="flex items-center gap-0.5 text-caption font-normal">
-                  {state === "done" ? <Check aria-hidden="true" className="size-3" /> : null}
+                  {state === "done" ? (
+                    <Check aria-hidden="true" className="size-3 motion-safe:animate-pop" />
+                  ) : null}
                   {stopped && state === "current" ? "종료" : STEP_STATE_TEXT[state]}
                 </span>
               </li>

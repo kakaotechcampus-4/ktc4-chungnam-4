@@ -69,7 +69,7 @@ export function UploadPage() {
               onChange={(event) => {
                 if (isDateOnly(event.target.value)) setRecordDate(event.target.value);
               }}
-              className="rounded-md border border-line bg-paper px-3 py-2"
+              className="rounded-md border border-line bg-paper px-3 py-2 outline-none transition-shadow focus-visible:border-brand-ink focus-visible:ring-3 focus-visible:ring-brand-ink/20"
             />
             <span className="text-caption font-normal text-ink-muted">
               선택한 날짜의 알림장에 사용할 자료를 골라 주세요.
@@ -82,9 +82,10 @@ export function UploadPage() {
             }}
             onDragLeave={() => setDragging(false)}
             onDrop={handleDrop}
+            // 파일을 끌고 들어오면 색이 바뀌며 살짝 커져, 여기에 놓으면 담긴다는 것을 보여 줍니다.
             className={cn(
-              "flex flex-col items-center rounded-xl border-2 border-dashed border-brand-ink bg-paper p-10.5 text-center",
-              dragging && "bg-tint-2",
+              "flex flex-col items-center rounded-xl border-2 border-dashed border-brand-ink bg-paper p-10.5 text-center transition duration-200 ease-soft",
+              dragging && "bg-tint-2 motion-safe:scale-101",
             )}
           >
             <span className="flex size-14 items-center justify-center rounded-full bg-leaf-soft text-brand-ink">

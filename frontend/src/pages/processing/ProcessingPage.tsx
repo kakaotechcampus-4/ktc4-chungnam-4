@@ -4,6 +4,7 @@ import { Navigate, useNavigate, useSearchParams } from "react-router";
 
 import type { JobView } from "@/api/agents";
 import { PageHeader } from "@/components/common/PageHeader";
+import { markFreshDrafts } from "@/features/documents/typing-reveal";
 import { useUploadQueue } from "@/features/upload-queue/upload-queue-store";
 
 import { ClassifyStep } from "./components/ClassifyStep";
@@ -44,6 +45,12 @@ export function ProcessingPage() {
       // 고정이라 지난 날짜의 결과를 볼 수 없습니다(#231 리뷰). 초안 검토는 초안 없는 원아도 보여 줍니다.
       const target = job.children.find((child) => child.drafts.length > 0) ?? job.children[0];
       setLeaving(true);
+      // 방금 만든 알림장 초안은 검토 화면에서 처음 한 번 타이핑하듯 보여 줍니다.
+      markFreshDrafts(
+        job.children.flatMap((child) =>
+          child.drafts.filter((draft) => draft.doc_type === "parent_note").map((d) => d.draft_id),
+        ),
+      );
       navigate(
         target
           ? `/t/today/review/${target.child_id}?record_date=${job.record_date}`

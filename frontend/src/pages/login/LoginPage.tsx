@@ -54,13 +54,14 @@ export function LoginPage() {
   const onSubmit = handleSubmit((values) => signIn.mutate(values));
 
   return (
-    <div className="flex w-full max-w-form-sm flex-col items-center">
+    <div className="flex w-full max-w-form-sm flex-col items-center motion-safe:animate-enter">
       <div className="mb-15 flex w-full flex-col items-center gap-5">
         <h1 className="text-h2 font-bold text-ink">다시 만나 반가워요</h1>
+        {/* 안내 줄은 화면이 뜰 때 함께 오므로 폼과 같이 떠오릅니다. 따로 효과를 주면 두 번 떠오릅니다. */}
         {notice ? (
           <p
             role="status"
-            className="flex w-full items-start gap-2 rounded-lg bg-neutral-soft px-4 py-3 text-label text-ink motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 motion-safe:duration-300"
+            className="flex w-full items-start gap-2 rounded-lg bg-neutral-soft px-4 py-3 text-label text-ink"
           >
             <InfoIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-ink-muted" />
             {notice}
@@ -89,11 +90,11 @@ export function LoginPage() {
           />
         </div>
         {errors.root?.server ? (
-          // 시도할 때마다 새로 그려서, 같은 문구로 다시 실패해도 다시 나타나고 다시 읽힙니다.
+          // 시도할 때마다 새로 그려서, 같은 문구로 다시 실패해도 다시 흔들리고 다시 읽힙니다.
           <p
             key={submitCount}
             role="alert"
-            className="text-label text-destructive motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 motion-safe:duration-200"
+            className="text-label text-destructive motion-safe:animate-nudge"
           >
             {errors.root.server.message}
           </p>
@@ -103,11 +104,13 @@ export function LoginPage() {
         </Button>
       </form>
       <nav aria-label="계정 도움" className="mt-6 flex items-center gap-3 text-label">
-        <Link viewTransition to="/forgot-password" className="text-ink-muted hover:text-ink">
-          비밀번호 찾기
-        </Link>
-        <span aria-hidden="true" className="h-3 w-px bg-line" />
-        <Link viewTransition to="/signup" className="font-bold text-ink">
+        {/* TODO(정은): 비밀번호 찾기 링크를 뺐다. 화면(/forgot-password)은 있지만 서버 재설정 API와 메일 발송이
+            없어서 눌러도 동작하지 않는다. 팀이 범위를 정하면 링크를 되살린다(테크스펙 FR에 없는 기능). */}
+        <Link
+          viewTransition
+          to="/signup"
+          className="font-bold text-ink transition-colors hover:text-brand-ink"
+        >
           회원가입
         </Link>
       </nav>

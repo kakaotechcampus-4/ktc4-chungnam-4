@@ -3,13 +3,17 @@
 tasks.py는 이 모듈의 orchestrate_drafts만 호출합니다 (CLAUDE.md: tasks.py는 로직을 갖지 않음).
 """
 
+import calendar
+import json
 import logging
-from collections.abc import Sequence
-from dataclasses import dataclass
+import re
+from collections.abc import Callable, Sequence
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
+from pydantic import ValidationError
 from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, object_session
@@ -20,10 +24,11 @@ from core.exceptions import (
     InvalidRecordDate,
     JobAlreadyRunning,
     JobNotFound,
+    JobNotRetryable,
     MediaNotReady,
     NoTargetChildren,
 )
-from domains.agents.llm import call_claude, call_vision
+from domains.agents.llm import AgentResponseTruncated, call_agent, call_claude, call_vision
 from domains.agents.models import (
     DraftDecisionLog,
     EvidenceBundle,
@@ -34,6 +39,7 @@ from domains.agents.models import (
 )
 from domains.agents.models import SentenceEvidence as SentenceEvidenceRow
 from domains.agents.models import VerificationResult as VerificationResultRow
+from domains.agents.schemas import AgentTraceEvent, ChildAgentTrace, JobTraceResponse
 from domains.audit import service as audit_service
 from domains.documents import service as documents
 from domains.documents.schemas import DraftSaveInput, DraftSentenceInput, DraftStatus
@@ -41,12 +47,27 @@ from domains.media import service as media_service
 from domains.organization import service as organization_service
 from domains.organization.service import ensure_class_access
 from prompts.generation.draft import DraftFeedback, build_draft_prompt
+from prompts.generation.roles import role_prompt
 from prompts.perception.photo_analysis import build_single_photo_prompt
 from prompts.verification.critic import build_critic_prompt
 from tools import contracts
 from tools.evidence.builder import build_evidence
+from tools.evidence.routine import DailyRoutine, parse_routine, routine_json
+from tools.generation.agent_tools import (
+    COLLECTOR_TOOLS,
+    OBSERVATION_TOOLS,
+    PARENT_TOOLS,
+    SECTIONS,
+    ToolArguments,
+    tool_definitions,
+    writing_guidance,
+)
 from tools.generation.draft import DraftResponseError, parse_draft_response
-from tools.generation.pseudonymize import pseudonymize_evidence, restore_names
+from tools.generation.pseudonymize import (
+    pseudonymize_evidence,
+    restore_names,
+    unknown_child_tokens,
+)
 from tools.perception.merge import failed_photo_ids, merge_perception_results
 from tools.perception.photo import parse_single_photo_analysis
 from tools.perception.transcript import normalize_transcript
@@ -73,21 +94,29 @@ logger = logging.getLogger(__name__)
 # PASS 초안 저장이 교사 문서와 충돌해 건너뛴 경우의 로그 코드. 원인은 세분화하지 않는다 (#75).
 DRAFT_SAVE_CONFLICT = "draft_save_conflict"
 
-# 원아 1명·하루에 LLM으로 보낼 사진 수 상한. agents CLAUDE.md의 "3~5장 권장"에서 위쪽 값을
-# 골랐다. TODO(eun): 정확한 상한과 고르는 기준(지금은 하루 전체에서 고르게)은 확정 예정이다.
-MAX_PHOTOS_PER_CHILD = 5
+# 원아 1명·하루에 LLM으로 보낼 사진 수 상한. 임시 결정(송유진): 5장이면 나머지 사진이 근거에서
+# 빠져서 올렸다. 서버와 같은 구성에서 약 3MB 사진 30장은 작업 제한(180초) 안인 130초에 끝났고
+# 45장은 넘겼다. TODO(eun): 정확한 상한과 고르는 기준(지금은 하루 전체에서 고르게)은 확정 예정이다.
+MAX_PHOTOS_PER_CHILD = 30
 
-# 매일 도는 Job이 만드는 문서. 관찰일지는 주기·양식이 원마다 달라 생성 조건이 정해진 뒤
-# 따로 붙인다 (#115, open-questions 32번).
+# 매일 도는 Job은 알림장, 관찰일지는 교사의 월별 요청에서 별도로 실행한다(#225).
 DAILY_DOC_TYPE = contracts.DocType.PARENT_NOTE
 
 # record_date는 KST 기준 하루다 (docs/api/agents.md).
 _KST = ZoneInfo("Asia/Seoul")
 _UNFINISHED_STATUSES = frozenset({JobStatus.PENDING, JobStatus.RUNNING})
+# generate_drafts task 한 번의 작업 시간 제한(초). tasks.py가 soft_time_limit으로 쓴다.
+# 사진 분석 호출이 늘어(아이당 최대 MAX_PHOTOS_PER_CHILD=30장, 호출은 보통 30회·응답 오류 재분석까지 최대 60회)
+# 180초를 넘는 작업이 생겼다. 서버와 같은 구성으로 잰 30장 실측은 109~130초라(#288) 300초면 2배 넘게
+# 여유가 있어 충분하다. 180초에서 300초로 올린다. 이 값을 넘기면 다시 돌리지 않고 Job을 실패로 끝내며(#102),
+# 교사는 재시도 API(POST /jobs/{job_id}/retry)로 다시 시작한다.
+# TODO(eun): 임시 결정이다(팀 확정 전). 테크스펙에는 임시 결정으로 표시해 반영했고, backend/CLAUDE.md는 open-questions에 제안으로 올렸다.
+JOB_SOFT_TIME_LIMIT_SECONDS = 300
 # worker가 죽어 running으로 남은 Job이 그 반·날짜를 영구히 막지 않게, 이 시간 넘게 갱신이 없는
-# running Job은 진행 중으로 보지 않는다. task 최대 소요(180초 × 3회)에 여유 60초를 더했다 (#161 리뷰, 엄태은).
-# 시작할 때 RUNNING으로 바꾸며 갱신되므로 "실행을 시작한 뒤 10분"이다.
-_STALE_JOB_AFTER = timedelta(seconds=180 * 3 + 60)
+# running Job은 진행 중으로 보지 않는다 (#161 리뷰, 엄태은). 시작할 때 RUNNING으로 바꾸고 재시도마다
+# retry_count를 올려 갱신하므로 "시도 하나가 시작한 뒤 10분"이다. 시도 하나는 위 제한 시간(300초)을
+# 넘지 못하므로 정상 시도는 이 값에 걸리지 않는다. 600초는 제한 시간이 180초일 때 정한 값 그대로다.
+_STALE_JOB_AFTER = timedelta(seconds=600)
 # pending은 큐에서 차례를 기다리는 중이라 갱신이 없는 게 정상이다. 위 10분을 그대로 쓰면 오래
 # 기다린 Job을 멈춘 것으로 보고 같은 반·날짜 작업을 하나 더 만든다(#185 리뷰). 큐 메시지가
 # 사라져 영영 시작하지 못하는 경우만 풀도록 훨씬 길게 둔다.
@@ -113,6 +142,7 @@ class ChildJobStatus:
     # succeeded일 때만 채운다. 초안이 있으면 drafted, 없으면 unclassified (docs/api/agents.md).
     outcome: str | None = None
     drafts: tuple[JobDraft, ...] = ()
+    stage: str | None = None
     unclassified_reason: str | None = None
     error_code: str | None = None
 
@@ -158,26 +188,7 @@ def start_generation_job(
 
     if record_date > datetime.now(_KST).date():
         raise InvalidRecordDate("오늘보다 뒤 날짜의 초안은 만들 수 없습니다.")
-    now = datetime.now(UTC)
-    running_id = db.scalar(
-        select(GenerationJob.id)
-        .join(Job, Job.generation_job_id == GenerationJob.id)
-        .where(
-            GenerationJob.class_id == class_id,
-            GenerationJob.record_date == record_date,
-            or_(
-                and_(
-                    Job.status == JobStatus.RUNNING.value,
-                    Job.updated_at >= now - _STALE_JOB_AFTER,
-                ),
-                and_(
-                    Job.status == JobStatus.PENDING.value,
-                    Job.updated_at >= now - _STALE_PENDING_JOB_AFTER,
-                ),
-            ),
-        )
-        .limit(1)
-    )
+    running_id = _running_daily_job_id(db, class_id, record_date)
     if running_id is not None:
         raise JobAlreadyRunning(
             "같은 날짜의 초안을 이미 만들고 있습니다.", detail={"job_id": str(running_id)}
@@ -185,7 +196,8 @@ def start_generation_job(
     unready = media_service.find_unready_media(db, class_id, record_date, media_ids)
     if unready:
         raise MediaNotReady(
-            "아직 서버 전송이 끝나지 않은 자료가 있습니다.",
+            # 전송 전·귀속 전·STT 중을 모두 이 코드로 막으므로 셋을 다 덮는 문구로 둔다 (#304)
+            "아직 준비가 끝나지 않은 자료가 있습니다. 전송·분류·음성 변환이 끝난 뒤 다시 시도해 주세요.",
             detail={"media_ids": [str(media_id) for media_id in unready]},
         )
     child_ids = _draft_target_children(db, class_id, record_date)
@@ -223,8 +235,166 @@ def start_generation_job(
     )
 
 
+def _ensure_not_running(
+    db: Session,
+    class_id: UUID,
+    record_date: date,
+    doc_type: str,
+    *,
+    child_ids: Sequence[UUID] | None = None,
+) -> None:
+    """같은 반·날짜·문서 종류에 진행 중인 원아 Job이 있으면 JOB_ALREADY_RUNNING으로 막는다.
+
+    child_ids를 주면 그 원아의 Job만 본다. 관찰일지는 원아마다 작업이 따로라, 같은 반 다른 원아의
+    작업이 이 원아의 재시도를 막지 않게 한다(#290 리뷰, 엄태은).
+    멈춘 것으로 보는 시간(_STALE_*)을 넘긴 Job은 진행 중으로 치지 않는다.
+    """
+    now = datetime.now(UTC)
+    running_id = db.scalar(
+        select(GenerationJob.id)
+        .join(Job, Job.generation_job_id == GenerationJob.id)
+        .where(
+            GenerationJob.class_id == class_id,
+            GenerationJob.record_date == record_date,
+            GenerationJob.doc_type == doc_type,
+            True if child_ids is None else Job.child_id.in_(child_ids),
+            or_(
+                and_(
+                    Job.status == JobStatus.RUNNING.value,
+                    Job.updated_at >= now - _STALE_JOB_AFTER,
+                ),
+                and_(
+                    Job.status == JobStatus.PENDING.value,
+                    Job.updated_at >= now - _STALE_PENDING_JOB_AFTER,
+                ),
+            ),
+        )
+        .limit(1)
+    )
+    if running_id is not None:
+        raise JobAlreadyRunning(
+            "같은 날짜의 초안을 이미 만들고 있습니다.", detail={"job_id": str(running_id)}
+        )
+
+
+# 다시 돌려도 같은 이유로 실패하는 error_code. DRAFT_VERSION_CONFLICT는 기존 문서를 보존하려고 막은 것이고,
+# AGENT_*는 입력 초과·루틴 없음·루틴 오류라 같은 입력으로 다시 해도 같다(임시 결정(정은), docs/api/agents.md).
+_NOT_RETRYABLE_ERROR_CODES = frozenset(
+    {
+        "DRAFT_VERSION_CONFLICT",
+        "AGENT_INPUT_TOO_LARGE",
+        "AGENT_ROUTINE_MISSING",
+        "AGENT_ROUTINE_INVALID",
+    }
+)
+
+
+@dataclass(frozen=True)
+class RetriedGenerationJob:
+    status: GenerationJobStatus
+    # 커밋한 뒤 Celery에 다시 넣을 (Job id, child_id)
+    to_enqueue: list[tuple[UUID, UUID]]
+
+
+def retry_generation_job(
+    db: Session, *, job_id: UUID, center_id: UUID | None
+) -> RetriedGenerationJob:
+    """실패한 원아 Job만 pending으로 되돌려 다시 시작한다 (FR-06, docs/api/agents.md 임시 결정(정은)).
+
+    성공·미분류 원아의 초안은 건드리지 않는다. 4~7단계가 task 하나라 단계별로 이어서 하지 않고
+    원아 단위로 처음부터 다시 돌린다. 커밋과 큐 넣기는 호출자가 한다.
+    """
+    generation_job = db.get(GenerationJob, job_id)
+    if generation_job is None:
+        raise JobNotFound("초안 생성 작업을 찾을 수 없습니다.")
+    ensure_class_access(db, generation_job.class_id, center_id)
+    # 멈춘 Job을 먼저 failed로 정리해, 멈춘 채 남은 원아도 다시 시작할 수 있게 한다.
+    _job_status(db, generation_job)
+    # 관찰일지는 원아마다 작업이 따로라 그 원아 기준으로 본다. 알림장은 반 단위 그대로다.
+    own_child_ids = (
+        db.scalars(select(Job.child_id).where(Job.generation_job_id == generation_job.id)).all()
+        if generation_job.doc_type == contracts.DocType.OBSERVATION_LOG.value
+        else None
+    )
+    _ensure_not_running(
+        db,
+        generation_job.class_id,
+        generation_job.record_date,
+        generation_job.doc_type,
+        child_ids=own_child_ids,
+    )
+
+    failed_jobs = db.scalars(
+        select(Job).where(
+            Job.generation_job_id == generation_job.id,
+            Job.status == JobStatus.FAILED.value,
+            or_(Job.error_code.is_(None), Job.error_code.not_in(_NOT_RETRYABLE_ERROR_CODES)),
+        )
+    ).all()
+    to_enqueue: list[tuple[UUID, UUID]] = []
+    for job in failed_jobs:
+        # 조건을 UPDATE 한 문장에 건다. 같은 요청이 겹쳐 와도 한 번만 되돌리고 큐에 넣는다.
+        changed = db.execute(
+            update(Job)
+            .where(Job.id == job.id, Job.status == JobStatus.FAILED.value)
+            .values(
+                status=JobStatus.PENDING.value,
+                error_code=None,
+                unclassified_reason=None,
+                retry_count=0,
+            )
+        )
+        if changed.rowcount:
+            to_enqueue.append((job.id, job.child_id))
+    if not to_enqueue:
+        raise JobNotRetryable("다시 시도할 수 있는 실패한 원아가 없습니다.")
+    db.flush()
+    db.expire_all()
+    return RetriedGenerationJob(status=_job_status(db, generation_job), to_enqueue=to_enqueue)
+
+
 def _find_job_by_request_id(db: Session, request_id: UUID) -> GenerationJob | None:
     return db.scalar(select(GenerationJob).where(GenerationJob.request_id == str(request_id)))
+
+
+def _running_daily_job_id(db: Session, class_id: UUID, record_date: date) -> UUID | None:
+    """그 반·날짜에 돌고 있는 알림장 생성 작업. 멈춘 것으로 보는 작업은 빼고 본다."""
+    now = datetime.now(UTC)
+    return db.scalar(
+        select(GenerationJob.id)
+        .join(Job, Job.generation_job_id == GenerationJob.id)
+        .where(
+            GenerationJob.class_id == class_id,
+            GenerationJob.record_date == record_date,
+            GenerationJob.doc_type == DAILY_DOC_TYPE.value,
+            or_(
+                and_(
+                    Job.status == JobStatus.RUNNING.value,
+                    Job.updated_at >= now - _STALE_JOB_AFTER,
+                ),
+                and_(
+                    Job.status == JobStatus.PENDING.value,
+                    Job.updated_at >= now - _STALE_PENDING_JOB_AFTER,
+                ),
+            ),
+        )
+        .limit(1)
+    )
+
+
+def ensure_no_running_daily_job(db: Session, class_id: UUID, record_date: date) -> None:
+    """그 반·날짜의 초안을 만드는 중이면 JobAlreadyRunning(409)을 올린다 (media 귀속 변경 잠금).
+
+    생성 도중 사진 귀속을 바꾸면 worker가 이미 읽은 옛 귀속으로 초안을 만들어, 옮긴 사진이 이전
+    원아 초안과 학부모 화면에 남는다 (#304 4-23). 처리 중인 자원은 잠그는 것이 일반적이라
+    끝날 때까지 귀속 변경을 막는다. media가 agents를 import하면 순환하므로 라우터가 넘겨준다.
+    """
+    running_id = _running_daily_job_id(db, class_id, record_date)
+    if running_id is not None:
+        raise JobAlreadyRunning(
+            "이 날짜의 초안을 만드는 중이라 분류를 바꿀 수 없어요. 끝난 뒤 다시 시도해 주세요.",
+            detail={"job_id": str(running_id)},
+        )
 
 
 def _started_again(
@@ -272,8 +442,7 @@ def _job_status(db: Session, generation_job: GenerationJob) -> GenerationJobStat
         db.commit()
     children = [_child_status(db, job, generation_job.record_date) for job in jobs]
     finished = sum(child.status not in _UNFINISHED_STATUSES for child in children)
-    # TODO(eun): 문서의 진행률은 원아별로 끝낸 단계 수로 세지만 Job에 단계 컬럼이 없다.
-    #   지금은 끝난 원아 비율로 센다 (docs/api/agents.md 임시 결정(정은)).
+    # 단계는 원아별 stage로 제공하고, 퍼센트는 끝난 원아 비율이다.
     percent = finished * 100 // len(children) if children else 0
     return GenerationJobStatus(
         generation_job=generation_job,
@@ -290,10 +459,14 @@ def _job_status(db: Session, generation_job: GenerationJob) -> GenerationJobStat
 
 
 def _child_status(db: Session, job: Job, record_date: date) -> ChildJobStatus:
-    """이번 작업의 실패·미분류를 먼저 보고, 저장까지 끝난 경우만 초안으로 안내한다 (#257)."""
+    """이번 작업의 실패·미분류를 먼저 보고 저장한 문서 종류로 안내한다."""
+    parent_job = db.get(GenerationJob, job.generation_job_id)
+    doc_type = parent_job.doc_type if parent_job else DAILY_DOC_TYPE.value
     status = JobStatus(job.status)
     if status != JobStatus.SUCCEEDED:
-        return ChildJobStatus(child_id=job.child_id, status=status, error_code=job.error_code)
+        return ChildJobStatus(
+            child_id=job.child_id, status=status, error_code=job.error_code, stage=job.stage
+        )
     if job.unclassified_reason is not None:
         return ChildJobStatus(
             child_id=job.child_id,
@@ -302,7 +475,7 @@ def _child_status(db: Session, job: Job, record_date: date) -> ChildJobStatus:
             unclassified_reason=job.unclassified_reason,
         )
     draft = documents.get_draft_version(
-        db, child_id=job.child_id, doc_type=DAILY_DOC_TYPE, record_date=record_date
+        db, child_id=job.child_id, doc_type=doc_type, record_date=record_date
     )
     if draft is None:
         return ChildJobStatus(
@@ -315,7 +488,7 @@ def _child_status(db: Session, job: Job, record_date: date) -> ChildJobStatus:
         child_id=job.child_id,
         status=status,
         outcome="drafted",
-        drafts=(JobDraft(draft_id=draft.draft_id, doc_type=DAILY_DOC_TYPE.value),),
+        drafts=(JobDraft(draft_id=draft.draft_id, doc_type=doc_type),),
     )
 
 
@@ -343,6 +516,7 @@ def _overall_status(children: Sequence[ChildJobStatus]) -> JobStatus:
 # 근거 ID 접두. 문장별 근거 행에는 출처 종류가 없어서, 미디어가 없는 근거 중 활동계획(`plan:`)과
 # 교사 메모를 이 접두로 가른다.
 TEACHER_NOTE_EVIDENCE_PREFIX = "note:"
+SEGMENT_EVIDENCE_PREFIX = "seg:"
 
 
 @dataclass(frozen=True)
@@ -496,6 +670,33 @@ class SentenceEvidenceView:
     start_ms: int | None
     end_ms: int | None
     captured_at: datetime | None
+    source_document_id: UUID | None = None
+
+
+def observation_log_sections() -> list[str]:
+    """관찰일지 기본 양식의 영역 이름을 양식 순서대로 돌려준다.
+
+    documents의 초안 상세가 `sections`로 싣는다(#264, 임시 결정(정은)). tools/는 agents만 부를 수
+    있어서 이 함수로 넘긴다. 원별 양식(⑬)이 생기면 출처만 바뀐다.
+    """
+    return list(SECTIONS)
+
+
+def _segment_id(evidence_id: str) -> UUID | None:
+    """발화 근거의 구간 ID. evidence_id는 tools/perception/transcript.py가 seg:<id>로 만든다."""
+    if not evidence_id.startswith(SEGMENT_EVIDENCE_PREFIX):
+        return None
+    try:
+        return UUID(evidence_id.removeprefix(SEGMENT_EVIDENCE_PREFIX))
+    except ValueError:
+        return None
+
+
+def _note_captured_at(record_date: date | None) -> datetime | None:
+    """알림장 근거의 날짜. 그 알림장의 기록 날짜를 그날 0시(KST)로 찍는다 (#264)."""
+    if record_date is None:
+        return None
+    return datetime.combine(record_date, time.min, tzinfo=_KST)
 
 
 def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[SentenceEvidenceView]]:
@@ -504,10 +705,13 @@ def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[Sente
     권한 판정과 열람 기록은 부르는 쪽(documents)이 한다. 근거가 없는 문장은 키가 없다 — 교사가
     고친 문장의 근거를 비우는 것도 documents가 정한다 (documents.md §PATCH).
 
-    임시 결정(정은): 근거 행에 출처 종류·끝 시각을 저장하지 않아서 source_type은 미디어 종류로
-    정하고 end_ms는 null이다. 영상 속 교사 관찰 발화는 생성 때 teacher_voice_memo였어도
-    여기서는 video_speech로 보인다. TODO(eun): 영상 근거를 쓰기 시작하면 SentenceEvidence에
-    source_type·end_ms를 저장한다(테크스펙 먼저).
+    end_ms는 근거 행에 없어서 evidence_id가 가리키는 발화 구간에서 읽는다. 재생을 문장 끝까지
+    하기 위함이고, 구간에 끝 시각이 없으면 null이다(임시 결정(송유진)).
+
+    임시 결정(정은): 근거 행에 출처 종류를 저장하지 않아서 source_type은 미디어 종류로
+    정한다. 영상 속 교사 관찰 발화는 생성 때 teacher_voice_memo였어도 여기서는 video_speech로
+    보인다. TODO(eun): 영상 근거를 쓰기 시작하면 SentenceEvidence에 source_type을 저장한다
+    (테크스펙 먼저).
     """
     rows = db.scalars(
         select(SentenceEvidenceRow)
@@ -517,17 +721,29 @@ def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[Sente
     media = media_service.get_media_meta(
         db, [row.source_media_id for row in rows if row.source_media_id is not None]
     )
+    # 월 관찰일지가 모은 게시 알림장 근거는 미디어가 없어 촬영 시각이 없다. 그 알림장의 기록 날짜로
+    # 채워 화면이 날짜를 찍고 정렬되게 한다(#264, 임시 결정(정은)). 근거 행에는 저장하지 않는다.
+    record_dates = documents.get_record_dates(
+        db, [row.source_document_id for row in rows if row.source_document_id is not None]
+    )
+    segment_ids = {row.evidence_id: _segment_id(row.evidence_id) for row in rows}
+    end_ms_by_segment = media_service.get_segment_end_ms(
+        db, [segment_id for segment_id in segment_ids.values() if segment_id is not None]
+    )
     result: dict[str, list[SentenceEvidenceView]] = {}
     for row in rows:
         meta = media.get(row.source_media_id) if row.source_media_id is not None else None
         if meta is not None:
             source_type = _SOURCE_TYPE_BY_MEDIA_TYPE[meta.type]
+        elif row.source_document_id:
+            source_type = contracts.SourceType.PARENT_NOTE
         elif row.evidence_id.startswith(TEACHER_NOTE_EVIDENCE_PREFIX):
             source_type = contracts.SourceType.TEACHER_NOTE
         else:
             source_type = contracts.SourceType.ACTIVITY_PLAN
         result.setdefault(row.sentence_id, []).append(
             SentenceEvidenceView(
+                source_document_id=row.source_document_id,
                 evidence_id=row.evidence_id,
                 source_type=source_type.value,
                 text=row.source_text,
@@ -535,8 +751,12 @@ def list_sentence_evidences(db: Session, draft_id: UUID) -> dict[str, list[Sente
                 start_ms=(
                     round(row.source_timestamp * 1000) if row.source_timestamp is not None else None
                 ),
-                end_ms=None,
-                captured_at=meta.captured_at if meta is not None else None,
+                end_ms=end_ms_by_segment.get(segment_ids[row.evidence_id]),
+                captured_at=(
+                    meta.captured_at
+                    if meta is not None
+                    else _note_captured_at(record_dates.get(row.source_document_id))
+                ),
             )
         )
     for views in result.values():
@@ -571,11 +791,13 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
         if job.status in {JobStatus.SUCCEEDED.value, JobStatus.FAILED.value}:
             return
         _set_job_status(session, job, JobStatus.RUNNING)
+        parent_job = session.get(GenerationJob, job.generation_job_id)
+        doc_type = contracts.DocType(parent_job.doc_type) if parent_job else DAILY_DOC_TYPE
         # 사진 분석을 포함한 외부 호출 전에 보호 여부와 잠금 버전을 읽는다 (#75·#257).
         existing = documents.get_draft_version(
             session,
             child_id=UUID(child_id),
-            doc_type=DAILY_DOC_TYPE,
+            doc_type=doc_type,
             record_date=(
                 job.target_date if job.target_date.tzinfo else job.target_date.replace(tzinfo=UTC)
             )
@@ -589,7 +811,12 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
             return
         expected_version = existing.version if existing else None
         # 중복 전달 또는 시간 초과로 이미 종료된 작업은 다시 생성하지 않는다.
-        bundle = _collect_evidence(session, child_id, job.target_date)
+        _agent_trace(session, job, "collector", "started", stage="collecting_evidence")
+        bundle = (
+            _monthly_bundle(session, job)
+            if doc_type == contracts.DocType.OBSERVATION_LOG
+            else _collect_evidence(session, child_id, job.target_date)
+        )
 
         # 재생성 상한은 tools/verification/decision.py의 decide()가 판정한다
         # (MAX_REGENERATIONS). 여기서 별도로 횟수를 세지 않고, decide()가
@@ -604,7 +831,28 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
         # 재생성 2회에 사진 호출이 최대 3배가 된다 (#137 리뷰, 송유진).
         reason = "verification_failed"
         try:
-            inputs = _load_generation_inputs(bundle)
+            inputs = (
+                _load_monthly_inputs(session, bundle)
+                if doc_type == contracts.DocType.OBSERVATION_LOG
+                else _load_generation_inputs(bundle)
+            )
+            inputs = _prepare_agent_inputs(session, job, bundle, inputs)
+        except InsufficientEvidence:
+            reason = (
+                "insufficient_evidence"
+                if doc_type == contracts.DocType.OBSERVATION_LOG
+                or organization_service.has_consent(session, UUID(child_id), "face_feature")
+                else "no_consent"
+            )
+            _send_to_unclassified(session, job_id, child_id, reason=reason)
+            _commit_job_succeeded(session, job)
+            return
+        except AgentExecutionError as error:
+            if str(error) != "AGENT_ROUTINE_INVALID":
+                raise
+            _send_to_unclassified(session, job_id, child_id, reason="verification_failed")
+            _commit_job_succeeded(session, job)
+            return
         except PhotoAnalysisFailed:
             _send_to_unclassified(session, job_id, child_id, reason="photo_analysis_failed")
             _commit_job_succeeded(session, job)
@@ -617,7 +865,8 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
             except InsufficientEvidence:
                 reason = (
                     "insufficient_evidence"
-                    if organization_service.has_consent(session, UUID(child_id), "face_feature")
+                    if doc_type == contracts.DocType.OBSERVATION_LOG
+                    or organization_service.has_consent(session, UUID(child_id), "face_feature")
                     else "no_consent"
                 )
                 # 빈 초안을 정상 결과로 내지 않는다 (ai-data-contract.md "근거 부족").
@@ -640,6 +889,7 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
                 continue
             previous = generated.document
 
+            _agent_trace(session, job, "critic", "started", stage="verifying")
             decision_result = _verify_with_critic_retry(
                 session,
                 generated.document,
@@ -648,7 +898,10 @@ def orchestrate_drafts(job_id: str, child_id: str) -> None:
                 regeneration_count,
             )
 
+            _agent_trace(session, job, "critic", decision_result.decision.value)
             if decision_result.decision == contracts.Decision.PASS:
+                if inputs.doc_type == contracts.DocType.OBSERVATION_LOG:
+                    _ensure_monthly_sources_current(session, inputs)
                 saved = _save_passed_draft(
                     session,
                     job,
@@ -909,6 +1162,11 @@ class GenerationInputs:
     # 발화에서 불릴 수 있다 (#137 리뷰). 첫 값은 저장 전 본문에 되돌려 넣는 호칭이다.
     # LLM에 보내지 않는다.
     names_by_child_id: dict[str, list[str]]
+    doc_type: contracts.DocType = contracts.DocType.PARENT_NOTE
+    routine: DailyRoutine | None = None
+    age_band: str = "unknown"
+    trace: Callable[[str, str, str | None], None] | None = None
+    source_versions: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1054,18 +1312,57 @@ def _generate_draft(
         target_child_id=request.child_id,
         names_by_child_id=inputs.names_by_child_id,
     )
-    prompt = build_draft_prompt(
-        DAILY_DOC_TYPE, masked.llm_items, _to_feedback(issues, previous=previous)
+    if inputs.routine is None:
+        raise AgentExecutionError("AGENT_ROUTINE_MISSING")
+    role = "observation" if inputs.doc_type == contracts.DocType.OBSERVATION_LOG else "parent_note"
+    routine = routine_json(inputs.routine, masked.llm_items)
+    feedback = _to_feedback(issues, previous=previous)
+    if role == "observation":
+        prompt = (
+            role_prompt("observation")
+            + "\n자료:\n"
+            + routine
+            + "\n피드백:\n"
+            + json.dumps([asdict(f) for f in feedback], ensure_ascii=False)
+        )
+        tools = OBSERVATION_TOOLS
+    else:
+        prompt = build_draft_prompt(inputs.doc_type, masked.llm_items, feedback, routine=routine)
+        tools = PARENT_TOOLS
+    if inputs.trace:
+        inputs.trace(role, "started", None)
+    raw = _agent_conversation(
+        role=role,
+        prompt=prompt,
+        names=tools,
+        required=set(tools),
+        execute=lambda name, args: writing_guidance(
+            name, age_band=inputs.age_band, focus=args.focus
+        ),
+        trace=inputs.trace,
     )
     document = parse_draft_response(
-        call_claude(prompt),
-        evidence_id_by_ref=masked.evidence_id_by_ref,
-        doc_type=DAILY_DOC_TYPE,
+        raw,
+        evidence_id_by_ref={
+            ref: eid
+            for ref, eid in masked.evidence_id_by_ref.items()
+            if ref in {r for fact in inputs.routine.facts for r in fact.evidence_refs}
+        },
+        doc_type=inputs.doc_type,
         child_id=request.child_id,
         record_date=request.record_date,
         draft_id=draft_id,
         version=version,
     )
+    for sentence in document.sentences:
+        if unknown_child_tokens(sentence.text, masked.child_id_by_token):
+            # 토큰 원문은 메시지에 넣지 않는다. 피드백으로 LLM에 다시 가므로 형식만 알린다.
+            raise DraftResponseError(
+                "보낸 적 없는 원아 토큰이나 형식이 깨진 토큰이 있습니다. "
+                "자료에 있는 CHILD_ 토큰만 그대로 쓰세요."
+            )
+    if inputs.trace:
+        inputs.trace(role, "completed", None)
     return GeneratedDraft(
         document=document,
         masked_evidence_by_id=masked.evidence_by_id,
@@ -1151,6 +1448,8 @@ def _to_feedback(
             detail=(
                 issue.reason
                 if issue.check_type == contracts.VerificationCheckType.CRITIC_CONTENT
+                else "응답 형식이 잘못되었거나 출력 한도를 넘었습니다. 문장 수와 길이를 줄이고 완전한 JSON 하나만 작성하세요."
+                if issue.check_type == contracts.VerificationCheckType.DRAFT_RESPONSE_ERROR
                 else None
             ),
         )
@@ -1248,7 +1547,9 @@ def _save_passed_draft(
         record_date=document.record_date,
         # 문장 단위·순서 그대로 넘긴다. 합쳤다가 다시 자르면 근거와 어긋난다 (#75 ①).
         sentences=[
-            DraftSentenceInput(sentence_id=sentence.sentence_id, text=sentence.text)
+            DraftSentenceInput(
+                sentence_id=sentence.sentence_id, text=sentence.text, section=sentence.section
+            )
             for sentence in document.sentences
         ],
         ai_version=document.version,
@@ -1413,6 +1714,9 @@ def _record_sentence_evidence(
                     source_timestamp=(
                         evidence.start_ms / 1000 if evidence.start_ms is not None else None
                     ),
+                    source_document_id=UUID(evidence.source_document_id)
+                    if evidence.source_document_id
+                    else None,
                     source_text=evidence.text,
                 )
             )
@@ -1426,6 +1730,10 @@ def _send_to_unclassified(
     if target.tzinfo is None:
         target = target.replace(tzinfo=UTC)
     job.unclassified_reason = reason
+    parent_job = session.get(GenerationJob, job.generation_job_id)
+    if parent_job and parent_job.doc_type == contracts.DocType.OBSERVATION_LOG.value:
+        # 월별 실패는 Job에서 안내한다. 일별 알림장 미분류함과 섞지 않는다.
+        return
     documents.record_unclassified(
         session,
         child_id=UUID(child_id),
@@ -1433,3 +1741,388 @@ def _send_to_unclassified(
         reason=reason,
         job_id=UUID(job_id),
     )
+
+
+class AgentExecutionError(RuntimeError):
+    """안전한 코드만 담는 실행 실패. 모델 본문·도구 인자는 담지 않는다."""
+
+
+MAX_AGENT_TURNS = 6
+MAX_AGENT_INPUT_CHARS = 60_000
+
+
+def _agent_conversation(
+    *,
+    role: str,
+    prompt: str,
+    names: tuple[str, ...],
+    required: set[str],
+    execute: Callable[[str, ToolArguments], str],
+    trace: Callable[[str, str, str | None], None] | None = None,
+) -> str:
+    """네이티브 function calling의 유한 루프. 역할마다 대화는 새로 시작한다(FR-05)."""
+    messages = [{"role": "user", "content": prompt}]
+    called: set[str] = set()
+    results: dict[str, tuple[ToolArguments, str]] = {}
+    for _ in range(MAX_AGENT_TURNS):
+        if len(json.dumps(messages, ensure_ascii=False)) > MAX_AGENT_INPUT_CHARS:
+            raise AgentExecutionError("AGENT_INPUT_TOO_LARGE")
+        try:
+            response = call_agent(messages, tool_definitions(names))
+        except AgentResponseTruncated:
+            raise DraftResponseError(
+                "출력 한도를 넘었습니다. 사실·문장 수와 길이를 줄여 완전한 JSON으로 작성하세요."
+            ) from None
+        except ValueError:
+            raise AgentExecutionError("AGENT_RESPONSE_INVALID") from None
+        calls = response.tool_calls or []
+        if not calls:
+            if required - called:
+                messages.append({"role": "assistant", "content": response.content or ""})
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": "필수 도구 조회가 빠졌습니다: "
+                        + ", ".join(sorted(required - called)),
+                    }
+                )
+                continue
+            if not response.content:
+                # 빈 응답도 형식이 틀린 출력이다. 깨진 JSON·출력 한도 초과와 같이 재생성하고, 상한을
+                # 넘으면 미분류함으로 보낸다. 전에는 바로 Job 실패(AGENT_RESPONSE_INVALID)로 끝나
+                # 같은 종류의 오류가 다르게 처리됐다 (#304 4-4).
+                raise DraftResponseError("빈 응답입니다. 요구한 JSON 형식으로 작성하세요.")
+            if trace:
+                trace(role, "responded", None)
+            return response.content
+        messages.append(
+            response.model_dump(include={"role", "content", "tool_calls"}, exclude_none=True)
+        )
+        for call in calls:
+            if call.type != "function" or call.function.name not in names:
+                raise AgentExecutionError("AGENT_TOOL_NOT_ALLOWED")
+            name = call.function.name
+            try:
+                args = ToolArguments.model_validate_json(call.function.arguments)
+            except ValidationError:
+                raise AgentExecutionError("AGENT_TOOL_ARGUMENTS_INVALID") from None
+            if name in results:
+                previous_args, result = results[name]
+                if args != previous_args:
+                    raise AgentExecutionError("AGENT_TOOL_LIMIT")
+                # 병렬 중복 호출에도 각 call ID로 응답하되 조회는 한 번만 한다.
+                messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
+                continue
+            # ID·URL·SQL은 도구 인자 스키마에 없다. 조회 범위는 execute의 서버 클로저에 고정.
+            try:
+                result = execute(name, args)
+            except Exception:
+                if trace:
+                    trace(role, "failed", name)
+                raise
+            called.add(name)
+            results[name] = (args, result)
+            if trace:
+                trace(role, "tool_completed", name)
+            messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
+    raise AgentExecutionError("AGENT_STEP_LIMIT")
+
+
+def _agent_trace(
+    session: Session,
+    job: Job,
+    role: str,
+    outcome: str,
+    tool: str | None = None,
+    *,
+    stage: str | None = None,
+) -> None:
+    """경로 판정을 재현할 메타데이터만 기록. 생성 본문·프롬프트는 기록하지 않는다(H-4)."""
+    event = {"agent": role, "outcome": outcome, "tool": tool}
+    history = [*(job.agent_trace or []), event]
+    # worker 재시도를 포함해도 로그가 무한히 커지지 않게 제한한다.
+    job.agent_trace = history[-100:]
+    if stage:
+        job.stage = stage
+    session.commit()
+
+
+def _prepare_agent_inputs(
+    session: Session, job: Job, bundle: EvidenceBundle, inputs: GenerationInputs
+) -> GenerationInputs:
+    selected = build_evidence(inputs.evidence, request=inputs.request)
+    if not any(
+        item.source_type != contracts.SourceType.ACTIVITY_PLAN for item in selected.values()
+    ):
+        raise InsufficientEvidence
+    masked = pseudonymize_evidence(
+        selected,
+        target_child_id=inputs.request.child_id,
+        names_by_child_id=inputs.names_by_child_id,
+    )
+    observed = [
+        item for item in masked.llm_items if item.source_type != contracts.SourceType.ACTIVITY_PLAN
+    ]
+
+    def trace(role: str, outcome: str, tool: str | None) -> None:
+        stage = "collecting_evidence" if role == "collector" else "generating"
+        _agent_trace(session, job, role, outcome, tool, stage=stage)
+
+    def execute(name: str, args: ToolArguments) -> str:
+        if name == "child_roster":
+            return json.dumps({"children": list(masked.child_id_by_token)})
+        if name == "activity_plan":
+            return json.dumps(
+                {
+                    "context_only": [
+                        item.text
+                        for item in masked.llm_items
+                        if item.source_type == contracts.SourceType.ACTIVITY_PLAN
+                    ]
+                },
+                ensure_ascii=False,
+            )
+        records = documents.published_records_for_agents(
+            session,
+            child_id=UUID(inputs.request.child_id),
+            start_date=inputs.request.record_date - timedelta(days=31),
+            end_date=inputs.request.record_date - timedelta(days=1),
+        )
+        # 과거 기록은 근거 후보로 승격하지 않는다. E 참조도 주지 않는다.
+        contexts = [
+            contracts.EvidenceItem(
+                evidence_id=f"history:{record.document_id}",
+                source_type=contracts.SourceType.ACTIVITY_PLAN,
+                child_ids=[inputs.request.child_id],
+                observed_date=inputs.request.record_date,
+                text=record.text,
+                assignment_status=contracts.AssignmentStatus.TEACHER_CONFIRMED,
+            )
+            for record in records
+            if record.text.strip()
+        ]
+        safe = pseudonymize_evidence(
+            {item.evidence_id: item for item in contexts},
+            target_child_id=inputs.request.child_id,
+            names_by_child_id=inputs.names_by_child_id,
+        )
+        return json.dumps(
+            {"context_only": [item.text for item in safe.llm_items]}, ensure_ascii=False
+        )
+
+    # 모델이 만든 요약이 망가진 경우에도 재시도는 2회로 제한한다. 성공한 사진 분석은 반복하지 않는다.
+    routine = None
+    for attempt in range(MAX_REGENERATIONS + 1):
+        prompt = (
+            role_prompt("collector")
+            + "\n관찰 자료:\n"
+            + json.dumps([asdict(item) for item in observed], ensure_ascii=False)
+        )
+        if attempt:
+            prompt += "\n이전 응답의 형식·참조·공동 귀속 구분이 잘못되었거나 출력 한도를 넘었습니다. 사실 수와 길이를 줄이고 지정한 JSON과 실제 관찰 근거만 사용하세요. shared_with_others가 다른 근거는 별도 사실로 나누세요."
+        try:
+            raw = _agent_conversation(
+                role="collector",
+                prompt=prompt,
+                names=COLLECTOR_TOOLS,
+                required=set(),
+                execute=execute,
+                trace=trace,
+            )
+            routine = parse_routine(raw, observed)
+            trace("collector", "completed", None)
+            break
+        except DraftResponseError:
+            trace("collector", "invalid_output", None)
+    if routine is None:
+        raise AgentExecutionError("AGENT_ROUTINE_INVALID")
+    bundle.daily_routine = routine.model_dump(mode="json")
+    session.commit()
+    return replace(
+        inputs,
+        routine=routine,
+        trace=trace,
+        age_band=organization_service.get_class_age_band(session, UUID(inputs.request.class_id)),
+    )
+
+
+def _month_end(start: date) -> date:
+    return start.replace(day=calendar.monthrange(start.year, start.month)[1])
+
+
+def start_observation_job(
+    db: Session,
+    *,
+    child_id: UUID,
+    month: date,
+    request_id: UUID,
+    teacher_id: UUID,
+    center_id: UUID | None,
+) -> StartedGenerationJob:
+    """교사가 요청한 원아·월만 실행. 기본 양식부터 연결한다(FR-06, #225)."""
+    organization_service.ensure_child_access(db, child_id, center_id)
+    month = month.replace(day=1)
+    if month > datetime.now(_KST).date():
+        raise InvalidRecordDate("미래 월의 관찰일지를 만들 수 없습니다.")
+    # 원아 행 잠금을 커밋까지 유지해 서로 다른 request_id의 동시 요청도 하나로 모은다.
+    class_id = organization_service.get_child_class_id(db, child_id, lock=True)
+    existing = _find_job_by_request_id(db, request_id)
+    if existing:
+        return _started_again(db, existing, center_id)
+    now = datetime.now(UTC)
+    active = db.scalar(
+        select(GenerationJob)
+        .join(Job, Job.generation_job_id == GenerationJob.id)
+        .where(
+            Job.child_id == child_id,
+            GenerationJob.record_date == month,
+            GenerationJob.doc_type == contracts.DocType.OBSERVATION_LOG.value,
+            or_(
+                and_(
+                    Job.status == JobStatus.RUNNING.value, Job.updated_at >= now - _STALE_JOB_AFTER
+                ),
+                and_(
+                    Job.status == JobStatus.PENDING.value,
+                    Job.updated_at >= now - _STALE_PENDING_JOB_AFTER,
+                ),
+            ),
+        )
+        .order_by(GenerationJob.created_at)
+        .limit(1)
+    )
+    if active:
+        return _started_again(db, active, center_id)
+    records = documents.published_records_for_agents(
+        db, child_id=child_id, start_date=month, end_date=_month_end(month)
+    )
+    if not records:
+        raise NoTargetChildren("이 달에 게시된 알림장이 없습니다.")
+    parent = GenerationJob(
+        class_id=class_id,
+        record_date=month,
+        request_id=str(request_id),
+        requested_by_teacher_id=teacher_id,
+        doc_type=contracts.DocType.OBSERVATION_LOG.value,
+    )
+    try:
+        with db.begin_nested():
+            db.add(parent)
+            db.flush()
+    except IntegrityError:
+        existing = _find_job_by_request_id(db, request_id)
+        if existing is None:
+            raise
+        return _started_again(db, existing, center_id)
+    job = Job(
+        generation_job_id=parent.id,
+        child_id=child_id,
+        target_date=datetime.combine(month, time.min, tzinfo=_KST),
+    )
+    db.add(job)
+    db.flush()
+    return StartedGenerationJob(status=_job_status(db, parent), to_enqueue=[(job.id, child_id)])
+
+
+def _monthly_bundle(session: Session, job: Job) -> EvidenceBundle:
+    bundle = EvidenceBundle(
+        child_id=job.child_id,
+        date=job.target_date,
+        media_refs=[],
+        transcript_refs=[],
+        context_lookup={"developmental_guideline": None, "teacher_persona": None},
+    )
+    session.add(bundle)
+    session.commit()
+    return bundle
+
+
+def _load_monthly_inputs(session: Session, bundle: EvidenceBundle) -> GenerationInputs:
+    target = bundle.date if bundle.date.tzinfo else bundle.date.replace(tzinfo=UTC)
+    start = target.astimezone(_KST).date().replace(day=1)
+    class_id = organization_service.get_child_class_id(session, bundle.child_id)
+    records = documents.published_records_for_agents(
+        session, child_id=bundle.child_id, start_date=start, end_date=_month_end(start)
+    )
+    evidence = [
+        contracts.EvidenceItem(
+            evidence_id=f"note:{record.document_id}",
+            source_document_id=str(record.document_id),
+            source_type=contracts.SourceType.PARENT_NOTE,
+            child_ids=[str(bundle.child_id)],
+            observed_date=record.record_date,
+            text=record.text,
+            assignment_status=contracts.AssignmentStatus.TEACHER_CONFIRMED,
+        )
+        for record in records
+        if record.text.strip()
+    ]
+    if not evidence:
+        raise InsufficientEvidence
+    return GenerationInputs(
+        request=contracts.GenerationRequest(
+            request_id=str(bundle.id),
+            class_id=str(class_id),
+            child_id=str(bundle.child_id),
+            record_date=start,
+            period_end=_month_end(start),
+            evidence_ids=[item.evidence_id for item in evidence],
+        ),
+        evidence=evidence,
+        names_by_child_id={
+            str(k): v
+            for k, v in organization_service.get_class_child_names(session, class_id).items()
+        },
+        doc_type=contracts.DocType.OBSERVATION_LOG,
+        source_versions=tuple((str(record.document_id), record.version) for record in records),
+    )
+
+
+def _ensure_monthly_sources_current(session: Session, inputs: GenerationInputs) -> None:
+    current = documents.published_records_for_agents(
+        session,
+        child_id=UUID(inputs.request.child_id),
+        start_date=inputs.request.record_date,
+        end_date=inputs.request.period_end,
+        lock=True,
+    )
+    versions = {str(record.document_id): record.version for record in current}
+    if any(versions.get(key) != version for key, version in inputs.source_versions):
+        raise AgentExecutionError("AGENT_SOURCE_CHANGED")
+
+
+def get_job_trace(db: Session, *, job_id: UUID, center_id: UUID | None) -> JobTraceResponse:
+    get_generation_job(db, job_id=job_id, center_id=center_id)
+    jobs = db.scalars(
+        select(Job).where(Job.generation_job_id == job_id).order_by(Job.child_id)
+    ).all()
+    return JobTraceResponse(
+        job_id=job_id,
+        children=[
+            ChildAgentTrace(
+                child_id=job.child_id,
+                events=[AgentTraceEvent.model_validate(event) for event in (job.agent_trace or [])],
+            )
+            for job in jobs
+        ],
+    )
+
+
+def get_daily_routine(db: Session, bundle_id: UUID | None) -> list[str]:
+    """documents의 교사 권한 확인 후에만 호출한다. 외부/학부모 응답에는 포함하지 않는다(FR-27)."""
+    bundle = db.get(EvidenceBundle, bundle_id) if bundle_id else None
+    if bundle is None or not bundle.daily_routine:
+        return []
+    class_id = organization_service.get_child_class_id(db, bundle.child_id)
+    names = {
+        str(key): value
+        for key, value in organization_service.get_class_child_names(db, class_id).items()
+    }
+    # 다른 원아 토큰은 반 구성 변경으로 순서가 달라질 수 있다. 현재 명단으로 과거
+    # CHILD_B…를 다른 아이 이름에 연결하지 않고, 대상 원아만 복원한다.
+    routine = DailyRoutine.model_validate(bundle.daily_routine)
+    target_names = names.get(str(bundle.child_id), [])
+    by_token = {"CHILD_A": target_names[0] if target_names else "대상 원아"}
+    for fact in routine.facts:
+        for token in re.findall(r"CHILD_[A-Z]+", fact.text):
+            by_token.setdefault(token, "친구")
+    return [restore_names(fact.text, by_token) for fact in routine.facts]

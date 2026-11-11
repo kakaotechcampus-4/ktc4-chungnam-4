@@ -54,6 +54,7 @@ export interface MediaRecord {
 }
 
 export interface DraftRecord {
+  daily_routine?: string[];
   draft_id: string;
   child_id: string;
   class_id: string;
@@ -63,6 +64,10 @@ export interface DraftRecord {
   version: number;
   title: string | null;
   sentences: Sentence[];
+  /** 관찰일지 양식의 영역 순서. 월별 관찰일지만 가집니다. */
+  sections?: string[];
+  /** 월별 관찰일지를 만든 시각 */
+  created_at?: string;
   selected_media_ids: string[];
   author_teacher_id: string;
   author_name: string;
@@ -70,6 +75,8 @@ export interface DraftRecord {
   published_at: string | null;
   /** 게시할 때 "사진 포함해서 보내기"를 골랐는지 */
   include_photos: boolean;
+  /** 회수한 적이 있으면 true. 목은 게시 회차를 따로 두지 않아, 다음 게시가 곧 다시 보낸 회차입니다(#289 is_resent). */
+  resent?: boolean;
   updated_at: string;
 }
 
@@ -83,9 +90,12 @@ export interface JobChildRecord {
   failed_stage: JobStage | null;
   error_code: JobErrorCode | null;
   drafts: { draft_id: string; doc_type: DocType }[];
+  /** POST /jobs/{job_id}/retry로 다시 시작한 원아. 시나리오가 실패를 되풀이하지 않게 합니다. */
+  retried?: boolean;
 }
 
 export interface JobRecord {
+  doc_type?: DocType;
   job_id: string;
   request_id: string;
   class_id: string;
@@ -247,7 +257,7 @@ export function seedDb(now: Date = new Date()): MockDb {
     evidence: MediaRecord[],
     obs: number,
     note: number,
-  ) =>
+  ): [DraftRecord, DraftRecord] =>
     buildDrafts({
       child: childOf(child),
       recordDate: date,

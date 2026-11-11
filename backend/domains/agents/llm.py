@@ -15,7 +15,7 @@ RETRYABLE_LLM_ERRORS: tuple[type[Exception], ...] = (
     openai.InternalServerError,
 )
 
-# SDK 기본값(10분)이면 Celery soft_time_limit(180초)이 먼저 끊어 버림
+# SDK 기본값(10분)이면 Celery soft_time_limit(service.JOB_SOFT_TIME_LIMIT_SECONDS)이 먼저 끊어 버림
 # 1회 호출 상한을 둬서 느린 호출은 SDK가 끊고 오류로 올림 (테크스펙 파이프라인 4단계)
 _TIMEOUT_SECONDS = 30
 
@@ -50,6 +50,14 @@ _LOW_REASONING_MODELS = frozenset(
 )
 
 
+class AgentResponseTruncated(ValueError):
+    """출력 한도 초과. 형식 재시도에 사용하며 잘린 본문은 보관하지 않는다."""
+
+
+def _text_max_tokens(model: str) -> int:
+    return _TEXT_MAX_TOKENS_BY_MODEL.get(model, _TEXT_MAX_TOKENS)
+
+
 def _complete(*, endpoint: str, model: str, messages: list[dict], max_tokens: int) -> str | None:
     """설정된 API base URL 또는 완전한 chat/completions 주소를 사용한다(FR-05).
 
@@ -66,6 +74,8 @@ def _complete(*, endpoint: str, model: str, messages: list[dict], max_tokens: in
         max_retries=_SDK_MAX_RETRIES,
     ) as client:
         body = {"model": model, "max_tokens": max_tokens, "messages": messages}
+        # 이 모델은 추론 끄기를 지원하지 않는다. 공식 모델 정보의 low를 사용해
+        # 추론만 하다 출력 한도·30초 제한을 소진하는 일을 줄인다.
         if model in _LOW_REASONING_MODELS:
             body["reasoning_effort"] = "low"
         if is_complete_url:
@@ -80,7 +90,7 @@ def call_claude(prompt: str) -> str | None:
     return _complete(
         endpoint=settings.llm_gateway_base_url,
         model=settings.anthropic_model,
-        max_tokens=_TEXT_MAX_TOKENS_BY_MODEL.get(settings.anthropic_model, _TEXT_MAX_TOKENS),
+        max_tokens=_text_max_tokens(settings.anthropic_model),
         messages=[{"role": "user", "content": prompt}],
     )
 
@@ -111,3 +121,35 @@ if __name__ == "__main__":
     # 연결 확인용 1회성 스크립트 — pytest에 포함하지 않음 (CLAUDE.md §11: LLM 실제 호출 금지)
     # H-2: 실제 아동 정보 대신 더미 텍스트만 사용
     print(call_claude("CHILD_A가 오늘 블록 놀이를 했다는 내용으로 한 문장만 만들어줘."))
+
+
+def call_agent(messages: list[dict], tools: list[dict]) -> openai.types.chat.ChatCompletionMessage:
+    """역할별 독립 대화의 네이티브 도구 호출. 도구 실행 권한은 service가 검사한다(FR-05)."""
+    settings = get_settings()
+    endpoint = settings.llm_gateway_base_url.rstrip("/")
+    with OpenAI(
+        api_key=settings.anthropic_api_key.get_secret_value(),
+        base_url=endpoint,
+        timeout=_TIMEOUT_SECONDS,
+        max_retries=_SDK_MAX_RETRIES,
+    ) as client:
+        body = {
+            "model": settings.anthropic_model,
+            "messages": messages,
+            "max_tokens": _text_max_tokens(settings.anthropic_model),
+            "tools": tools,
+            "tool_choice": "auto",
+        }
+        if settings.anthropic_model in _LOW_REASONING_MODELS:
+            body["reasoning_effort"] = "low"
+        response = (
+            client.post(endpoint, cast_to=ChatCompletion, body=body)
+            if endpoint.endswith("/chat/completions")
+            else client.chat.completions.create(**body)
+        )
+        if response.choices and response.choices[0].finish_reason == "length":
+            raise AgentResponseTruncated("AGENT_OUTPUT_TRUNCATED")
+        if not response.choices or response.choices[0].finish_reason not in {"stop", "tool_calls"}:
+            # 본문·키·공급자 오류 원문은 로그에 남기지 않는다.
+            raise ValueError("AGENT_INCOMPLETE_RESPONSE")
+        return response.choices[0].message

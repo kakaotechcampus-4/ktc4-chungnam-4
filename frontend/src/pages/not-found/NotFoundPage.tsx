@@ -13,9 +13,12 @@ export function NotFoundPage() {
     <div className="w-full py-11">
       <FocusCard
         centered
+        className="motion-safe:animate-enter"
         footer={
           <Button asChild size="lg">
-            <Link to={home}>처음으로 돌아가기</Link>
+            <Link viewTransition to={home}>
+              처음으로 돌아가기
+            </Link>
           </Button>
         }
       >

@@ -47,7 +47,11 @@ export function LandingPage() {
             </Button>
             <p className="flex gap-1.5 text-label text-ink-muted">
               이미 계정이 있나요?
-              <Link viewTransition to="/login" className="font-bold text-ink">
+              <Link
+                viewTransition
+                to="/login"
+                className="font-bold text-ink transition-colors hover:text-brand-ink"
+              >
                 로그인
               </Link>
             </p>

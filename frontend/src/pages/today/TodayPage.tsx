@@ -1,6 +1,7 @@
 // Figma: 1:1895 (오늘의 기록 · 빈 상태), 후보 A 1:1913
 import { UPLOAD_GUIDE } from "@/features/upload-queue/media-capabilities";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { LoaderCircle } from "lucide-react";
 import { useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
 
@@ -35,10 +36,18 @@ function failureText(error: unknown) {
   return error instanceof ApiError ? error.message : "잠시 후 다시 시도해 주세요.";
 }
 
-/** 교사가 검토할 수 있는 알림장 초안이 있는지. 초안 검토 화면은 알림장 기준이고, 생성 중은 아직 열 수 없습니다. */
+/** 학부모에게 나간 알림장인지. 서버 상태는 approved 그대로라 published_at을 봅니다. */
+function isPublishedNote(item: ClassDraftView) {
+  return Boolean(item.parent_note?.published_at);
+}
+
+/**
+ * 교사가 아직 할 일이 있는 알림장 초안인지. 초안 검토 화면은 알림장 기준이고, 생성 중은 아직 열 수 없습니다.
+ * 이미 나간 초안까지 세면 게시를 마친 뒤에도 "초안이 준비돼 있어요"로 나옵니다(11/07 배포 점검).
+ */
 function hasReviewableNote(item: ClassDraftView) {
   const status = item.parent_note?.status;
-  return status === "review" || status === "approved";
+  return (status === "review" || status === "approved") && !isPublishedNote(item);
 }
 
 /** 초안 생성이 끝나지 않은 원아인지 */
@@ -63,6 +72,7 @@ type TodayCard =
   | { kind: "empty" }
   | { kind: "review"; childId: string }
   | { kind: "generating" }
+  | { kind: "published"; childId: string; count: number; withoutNote: number }
   | { kind: "unclassified"; childId: string };
 
 function pickCard(items: readonly ClassDraftView[]): TodayCard {
@@ -70,6 +80,20 @@ function pickCard(items: readonly ClassDraftView[]): TodayCard {
   const reviewable = items.find(hasReviewableNote);
   if (reviewable) return { kind: "review", childId: reviewable.child_id };
   if (items.some(isGenerating)) return { kind: "generating" };
+  // 회수했거나 모르는 상태인 초안은 교사가 봐야 하니, 게시를 마쳤다고 하기 전에 먼저 보냅니다.
+  const locked = items.find((item) => item.parent_note !== null && needsCheck(item));
+  if (locked) return { kind: "unclassified", childId: locked.child_id };
+  const published = items.filter(isPublishedNote);
+  const [firstPublished] = published;
+  if (firstPublished) {
+    return {
+      kind: "published",
+      childId: firstPublished.child_id,
+      count: published.length,
+      // 초안 없이 끝난 아이는 게시 내역(끝난 화면)에서 직접 씁니다. 카드에서 알려야 놓치지 않습니다.
+      withoutNote: items.filter((item) => item.parent_note === null).length,
+    };
+  }
   // 확인이 필요한 원아만 남았으면, 초안 검토 화면에서 그 원아를 골라 직접 씁니다.
   const unclassified = items.find(needsCheck);
   if (unclassified) return { kind: "unclassified", childId: unclassified.child_id };
@@ -162,7 +186,7 @@ export function TodayPage() {
           setDragging(false);
         }}
         onDrop={handleDrop}
-        className={cn("rounded-2xl", dragging && "bg-tint-2")}
+        className={cn("rounded-2xl transition-colors duration-200", dragging && "bg-tint-2")}
       >
         {children}
       </div>
@@ -222,9 +246,13 @@ export function TodayPage() {
     <>
       <PageHeader eyebrow="오늘의 기록" title="오늘은 어떤 순간이 있었나요?" subtitle={subtitle} />
       {/* TODO(정은): Figma에는 빈 상태(1:1895)만 있어, 다른 상태도 같은 카드 틀에 문구와 버튼만 바꿉니다. */}
-      <FocusCard centered className="min-h-140 justify-center">
+      {/* 카드 틀은 상태가 바뀌어도 다시 그려지지 않아, 틀에 걸면 결과가 도착해도 움직이지 않습니다. 그래서 안의 내용(*:)에만 겁니다. */}
+      <FocusCard centered className="min-h-140 justify-center *:motion-safe:animate-enter">
         {card.kind === "loading" ? (
-          <p className="text-lead text-ink-muted">오늘 기록을 확인하는 중이에요.</p>
+          <p className="flex items-center gap-2 text-lead text-ink-muted">
+            <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
+            오늘 기록을 확인하는 중이에요.
+          </p>
         ) : card.kind === "error" ? (
           <>
             <h2 className="text-h3 font-bold text-ink">오늘 기록을 불러오지 못했어요</h2>
@@ -243,9 +271,11 @@ export function TodayPage() {
               검토를 마치지 않았거나 게시에서 뺀 아이가 있다면 이어서 확인해 주세요.
             </p>
             <Button asChild size="lg">
-              <Link to={`/t/today/review/${card.childId}`}>초안 검토하기</Link>
+              <Link viewTransition to={`/t/today/review/${card.childId}`}>
+                초안 검토하기
+              </Link>
             </Button>
-            <Link to="/t/today/upload" className={TEXT_LINK_CLASS}>
+            <Link viewTransition to="/t/today/upload" className={TEXT_LINK_CLASS}>
               {"자료 더 올리기  →"}
             </Link>
           </>
@@ -256,7 +286,29 @@ export function TodayPage() {
             <p className="max-w-140 text-lead text-ink-muted">
               잠시 뒤 다시 들어오면 초안을 검토할 수 있어요.
             </p>
-            <Link to="/t/today/upload" className={TEXT_LINK_CLASS}>
+            <Link viewTransition to="/t/today/upload" className={TEXT_LINK_CLASS}>
+              {"자료 더 올리기  →"}
+            </Link>
+          </>
+        ) : card.kind === "published" ? (
+          <>
+            <img src={emptyMedia} alt="" className="size-14" />
+            <h2 className="text-h3 font-bold text-ink">오늘의 기록을 전달했어요</h2>
+            <p className="max-w-140 text-lead text-ink-muted">
+              학부모님께 알림장 {card.count}건을 보냈어요. 잘못 나간 글은 회수한 뒤에 고칠 수
+              있어요.
+            </p>
+            {card.withoutNote > 0 ? (
+              <p className="max-w-140 text-lead font-bold text-ink">
+                알림장이 없는 아이 {card.withoutNote}명은 게시 내역에서 직접 쓸 수 있어요.
+              </p>
+            ) : null}
+            <Button asChild size="lg">
+              <Link viewTransition to={`/t/today/review/${card.childId}`}>
+                게시 내역 보기
+              </Link>
+            </Button>
+            <Link viewTransition to="/t/today/upload" className={TEXT_LINK_CLASS}>
               {"자료 더 올리기  →"}
             </Link>
           </>
@@ -268,9 +320,11 @@ export function TodayPage() {
               초안 검토 화면에서 사진을 더하거나 직접 써서 기록을 마무리해 주세요.
             </p>
             <Button asChild size="lg">
-              <Link to={`/t/today/review/${card.childId}`}>확인하기</Link>
+              <Link viewTransition to={`/t/today/review/${card.childId}`}>
+                확인하기
+              </Link>
             </Button>
-            <Link to="/t/today/upload" className={TEXT_LINK_CLASS}>
+            <Link viewTransition to="/t/today/upload" className={TEXT_LINK_CLASS}>
               {"자료 더 올리기  →"}
             </Link>
           </>
@@ -283,7 +337,9 @@ export function TodayPage() {
               오늘 찍은 사진·영상·음성 메모를 올려 주세요.
             </p>
             <Button asChild size="lg">
-              <Link to="/t/today/upload">오늘 찍은 자료 올리기</Link>
+              <Link viewTransition to="/t/today/upload">
+                오늘 찍은 자료 올리기
+              </Link>
             </Button>
             <p className="text-caption text-ink-muted">파일을 이곳으로 끌어다 놓아도 돼요</p>
           </>

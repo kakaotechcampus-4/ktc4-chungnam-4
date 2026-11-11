@@ -11,8 +11,9 @@ import { MATCH_MIN_SCORE } from "@/workers/face/matcher";
 // 영상·음성 메모는 로컬 분류·검수 대상이 아닙니다(테크스펙 ⑧, 업로드 큐의 LocalClip).
 
 /**
- * (미정) 자동 귀속 신뢰도 임계값. 테크스펙 파이프라인 2단계 "신뢰도 임계값 미달 시 자동 결정하지 않음"의 값이
- * 정해지지 않았습니다. 화면들이 같은 값을 보도록 여기 하나만 둡니다.
+ * (제안 0.76, #322, 팀 확정 전) 자동 귀속 신뢰도 임계값. 테크스펙 파이프라인 2단계 "신뢰도 임계값
+ * 미달 시 자동 결정하지 않음"의 값이 명세로 확정되지 않았습니다(`docs/open-questions.md`).
+ * 화면들이 같은 값을 보도록 여기 하나만 두고, `matcher.ts`의 값을 그대로 따릅니다.
  */
 export const CONFIDENCE_THRESHOLD = MATCH_MIN_SCORE;
 

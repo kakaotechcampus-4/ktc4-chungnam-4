@@ -72,10 +72,11 @@ export function ClassificationPage() {
     <div className="pb-10">
       {header}
 
+      {/* 정리를 마치고 돌아온 직후의 안내라 떠오르며 나타나 눈에 띄게 합니다. */}
       {notice ? (
         <p
           role="status"
-          className="mb-3 rounded-md bg-leaf-soft px-4 py-3 text-body text-brand-ink"
+          className="mb-3 rounded-md bg-leaf-soft px-4 py-3 text-body text-brand-ink motion-safe:animate-enter"
         >
           {notice}
         </p>

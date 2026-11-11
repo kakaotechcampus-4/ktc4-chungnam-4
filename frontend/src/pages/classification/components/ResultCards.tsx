@@ -26,7 +26,9 @@ export function UnclassifiedCard({ counts, items, segments }: UnclassifiedCardPr
   // 사진이 남아 있으면 사진부터, 발화만 남았으면 발화 탭으로 엽니다.
   const sortPath = items.length > 0 ? "/t/today/manual-sort" : "/t/today/manual-sort?tab=speech";
   return (
-    <li className="flex min-h-44 items-center justify-between gap-6 rounded-xl bg-paper p-6">
+    // 카드 틀은 두고 안의 내용만 떠오르게 합니다. 목록이 스크롤 상자라 카드째 움직이면 카드가 적을 때
+    // 떠오르는 동안 스크롤바가 잠깐 생겼다 사라집니다.
+    <li className="flex min-h-44 items-center justify-between gap-6 rounded-xl bg-paper p-6 *:motion-safe:animate-enter">
       <div
         aria-hidden="true"
         className="flex size-16 shrink-0 items-center justify-center rounded-full bg-neutral-soft text-3xl font-bold text-ink"
@@ -58,7 +60,9 @@ export function UnclassifiedCard({ counts, items, segments }: UnclassifiedCardPr
       <div className="flex w-52.5 shrink-0 flex-col items-end gap-3">
         {total > 0 ? (
           <Button asChild className="w-46">
-            <Link to={sortPath}>자료 분류하기 →</Link>
+            <Link viewTransition to={sortPath}>
+              자료 분류하기 →
+            </Link>
           </Button>
         ) : null}
         <p className="text-caption text-ink-muted">사진·발화를 아이에게 연결해요</p>
@@ -69,7 +73,8 @@ export function UnclassifiedCard({ counts, items, segments }: UnclassifiedCardPr
 
 export function ChildCard({ child, counts, items, hasEvidence }: ChildSummary) {
   return (
-    <li className="flex min-h-44 items-center justify-between gap-6 rounded-xl bg-paper p-6">
+    // 미분류 카드와 같은 이유로 안의 내용만 떠오릅니다. 발화가 도착해 새로 생긴 카드도 같이 떠오릅니다.
+    <li className="flex min-h-44 items-center justify-between gap-6 rounded-xl bg-paper p-6 *:motion-safe:animate-enter">
       <PhotoPlaceholder label={`${child.name} 대표 사진`} className="size-16 rounded-full" />
       <div className="flex w-34 shrink-0 flex-col gap-2">
         <h2 className="text-lg font-bold text-ink">{child.name}</h2>
@@ -86,8 +91,9 @@ export function ChildCard({ child, counts, items, hasEvidence }: ChildSummary) {
       <div className="flex w-52.5 shrink-0 flex-col gap-4">
         {/* 아이별 하루 확인(Figma 1:3115)으로 갑니다. 추가 근거도 그 화면 안에서 씁니다(#83 리뷰). */}
         <Link
+          viewTransition
           to={`/t/today/children/${child.child_id}/summary`}
-          className="rounded-xs text-body font-bold text-ink outline-none hover:text-brand-ink focus-visible:ring-3 focus-visible:ring-ring/50"
+          className="rounded-xs text-body font-bold text-ink outline-none transition-colors hover:text-brand-ink focus-visible:ring-3 focus-visible:ring-ring/50"
         >
           오늘 하루 확인 →<span className="sr-only"> ({child.name})</span>
         </Link>

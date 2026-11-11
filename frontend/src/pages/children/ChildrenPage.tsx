@@ -1,5 +1,6 @@
 // Figma: 1:1402
 import { useQuery } from "@tanstack/react-query";
+import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 
@@ -34,7 +35,12 @@ export function ChildrenPage() {
 
   function renderBody() {
     if (classPending || (currentClass && childrenQuery.isPending)) {
-      return <p className="text-body text-ink-muted">명단을 불러오는 중이에요.</p>;
+      return (
+        <p className="flex items-center gap-2 text-body text-ink-muted">
+          <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
+          명단을 불러오는 중이에요.
+        </p>
+      );
     }
     const error = classError ?? childrenQuery.error;
     if (error) {
@@ -49,19 +55,22 @@ export function ChildrenPage() {
     }
     if (children.length === 0) {
       return (
-        <FocusCard centered>
+        <FocusCard centered className="motion-safe:animate-enter">
           <h2 className="text-h3 font-bold text-ink">아직 등록한 원아가 없어요</h2>
           <p className="text-lead text-ink-muted">
             원아를 추가하고 보호자 동의와 얼굴 정보를 확인해 주세요.
           </p>
           <Button asChild className="w-40">
-            <Link to="/t/children/new">원아 추가</Link>
+            <Link viewTransition to="/t/children/new">
+              원아 추가
+            </Link>
           </Button>
         </FocusCard>
       );
     }
+    // 명단 카드는 처음 받을 때만 떠오릅니다. 줄마다 걸면 검색어를 칠 때마다 줄이 다시 떠올라서 카드에 겁니다.
     return (
-      <div className="flex flex-col rounded-2xl bg-paper p-6">
+      <div className="flex flex-col rounded-2xl bg-paper p-6 motion-safe:animate-enter">
         {filtered.length === 0 ? (
           <p className="p-4 text-body text-ink-muted">
             &lsquo;{trimmed}&rsquo;에 맞는 원아가 없어요.
@@ -94,7 +103,9 @@ export function ChildrenPage() {
             className="h-12 max-w-205 border-transparent bg-primary"
           />
           <Button asChild className="w-40">
-            <Link to="/t/children/new">원아 추가</Link>
+            <Link viewTransition to="/t/children/new">
+              원아 추가
+            </Link>
           </Button>
         </div>
       ) : null}

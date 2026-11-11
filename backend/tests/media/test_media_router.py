@@ -7,7 +7,7 @@
 
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,6 +18,7 @@ from sqlalchemy.pool import StaticPool
 from core.base import Base
 from core.config import get_settings
 from core.database import get_db
+from domains.agents.models import GenerationJob, Job
 from domains.audit.models import AccessLog
 from domains.auth.middleware import get_current_teacher
 from domains.auth.service import TeacherProfile
@@ -98,6 +99,8 @@ def session_factory() -> sessionmaker[Session]:
             MediaChildLink.__table__,
             TranscriptSegment.__table__,
             AccessLog.__table__,
+            GenerationJob.__table__,
+            Job.__table__,
             Center.__table__,
             Klass.__table__,
             Child.__table__,
@@ -847,3 +850,112 @@ def test_없는_발화는_404_TRANSCRIPT_SEGMENT_NOT_FOUND(client: TestClient) -
     response = client.patch(f"/api/v1/transcript-segments/{uuid.uuid4()}", json={"excluded": True})
 
     assert (response.status_code, _error_code(response)) == (404, "TRANSCRIPT_SEGMENT_NOT_FOUND")
+
+
+# ---- 생성 중 귀속 변경 잠금 (#304 4-23) ----
+# 초안은 업로드한 날(C-0)의 미디어를 쓰므로 잠금도 업로드 확인일(`verified_at`)로 본다.
+
+
+def _running_job(session_factory: sessionmaker[Session], record_date: date) -> uuid.UUID:
+    """그 반·날짜에 돌고 있는 알림장 생성 작업을 하나 만든다."""
+    with session_factory() as db:
+        generation = GenerationJob(
+            class_id=CLASS_ID,
+            record_date=record_date,
+            request_id=str(uuid.uuid4()),
+            requested_by_teacher_id=TEACHER_ID,
+        )
+        db.add(generation)
+        db.flush()
+        job = Job(
+            generation_job_id=generation.id,
+            child_id=DOYUN,
+            target_date=datetime(2026, 10, 7, tzinfo=UTC),
+            status="running",
+        )
+        db.add(job)
+        db.commit()
+        return generation.id
+
+
+def _upload_on(session_factory: sessionmaker[Session], media_id: str, day: date) -> None:
+    """업로드 확인 시각을 그날 한국 시간 정오로 옮긴다."""
+    with session_factory() as db:
+        record = db.query(MediaUpload).filter(MediaUpload.media_id == uuid.UUID(media_id)).one()
+        record.verified_at = datetime.combine(day, time(3, 0), tzinfo=UTC)  # KST 12:00
+        db.commit()
+
+
+def test_그날_초안을_만드는_중이면_귀속을_바꾸지_못한다(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """생성 중 옮긴 사진이 이전 원아 초안에 남던 문제. 끝난 뒤 다시 하게 막는다."""
+    media_id = _uploaded_voice(client)
+    _upload_on(session_factory, media_id, date(2026, 10, 7))
+    running = _running_job(session_factory, date(2026, 10, 7))
+
+    response = client.put(f"/api/v1/media/{media_id}/child-links", json=_manual(DOYUN))
+
+    assert response.status_code == 409
+    assert _error_code(response) == "JOB_ALREADY_RUNNING"
+    assert response.json()["error"]["detail"] == {"job_id": str(running)}
+    with session_factory() as other:
+        assert other.query(MediaChildLink).count() == 0
+
+
+def test_다른_날짜의_생성은_귀속_변경을_막지_않는다(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    media_id = _uploaded_voice(client)
+    _upload_on(session_factory, media_id, date(2026, 10, 7))
+    _running_job(session_factory, date(2026, 10, 8))
+
+    response = client.put(f"/api/v1/media/{media_id}/child-links", json=_manual(DOYUN))
+
+    assert response.status_code == 200
+
+
+def test_지난날_찍고_오늘_올린_자료는_오늘_생성_중이면_막힌다(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """10/07에 찍어 10/09에 올린 자료는 10/09 초안 대상이라(C-0) 10/09 생성 중에 막는다."""
+    media_id = _uploaded_voice(client)  # 한국 시간 10/07에 찍은 음성
+    _upload_on(session_factory, media_id, date(2026, 10, 9))
+    running = _running_job(session_factory, date(2026, 10, 9))
+
+    response = client.put(f"/api/v1/media/{media_id}/child-links", json=_manual(DOYUN))
+
+    assert (response.status_code, _error_code(response)) == (409, "JOB_ALREADY_RUNNING")
+    assert response.json()["error"]["detail"] == {"job_id": str(running)}
+
+
+def test_촬영일에만_생성_중이면_귀속_변경을_막지_않는다(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """촬영일(10/07) 초안은 10/09에 올린 이 자료를 쓰지 않으므로 막을 이유가 없다."""
+    media_id = _uploaded_voice(client)
+    _upload_on(session_factory, media_id, date(2026, 10, 9))
+    _running_job(session_factory, date(2026, 10, 7))
+
+    response = client.put(f"/api/v1/media/{media_id}/child-links", json=_manual(DOYUN))
+
+    assert response.status_code == 200
+
+
+def test_생성_중에도_같은_귀속의_완료_통지_재전송은_받는다(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """응답이 끊긴 뒤의 재전송은 귀속이 같으므로 막지 않는다. 귀속이 바뀌면 막는다."""
+    [issued] = _upload_urls(client, _item())
+    first = _photo_complete(issued["client_photo_id"], DOYUN)
+    created = client.post("/api/v1/media", json=first)
+    assert created.status_code == 201
+    _upload_on(session_factory, created.json()["media_id"], date(2026, 10, 9))
+    _running_job(session_factory, date(2026, 10, 9))
+
+    same = client.post("/api/v1/media", json=first)
+    changed = client.post("/api/v1/media", json=_photo_complete(issued["client_photo_id"]))
+
+    assert same.status_code == 200
+    assert changed.status_code == 409
+    assert _error_code(changed) == "JOB_ALREADY_RUNNING"

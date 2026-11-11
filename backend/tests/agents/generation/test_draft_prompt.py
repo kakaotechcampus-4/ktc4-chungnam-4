@@ -32,6 +32,31 @@ def test_근거와_피드백을_채우고_메타데이터_주석은_보내지_�
     assert "{{" not in prompt
 
 
+def test_첫_문장의_주어는_대상_원아로_쓰게_한다():
+    # 공동 활동만 있는 날에도 누구의 알림장인지 드러나야 합니다(11/07 배포 점검).
+    prompt = build_draft_prompt(DocType.PARENT_NOTE, _evidence())
+
+    assert "첫 문장의 주어는 CHILD_A" in prompt
+
+
+def test_표정_이모티콘은_근거에_웃음이_있을_때만_쓰게_한다():
+    # 학부모는 😊를 "웃었다·즐거워했다"로 읽습니다. 예시에는 활동·물건 이모티콘만 둡니다(#307 리뷰).
+    prompt = build_draft_prompt(DocType.PARENT_NOTE, _evidence())
+    format_example = prompt.rstrip().splitlines()[-1]
+
+    assert "근거 원문에 웃음·즐거움이 적혀 있을 때만" in prompt
+    assert "🧱" in format_example
+    assert "😊" not in format_example
+
+
+def test_이모티콘은_문장_두_개에_하나_정도만_쓰게_한다():
+    # "적극적으로 활용"이면 문장의 약 3/4에 붙어 줄였습니다(#307 리뷰, 팀 확정 전 제안).
+    prompt = build_draft_prompt(DocType.PARENT_NOTE, _evidence())
+
+    assert "문장 두 개에 하나 정도" in prompt
+    assert "적극적으로 활용" not in prompt
+
+
 def test_첫_생성이면_피드백은_빈_배열이다():
     prompt = build_draft_prompt(DocType.PARENT_NOTE, _evidence())
 
@@ -58,4 +83,4 @@ def test_본문의_문장_수_상한이_응답_검증과_같다():
     # 본문 규칙만 바뀌면 LLM은 그 수만큼 쓰는데 응답 검증은 초안 전체를 실패로 본다.
     prompt = build_draft_prompt(DocType.PARENT_NOTE, _evidence())
 
-    assert f"문장은 {MAX_SENTENCES}개 이하로 쓴다." in prompt
+    assert prompt.count(f"문장은 {MAX_SENTENCES}개 이하로 쓴다.") == 1

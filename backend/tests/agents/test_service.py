@@ -20,8 +20,11 @@ from tests.agents.fixtures.evidence import (
     EVIDENCE_CHILD_A,
     RECORD_DATE,
 )
+from tests.agents.fixtures.native_agent import native_fixture
 from tools import contracts
+from tools.evidence.routine import DailyRoutine, RoutineFact
 from tools.generation.draft import DraftResponseError
+from tools.generation.pseudonymize import pseudonymize_evidence
 
 
 class FakeSession:
@@ -30,6 +33,9 @@ class FakeSession:
         self.executed: list[object] = []
         self.committed = False
         self.rolled_back = False
+
+    def get(self, *args):
+        return None
 
     def add(self, obj: object) -> None:
         self.added.append(obj)
@@ -57,6 +63,12 @@ def _generation_inputs(monkeypatch) -> None:
     monkeypatch.setattr(service, "_load_generation_inputs", lambda bundle: object())
     monkeypatch.setattr(service.documents, "get_draft_version", lambda *args, **kwargs: None)
     monkeypatch.setattr(service.organization_service, "has_consent", lambda *args: True)
+    monkeypatch.setattr(
+        service, "_prepare_agent_inputs", lambda session, job, bundle, inputs: _inputs([])
+    )
+    monkeypatch.setattr(
+        service, "call_agent", native_fixture(lambda prompt: service.call_claude(prompt))
+    )
 
 
 def _document(evidence_ids: tuple[str, ...] = ("ev_001",)) -> contracts.DraftDocument:
@@ -418,10 +430,11 @@ def test_orchestrate_drafts_결과_기록과_성공_상태를_한_번에_커밋�
 
     _orchestrate_until(monkeypatch, session, decision)
 
-    assert session.commits == [
-        (JobStatus.RUNNING.value, []),
-        (JobStatus.SUCCEEDED.value, [result_row]),
-    ]
+    # 중간 에이전트 메타데이터 커밋은 허용하지만 결과는 최종 상태와 함께 한 번만 저장한다.
+    assert all(
+        state == JobStatus.RUNNING.value and rows == [] for state, rows in session.commits[:-1]
+    )
+    assert session.commits[-1] == (JobStatus.SUCCEEDED.value, [result_row])
 
 
 def test_orchestrate_drafts_마지막_커밋이_실패하면_초안도_커밋되지_않는다(monkeypatch) -> None:
@@ -715,6 +728,18 @@ def _inputs(evidence: list[contracts.EvidenceItem]) -> service.GenerationInputs:
         request=_request(tuple(item.evidence_id for item in evidence)),
         evidence=evidence,
         names_by_child_id=_SYNTHETIC_NAMES,
+        routine=DailyRoutine(
+            facts=[
+                RoutineFact(text=item.text, evidence_refs=[item.ref])
+                for item in pseudonymize_evidence(
+                    {e.evidence_id: e for e in evidence},
+                    target_child_id="child_A",
+                    names_by_child_id=_SYNTHETIC_NAMES,
+                ).llm_items
+            ]
+        )
+        if evidence
+        else None,
     )
 
 
@@ -1004,3 +1029,21 @@ def test_orchestrate_drafts_인식_결과는_재생성해도_한_번만_만든�
     service.orchestrate_drafts(job_id="job-1", child_id="00000000-0000-0000-0000-000000000001")
 
     assert len(loads) == 1
+
+
+@pytest.mark.parametrize(
+    ("text", "unknown"),
+    [
+        ("CHILD_A의 블록 놀이를 했어요.", []),
+        ("CHILD_A는 CHILD_B와 함께 그림을 그렸어요.", []),
+        ("child_a가 웃으며 뛰었어요.", ["child_a"]),
+        ("CHILD_ A가 모래 놀이를 했어요.", ["CHILD_ A"]),
+        ("CHILD_Z와 놀았어요.", ["CHILD_Z"]),
+        ("CHILD_AB가 노래했어요.", ["CHILD_AB"]),
+    ],
+)
+def test_보낸_적_없거나_깨진_토큰을_찾는다(text, unknown) -> None:
+    """통합 환경에서 변형 토큰이 그대로 초안에 남던 문제 (#304 4-24)."""
+    from tools.generation.pseudonymize import unknown_child_tokens
+
+    assert unknown_child_tokens(text, {"CHILD_A", "CHILD_B"}) == unknown

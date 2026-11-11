@@ -1,0 +1,2662 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>얼굴 대조 점수 재기</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family:
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+      }
+      body {
+        margin: 0 auto;
+        max-width: 1100px;
+        padding: 24px 16px 64px;
+        line-height: 1.6;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0 0 4px;
+      }
+      h2 {
+        font-size: 15px;
+        margin: 0 0 12px;
+      }
+      /* 구역 하나를 칸 하나로 담습니다. 표와 판정이 쭉 이어지면 어디서부터 다음
+         이야기인지 눈으로 끊기지 않습니다. */
+      .card {
+        border: 1px solid rgba(128, 128, 128, 0.3);
+        border-radius: 10px;
+        padding: 16px 18px;
+        margin: 16px 0;
+        background: rgba(128, 128, 128, 0.04);
+      }
+      .card > *:last-child {
+        margin-bottom: 0;
+      }
+      /* 그 칸에서 가장 중요한 숫자. 표 안에 있으면 찾아 읽어야 해서 위로 올립니다. */
+      .tiles {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin: 0 0 14px;
+      }
+      .tile {
+        flex: 1 1 150px;
+        min-width: 150px;
+        padding: 10px 12px;
+        border: 1px solid rgba(128, 128, 128, 0.3);
+        border-left-width: 3px;
+        border-radius: 8px;
+        background: rgba(128, 128, 128, 0.06);
+      }
+      .tile .v {
+        font-size: 24px;
+        font-weight: 650;
+        line-height: 1.2;
+        font-variant-numeric: tabular-nums;
+      }
+      .tile .l {
+        font-size: 12px;
+        opacity: 0.85;
+      }
+      .tile .n {
+        font-size: 11px;
+        opacity: 0.6;
+        margin-top: 4px;
+      }
+      /* 색만으로 알리지 않습니다 — 이름(.l)과 꼬리말(.n)이 같은 것을 말합니다. */
+      .tile.good {
+        border-left-color: #1a7f37;
+      }
+      .tile.good .v {
+        color: #1a7f37;
+      }
+      .tile.bad {
+        border-left-color: #c1121f;
+      }
+      .tile.bad .v {
+        color: #c1121f;
+      }
+      p.lead {
+        margin: 0 0 20px;
+        opacity: 0.75;
+        font-size: 14px;
+      }
+      button {
+        font: inherit;
+        padding: 8px 14px;
+        border-radius: 8px;
+        border: 1px solid currentColor;
+        background: transparent;
+        cursor: pointer;
+      }
+      button[disabled] {
+        opacity: 0.4;
+        cursor: progress;
+      }
+      #status {
+        font-size: 14px;
+        opacity: 0.75;
+        margin-left: 8px;
+      }
+      /* 숫자를 이름 옆으로 당깁니다. width:100% + 오른쪽 정렬이면 숫자가 칸 끝으로 밀려
+         어느 줄 값인지 눈으로 따라가야 했습니다. 첫 칸이 남는 폭을 다 먹고 숫자 칸은
+         내용만큼만 차지하게 둡니다. */
+      table {
+        border-collapse: collapse;
+        width: auto;
+        min-width: min(100%, 520px);
+        max-width: 100%;
+        font-size: 13px;
+        margin: 0 0 12px;
+      }
+      th,
+      td {
+        border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+        padding: 7px 10px;
+        text-align: left;
+      }
+      th {
+        font-size: 12px;
+        opacity: 0.7;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      /* 이름 칸이 남는 폭을 먹습니다. 나머지는 숫자 길이만큼만. */
+      th:first-child,
+      td:first-child {
+        width: 100%;
+      }
+      tbody tr:nth-child(odd) {
+        background: rgba(128, 128, 128, 0.07);
+      }
+      tbody tr:last-child td {
+        border-bottom: none;
+      }
+      /* 머리글도 숫자와 같은 쪽으로 — 어긋나면 어느 열인지 헷갈립니다. */
+      th.num,
+      td.num {
+        text-align: right;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+      }
+      /* 판정 한 줄. 떠 있는 색 글씨보다 띠가 눈에 먼저 들어옵니다. */
+      .ok,
+      .bad {
+        margin: 10px 0 16px;
+        padding: 10px 12px;
+        border-left: 3px solid currentColor;
+        border-radius: 0 6px 6px 0;
+        font-weight: 600;
+        font-size: 13px;
+      }
+      .ok {
+        color: #1a7f37;
+        background: rgba(26, 127, 55, 0.1);
+      }
+      .bad {
+        color: #c1121f;
+        background: rgba(193, 18, 31, 0.1);
+      }
+      textarea {
+        width: 100%;
+        min-height: 260px;
+        font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+        font-size: 12px;
+        margin-top: 24px;
+      }
+      details {
+        margin-bottom: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>얼굴 대조 점수 재기 (4단계 준비)</h1>
+    <p class="lead">
+      <code>detectFaces</code>가 뽑은 벡터끼리 <code>human.match.similarity</code>로 점수를 매겨,
+      <strong>같은 아이 쌍</strong>과 <strong>다른 아이 쌍</strong>이 갈라지는지 봅니다.
+      <code>matcher.ts</code>를 쓰기 전에 <strong>이 사진으로 기준값을 정할 수 있는지</strong>
+      부터 확인하려는 것입니다. 개발 전용 파일입니다.
+    </p>
+
+    <details>
+      <summary>무엇을 보면 되나</summary>
+      <ul>
+        <li>
+          <strong>갈라지면</strong> — 같은 아이 쌍의 <em>가장 낮은 점수</em>가 다른 아이 쌍의
+          <em>가장 높은 점수</em>보다 큽니다. 그 사이 어디든 기준값으로 쓸 수 있습니다
+        </li>
+        <li>
+          <strong>겹치면</strong> — 이 사진으로는 기준값을 정할 수 없습니다. 사진을 더 만들거나 다른
+          자료가 필요합니다
+        </li>
+        <li>
+          <strong>활동 사진 대조</strong>가 가장 현실적입니다. 등록한 얼굴과 실제 활동 사진 속
+          얼굴을 견주는 것이라, 서비스가 실제로 하는 일과 같습니다
+        </li>
+      </ul>
+    </details>
+
+    <div>
+      <button id="run" type="button">전체 측정</button>
+      <span id="status">아직 돌리지 않았습니다.</span>
+    </div>
+
+    <details open>
+      <summary><strong>실제 사람 사진으로 기준값 재기</strong> — 0.8 / 0.15를 정하는 자리</summary>
+      <p>
+        지금 기준값은 <strong>합성 사진으로 정한 임시 값</strong>입니다. 합성 아이들은
+        조명·배경·거리가 전부 같아 점수가 부풀려져 있어서, 같은 아이 최저(0.59)가 다른 아이
+        최고(0.90)보다 낮아 <strong>선을 그을 자리가 없습니다</strong>. 실제 사람 사진으로 다시
+        잽니다(#237).
+      </p>
+      <p><strong>파일 이름으로 무엇인지 알려 주세요.</strong></p>
+      <ul>
+        <li>
+          <code>진하_01.jpg</code> — 진하의 <strong>초상</strong>. 등록 벡터를 만듭니다(여러 장
+          평균)
+        </li>
+        <li>
+          <code>진하_옆_01.jpg</code> — <strong>옆모습</strong>. 등록에서 빼고
+          <code>usable</code> 판정만 봅니다
+        </li>
+        <li>
+          <code>group_01.jpg</code> — <strong>활동 사진</strong>. 얼굴이 여럿이어도 그대로 봅니다
+        </li>
+        <li>
+          <code>group_진하+동건_01.jpg</code> — 활동 사진 + <strong>정답</strong>(맞혔는지 채점)
+        </li>
+      </ul>
+      <p>
+        <strong>최소 3명</strong>이어야 "다른 사람" 쌍이 의미를 갖습니다.
+        <strong>활동 사진은 등록용과 다른 날·다른 장소에서</strong> 찍어 주세요 — 같은 자리에서
+        연달아 찍으면 합성 사진과 똑같이 점수가 부풀려집니다.
+      </p>
+      <p>
+        나오는 것: ① <code>usable</code>이 옆모습을 거르는지 ② 등록 벡터 ③
+        <strong>실제 <code>matchFaces</code> 규칙으로 자동 분류 장수와 1·2위 차이</strong> ④ 같은
+        사람 / 다른 사람이 갈라지는지.
+      </p>
+      <p>
+        <strong>사진은 브라우저 밖으로 나가지 않고 저장소에도 들어가지 않습니다</strong>(H-3). 고른
+        파일을 그 자리에서 읽어 점수만 내고 끝입니다. 프론트 픽스처는 합성 데이터만 쓰므로
+        (<code>frontend/CLAUDE.md</code>) 실제 사람 사진은 커밋하지 않습니다.
+      </p>
+      <div class="row">
+        <input id="mine" type="file" accept="image/*" multiple />
+        <button id="mine-clear" type="button">담은 사진 비우기</button>
+        <span id="mine-status">여러 번 나눠 골라도 됩니다 — 고를 때마다 쌓입니다.</span>
+      </div>
+      <div class="row">
+        <label>점수 기준 <input id="th-score" type="number" step="0.01" min="0" max="1" /></label>
+        <label>2등과 차이 <input id="th-margin" type="number" step="0.01" min="0" max="1" /></label>
+        <button id="mine-recalc" type="button">이 기준으로 다시 계산</button>
+        <button id="th-reset" type="button">matcher.ts 값으로 되돌리기</button>
+      </div>
+      <p>
+        <strong>여기서 바꾼 값은 이 페이지 안에서만 삽니다</strong> — <code>matcher.ts</code>는
+        그대로입니다. 기준값을 정말 바꾸려면 팀 합의가 필요합니다
+        (<code>docs/open-questions.md</code>). 다시 계산할 때
+        <strong>벡터는 다시 뽑지 않습니다</strong> — 이미 뽑아 둔 것을 쓰므로 바로 끝납니다.
+      </p>
+      <div id="mine-out"></div>
+    </details>
+
+    <div id="out"></div>
+
+    <textarea id="md" readonly placeholder="측정이 끝나면 정리된 글이 여기 나옵니다."></textarea>
+
+    <script type="module">
+      import { detectFaces, loadFaceModels, MIN_MESH_SCORE } from "/src/workers/face/detector.ts";
+      // 기준값은 적지 않고 matcher에서 가져옵니다. 손으로 적으면 코드가 바뀔 때 이 페이지만
+      // 옛 값으로 재서, "이 숫자로 몇 장 자동 분류되나"가 거짓이 됩니다.
+      import {
+        MATCH_MIN_MARGIN as MATCHER_MARGIN,
+        MATCH_MIN_SCORE as MATCHER_SCORE,
+        MATCH_OPTIONS,
+      } from "/src/workers/face/matcher.ts";
+      import { FACE_MODEL_VERSION } from "/src/workers/face/model-manifest.ts";
+
+      /**
+       * 이 페이지가 **실제로 쓰는** 기준값. 기본은 `matcher.ts` 그대로고, 입력칸으로만
+       * 바뀝니다 — "0.76 / 0.20으로 바꾸면 어떻게 되나"를 코드를 고치지 않고 보기 위함입니다.
+       * 손으로 적은 상수가 아니라 **불러온 값에서 출발**하므로, 아무것도 안 건드리면
+       * 이 페이지의 숫자는 지금 코드의 숫자와 항상 같습니다.
+       */
+      let MATCH_MIN_SCORE = MATCHER_SCORE;
+      let MATCH_MIN_MARGIN = MATCHER_MARGIN;
+
+      const fixtures = import.meta.glob("/test/fixtures/faces/**/*.jpg", {
+        eager: true,
+        import: "default",
+        query: "?url",
+      });
+
+      const statusEl = document.getElementById("status");
+      const outEl = document.getElementById("out");
+      const mdEl = document.getElementById("md");
+      const runEl = document.getElementById("run");
+      const mineEl = document.getElementById("mine");
+      const mineStatusEl = document.getElementById("mine-status");
+      const mineOutEl = document.getElementById("mine-out");
+      const thScoreEl = document.getElementById("th-score");
+      const thMarginEl = document.getElementById("th-margin");
+      const mineRecalcEl = document.getElementById("mine-recalc");
+      thScoreEl.value = String(MATCHER_SCORE);
+      thMarginEl.value = String(MATCHER_MARGIN);
+
+      /**
+       * 「전체 측정」이 만든 글. 사진을 나눠 고를 때마다 실사진 요약이 **덧붙지 않게**,
+       * 고를 때마다 이 값으로 되돌린 뒤 이번 요약 하나만 붙입니다. 예전에는 `+=`라
+       * 세 번 나눠 고르면 요약이 세 벌 쌓였고, 앞의 두 벌은 사진이 덜 담겼을 때의
+       * 옛 숫자였습니다 — 그대로 복사하면 틀린 숫자를 올리게 됩니다.
+       */
+      let fixtureMd = "";
+
+      const shortName = (path) => path.replace("/test/fixtures/faces/", "");
+
+      /** 폴더·파일 이름에서 누구인지 읽습니다. 모르면 null(측정에서 뺍니다). */
+      function labelOf(path) {
+        const rest = shortName(path);
+        if (rest.startsWith("no-face/")) return null;
+        if (rest.startsWith("group/")) {
+          // 01_김도윤+이하준_블록쌓기.png → ["김도윤", "이하준"]
+          const names = rest.slice("group/".length).replace(/^\d+_/, "").split("_")[0];
+          return { kind: "group", names: names.split("+") };
+        }
+        return { kind: "solo", names: [rest.split("/")[0]] };
+      }
+
+      const fmt = (n) => n.toFixed(4);
+
+      function stats(values) {
+        if (values.length === 0) return null;
+        const sorted = [...values].sort((a, b) => a - b);
+        const sum = sorted.reduce((a, b) => a + b, 0);
+        const at = (q) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
+        return {
+          count: sorted.length,
+          min: sorted[0],
+          max: sorted[sorted.length - 1],
+          mean: sum / sorted.length,
+          p05: at(0.05),
+          p95: at(0.95),
+        };
+      }
+
+      function table(headers, rows) {
+        const el = document.createElement("table");
+        const thead = el.createTHead().insertRow();
+        headers.forEach((h, i) => {
+          const th = document.createElement("th");
+          th.textContent = h;
+          // 첫 칸은 이름, 나머지는 숫자입니다. 머리글을 숫자와 같은 쪽으로 붙여야
+          // 어느 열의 값인지 바로 읽힙니다.
+          if (i > 0) th.className = "num";
+          thead.append(th);
+        });
+        const body = el.createTBody();
+        rows.forEach((cells) => {
+          const tr = body.insertRow();
+          cells.forEach((value, i) => {
+            const td = tr.insertCell();
+            if (value instanceof Node) td.append(value);
+            else td.textContent = String(value);
+            if (i > 0) td.className = "num";
+          });
+        });
+        return el;
+      }
+
+      function heading(text) {
+        const h = document.createElement("h2");
+        h.textContent = text;
+        return h;
+      }
+
+      /**
+       * 큰 숫자 한 줄. `state`는 "good" / "bad" / 없음(색 없이)입니다.
+       * 색은 거드는 것뿐이라 이름과 꼬리말이 같은 내용을 글로 말합니다.
+       */
+      function tiles(items) {
+        const wrap = document.createElement("div");
+        wrap.className = "tiles";
+        for (const item of items) {
+          const tile = document.createElement("div");
+          tile.className = item.state ? `tile ${item.state}` : "tile";
+          const value = document.createElement("div");
+          value.className = "v";
+          value.textContent = String(item.value);
+          const label = document.createElement("div");
+          label.className = "l";
+          label.textContent = item.label;
+          tile.append(value, label);
+          if (item.note) {
+            const note = document.createElement("div");
+            note.className = "n";
+            note.textContent = item.note;
+            tile.append(note);
+          }
+          wrap.append(tile);
+        }
+        return wrap;
+      }
+
+      /**
+       * h2가 나올 때마다 거기서부터 다음 h2 전까지를 칸 하나로 묶습니다.
+       *
+       * 붙이는 자리마다 칸을 들고 다니는 대신 **다 그린 뒤 한 번에** 묶습니다 — 표·판정이
+       * 조건에 따라 중간에 끼어들어서, 자리마다 컨테이너를 넘기면 하나 빠뜨리기 쉽습니다.
+       */
+      function groupIntoCards(root) {
+        let card = null;
+        for (const node of [...root.children]) {
+          if (node.tagName === "H2") {
+            card = document.createElement("section");
+            card.className = "card";
+            root.append(card);
+          }
+          if (card) card.append(node);
+        }
+      }
+
+      function verdict(text, good) {
+        const p = document.createElement("p");
+        p.textContent = text;
+        p.className = good ? "ok" : "bad";
+        return p;
+      }
+
+      async function fileFromUrl(url, name) {
+        const blob = await (await fetch(url)).blob();
+        return new File([blob], name, { type: blob.type });
+      }
+
+      runEl.addEventListener("click", async () => {
+        runEl.disabled = true;
+        outEl.replaceChildren();
+        try {
+          statusEl.textContent = "모델을 받는 중…";
+          const human = await loadFaceModels();
+          const similarity = (a, b) => human.match.similarity(a, b, MATCH_OPTIONS);
+
+          // 1) 벡터를 전부 뽑습니다.
+          const solo = []; // { name, child, descriptor }
+          const group = []; // { name, candidates, descriptor }
+          const paths = Object.keys(fixtures).sort();
+          for (const [index, path] of paths.entries()) {
+            const label = labelOf(path);
+            if (label === null) continue;
+            statusEl.textContent = `벡터 뽑는 중 ${index + 1}/${paths.length} · ${shortName(path)}`;
+            const file = await fileFromUrl(fixtures[path], shortName(path));
+            const faces = await detectFaces(file);
+            faces.forEach((face, i) => {
+              const entry = {
+                name: shortName(path) + (faces.length > 1 ? ` #${i + 1}` : ""),
+                meshScore: face.meshScore,
+                usable: face.usable,
+              };
+              if (label.kind === "solo")
+                solo.push({ ...entry, child: label.names[0], descriptor: face.descriptor });
+              else group.push({ ...entry, candidates: label.names, descriptor: face.descriptor });
+            });
+          }
+
+          // 1-b) usable 판정 — MIN_MESH_SCORE가 옆모습을 거르는지. 판정만 보면 "기준을 얼마로
+          //      할지"를 알 수 없어 정렬 점수 분포를 함께 냅니다. 옆모습 10장이 한 번에
+          //      들어오므로 실사진을 기다리지 않고 기준값을 좁힐 수 있습니다(#226 재리뷰).
+          const isSide = (name) => name.includes("옆모습");
+          const sideFaces = solo.filter((s) => isSide(s.name));
+          const frontFaces = solo.filter((s) => !isSide(s.name));
+          const scoreRow = (label, list) => {
+            if (list.length === 0) return [label, 0, "—", "—", "—", "—"];
+            const st = stats(list.map((f) => f.meshScore));
+            return [
+              label,
+              list.length,
+              list.filter((f) => f.usable).length,
+              fmt(st.min),
+              fmt(st.mean),
+              fmt(st.max),
+            ];
+          };
+          const leaked = sideFaces.filter((f) => f.usable);
+          outEl.append(
+            heading(`1. usable 판정 — 기준 ${MIN_MESH_SCORE} (정렬 점수)`),
+            tiles([
+              {
+                value: `${leaked.length} / ${sideFaces.length}`,
+                label: "usable로 샌 옆모습",
+                note: leaked.length === 0 ? "하나도 안 샜습니다" : "기준값을 올려야 합니다",
+                state: leaked.length === 0 ? "good" : "bad",
+              },
+              {
+                value: `${frontFaces.filter((f) => f.usable).length} / ${frontFaces.length}`,
+                label: "usable로 남은 정면",
+                note: "등록에 쓸 수 있는 얼굴",
+              },
+              {
+                value: fmt(MIN_MESH_SCORE),
+                label: "지금 기준(MIN_MESH_SCORE)",
+                note: "정렬 점수가 이보다 낮으면 뺍니다",
+              },
+            ]),
+            table(
+              ["묶음", "얼굴", "usable=true", "점수 최저", "평균", "최고"],
+              [
+                scoreRow("정면·45도·웃음", frontFaces),
+                scoreRow("옆모습", sideFaces),
+                scoreRow("활동 사진", group),
+              ],
+            ),
+            verdict(
+              leaked.length === 0
+                ? `옆모습 0 / ${sideFaces.length} 샘 — 기준 ${MIN_MESH_SCORE}가 맞습니다.`
+                : `옆모습 ${leaked.length} / ${sideFaces.length} 샘 — 기준을 올리거나 yaw가 필요합니다.`,
+              leaked.length === 0,
+            ),
+          );
+          if (leaked.length > 0) {
+            outEl.append(
+              table(
+                ["샌 옆모습", "정렬 점수"],
+                [...leaked]
+                  .sort((a, b) => b.meshScore - a.meshScore)
+                  .map((f) => [f.name, fmt(f.meshScore)]),
+              ),
+              verdict(
+                (() => {
+                  const frontMin = stats(frontFaces.map((f) => f.meshScore)).min;
+                  const sideMax = Math.max(...leaked.map((f) => f.meshScore));
+                  return frontMin > sideMax
+                    ? `정면 최저 ${fmt(frontMin)} > 샌 옆모습 최고 ${fmt(sideMax)} — 겹치지 않습니다. 그 사이로 기준값만 올리면 됩니다(yaw 불필요).`
+                    : `정면 최저 ${fmt(frontMin)} ≤ 샌 옆모습 최고 ${fmt(sideMax)} — 겹칩니다. 점수만으로는 못 가르므로 yaw 기준이 필요합니다.`;
+                })(),
+                stats(frontFaces.map((f) => f.meshScore)).min >
+                  Math.max(...leaked.map((f) => f.meshScore)),
+              ),
+            );
+          }
+
+          // 2) 초상끼리 전부 견줍니다. 옆모습은 등록에서 뺄 사진이라 뺀 경우도 함께 봅니다
+          //    (test/fixtures/faces/README.md — facemesh가 양쪽 눈을 봐야 정렬합니다).
+          statusEl.textContent = "점수 매기는 중…";
+          function measure(photos) {
+            const same = [];
+            const diff = [];
+            for (let i = 0; i < photos.length; i += 1) {
+              for (let j = i + 1; j < photos.length; j += 1) {
+                const score = similarity(photos[i].descriptor, photos[j].descriptor);
+                const pair = { a: photos[i].name, b: photos[j].name, score };
+                if (photos[i].child === photos[j].child) same.push(pair);
+                else diff.push(pair);
+              }
+            }
+            const sameStats = stats(same.map((p) => p.score));
+            const diffStats = stats(diff.map((p) => p.score));
+            return {
+              photos,
+              same,
+              diff,
+              sameStats,
+              diffStats,
+              separated: sameStats.min > diffStats.max,
+              gap: sameStats.min - diffStats.max,
+              worstSame: [...same].sort((x, y) => x.score - y.score).slice(0, 5),
+              worstDiff: [...diff].sort((x, y) => y.score - x.score).slice(0, 5),
+            };
+          }
+
+          const views = [
+            { key: "전부", result: measure(solo) },
+            { key: "옆모습 뺌", result: measure(solo.filter((s) => !s.name.includes("옆모습"))) },
+          ];
+
+          const children = [...new Set(solo.map((s) => s.child))].sort();
+          for (const [viewIndex, { key, result }] of views.entries()) {
+            const { sameStats: s, diffStats: d, separated, gap } = result;
+            outEl.append(
+              heading(
+                `2-${viewIndex + 1}. 초상 비교 — ${key} (${result.photos.length}장 · 아이 ${children.length}명)`,
+              ),
+              tiles([
+                {
+                  value: separated ? "갈라짐" : "겹침",
+                  label: "같은 아이 / 다른 아이",
+                  note: separated ? `사이가 ${fmt(gap)}` : "기준값을 그을 자리가 없습니다",
+                  state: separated ? "good" : "bad",
+                },
+                { value: fmt(s.min), label: "같은 아이 최저", note: "이 밑으로는 못 내려갑니다" },
+                { value: fmt(d.max), label: "다른 아이 최고", note: "이 위로는 못 올라갑니다" },
+                {
+                  value: separated ? fmt((s.min + d.max) / 2) : "—",
+                  label: "기준값 후보",
+                  note: separated ? "두 값의 한가운데" : "겹쳐서 못 정합니다",
+                },
+              ]),
+              table(
+                ["묶음", "쌍", "가장 낮음", "5%", "평균", "95%", "가장 높음"],
+                [
+                  [
+                    "같은 아이",
+                    s.count,
+                    fmt(s.min),
+                    fmt(s.p05),
+                    fmt(s.mean),
+                    fmt(s.p95),
+                    fmt(s.max),
+                  ],
+                  [
+                    "다른 아이",
+                    d.count,
+                    fmt(d.min),
+                    fmt(d.p05),
+                    fmt(d.mean),
+                    fmt(d.p95),
+                    fmt(d.max),
+                  ],
+                ],
+              ),
+              separated
+                ? verdict(
+                    `갈라졌습니다 — 같은 아이의 최저(${fmt(s.min)})가 다른 아이의 최고(${fmt(d.max)})보다 ${fmt(gap)} 높습니다. 기준값 후보 ${fmt((s.min + d.max) / 2)}.`,
+                    true,
+                  )
+                : verdict(
+                    `겹칩니다 — 같은 아이 최저 ${fmt(s.min)} < 다른 아이 최고 ${fmt(d.max)}. 평균 차이는 ${fmt(s.mean - d.mean)}입니다.`,
+                    false,
+                  ),
+              table(
+                [`같은 아이인데 가장 안 닮은 쌍 (${key})`, "점수"],
+                result.worstSame.map((p) => [`${p.a}  ↔  ${p.b}`, fmt(p.score)]),
+              ),
+              table(
+                [`다른 아이인데 가장 닮은 쌍 (${key})`, "점수"],
+                result.worstDiff.map((p) => [`${p.a}  ↔  ${p.b}`, fmt(p.score)]),
+              ),
+            );
+          }
+
+          const { same, diff, sameStats, diffStats, separated, gap, worstSame, worstDiff } =
+            views[0].result;
+
+          // 4) 활동 사진 속 얼굴을 초상과 견줍니다 — 실제 흐름과 같은 모양입니다.
+          //    검출 순서는 믿을 수 없으므로, 각 얼굴이 "가장 닮은 아이"로 누구를 고르는지만 봅니다.
+          const groupRows = group.map((face) => {
+            const scored = children
+              .map((child) => {
+                const best = Math.max(
+                  ...solo
+                    .filter((s) => s.child === child)
+                    .map((s) => similarity(face.descriptor, s.descriptor)),
+                );
+                return { child, best };
+              })
+              .sort((x, y) => y.best - x.best);
+            const picked = scored[0];
+            const runnerUp = scored[1];
+            const correct = face.candidates.includes(picked.child);
+            return {
+              name: face.name,
+              expected: face.candidates.join(" 또는 "),
+              picked: picked.child,
+              score: picked.best,
+              margin: picked.best - runnerUp.best,
+              correct,
+            };
+          });
+          const groupHits = groupRows.filter((r) => r.correct).length;
+          outEl.append(
+            heading(`3. 활동 사진 대조 — 얼굴 ${group.length}개`),
+            tiles([
+              {
+                value: `${groupHits} / ${group.length}`,
+                label: "정답 안에 든 얼굴",
+                note: groupHits === group.length ? "전부 맞혔습니다" : "틀린 얼굴이 있습니다",
+                state: groupHits === group.length ? "good" : "bad",
+              },
+              {
+                // 활동 사진이 하나도 없으면 stats가 null입니다.
+                value:
+                  groupRows.length === 0 ? "—" : fmt(stats(groupRows.map((r) => r.margin)).min),
+                label: "2등과 차이, 가장 작은 값",
+                note: "작을수록 아슬아슬하게 맞힌 것입니다",
+              },
+            ]),
+            table(
+              ["얼굴", "정답", "고른 아이", "점수", "2등과 차이", "맞음"],
+              groupRows.map((r) => [
+                r.name,
+                r.expected,
+                r.picked,
+                fmt(r.score),
+                fmt(r.margin),
+                r.correct ? "✅" : "❌",
+              ]),
+            ),
+            verdict(
+              `${group.length}개 중 ${groupHits}개가 정답 안에 들었습니다.`,
+              groupHits === group.length,
+            ),
+          );
+
+          // 5) 등록 장수를 몇 장으로 할지 — 구성을 바꿔 가며 활동 사진을 맞히는지 봅니다.
+          //    등록 화면은 지금 최대 3장이고(MAX_PHOTOS, 임시 결정(김동건)) 테크스펙에는 장수가
+          //    없습니다. 쓸 수 있는 각도가 정면·좌45·우45·웃음 넷이라 3장이면 하나를 버려야 해서,
+          //    어느 구성이 나은지와 몇 장부터 더 넣어도 안 좋아지는지를 잽니다.
+          const angleOf = (name) => /_(\d\d)_/.exec(name)?.[1] ?? "";
+          const average = (vectors) =>
+            vectors[0].map((_, i) => vectors.reduce((sum, v) => sum + v[i], 0) / vectors.length);
+
+          const registrationSets = [
+            { key: "3장 · 정면+좌우45 (웃음 없음)", angles: ["01", "02", "03"] },
+            { key: "3장 · 정면+45+웃음", angles: ["01", "02", "06"] },
+            { key: "4장 · 옆모습 빼고 전부", angles: ["01", "02", "03", "06"] },
+            { key: "5장 · 옆모습 하나 더", angles: ["01", "02", "03", "06", "05"] },
+          ];
+
+          const setRows = registrationSets.map(({ key, angles }) => {
+            // 아이마다 그 구성에 해당하는 사진만 모아 평균을 냅니다(worker의 등록과 같은 방식).
+            const registered = new Map();
+            const usedCounts = [];
+            for (const child of children) {
+              const picked = solo.filter(
+                (s) => s.child === child && angles.includes(angleOf(s.name)),
+              );
+              if (picked.length === 0) continue;
+              registered.set(child, average(picked.map((s) => s.descriptor)));
+              usedCounts.push(picked.length);
+            }
+            // 활동 사진 얼굴로 맞히는지 봅니다 — 등록과 다른 사진이라 실제 흐름과 같습니다.
+            let hits = 0;
+            let scoreSum = 0;
+            let marginSum = 0;
+            for (const face of group) {
+              const ranked = [...registered.entries()]
+                .map(([child, vector]) => ({ child, score: similarity(face.descriptor, vector) }))
+                .sort((a, b) => b.score - a.score);
+              const [best, second] = ranked;
+              if (face.candidates.includes(best.child)) hits += 1;
+              scoreSum += best.score;
+              marginSum += best.score - (second?.score ?? 0);
+            }
+            return {
+              key,
+              used:
+                usedCounts.length === 0
+                  ? "-"
+                  : `${Math.min(...usedCounts)}~${Math.max(...usedCounts)}`,
+              hits,
+              score: scoreSum / group.length,
+              margin: marginSum / group.length,
+            };
+          });
+
+          // 맞힌 수가 같으면 2등과의 차이가 큰 쪽이 낫습니다 — 타일에도 그 기준으로 고릅니다.
+          const bestSet = [...setRows].sort((a, b) => b.hits - a.hits || b.margin - a.margin)[0];
+          outEl.append(
+            heading(`4. 등록 장수 비교 — 활동 사진 얼굴 ${group.length}개로 채점`),
+            tiles([
+              { value: bestSet.key.split(" · ")[0], label: "가장 나은 구성", note: bestSet.key },
+              {
+                value: `${bestSet.hits} / ${group.length}`,
+                label: "그 구성이 맞힌 수",
+                note: `2등과 평균 차이 ${fmt(bestSet.margin)}`,
+              },
+            ]),
+            table(
+              ["등록 구성", "실제 사용 장수", "맞힘", "1등 평균 점수", "2등과 평균 차이"],
+              setRows.map((r) => [
+                r.key,
+                r.used,
+                `${r.hits} / ${group.length}`,
+                fmt(r.score),
+                fmt(r.margin),
+              ]),
+            ),
+            verdict(
+              "맞힌 수가 같으면 '2등과 평균 차이'가 큰 쪽이 낫습니다 — 같은 정답이라도 더 여유 있게 맞힌 것입니다.",
+              true,
+            ),
+          );
+
+          // 6) PR·이슈에 붙일 글
+          fixtureMd = [
+            `모델 \`${FACE_MODEL_VERSION}\` · 설정 \`${JSON.stringify(MATCH_OPTIONS)}\``,
+            `초상 ${solo.length}장(아이 ${children.length}명) · 활동 사진 얼굴 ${group.length}개`,
+            "",
+            "| 묶음 | 사진 | 쌍 | 가장 낮음 | 평균 | 가장 높음 | 갈라짐 |",
+            "|---|---|---|---|---|---|---|",
+            ...views.flatMap(({ key, result: r }) => [
+              `| ${key} · 같은 아이 | ${r.photos.length} | ${r.sameStats.count} | ${fmt(r.sameStats.min)} | ${fmt(r.sameStats.mean)} | ${fmt(r.sameStats.max)} | ${r.separated ? "✅" : "❌"} |`,
+              `| ${key} · 다른 아이 | ${r.photos.length} | ${r.diffStats.count} | ${fmt(r.diffStats.min)} | ${fmt(r.diffStats.mean)} | ${fmt(r.diffStats.max)} | |`,
+            ]),
+            "",
+            ...views.map(
+              ({ key, result: r }) =>
+                `- **${key}**: ${r.separated ? `갈라짐 (차이 ${fmt(r.gap)}, 기준값 후보 ${fmt((r.sameStats.min + r.diffStats.max) / 2)})` : `겹침 — 같은 아이 최저 ${fmt(r.sameStats.min)} < 다른 아이 최고 ${fmt(r.diffStats.max)}`}. 평균 차이 ${fmt(r.sameStats.mean - r.diffStats.mean)}`,
+            ),
+            "",
+            "옆모습 뺀 경우의 경계 쌍",
+            "",
+            "| 쌍 | 점수 | 종류 |",
+            "|---|---|---|",
+            ...views[1].result.worstSame.map(
+              (p) => `| \`${p.a}\` ↔ \`${p.b}\` | ${fmt(p.score)} | 같은 아이인데 낮음 |`,
+            ),
+            ...views[1].result.worstDiff.map(
+              (p) => `| \`${p.a}\` ↔ \`${p.b}\` | ${fmt(p.score)} | 다른 아이인데 높음 |`,
+            ),
+            "",
+            `활동 사진 대조: 얼굴 ${group.length}개 중 ${groupHits}개가 정답.`,
+            "",
+            "| 얼굴 | 정답 | 고른 아이 | 점수 | 2등과 차이 | 맞음 |",
+            "|---|---|---|---|---|---|",
+            ...groupRows.map(
+              (r) =>
+                `| \`${r.name}\` | ${r.expected} | ${r.picked} | ${fmt(r.score)} | ${fmt(r.margin)} | ${r.correct ? "✅" : "❌"} |`,
+            ),
+            "",
+            "같은 아이인데 가장 안 닮은 쌍",
+            "",
+            "| 쌍 | 점수 |",
+            "|---|---|",
+            ...worstSame.map((p) => `| \`${p.a}\` ↔ \`${p.b}\` | ${fmt(p.score)} |`),
+            "",
+            "다른 아이인데 가장 닮은 쌍",
+            "",
+            "| 쌍 | 점수 |",
+            "|---|---|",
+            ...worstDiff.map((p) => `| \`${p.a}\` ↔ \`${p.b}\` | ${fmt(p.score)} |`),
+            "",
+            `등록 장수 비교 (활동 사진 얼굴 ${group.length}개로 채점)`,
+            "",
+            "| 등록 구성 | 실제 사용 장수 | 맞힘 | 1등 평균 점수 | 2등과 평균 차이 |",
+            "|---|---|---|---|---|",
+            ...setRows.map(
+              (r) =>
+                `| ${r.key} | ${r.used} | ${r.hits} / ${group.length} | ${fmt(r.score)} | ${fmt(r.margin)} |`,
+            ),
+          ].join("\n");
+          mdEl.value = fixtureMd;
+
+          statusEl.textContent = "끝났습니다. 아래에서 실제 사람 사진으로 기준값을 재 보세요.";
+        } finally {
+          // 중간에 멈춰도 거기까지 그린 것은 칸으로 묶어 둡니다.
+          groupIntoCards(outEl);
+          runEl.disabled = false;
+        }
+      });
+
+      /**
+       * 고른 파일이 무엇인지 가립니다. **얼굴 수를 먼저 봅니다** — 얼굴이 둘 이상인 사진은
+       * 초상일 수 없으므로 이름과 상관없이 활동 사진입니다. 폴더 이름은 파일 고르기로
+       * 넣으면 사라져서(픽스처의 `group/01_김도윤+이하준_블록쌓기.jpg` → `01_…`) 이름만으로는
+       * 놓칩니다.
+       *
+       * - **쓸 수 있는** 얼굴 2개 이상, 또는 `group…`, 또는 이름에 `+` → **활동 사진**
+       *   (`진하+동건`처럼 `+`로 이은 이름이 있으면 그게 정답입니다)
+       * - `진하_옆_01.jpg` → **옆모습**. 등록에서 빼고 usable 판정만 봅니다
+       * - `진하_시험_01.jpg` → 진하의 **시험용 초상**. 등록에 넣지 않고 **채점에만** 씁니다
+       * - `진하_01.jpg` → 진하의 **등록용 초상**. 등록 벡터를 만드는 데 씁니다
+       *
+       * 등록용과 시험용을 가르는 것이 이 도구에서 제일 중요합니다. 섞으면 **등록한 사진으로
+       * 등록해서 같은 사진으로 채점**하는 꼴이라 점수가 부풀려집니다 — 합성 사진이 쓸모없었던
+       * 이유가 정확히 그것입니다(#237). 폴더로는 가를 수 없어(파일 고르기에 폴더 경로가 오지
+       * 않습니다) 이름에 `시험`을 넣습니다.
+       */
+      function labelOfPicked(pathOrName, usableCount) {
+        // 폴더째 골랐으면 `김도윤/김도윤_01_정면.jpg`처럼 옵니다. 폴더 이름이 곧 사람이거나
+        // `group`이라 그대로 쓰면 더 정확합니다.
+        const folder = pathOrName.includes("/") ? pathOrName.slice(0, pathOrName.indexOf("/")) : "";
+        const fileName = pathOrName.slice(pathOrName.lastIndexOf("/") + 1);
+        if (/^group$/i.test(folder)) {
+          const names = /([^_+]+(?:\+[^_+]+)+)/.exec(fileName)?.[1];
+          return { kind: "activity", expected: names ? names.split("+") : [] };
+        }
+        const base = fileName.replace(/\.[^.]+$/, "");
+        const joined = /([^_+]+(?:\+[^_+]+)+)/.exec(base)?.[1];
+        if (usableCount > 1 || /^group/i.test(base) || joined) {
+          return { kind: "activity", expected: joined ? joined.split("+") : [] };
+        }
+        const person = base.includes("_") ? base.slice(0, base.indexOf("_")) : "나";
+        return {
+          kind: "portrait",
+          person,
+          side: /옆|side|profile/i.test(base),
+          test: /시험|test/i.test(base),
+        };
+      }
+
+      /**
+       * 고른 사진을 쌓아 둡니다. 아이별 폴더로 나뉘어 있어 한 번에 다 고르기 어렵고,
+       * 다시 고를 때마다 앞의 것이 지워지면 세 명을 모을 수 없습니다. 같은 파일을 또 고르면
+       * 이름+크기로 걸러 한 번만 셉니다.
+       */
+      const picked = new Map();
+      /**
+       * 사진마다 뽑아 둔 얼굴. 기준값을 바꿔 다시 계산할 때 **벡터를 다시 뽑지 않습니다** —
+       * 97장을 다시 돌리면 몇 분이 걸리고, 같은 사진에서 같은 벡터가 나오므로 낭비입니다.
+       * 사진을 비우면 같이 비웁니다(다른 사진인데 같은 이름이면 섞입니다).
+       */
+      const detected = new Map();
+      const mineClearEl = document.getElementById("mine-clear");
+      mineClearEl.addEventListener("click", () => {
+        picked.clear();
+        detected.clear();
+        mineOutEl.replaceChildren();
+        mdEl.value = fixtureMd;
+        mineStatusEl.textContent = "비웠습니다. 다시 골라 주세요.";
+      });
+
+      const averageOf = (vectors) =>
+        vectors[0].map((_, i) => vectors.reduce((sum, v) => sum + v[i], 0) / vectors.length);
+
+      async function analyze() {
+        const files = [...picked.values()];
+        if (files.length === 0) {
+          mineStatusEl.textContent = "먼저 사진을 골라 주세요.";
+          return;
+        }
+        // 입력칸을 **읽는 곳은 여기 한 군데**입니다. 아래 모든 섹션이 이 두 값을 보므로
+        // 3·4·6·7·8번이 전부 같은 기준으로 다시 계산됩니다.
+        const askedScore = Number(thScoreEl.value);
+        const askedMargin = Number(thMarginEl.value);
+        MATCH_MIN_SCORE = Number.isFinite(askedScore) ? askedScore : MATCHER_SCORE;
+        MATCH_MIN_MARGIN = Number.isFinite(askedMargin) ? askedMargin : MATCHER_MARGIN;
+        mineEl.disabled = true;
+        mineRecalcEl.disabled = true;
+        mineOutEl.replaceChildren();
+        mdEl.value = fixtureMd;
+        if (MATCH_MIN_SCORE !== MATCHER_SCORE || MATCH_MIN_MARGIN !== MATCHER_MARGIN)
+          mineOutEl.append(
+            verdict(
+              `**이 화면은 ${MATCH_MIN_SCORE} / ${MATCH_MIN_MARGIN}로 계산했습니다.** ` +
+                `코드(\`matcher.ts\`)의 값은 그대로 ${MATCHER_SCORE} / ${MATCHER_MARGIN}입니다 — ` +
+                "**아직 아무것도 바뀌지 않았습니다.** 여기 숫자를 근거로 팀에 제안하는 것까지가 이 화면의 몫입니다.",
+              false,
+            ),
+          );
+        try {
+          const human = await loadFaceModels();
+          const similarity = (a, b) => human.match.similarity(a, b, MATCH_OPTIONS);
+
+          // 1) 벡터를 뽑습니다. **얼굴이 여럿인 사진도 버리지 않습니다** — 활동 사진이 그렇고,
+          //    예전에는 여기서 떨어뜨려 단체 사진을 아예 못 쟀습니다.
+          const portraits = [];
+          const activity = [];
+          let unusableCount = 0;
+          for (const [index, file] of files.entries()) {
+            const key = `${file.name}:${String(file.size)}`;
+            let faces = detected.get(key);
+            if (!faces) {
+              mineStatusEl.textContent = `벡터 뽑는 중 ${index + 1}/${files.length} · ${file.name}`;
+              faces = await detectFaces(file);
+              detected.set(key, faces);
+            }
+            if (faces.length === 0) {
+              mineOutEl.append(verdict(`${file.name}: 얼굴을 찾지 못했습니다.`, false));
+              continue;
+            }
+            // **usable한 얼굴 수**로 가립니다 — 흐릿하게 잡힌 가짜 얼굴 때문에 1인 초상이
+            // 활동 사진으로 밀려 등록에서 빠지는 일이 있었습니다(동건 님 7장 중 5장).
+            const label = labelOfPicked(
+              file.webkitRelativePath || file.name,
+              faces.filter((face) => face.usable).length,
+            );
+            faces.forEach((face, n) => {
+              if (!face.usable) unusableCount += 1;
+              const name = file.name + (faces.length > 1 ? ` #${n + 1}` : "");
+              if (label.kind === "activity")
+                activity.push({
+                  name,
+                  photo: file.name,
+                  expected: label.expected,
+                  usable: face.usable,
+                  meshScore: face.meshScore,
+                  angle: face.angle,
+                  descriptor: face.descriptor,
+                });
+              else
+                portraits.push({
+                  name,
+                  person: label.person,
+                  side: label.side,
+                  test: label.test,
+                  usable: face.usable,
+                  meshScore: face.meshScore,
+                  angle: face.angle,
+                  descriptor: face.descriptor,
+                });
+            });
+          }
+
+          // 2) usable 판정 — MIN_MESH_SCORE가 실사진에서도 맞는지 봅니다(#237).
+          const sidePortraits = portraits.filter((p) => p.side);
+          const frontPortraits = portraits.filter((p) => !p.side);
+          // **등록에는 등록용만** 넣습니다. 시험용은 채점에만 씁니다 — 위 labelOfPicked 참고.
+          const regPortraits = frontPortraits.filter((p) => p.usable && !p.test);
+          const testPortraits = frontPortraits.filter((p) => p.usable && p.test);
+          // 이름에 `+`가 없는데 얼굴이 둘 이상이라 활동 사진으로 넘어간 사진들입니다. 등록에서
+          // 조용히 빠지므로(뒤에 지나간 사람이 찍힌 경우가 많습니다) 눈에 보이게 세어 둡니다.
+          const strayGroup = [
+            ...new Set(activity.filter((f) => f.expected.length === 0).map((f) => f.photo)),
+          ];
+          const sideUsable = sidePortraits.filter((p) => p.usable).length;
+          mineOutEl.append(
+            heading("1. usable 판정 — 옆모습이 걸러지는가"),
+            tiles([
+              {
+                value: `${sideUsable} / ${sidePortraits.length}`,
+                label: "usable로 샌 옆모습",
+                note:
+                  sidePortraits.length === 0
+                    ? "옆모습이 없습니다"
+                    : sideUsable === 0
+                      ? "실사진에서도 안 샜습니다"
+                      : "기준값을 올려야 합니다",
+                state: sidePortraits.length === 0 ? undefined : sideUsable === 0 ? "good" : "bad",
+              },
+              {
+                value: `${frontPortraits.filter((p) => p.usable).length} / ${frontPortraits.length}`,
+                label: "usable로 남은 초상",
+                note: "등록에 쓸 수 있는 사진",
+              },
+              {
+                value: `${activity.filter((f) => f.usable).length} / ${activity.length}`,
+                label: "usable로 남은 활동 얼굴",
+                note: "대조에 넣을 얼굴",
+              },
+            ]),
+            table(
+              ["묶음", "장수", "usable=true", "usable=false"],
+              [
+                [
+                  "정면·45도 초상",
+                  frontPortraits.length,
+                  frontPortraits.filter((p) => p.usable).length,
+                  frontPortraits.filter((p) => !p.usable).length,
+                ],
+                [
+                  "옆모습(이름에 '옆')",
+                  sidePortraits.length,
+                  sideUsable,
+                  sidePortraits.length - sideUsable,
+                ],
+                [
+                  "활동 사진 속 얼굴",
+                  activity.length,
+                  activity.filter((f) => f.usable).length,
+                  activity.filter((f) => !f.usable).length,
+                ],
+              ],
+            ),
+            ...(strayGroup.length > 0
+              ? [
+                  verdict(
+                    `초상으로 이름 붙였는데 얼굴이 둘 이상 잡힌 사진 ${strayGroup.length}장이 ` +
+                      "**등록에서 빠졌습니다** — 뒤에 다른 사람이 찍혔는지 확인해 주세요: " +
+                      strayGroup.join(", "),
+                    false,
+                  ),
+                ]
+              : []),
+            verdict(
+              sidePortraits.length === 0
+                ? "옆모습이 없어 기준값을 확인하지 못했습니다 — 이름에 '옆'을 넣어 몇 장 더 넣어 주세요."
+                : sideUsable === 0
+                  ? `옆모습 0 / ${sidePortraits.length} 샘 — 실사진에서도 기준 ${MIN_MESH_SCORE}가 맞습니다.`
+                  : `옆모습 ${sideUsable} / ${sidePortraits.length} 샘 — 기준값을 올리거나 yaw 기준이 필요합니다.`,
+              sidePortraits.length > 0 && sideUsable === 0,
+            ),
+          );
+
+          // 1-1. **MIN_MESH_SCORE를 실사진으로 다시 정합니다.** 지금 0.7은 합성 사진 33장으로
+          //      고른 값입니다 — 정면이 전부 1.00, 옆모습이 0.01~0.64로 뚝 떨어져 그 사이를
+          //      골랐습니다. 그런데 정면이 1.00으로 몰린 건 **합성 사진의 특징**입니다. 조명과
+          //      거리가 모두 같아 정렬이 완벽하게 됩니다. `detector.ts` 주석이 "실사진 정면은
+          //      1.00보다 낮게 나올 수 있어 조원 사진으로 확인해야 한다"고 예고해 둔 자리입니다.
+          //
+          //      기준을 올리면 멀쩡한 정면이 버려져 교사 수동 분류로 가고, 내리면 옆모습이 새어
+          //      엉뚱한 아이에게 붙습니다 — 미동의 원아가 LLM으로 갑니다(H-2). 어느 쪽이 더
+          //      나쁜지는 정해져 있으니(H-2 쪽), **겹치면 높은 쪽**입니다.
+          const hasMesh = [...frontPortraits, ...sidePortraits].every(
+            (f) => typeof f.meshScore === "number",
+          );
+          if (!hasMesh && (frontPortraits.length > 0 || sidePortraits.length > 0)) {
+            mineOutEl.append(
+              verdict(
+                "정렬 점수를 읽지 못해 1-1(기준값 다시 정하기)을 건너뜁니다 — 모델 구성에 faceScore가 없습니다.",
+                false,
+              ),
+            );
+          }
+          if (hasMesh && frontPortraits.length > 0 && sidePortraits.length > 0) {
+            const MESH_LIMITS = [0.3, 0.4, 0.5, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95];
+            const frontStat = stats(frontPortraits.map((f) => f.meshScore));
+            const sideStat = stats(sidePortraits.map((f) => f.meshScore));
+            const overlap = frontStat.min <= sideStat.max;
+            const meshRows = MESH_LIMITS.map((v) => ({
+              v,
+              drop: frontPortraits.filter((f) => f.meshScore < v).length,
+              leak: sidePortraits.filter((f) => f.meshScore >= v).length,
+            }));
+            // 옆모습을 다 막는 가장 낮은 기준. 더 올려도 정면만 더 버립니다.
+            const sealed = meshRows.find((r) => r.leak === 0) ?? null;
+            const meshRow = (label, list) => {
+              const st = stats(list.map((f) => f.meshScore));
+              return st === null
+                ? [label, 0, "—", "—", "—"]
+                : [label, st.count, fmt(st.min), fmt(st.mean), fmt(st.max)];
+            };
+            mineOutEl.append(
+              heading("1-1. 정렬 점수 분포 — 기준값을 실사진으로 다시 정하기"),
+              tiles([
+                {
+                  value: fmt(frontStat.min),
+                  label: "정면·45도 최저 점수",
+                  note: "이보다 높게 잡으면 멀쩡한 정면을 버립니다",
+                },
+                {
+                  value: fmt(sideStat.max),
+                  label: "옆모습 최고 점수",
+                  note: "이보다 낮게 잡으면 옆모습이 샙니다",
+                },
+                {
+                  value: overlap ? "겹침" : "안 겹침",
+                  label: "정렬 점수만으로 갈리나",
+                  note: overlap
+                    ? "어떤 값을 골라도 한쪽은 틀립니다"
+                    : `${fmt(sideStat.max)} ~ ${fmt(frontStat.min)} 사이면 됩니다`,
+                  state: overlap ? "bad" : "good",
+                },
+              ]),
+              table(
+                ["묶음", "얼굴", "최저", "평균", "최고"],
+                [
+                  meshRow("정면·45도 초상", frontPortraits),
+                  meshRow("옆모습", sidePortraits),
+                  meshRow("활동 사진 속 얼굴", activity),
+                ],
+              ),
+              table(
+                ["기준값", "버려지는 정면·45도", "통과하는 옆모습"],
+                meshRows.map((r) => [
+                  r.v === MIN_MESH_SCORE ? `${fmt(r.v)} (지금)` : fmt(r.v),
+                  r.drop === 0 ? "0" : `${r.drop} / ${frontPortraits.length}`,
+                  r.leak === 0 ? "0" : `⚠${r.leak} / ${sidePortraits.length}`,
+                ]),
+              ),
+              verdict(
+                overlap
+                  ? `**겹칩니다** — 정면 최저 ${fmt(frontStat.min)} ≤ 옆모습 최고 ${fmt(sideStat.max)}. ` +
+                      "정렬 점수만으로는 옆모습을 가려낼 수 없습니다. 옆모습을 다 막으려면 " +
+                      (sealed
+                        ? `기준을 ${fmt(sealed.v)}까지 올려야 하고, 그러면 정면 ${sealed.drop} / ${frontPortraits.length}장을 버립니다. `
+                        : "이 표의 어떤 값으로도 안 됩니다. ") +
+                      "**얼굴 각도를 따로 보는 검출기(#238)가 필요하다는 근거입니다.**"
+                  : `**안 겹칩니다** — 옆모습 최고 ${fmt(sideStat.max)} < 정면 최저 ${fmt(frontStat.min)}. ` +
+                      `그 사이로 고르면 되고, ${sealed ? fmt(sealed.v) : "—"}가 옆모습을 다 막으면서 정면을 ${sealed ? sealed.drop : "—"}장만 버립니다.`,
+                !overlap,
+              ),
+              verdict(
+                `지금 기준 ${MIN_MESH_SCORE}는 **정면 ${frontPortraits.filter((f) => f.meshScore < MIN_MESH_SCORE).length} / ${frontPortraits.length}장을 버리고 ` +
+                  `옆모습 ${sidePortraits.filter((f) => f.meshScore >= MIN_MESH_SCORE).length} / ${sidePortraits.length}장을 통과시킵니다.** ` +
+                  "합성 사진에서는 둘 다 0이었습니다 — 합성으로 정한 값이 실사진에서 양쪽으로 틀린 것입니다(#237).",
+                false,
+              ),
+            );
+          }
+
+          // 1-2. **얼굴 각도(yaw)로는 갈리나.** 1-1에서 정렬 점수로는 옆모습을 못 가린다는 게
+          //      나왔습니다. 제가 #238에 "faceScore만으로는 부족하고 yaw 기준이 더 필요하다"고
+          //      적어 둔 그 뒤쪽을 여기서 잽니다.
+          //
+          //      yaw는 고개를 좌우로 돌린 각도입니다. 정면이 0도, 완전 옆모습이 90도쯤입니다.
+          //      **45도 사진은 남겨야 합니다** — 등록에서 가장 값어치 있는 사진이라(정면만 36개
+          //      → 세 각도 46개) 같이 버리면 손해가 큽니다. 그래서 "옆모습만 막고 45도는 남기는
+          //      자리가 있는가"가 질문입니다.
+          const yawOf = (f) => (f.angle ? Math.abs(f.angle.yaw) : null);
+          const knownYaw = (list) => list.filter((f) => yawOf(f) !== null);
+          const frontYawFaces = knownYaw(frontPortraits);
+          const sideYawFaces = knownYaw(sidePortraits);
+          if (frontYawFaces.length > 0 && sideYawFaces.length > 0) {
+            const YAW_LIMITS = [20, 30, 40, 50, 55, 60, 65, 70, 80, 90];
+            const named = (list, re) => list.filter((f) => re.test(f.name));
+            const yawRow = (label, list) => {
+              const st = stats(list.map((f) => yawOf(f)));
+              return st === null
+                ? [label, 0, "—", "—", "—"]
+                : [label, st.count, st.min.toFixed(0), st.mean.toFixed(0), st.max.toFixed(0)];
+            };
+            // 지금 대조에 들어가는 활동 사진 얼굴. 각도 기준은 여기에도 걸리므로
+            // 같이 세지 않으면 "옆모습은 막았는데 자동 귀속이 줄었다"를 놓칩니다.
+            const actUsable = activity.filter((f) => f.usable);
+            const yawRows = YAW_LIMITS.map((v) => ({
+              v,
+              drop: frontYawFaces.filter((f) => yawOf(f) > v).length,
+              leak: sideYawFaces.filter((f) => yawOf(f) <= v).length,
+              actDrop: actUsable.filter((f) => yawOf(f) === null || yawOf(f) > v).length,
+              // 지금 정렬 점수 기준과 **같이** 걸었을 때. 둘 중 하나라도 걸리면 버립니다.
+              bothDrop: frontYawFaces.filter((f) => f.meshScore < MIN_MESH_SCORE || yawOf(f) > v)
+                .length,
+              bothLeak: sideYawFaces.filter((f) => f.meshScore >= MIN_MESH_SCORE && yawOf(f) <= v)
+                .length,
+            }));
+            // 옆모습을 다 막는 가장 느슨한 각도(= 정면·45도를 가장 적게 버리는 자리)
+            const sealedYaw = [...yawRows].reverse().find((r) => r.leak === 0) ?? null;
+            const sealedBoth = [...yawRows].reverse().find((r) => r.bothLeak === 0) ?? null;
+            const sideMinYaw = Math.min(...sideYawFaces.map((f) => yawOf(f)));
+            const frontMaxYaw = Math.max(...frontYawFaces.map((f) => yawOf(f)));
+            const yawOverlap = sideMinYaw <= frontMaxYaw;
+            mineOutEl.append(
+              heading("1-2. 얼굴 각도(yaw)로는 갈리나 — 좌우로 돌린 정도"),
+              tiles([
+                {
+                  value: `${frontMaxYaw.toFixed(0)}°`,
+                  label: "정면·45도 중 가장 많이 돌아간 것",
+                  note: "이보다 좁게 막으면 멀쩡한 사진을 버립니다",
+                },
+                {
+                  value: `${sideMinYaw.toFixed(0)}°`,
+                  label: "옆모습 중 가장 덜 돌아간 것",
+                  note: "이보다 넓게 두면 옆모습이 샙니다",
+                },
+                {
+                  value: yawOverlap ? "겹침" : "안 겹침",
+                  label: "각도로 갈리나",
+                  note: yawOverlap
+                    ? "어떤 각도로 막아도 한쪽은 틀립니다"
+                    : `${frontMaxYaw.toFixed(0)}° ~ ${sideMinYaw.toFixed(0)}° 사이면 됩니다`,
+                  state: yawOverlap ? "bad" : "good",
+                },
+              ]),
+              table(
+                ["묶음", "얼굴", "가장 작은 각도", "평균", "가장 큰 각도"],
+                [
+                  yawRow("정면", named(frontYawFaces, /정면|front/i)),
+                  yawRow("45도", named(frontYawFaces, /45/)),
+                  yawRow("정면·45도 전부", frontYawFaces),
+                  yawRow("옆모습", sideYawFaces),
+                ],
+              ),
+              table(
+                [
+                  "각도 한계",
+                  "버려지는 정면·45도",
+                  "통과하는 옆모습",
+                  "정렬 점수와 같이 걸면 (버림 / 샘)",
+                  "대조에서 빠지는 활동 얼굴",
+                ],
+                yawRows.map((r) => [
+                  `${r.v}° 이내만 쓰기`,
+                  r.drop === 0 ? "0" : `${r.drop} / ${frontYawFaces.length}`,
+                  r.leak === 0 ? "0" : `⚠${r.leak} / ${sideYawFaces.length}`,
+                  `${r.bothDrop} / ${r.bothLeak === 0 ? "0" : `⚠${r.bothLeak}`}`,
+                  r.actDrop === 0
+                    ? "0"
+                    : `${r.actDrop} / ${actUsable.length} (${Math.round((r.actDrop / actUsable.length) * 100)}%)`,
+                ]),
+              ),
+              verdict(
+                yawOverlap
+                  ? `**딱 떨어지게 갈리지는 않습니다** — 옆모습 중 가장 덜 돌아간 것이 ${sideMinYaw.toFixed(0)}°인데 ` +
+                      `정면·45도 중 가장 많이 돌아간 것이 ${frontMaxYaw.toFixed(0)}°라 겹칩니다. ` +
+                      "다만 **겹치는 폭이 좁으면 쓸 만한 자리가 있습니다** — 위 격자에서 " +
+                      "「통과하는 옆모습 0」이면서 「버려지는 정면·45도」가 가장 적은 줄을 보세요. " +
+                      (sealedYaw
+                        ? `지금은 ${sealedYaw.v}°가 옆모습을 다 막으면서 정면·45도를 ${sealedYaw.drop}장 버립니다.`
+                        : "지금은 옆모습을 다 막는 각도가 없습니다.")
+                  : `**각도로는 갈립니다** — 정면·45도는 최대 ${frontMaxYaw.toFixed(0)}°, 옆모습은 최소 ${sideMinYaw.toFixed(0)}°입니다. ` +
+                      (sealedYaw
+                        ? `${sealedYaw.v}° 이내만 쓰면 옆모습을 다 막으면서 정면·45도를 ${sealedYaw.drop}장만 버립니다.`
+                        : ""),
+                !yawOverlap,
+              ),
+              verdict(
+                sealedBoth
+                  ? `정렬 점수(${MIN_MESH_SCORE})와 **같이** 걸면 ${sealedBoth.v}° 이내에서 옆모습이 0장 통과하고 ` +
+                      `정면·45도는 ${sealedBoth.bothDrop} / ${frontYawFaces.length}장이 버려집니다. ` +
+                      `각도만 걸었을 때(${sealedYaw ? `${sealedYaw.drop}장` : "—"})와 견줘 보세요 — ` +
+                      "정렬 점수가 버리는 12장은 각도와 상관없이 그대로 버려집니다."
+                  : "정렬 점수와 각도를 같이 걸어도 옆모습을 다 막지는 못합니다.",
+                sealedBoth !== null,
+              ),
+              (() => {
+                // "각도를 모르면 잠근다"(H-2)로 가면 얼마나 더 버리나. 정렬 점수로 이미
+                // 버려지는 얼굴이면 추가 비용이 0입니다 — 그물망을 못 씌우면 각도도 못
+                // 읽을 테니 겹칠 것 같은데, 추측하지 않고 셉니다.
+                const cross = (list) => ({
+                  knownPass: list.filter((f) => yawOf(f) !== null && f.meshScore >= MIN_MESH_SCORE)
+                    .length,
+                  knownDrop: list.filter((f) => yawOf(f) !== null && f.meshScore < MIN_MESH_SCORE)
+                    .length,
+                  unknownPass: list.filter(
+                    (f) => yawOf(f) === null && f.meshScore >= MIN_MESH_SCORE,
+                  ).length,
+                  unknownDrop: list.filter((f) => yawOf(f) === null && f.meshScore < MIN_MESH_SCORE)
+                    .length,
+                });
+                const f = cross(frontPortraits);
+                const s = cross(sidePortraits);
+                const a = cross(activity);
+                return table(
+                  [
+                    "묶음",
+                    "각도 읽음 · 점수 통과",
+                    "각도 읽음 · 점수 탈락",
+                    "각도 못 읽음 · 점수 통과",
+                    "각도 못 읽음 · 점수 탈락",
+                  ],
+                  [
+                    [
+                      "정면·45도",
+                      f.knownPass,
+                      f.knownDrop,
+                      f.unknownPass === 0 ? "0" : `⚠${f.unknownPass}`,
+                      f.unknownDrop,
+                    ],
+                    [
+                      "옆모습",
+                      s.knownPass,
+                      s.knownDrop,
+                      s.unknownPass === 0 ? "0" : `⚠${s.unknownPass}`,
+                      s.unknownDrop,
+                    ],
+                    [
+                      "활동 사진",
+                      a.knownPass,
+                      a.knownDrop,
+                      a.unknownPass === 0 ? "0" : `⚠${a.unknownPass}`,
+                      a.unknownDrop,
+                    ],
+                  ],
+                );
+              })(),
+              (() => {
+                const extra = [...frontPortraits, ...activity].filter(
+                  (f) => yawOf(f) === null && f.meshScore >= MIN_MESH_SCORE,
+                ).length;
+                return verdict(
+                  extra === 0
+                    ? "**각도를 못 읽은 얼굴은 전부 정렬 점수에서 이미 버려집니다.** " +
+                        '"모르면 잠근다"(H-2)로 가도 **추가로 버리는 얼굴이 없습니다** — 공짜입니다.'
+                    : `각도를 못 읽었는데 정렬 점수는 통과하는 얼굴이 **${extra}개** 있습니다. ` +
+                        '"모르면 잠근다"로 가면 이만큼을 더 버리고 교사 수동으로 보냅니다. ' +
+                        "그 대신 각도를 모르는 얼굴이 대조에 들어가지 않습니다(H-2).",
+                  extra === 0,
+                );
+              })(),
+              (() => {
+                // 옆모습을 다 막는 가장 느슨한 각도에서 활동 얼굴을 얼마나 잃는가.
+                // 이게 각도 기준의 진짜 값어치입니다 — 대조에 쓰는 건 활동 얼굴입니다.
+                const pick = sealedBoth ?? sealedYaw;
+                if (!pick)
+                  return verdict("옆모습을 다 막는 각도가 없어 비용을 셀 수 없습니다.", false);
+                const keep = actUsable.length - pick.actDrop;
+                return verdict(
+                  `**${pick.v}°로 막으면 대조에 들어가는 활동 얼굴이 ${actUsable.length}개 → ${keep}개가 됩니다** ` +
+                    `(${pick.actDrop}개가 빠집니다). 옆모습 ${sideYawFaces.length}장은 ${pick.bothLeak === 0 ? "전부 막힙니다" : `${pick.bothLeak}장이 샙니다`}. ` +
+                    "자동 귀속은 남은 얼굴에서만 나오므로, **빠지는 수가 크면 각도 기준이 손해**입니다.",
+                  pick.actDrop <= actUsable.length * 0.1,
+                );
+              })(),
+              verdict(
+                `각도 기준 표는 각도를 읽은 얼굴만 셉니다 — 정면·45도 ${frontYawFaces.length} / ${frontPortraits.length}장, ` +
+                  `옆모습 ${sideYawFaces.length} / ${sidePortraits.length}장.`,
+                frontYawFaces.length === frontPortraits.length &&
+                  sideYawFaces.length === sidePortraits.length,
+              ),
+            );
+          }
+
+          // 3) 등록 벡터 — worker와 같은 방식(여러 장 평균). 옆모습·시험용·usable=false는 뺍니다.
+          const people = [...new Set(regPortraits.map((p) => p.person))].sort();
+          const registered = new Map();
+          for (const person of people) {
+            const picked = regPortraits.filter((p) => p.person === person);
+            registered.set(person, {
+              vector: averageOf(picked.map((p) => p.descriptor)),
+              count: picked.length,
+            });
+          }
+          mineOutEl.append(
+            heading(`2. 등록 벡터 — ${people.length}명`),
+            tiles([
+              {
+                value: people.length,
+                label: "등록된 사람",
+                note: people.length >= 3 ? "3명 이상 — 충분합니다" : "3명은 되어야 합니다",
+                state: people.length >= 3 ? "good" : "bad",
+              },
+              {
+                value: regPortraits.length,
+                label: "등록에 쓴 사진",
+                note: "사람마다 평균을 냅니다",
+              },
+              {
+                value: testPortraits.length,
+                label: "시험용 초상",
+                note:
+                  testPortraits.length === 0
+                    ? "이름에 `시험`을 넣으면 채점에만 씁니다"
+                    : "등록에 넣지 않고 채점에만 씁니다",
+                state: testPortraits.length > 0 ? "good" : undefined,
+              },
+            ]),
+            table(
+              ["사람", "등록에 쓴 장수", "시험용 장수"],
+              people.map((person) => [
+                person,
+                registered.get(person).count,
+                testPortraits.filter((p) => p.person === person).length,
+              ]),
+            ),
+            ...nameWarning(),
+          );
+          if (people.length < 2) {
+            mineOutEl.append(
+              verdict(
+                `등록할 사람이 ${people.length}명뿐이라 대조를 잴 수 없습니다. ` +
+                  "초상 사진을 `이름_01.jpg`처럼 사람마다 이름을 달리해 넣어 주세요(최소 3명 권장). " +
+                  "얼굴이 둘 이상인 사진은 활동 사진으로 봅니다.",
+                false,
+              ),
+            );
+            mineStatusEl.textContent = `등록할 사람이 ${people.length}명뿐입니다.`;
+            return;
+          }
+
+          /**
+           * 단체 사진 이름에 적혔는데 등록 명단에 없는 이름을 찾습니다.
+           *
+           * 일부러 등록하지 않은 사람(상균)이면 맞습니다. 그런데 개인 사진을 `김진하_정면.jpg`로,
+           * 단체를 `진하+상균_1.jpg`로 지으면 **`진하`와 `김진하`가 서로 남이 되어** 진하 님 얼굴이
+           * 전부 "미등록"으로 세집니다. 숫자가 조용히 망가지므로 비슷한 이름은 짚어 줍니다.
+           */
+          function nameWarning() {
+            const inGroup = [...new Set(activity.flatMap((f) => f.expected))];
+            const unknown = inGroup.filter((name) => !registered.has(name));
+            if (unknown.length === 0) return [];
+            const near = unknown
+              .map((name) => {
+                const hit = people.find((p) => p.includes(name) || name.includes(p));
+                return hit ? `${name} → ${hit}` : null;
+              })
+              .filter(Boolean);
+            return [
+              verdict(
+                `단체 사진에 적혔는데 등록 명단에 없는 이름: ${unknown.join(", ")}. ` +
+                  (near.length > 0
+                    ? `이 중 ${near.join(", ")}는 **같은 사람으로 보입니다** — 이름을 맞추지 않으면 ` +
+                      "그 사람 얼굴이 전부 미등록으로 세어져 숫자가 통째로 틀립니다."
+                    : "일부러 등록하지 않은 사람이면 맞습니다."),
+                near.length === 0,
+              ),
+            ];
+          }
+
+          // 4) 활동 사진 대조 — **matcher.ts와 같은 규칙**으로 1위·2위 차이까지 봅니다.
+          //    자동 분류 장수가 이 도구의 핵심 출력입니다(#238에서 이 숫자가 없어 한 번 틀렸습니다).
+          //
+          //    정답은 **사진 단위**로만 적힙니다(`진하+상균_01.jpg`). 얼굴 하나하나가 누구인지는
+          //    파일 이름이 말해 주지 않습니다. 그래서 예전처럼 "정답 목록에 들었나"로 채점하면
+          //    **등록하지 않은 사람의 얼굴이 등록된 남으로 붙어도 「맞음」이 됩니다** — 틀린
+          //    자동 분류 중 제일 위험한 경우를 통째로 놓칩니다. 그래서 사진마다 1:1로 배정합니다.
+          const rankOf = (descriptor) =>
+            [...registered.entries()]
+              .map(([person, r]) => ({ person, score: similarity(descriptor, r.vector) }))
+              .sort((a, b) => b.score - a.score);
+
+          /**
+           * 한 사진 안에서 얼굴과 이름을 1:1로 맞춥니다. (얼굴, 이름) 쌍을 점수가 높은 것부터
+           * 집어 가며 **둘 다 아직 안 쓰인 것만** 확정합니다. 짝을 못 찾고 남은 얼굴이
+           * **미등록 추정**입니다 — 등록 명단에 없는 이름(예: `상균`)은 후보가 아예 없습니다.
+           *
+           * 배정은 추정입니다. 다만 "한 사진에 찍힌 사람 수만큼만 맞힐 수 있다"는 제약은 실제
+           * 교사 화면과 같고, 사진 단위 채점보다 **덜 봐주는** 쪽으로 틀립니다.
+           */
+          function assignPhoto(facesOfPhoto) {
+            const expected = facesOfPhoto[0]?.expected ?? [];
+            const names = expected.filter((person) => registered.has(person));
+            const pairs = [];
+            facesOfPhoto.forEach((face, index) => {
+              for (const person of names)
+                pairs.push({
+                  index,
+                  person,
+                  score: similarity(face.descriptor, registered.get(person).vector),
+                });
+            });
+            pairs.sort((a, b) => b.score - a.score);
+            const usedFace = new Set();
+            const usedName = new Set();
+            const truth = new Map();
+            for (const pair of pairs) {
+              if (usedFace.has(pair.index) || usedName.has(pair.person)) continue;
+              usedFace.add(pair.index);
+              usedName.add(pair.person);
+              truth.set(pair.index, pair.person);
+            }
+            return { truth, hasUnknown: expected.some((person) => !registered.has(person)) };
+          }
+
+          const byPhoto = new Map();
+          for (const face of activity.filter((f) => f.usable)) {
+            if (!byPhoto.has(face.photo)) byPhoto.set(face.photo, []);
+            byPhoto.get(face.photo).push(face);
+          }
+          const rows = [];
+          for (const [photo, facesOfPhoto] of byPhoto) {
+            const { truth, hasUnknown } = assignPhoto(facesOfPhoto);
+            facesOfPhoto.forEach((face, index) => {
+              const ranked = rankOf(face.descriptor);
+              const margin = ranked.length > 1 ? ranked[0].score - ranked[1].score : null;
+              const auto =
+                ranked[0].score >= MATCH_MIN_SCORE && margin !== null && margin >= MATCH_MIN_MARGIN;
+              const person = truth.get(index) ?? null;
+              rows.push({
+                photo,
+                name: face.name,
+                first: ranked[0],
+                margin,
+                auto,
+                truth: person,
+                unregistered: person === null && hasUnknown,
+                correct: person === null ? null : ranked[0].person === person,
+              });
+            });
+          }
+          const autoRows = rows.filter((r) => r.auto);
+          const wrongAuto = autoRows.filter((r) => r.correct === false);
+          const unregRows = rows.filter((r) => r.unregistered);
+          const unregAuto = unregRows.filter((r) => r.auto);
+          const unregTop = unregRows.length
+            ? Math.max(...unregRows.map((r) => r.first.score))
+            : null;
+          // 한 사진에서 **같은 이름으로 자동 분류된 얼굴이 둘 이상**이면 하나는 반드시 틀립니다.
+          // 배정이 맞았는지와 무관하게 잡히는 신호라 따로 셉니다.
+          const dupPhotos = [...byPhoto.keys()].filter((photo) => {
+            const picked = autoRows.filter((r) => r.photo === photo).map((r) => r.first.person);
+            return new Set(picked).size !== picked.length;
+          });
+          mineOutEl.append(
+            heading(
+              `3. 활동 사진 대조 — 얼굴 ${rows.length}개 (기준 ${MATCH_MIN_SCORE} / 차이 ${MATCH_MIN_MARGIN})`,
+            ),
+            tiles([
+              {
+                value: wrongAuto.length,
+                label: "틀린 자동 분류",
+                note: wrongAuto.length === 0 ? "0이어야 하고, 0입니다" : "0이어야 합니다",
+                state: wrongAuto.length === 0 ? "good" : "bad",
+              },
+              {
+                value: unregRows.length === 0 ? "—" : `${unregAuto.length} / ${unregRows.length}`,
+                label: "미등록인데 자동으로 붙음",
+                note:
+                  unregRows.length === 0
+                    ? "미등록 사람이 없습니다"
+                    : unregAuto.length === 0
+                      ? "붙지 않았습니다"
+                      : "남의 아이로 나갑니다",
+                state: unregRows.length === 0 ? undefined : unregAuto.length === 0 ? "good" : "bad",
+              },
+              {
+                value: unregTop === null ? "—" : fmt(unregTop),
+                label: "미등록 사람 최고 점수",
+                note: `기준 ${MATCH_MIN_SCORE}을 넘으면 위험합니다`,
+                state: unregTop === null ? undefined : unregTop < MATCH_MIN_SCORE ? "good" : "bad",
+              },
+              {
+                value: dupPhotos.length,
+                label: "한 사진에 같은 사람 둘",
+                note: dupPhotos.length === 0 ? "없습니다" : "하나는 반드시 틀린 것입니다",
+                state: dupPhotos.length === 0 ? "good" : "bad",
+              },
+              {
+                value: `${autoRows.length} / ${rows.length}`,
+                label: "자동으로 분류된 얼굴",
+                note: "나머지는 교사가 손으로 고릅니다",
+              },
+              {
+                value: `${rows.filter((r) => r.correct === true).length} / ${rows.filter((r) => r.correct !== null).length}`,
+                label: "배정된 얼굴 중 맞힘",
+                note: "미등록 추정은 뺍니다",
+              },
+            ]),
+            table(
+              ["사진", "얼굴", "배정", "1위", "점수", "2위와 차이", "자동 분류", "판정"],
+              rows.map((r) => [
+                r.photo,
+                r.name,
+                r.truth ?? (r.unregistered ? "미등록 추정" : "?"),
+                r.first.person,
+                fmt(r.first.score),
+                r.margin === null ? "—" : fmt(r.margin),
+                r.auto ? "O" : "수동",
+                r.correct === null
+                  ? r.unregistered
+                    ? r.auto
+                      ? "⚠ 미등록인데 붙음"
+                      : "미등록 (안 붙음)"
+                    : "?"
+                  : r.correct
+                    ? "O"
+                    : "X",
+              ]),
+            ),
+            verdict(
+              `틀린 자동 분류 ${wrongAuto.length}개 · 미등록인데 붙은 것 ${unregAuto.length}개 · ` +
+                `한 사진 중복 ${dupPhotos.length}건 · 자동 ${autoRows.length} / ${rows.length}개` +
+                (wrongAuto.length + unregAuto.length + dupPhotos.length === 0
+                  ? ""
+                  : " — 앞의 셋은 모두 0이어야 합니다."),
+              wrongAuto.length + unregAuto.length + dupPhotos.length === 0,
+            ),
+          );
+          const marginValues = rows.map((r) => r.margin).filter((m) => m !== null);
+          if (marginValues.length > 0) {
+            const marginStats = stats(marginValues);
+            const firstStats = stats(rows.map((r) => r.first.score));
+            mineOutEl.append(
+              table(
+                ["값", "가장 낮음", "평균", "가장 높음"],
+                [
+                  ["1위 점수", fmt(firstStats.min), fmt(firstStats.mean), fmt(firstStats.max)],
+                  ["2위와 차이", fmt(marginStats.min), fmt(marginStats.mean), fmt(marginStats.max)],
+                ],
+              ),
+              verdict(
+                `지금 기준 ${MATCH_MIN_SCORE} / 차이 ${MATCH_MIN_MARGIN}에서 ${autoRows.length} / ${rows.length}개가 자동입니다. 기준값은 위 분포를 보고 정합니다.`,
+                true,
+              ),
+            );
+          }
+
+          // 5) 시험 사진 대조 — **등록과 다른 촬영의 본인 사진**을 등록 벡터와 맞춰 봅니다.
+          //    활동 사진과 같은 계산인데 표본이 훨씬 많고, 단체 사진에 안 나온 사람도 들어갑니다.
+          //    여기 점수가 **부풀려지지 않은 진짜 본인 점수**입니다 — 기준값의 하한을 정합니다.
+          if (testPortraits.length > 0 && registered.size >= 2) {
+            const testRows = testPortraits.map((face) => {
+              const ranked = rankOf(face.descriptor);
+              const margin = ranked.length > 1 ? ranked[0].score - ranked[1].score : 0;
+              return {
+                name: face.name,
+                person: face.person,
+                first: ranked[0],
+                margin,
+                auto: ranked[0].score >= MATCH_MIN_SCORE && margin >= MATCH_MIN_MARGIN,
+                correct: ranked[0].person === face.person,
+              };
+            });
+            const known = testRows.filter((r) => registered.has(r.person));
+            const hit = known.filter((r) => r.correct);
+            const wrong = known.filter((r) => r.auto && !r.correct);
+            const autoHit = known.filter((r) => r.auto && r.correct);
+            const lowScore = hit.length > 0 ? Math.min(...hit.map((r) => r.first.score)) : null;
+            const lowMargin = hit.length > 0 ? Math.min(...hit.map((r) => r.margin)) : null;
+            mineOutEl.append(
+              heading(`4. 시험 사진 대조 — 다른 촬영의 본인 사진 ${known.length}장`),
+              tiles([
+                {
+                  value: wrong.length,
+                  label: "다른 사람으로 자동 분류",
+                  note: wrong.length === 0 ? "0이어야 하고, 0입니다" : "0이어야 합니다",
+                  state: wrong.length === 0 ? "good" : "bad",
+                },
+                {
+                  value: `${autoHit.length} / ${known.length}`,
+                  label: "본인으로 자동 분류",
+                  note: `기준 ${MATCH_MIN_SCORE} / 차이 ${MATCH_MIN_MARGIN}에서`,
+                },
+                {
+                  value: `${hit.length} / ${known.length}`,
+                  label: "1위가 본인",
+                  note: "자동 여부와 별개로, 순위만",
+                },
+                {
+                  value: lowScore === null ? "—" : fmt(lowScore),
+                  label: "본인 최저 점수",
+                  note: "**부풀려지지 않은 값.** 기준값은 이보다 낮아야 합니다",
+                },
+                {
+                  value: lowMargin === null ? "—" : fmt(lowMargin),
+                  label: "본인 최저 차이",
+                  note: "차이 기준은 이보다 낮아야 합니다",
+                },
+              ]),
+              table(
+                ["사진", "본인", "1위", "점수", "2위와 차이", "자동 분류", "판정"],
+                testRows.map((r) => [
+                  r.name,
+                  r.person,
+                  r.first.person,
+                  fmt(r.first.score),
+                  fmt(r.margin),
+                  r.auto ? "O" : "수동",
+                  registered.has(r.person) ? (r.correct ? "O" : "X") : "등록 없음",
+                ]),
+              ),
+              verdict(
+                `1위가 본인 ${hit.length} / ${known.length} · 자동 ${autoHit.length} / ${known.length} · ` +
+                  `다른 사람으로 붙은 것 ${wrong.length}개` +
+                  (lowScore === null
+                    ? ""
+                    : ` — 본인 최저 ${fmt(lowScore)}, 차이 최저 ${fmt(lowMargin)}.`),
+                wrong.length === 0,
+              ),
+            );
+          }
+
+          // 6) 사람끼리 — 같은 사람이 다른 사람보다 확실히 높은지. 겹치면 기준값을 못 정합니다.
+          // usable한 초상만 셉니다. 같은 사람 쌍은 **같은 촬영(등록끼리)**과
+          // **다른 촬영(등록↔시험)**으로 나눕니다 — 둘의 차이가 곧 "같은 자리에서 찍어 생긴
+          // 점수 부풀림"의 크기입니다. 기준값은 다른 촬영 쪽으로 봐야 합니다.
+          const pairPool = [...regPortraits, ...testPortraits];
+          const same = [];
+          const other = [];
+          for (let a = 0; a < pairPool.length; a += 1) {
+            for (let b = a + 1; b < pairPool.length; b += 1) {
+              const pair = {
+                a: pairPool[a].name,
+                b: pairPool[b].name,
+                cross: pairPool[a].test !== pairPool[b].test,
+                score: similarity(pairPool[a].descriptor, pairPool[b].descriptor),
+              };
+              (pairPool[a].person === pairPool[b].person ? same : other).push(pair);
+            }
+          }
+          const sameCross = same.filter((p) => p.cross);
+          const sameShoot = same.filter((p) => !p.cross);
+          if (same.length > 0 && other.length > 0) {
+            // 다른 촬영 쌍이 있으면 그쪽이 현실입니다. 없으면 가진 것으로 봅니다.
+            const realSame = sameCross.length > 0 ? sameCross : same;
+            const ss = stats(realSame.map((p) => p.score));
+            const os = stats(other.map((p) => p.score));
+            const shootStats = sameShoot.length > 0 ? stats(sameShoot.map((p) => p.score)) : null;
+            const crossStats = sameCross.length > 0 ? stats(sameCross.map((p) => p.score)) : null;
+            mineOutEl.append(
+              heading("5. 사람끼리 — 갈라지는가"),
+              tiles([
+                {
+                  value: ss.min > os.max ? "갈라짐" : "겹침",
+                  label: "같은 사람 / 다른 사람",
+                  note:
+                    ss.min > os.max
+                      ? `사이가 ${fmt(ss.min - os.max)}`
+                      : "기준값을 그을 자리가 없습니다",
+                  state: ss.min > os.max ? "good" : "bad",
+                },
+                { value: fmt(ss.min), label: "같은 사람 최저" },
+                { value: fmt(os.max), label: "다른 사람 최고" },
+                {
+                  value: ss.min > os.max ? fmt((ss.min + os.max) / 2) : "—",
+                  label: "기준값 후보",
+                  note: ss.min > os.max ? "두 값의 한가운데" : "겹쳐서 못 정합니다",
+                },
+              ]),
+              table(
+                ["묶음", "쌍", "가장 낮음", "평균", "가장 높음"],
+                [
+                  shootStats && [
+                    "같은 사람 · 같은 묶음끼리 (등록↔등록, 시험↔시험)",
+                    shootStats.count,
+                    fmt(shootStats.min),
+                    fmt(shootStats.mean),
+                    fmt(shootStats.max),
+                  ],
+                  crossStats && [
+                    "같은 사람 · 다른 촬영 (등록↔시험)",
+                    crossStats.count,
+                    fmt(crossStats.min),
+                    fmt(crossStats.mean),
+                    fmt(crossStats.max),
+                  ],
+                  ["다른 사람", os.count, fmt(os.min), fmt(os.mean), fmt(os.max)],
+                ].filter(Boolean),
+              ),
+              ...(shootStats && crossStats
+                ? [
+                    verdict(
+                      `같은 촬영이 다른 촬영보다 평균 ${fmt(shootStats.mean - crossStats.mean)} 높습니다 — ` +
+                        '그만큼이 "같은 자리에서 찍어 생긴 부풀림"입니다. ' +
+                        "합성 사진 측정이 쓸모없었던 크기를 실제로 잰 값입니다(#237).",
+                      true,
+                    ),
+                  ]
+                : []),
+              verdict(
+                ss.min > os.max
+                  ? `갈라졌습니다 — 같은 사람 최저 ${fmt(ss.min)} > 다른 사람 최고 ${fmt(os.max)}. 기준값 후보 ${fmt((ss.min + os.max) / 2)}.`
+                  : `겹칩니다 — 같은 사람 최저 ${fmt(ss.min)} ≤ 다른 사람 최고 ${fmt(os.max)}. 평균 차이 ${fmt(ss.mean - os.mean)}.`,
+                ss.min > os.max,
+              ),
+              table(
+                ["다른 사람인데 가장 닮은 쌍", "점수"],
+                [...other]
+                  .sort((x, y) => y.score - x.score)
+                  .slice(0, 5)
+                  .map((pair) => [`${pair.a}  ↔  ${pair.b}`, fmt(pair.score)]),
+              ),
+            );
+            mdEl.value =
+              (fixtureMd ? `${fixtureMd}\n\n` : "") +
+              `## 실사진 ${people.length}명 (${people.join(", ")})\n\n` +
+              `모델 \`${FACE_MODEL_VERSION}\` · 설정 \`${JSON.stringify(MATCH_OPTIONS)}\` · 기준 ${MATCH_MIN_SCORE} / 차이 ${MATCH_MIN_MARGIN}\n\n` +
+              `| 묶음 | 쌍 | 가장 낮음 | 평균 | 가장 높음 |\n|---|---|---|---|---|\n` +
+              `| 같은 사람 | ${ss.count} | ${fmt(ss.min)} | ${fmt(ss.mean)} | ${fmt(ss.max)} |\n` +
+              `| 다른 사람 | ${os.count} | ${fmt(os.min)} | ${fmt(os.mean)} | ${fmt(os.max)} |\n\n` +
+              `활동 사진 얼굴 ${rows.length}개 중 자동 분류 ${autoRows.length}개(틀린 것 ${wrongAuto.length}개) · usable=false ${unusableCount}개\n\n` +
+              `미등록 추정 얼굴 ${unregRows.length}개 · 자동으로 붙은 것 ${unregAuto.length}개 · ` +
+              `최고 점수 ${unregTop === null ? "—" : fmt(unregTop)} · 한 사진 중복 ${dupPhotos.length}건\n`;
+          }
+          // 6) 등록 구성 비교 — **채점 얼굴을 고정**하고 등록 쪽만 바꿉니다. 등록 화면은 지금
+          //    최대 3장이고(MAX_PHOTOS, 임시 결정(김동건)) 테크스펙에는 장수가 없습니다. 쓸 수
+          //    있는 각도가 정면·좌45·우45·웃음 넷이라 3장이면 하나를 버려야 해서, 어느 구성이
+          //    나은지와 몇 장부터 더 넣어도 안 좋아지는지를 잽니다.
+          //
+          //    정답은 **위 3번에서 전체 등록으로 배정한 결과**를 그대로 씁니다. 구성마다 다시
+          //    배정하면 채점 기준이 같이 흔들려 구성끼리 비교가 안 되기 때문입니다.
+          const graded = rows.filter((r) => r.truth !== null);
+          /**
+           * 사진의 각도를 픽스처와 같은 코드로 돌려줍니다.
+           *
+           * 픽스처는 `김도윤_01_정면.jpg`처럼 번호가 박혀 있지만, 사람이 손으로 붙이는 이름은
+           * `진하_정면.jpg` `진하_45도왼쪽.jpg`입니다. 번호를 강요하면 사진 수십 장을 다시
+           * 이름 바꾸게 되므로 **우리말도 읽습니다.** 번호가 있으면 번호가 먼저입니다.
+           */
+          const angleOf = (name) => {
+            const code = /_(\d\d)_/.exec(name)?.[1];
+            if (code) return code;
+            const side = /왼쪽|좌|left/i.test(name)
+              ? "왼"
+              : /오른쪽|우|right/i.test(name)
+                ? "오"
+                : "";
+            if (/옆|side|profile/i.test(name)) return side === "오" ? "05" : "04";
+            if (/웃|smile/i.test(name)) return "06";
+            if (/45/.test(name)) return side === "오" ? "03" : side === "왼" ? "02" : "";
+            if (/정면|front/i.test(name)) return "01";
+            return "";
+          };
+          const faceByName = new Map(activity.map((f) => [f.name, f]));
+          if (graded.length === 0) {
+            mineOutEl.append(
+              heading("6. 등록 구성 비교"),
+              verdict(
+                "채점할 얼굴이 없습니다 — 활동 사진 이름에 `진하+태은_01.jpg`처럼 `+`로 정답을 적어 주세요.",
+                false,
+              ),
+            );
+          } else if (!frontPortraits.some((p) => angleOf(p.name) !== "")) {
+            mineOutEl.append(
+              heading("6. 등록 구성 비교"),
+              verdict(
+                "초상 이름에서 각도를 못 읽어 건너뜁니다 — `진하_정면.jpg` `진하_45도왼쪽.jpg` " +
+                  "`진하_웃음.jpg`처럼 정면·45+왼쪽/오른쪽·웃음 중 하나를 이름에 넣어 주세요.",
+                false,
+              ),
+            );
+          } else {
+            const sets = [
+              { key: "정면만", angles: ["01"], perAngle: 1 },
+              { key: "정면+좌45", angles: ["01", "02"], perAngle: 1 },
+              { key: "정면+좌우45 · 각도당 1장", angles: ["01", "02", "03"], perAngle: 1 },
+              { key: "정면+좌우45 · 각도당 2장", angles: ["01", "02", "03"], perAngle: 2 },
+              { key: "정면+좌우45 · 각도당 전부", angles: ["01", "02", "03"], perAngle: 99 },
+              {
+                key: "정면+좌우45+웃음 · 각도당 1장",
+                angles: ["01", "02", "03", "06"],
+                perAngle: 1,
+              },
+              { key: "전부 (옆모습 제외)", angles: null, perAngle: 99 },
+            ];
+            const setRows = sets
+              .map(({ key, angles, perAngle }) => {
+                const reg = new Map();
+                const used = [];
+                for (const person of people) {
+                  // **등록용만** 씁니다. frontPortraits를 쓰면 시험용까지 등록에 들어가
+                  // "전부" 구성이 혼자 19장이 되어 장수 비교가 무너집니다.
+                  const all = regPortraits.filter(
+                    (p) =>
+                      p.person === person && (angles === null || angles.includes(angleOf(p.name))),
+                  );
+                  // 각도마다 앞에서 perAngle장까지만 — "각도당 1장이면 되나"를 가립니다.
+                  const seen = new Map();
+                  const chosen = all.filter((p) => {
+                    const code = angleOf(p.name);
+                    const n = (seen.get(code) ?? 0) + 1;
+                    seen.set(code, n);
+                    return n <= perAngle;
+                  });
+                  if (chosen.length === 0) continue;
+                  reg.set(person, averageOf(chosen.map((p) => p.descriptor)));
+                  used.push(chosen.length);
+                }
+                if (reg.size < 2) return null;
+                // 그 구성에서 **등록 안 한 사람이 얼마나 높게 붙는지**. 장수를 늘리면 본인
+                // 점수만 오르는 게 아니라 남의 점수도 같이 오를 수 있어 함께 봐야 합니다.
+                let unregTop = 0;
+                for (const person of reg.keys()) {
+                  const without = [...reg].filter(([name]) => name !== person);
+                  if (without.length < 2) continue;
+                  for (const face of regPortraits.filter((p) => p.person === person))
+                    unregTop = Math.max(
+                      unregTop,
+                      ...without.map(([, v]) => similarity(face.descriptor, v)),
+                    );
+                }
+                let hits = 0;
+                let auto = 0;
+                let scoreSum = 0;
+                let marginSum = 0;
+                for (const row of graded) {
+                  const ranked = [...reg.entries()]
+                    .map(([person, vector]) => ({
+                      person,
+                      score: similarity(faceByName.get(row.name).descriptor, vector),
+                    }))
+                    .sort((a, b) => b.score - a.score);
+                  const margin = ranked.length > 1 ? ranked[0].score - ranked[1].score : 0;
+                  if (ranked[0].person === row.truth) hits += 1;
+                  if (ranked[0].score >= MATCH_MIN_SCORE && margin >= MATCH_MIN_MARGIN) auto += 1;
+                  scoreSum += ranked[0].score;
+                  marginSum += margin;
+                }
+                return {
+                  key,
+                  people: reg.size,
+                  used: `${Math.min(...used)}~${Math.max(...used)}`,
+                  hits,
+                  auto,
+                  score: scoreSum / graded.length,
+                  margin: marginSum / graded.length,
+                  unregTop,
+                };
+              })
+              .filter(Boolean);
+
+            // 맞힌 수가 같으면 2등과의 차이가 큰 쪽이 낫습니다 — 같은 정답을 더 여유 있게 맞힌 것입니다.
+            const best = [...setRows].sort((a, b) => b.hits - a.hits || b.margin - a.margin)[0];
+            const sweepTable = [
+              [
+                "등록 구성",
+                "실제 장수",
+                "맞힘",
+                "자동",
+                "1위 평균",
+                "2등과 평균 차이",
+                "미등록 최고",
+              ],
+              setRows.map((r) => [
+                r.key,
+                r.used,
+                `${r.hits} / ${graded.length}`,
+                `${r.auto} / ${graded.length}`,
+                fmt(r.score),
+                fmt(r.margin),
+                fmt(r.unregTop),
+              ]),
+            ];
+            mineOutEl.append(
+              heading(`6. 등록 구성 비교 — 채점 얼굴 ${graded.length}개 고정`),
+              tiles([
+                {
+                  value: best.key,
+                  label: "가장 나은 구성",
+                  note: `실제 장수 ${best.used} · 2등과 평균 차이 ${fmt(best.margin)}`,
+                },
+                {
+                  value: `${best.hits} / ${graded.length}`,
+                  label: "그 구성이 맞힌 수",
+                  note: `2등과 평균 차이 ${fmt(best.margin)}`,
+                },
+                {
+                  value: graded.length,
+                  label: "채점에 쓴 얼굴",
+                  note: graded.length >= 12 ? "구성끼리 갈립니다" : "10개 미만 — 경향만 봅니다",
+                  state: graded.length >= 12 ? "good" : "bad",
+                },
+              ]),
+              table(...sweepTable),
+              verdict(
+                graded.length >= 12
+                  ? "맞힌 수가 같으면 「2등과 평균 차이」가 큰 쪽이 낫습니다."
+                  : `채점 얼굴이 ${graded.length}개뿐이라 **구성을 확정하면 안 됩니다.** ` +
+                      "맞힌 수는 거의 같게 나오므로 「2등과 평균 차이」의 경향만 보고, " +
+                      "단체 사진을 더 찍어 12개 이상으로 올린 뒤 정하세요.",
+                graded.length >= 12,
+              ),
+            );
+            mdEl.value +=
+              `\n### 등록 구성 비교 (채점 얼굴 ${graded.length}개)\n\n` +
+              `| ${sweepTable[0].join(" | ")} |\n|${sweepTable[0].map(() => "---").join("|")}|\n` +
+              sweepTable[1].map((r) => `| ${r.join(" | ")} |`).join("\n") +
+              "\n";
+          }
+          // 7) 등록 명단을 바꿔 가며 — **단체 사진이 없어도 기준값을 정하는 측정**입니다.
+          //
+          //    활동 사진은 몇 장 안 되고 거기 찍힌 사람만 잴 수 있습니다. 그런데 기준값을 정하는 데
+          //    정작 필요한 두 분포는 **초상 사진만으로** 만들 수 있습니다.
+          //
+          //    (a) 본인: 사진 한 장을 빼고 나머지로 등록해 그 한 장을 대조합니다. 등록 벡터가
+          //        **여러 장 평균**이라 worker와 같은 계산이고, 쌍끼리 비교(아래 4번)와 다릅니다.
+          //    (b) 미등록: 그 사람을 **등록 명단에서 통째로 빼고** 그의 사진을 나머지와 대조합니다.
+          //        등록 안 한 사람이 남으로 얼마나 높게 붙는지 — 상균 님 얼굴 3개로 보던 것을
+          //        **모든 사람의 모든 사진**으로 봅니다.
+          //
+          //    (a)는 등록 사진과 같은 자리·같은 조명이라 점수가 부풀려지고, (b)는 서로 다른 사람의
+          //    다른 촬영이라 부풀려지지 않습니다. 그래서 둘 사이가 실제보다 넓게 보이고, 기준값은
+          //    **높게** 잡히는 쪽으로 틀립니다 — 자동 분류가 줄 뿐 틀린 분류는 늘지 않는, 안전한
+          //    방향입니다. 절대 점수는 활동 사진(3번)으로 보정하세요.
+          const ANGLE_LABEL = {
+            "01": "정면",
+            "02": "왼쪽45",
+            "03": "오른쪽45",
+            "04": "왼쪽옆",
+            "05": "오른쪽옆",
+            "06": "웃음",
+            "": "각도 못 읽음 (위·아래 등)",
+          };
+          const poolOf = (person) => regPortraits.filter((p) => p.person === person);
+          const looSelf = [];
+          const looOther = [];
+          for (const person of people) {
+            const mine = poolOf(person);
+            // (a) 사진 한 장씩 빼 가며 — 본인을 알아보는가
+            if (mine.length >= 2) {
+              for (const held of mine) {
+                const reg = new Map();
+                for (const other of people) {
+                  const chosen = other === person ? mine.filter((p) => p !== held) : poolOf(other);
+                  if (chosen.length > 0) reg.set(other, averageOf(chosen.map((p) => p.descriptor)));
+                }
+                if (reg.size < 2) continue;
+                const ranked = [...reg.entries()]
+                  .map(([name, vector]) => ({
+                    person: name,
+                    score: similarity(held.descriptor, vector),
+                  }))
+                  .sort((a, b) => b.score - a.score);
+                looSelf.push({
+                  person,
+                  name: held.name,
+                  first: ranked[0],
+                  margin: ranked[0].score - ranked[1].score,
+                  correct: ranked[0].person === person,
+                });
+              }
+            }
+            // (b) 그 사람을 명단에서 빼고 — 등록 안 한 사람이 남으로 붙는가
+            const without = new Map();
+            for (const other of people) {
+              if (other === person) continue;
+              const chosen = poolOf(other);
+              if (chosen.length > 0) without.set(other, averageOf(chosen.map((p) => p.descriptor)));
+            }
+            if (without.size >= 2) {
+              for (const face of mine) {
+                const ranked = [...without.entries()]
+                  .map(([name, vector]) => ({
+                    person: name,
+                    score: similarity(face.descriptor, vector),
+                  }))
+                  .sort((a, b) => b.score - a.score);
+                looOther.push({
+                  person,
+                  name: face.name,
+                  first: ranked[0],
+                  margin: ranked[0].score - ranked[1].score,
+                });
+              }
+            }
+          }
+
+          if (looSelf.length > 0 && looOther.length > 0) {
+            const isAuto = (r) => r.first.score >= MATCH_MIN_SCORE && r.margin >= MATCH_MIN_MARGIN;
+            const selfOk = looSelf.filter((r) => r.correct);
+            const selfWrongAuto = looSelf.filter((r) => isAuto(r) && !r.correct);
+            const otherAuto = looOther.filter(isAuto);
+            // 기준값이 지켜야 하는 두 선: 미등록이 넘으면 안 되고, 본인이 밑돌면 안 됩니다.
+            const otherTop = Math.max(...looOther.map((r) => r.first.score));
+            const selfLow =
+              selfOk.length > 0 ? Math.min(...selfOk.map((r) => r.first.score)) : null;
+            const otherTopMargin = Math.max(...looOther.map((r) => r.margin));
+            const selfLowMargin =
+              selfOk.length > 0 ? Math.min(...selfOk.map((r) => r.margin)) : null;
+            const scoreSplit = selfLow !== null && selfLow > otherTop;
+            const marginSplit = selfLowMargin !== null && selfLowMargin > otherTopMargin;
+            mineOutEl.append(
+              heading(
+                `7. 등록 명단 바꿔 보기 — 본인 ${looSelf.length}번 · 미등록 ${looOther.length}번`,
+              ),
+              tiles([
+                {
+                  value: `${otherAuto.length} / ${looOther.length}`,
+                  label: "미등록인데 자동으로 붙음",
+                  note: otherAuto.length === 0 ? "0입니다" : "기준값이 낮습니다",
+                  state: otherAuto.length === 0 ? "good" : "bad",
+                },
+                {
+                  value: selfWrongAuto.length,
+                  label: "다른 사람으로 자동 분류",
+                  note: selfWrongAuto.length === 0 ? "0이어야 하고, 0입니다" : "0이어야 합니다",
+                  state: selfWrongAuto.length === 0 ? "good" : "bad",
+                },
+                {
+                  value: `${selfOk.length} / ${looSelf.length}`,
+                  label: "1위가 본인",
+                  note: "자동 여부와 별개로, 순위만",
+                },
+                {
+                  value: fmt(otherTop),
+                  label: "미등록 최고 점수",
+                  note: "기준값은 이보다 높아야 합니다",
+                },
+                {
+                  value: selfLow === null ? "—" : fmt(selfLow),
+                  label: "본인 최저 점수",
+                  note: "기준값은 이보다 낮아야 합니다",
+                },
+                {
+                  value: scoreSplit ? fmt((selfLow + otherTop) / 2) : "—",
+                  label: "기준값 후보 (점수)",
+                  note: scoreSplit ? "두 값의 한가운데" : "겹쳐서 점수만으로는 못 정합니다",
+                  state: scoreSplit ? "good" : "bad",
+                },
+                {
+                  value: marginSplit ? fmt((selfLowMargin + otherTopMargin) / 2) : "—",
+                  label: "기준값 후보 (2등과 차이)",
+                  note: marginSplit
+                    ? `미등록 최고 ${fmt(otherTopMargin)} / 본인 최저 ${fmt(selfLowMargin)}`
+                    : "차이로도 안 갈립니다",
+                  state: marginSplit ? "good" : "bad",
+                },
+              ]),
+              table(
+                [
+                  "사람",
+                  "사진",
+                  "본인 1위",
+                  "본인 최저 점수",
+                  "본인 최저 차이",
+                  "미등록 최고 점수",
+                  "미등록 최고 차이",
+                ],
+                people.map((person) => {
+                  const s = looSelf.filter((r) => r.person === person);
+                  const o = looOther.filter((r) => r.person === person);
+                  const sOk = s.filter((r) => r.correct);
+                  return [
+                    person,
+                    poolOf(person).length,
+                    `${sOk.length} / ${s.length}`,
+                    sOk.length ? fmt(Math.min(...sOk.map((r) => r.first.score))) : "—",
+                    sOk.length ? fmt(Math.min(...sOk.map((r) => r.margin))) : "—",
+                    o.length ? fmt(Math.max(...o.map((r) => r.first.score))) : "—",
+                    o.length ? fmt(Math.max(...o.map((r) => r.margin))) : "—",
+                  ];
+                }),
+              ),
+              verdict(
+                scoreSplit
+                  ? `점수만으로 갈라집니다 — 미등록 최고 ${fmt(otherTop)} < 본인 최저 ${fmt(selfLow)}. ` +
+                      `후보 ${fmt((selfLow + otherTop) / 2)}. 다만 본인 쪽은 등록 사진과 같은 촬영이라 ` +
+                      "부풀려져 있습니다. 활동 사진(3번)의 본인 점수로 내려 잡으세요."
+                  : `점수만으로는 겹칩니다 — 미등록 최고 ${fmt(otherTop)} ≥ 본인 최저 ${selfLow === null ? "—" : fmt(selfLow)}. ` +
+                      (marginSplit
+                        ? `2등과의 차이로는 갈라집니다(후보 ${fmt((selfLowMargin + otherTopMargin) / 2)}) — 차이 기준을 올리세요.`
+                        : "차이로도 안 갈립니다. 기준을 높여 수동 확인을 늘리고 발표에서 한계로 밝혀야 합니다."),
+                scoreSplit || marginSplit,
+              ),
+              heading("7-1. 각도별로 — 어느 각도가 위험한가"),
+              table(
+                [
+                  "각도",
+                  "본인 사진",
+                  "본인 1위",
+                  "본인 최저 점수",
+                  "미등록 사진",
+                  "미등록 최고 점수",
+                ],
+                [...new Set([...looSelf, ...looOther].map((r) => angleOf(r.name)))]
+                  .sort()
+                  .map((code) => {
+                    const s = looSelf.filter((r) => angleOf(r.name) === code);
+                    const o = looOther.filter((r) => angleOf(r.name) === code);
+                    const sOk = s.filter((r) => r.correct);
+                    return [
+                      ANGLE_LABEL[code] ?? code,
+                      s.length,
+                      `${sOk.length} / ${s.length}`,
+                      sOk.length ? fmt(Math.min(...sOk.map((r) => r.first.score))) : "—",
+                      o.length,
+                      o.length ? fmt(Math.max(...o.map((r) => r.first.score))) : "—",
+                    ];
+                  }),
+              ),
+              ...(() => {
+                // 각도를 못 읽은 사진(고개를 숙이거나 든 것 등)을 빼면 갈라지는지 봅니다.
+                const s = looSelf.filter((r) => angleOf(r.name) !== "" && r.correct);
+                const o = looOther.filter((r) => angleOf(r.name) !== "");
+                if (s.length === 0 || o.length === 0 || looOther.length === o.length) return [];
+                const low = Math.min(...s.map((r) => r.first.score));
+                const top = Math.max(...o.map((r) => r.first.score));
+                return [
+                  verdict(
+                    `각도를 못 읽은 사진(위·아래 등) ${looOther.length - o.length}장을 빼면 — ` +
+                      `미등록 최고 ${fmt(top)} / 본인 최저 ${fmt(low)}: ` +
+                      (low > top
+                        ? `**갈라집니다.** 기준값 후보 ${fmt((low + top) / 2)}. ` +
+                          "그 각도를 등록·대조에서 거르면 기준값을 정할 수 있다는 뜻입니다."
+                        : "여전히 겹칩니다. 그 각도만의 문제는 아닙니다."),
+                    low > top,
+                  ),
+                ];
+              })(),
+              table(
+                ["미등록인데 가장 높게 붙은 사진", "붙은 사람", "점수", "2등과 차이"],
+                [...looOther]
+                  .sort((a, b) => b.first.score - a.first.score)
+                  .slice(0, 5)
+                  .map((r) => [r.name, r.first.person, fmt(r.first.score), fmt(r.margin)]),
+              ),
+            );
+            mdEl.value +=
+              `\n### 등록 명단 바꿔 보기 (본인 ${looSelf.length}번 · 미등록 ${looOther.length}번)\n\n` +
+              `| 값 | 점수 | 2등과 차이 |\n|---|---|---|\n` +
+              `| 미등록 최고 | ${fmt(otherTop)} | ${fmt(otherTopMargin)} |\n` +
+              `| 본인 최저 | ${selfLow === null ? "—" : fmt(selfLow)} | ${selfLowMargin === null ? "—" : fmt(selfLowMargin)} |\n\n` +
+              `미등록인데 자동으로 붙은 것 ${otherAuto.length} / ${looOther.length} · ` +
+              `다른 사람으로 자동 분류 ${selfWrongAuto.length}개 · 1위가 본인 ${selfOk.length} / ${looSelf.length}\n`;
+          }
+          // 8) 기준값 스윕 — "0.8 / 0.15를 바꾸면 얼마나 좋아지나"를 **추측하지 않고 셉니다.**
+          //
+          //    이 페이지가 내린 판정을 전부 한 통에 모읍니다. 각 판정은 (1위 점수, 2등과 차이,
+          //    붙으면 위험한가) 셋으로 요약됩니다. 위험한 판정이란 **등록 안 한 사람**이거나
+          //    **1위가 본인이 아닌** 경우입니다 — 자동으로 붙으면 남의 아이 이야기가 나갑니다.
+          //    그 통을 기준값 격자에 통과시키면 조합마다 "안전한 자동 / 위험한 자동"이 나옵니다.
+          // 판정마다 그 얼굴이 어느 쪽을 보고 있었는지도 들고 갑니다. 각도를 못 읽은 얼굴은
+          // null로 두고 "모르면 남긴다"로 봅니다 — 버리면 "걸러서 좋아졌다"가 과장됩니다.
+          const faceAngle = new Map(
+            [...activity, ...portraits].map((f) => [f.name, f.angle ?? null]),
+          );
+          const tilt = (name) => {
+            const a = faceAngle.get(name);
+            return a ? Math.max(Math.abs(a.pitch), Math.abs(a.yaw)) : null;
+          };
+          const trials = [];
+          const push = (name, score, margin, risk) =>
+            trials.push({ name, score, margin, risk, tilt: tilt(name) });
+          for (const r of rows) {
+            if (r.unregistered) push(r.name, r.first.score, r.margin ?? 0, true);
+            else if (r.truth !== null) push(r.name, r.first.score, r.margin ?? 0, !r.correct);
+          }
+          for (const r of looSelf) push(r.name, r.first.score, r.margin, !r.correct);
+          for (const r of looOther) push(r.name, r.first.score, r.margin, true);
+          for (const face of testPortraits) {
+            if (!registered.has(face.person)) continue;
+            const ranked = rankOf(face.descriptor);
+            push(
+              face.name,
+              ranked[0].score,
+              ranked.length > 1 ? ranked[0].score - ranked[1].score : 0,
+              ranked[0].person !== face.person,
+            );
+          }
+
+          if (trials.length > 0) {
+            const SCORES = [0.7, 0.72, 0.74, 0.76, 0.78, 0.8, 0.82, 0.84];
+            const MARGINS = [0.05, 0.1, 0.15, 0.2];
+            const cellOf = (s, m) => {
+              const auto = trials.filter((t) => t.score >= s && t.margin >= m);
+              const risk = auto.filter((t) => t.risk).length;
+              return { ok: auto.length - risk, risk };
+            };
+            const grid = [];
+            for (const s of SCORES) for (const m of MARGINS) grid.push({ s, m, ...cellOf(s, m) });
+            // 위험 0을 먼저 지키고, 그 안에서 자동이 가장 많은 조합을 고릅니다(#237 합의 순서).
+            const safe = grid.filter((g) => g.risk === 0).sort((a, b) => b.ok - a.ok);
+            const best = safe[0] ?? null;
+            const now = cellOf(MATCH_MIN_SCORE, MATCH_MIN_MARGIN);
+            mineOutEl.append(
+              heading(`8. 기준값을 바꾸면 — 판정 ${trials.length}건으로`),
+              tiles([
+                {
+                  value: `${now.ok} / ${now.risk}`,
+                  label: `지금 ${MATCH_MIN_SCORE} / ${MATCH_MIN_MARGIN}`,
+                  note: "안전한 자동 / 위험한 자동",
+                  state: now.risk === 0 ? "good" : "bad",
+                },
+                {
+                  value: best ? `${best.s} / ${best.m}` : "—",
+                  label: "위험 0에서 자동이 가장 많은 조합",
+                  note: best ? `안전한 자동 ${best.ok}건` : "위험 0인 조합이 없습니다",
+                  state: best ? "good" : "bad",
+                },
+                {
+                  value: best ? `${best.ok - now.ok > 0 ? "+" : ""}${best.ok - now.ok}` : "—",
+                  label: "지금보다 늘어나는 자동",
+                  note: best && best.ok === now.ok ? "지금이 이미 최선입니다" : "건",
+                  state: best && best.ok > now.ok ? "good" : undefined,
+                },
+              ]),
+              table(
+                ["점수 기준", ...MARGINS.map((m) => `차이 ${m.toFixed(2)}`)],
+                SCORES.map((s) => [
+                  s.toFixed(2),
+                  ...MARGINS.map((m) => {
+                    const c = cellOf(s, m);
+                    return c.risk === 0 ? `${c.ok} / 0` : `${c.ok} / ⚠${c.risk}`;
+                  }),
+                ]),
+              ),
+              verdict(
+                "칸은 「안전한 자동 / 위험한 자동」입니다. **오른쪽 숫자가 0인 칸 중 왼쪽이 가장 큰 것**을 고릅니다. " +
+                  (best
+                    ? `지금 ${MATCH_MIN_SCORE} / ${MATCH_MIN_MARGIN}는 ${now.ok}건, 가장 나은 ${best.s} / ${best.m}는 ${best.ok}건입니다.`
+                    : "위험 0인 조합이 없습니다 — 기준값만으로는 못 막습니다."),
+                best !== null && now.risk === 0,
+              ),
+              ...(() => {
+                // 고개 각도를 얼마나 조이면 위험한 판정이 사라지는지 — 기준값은 지금 값 그대로
+                // 두고 각도만 바꿉니다. 둘을 같이 움직이면 어느 쪽이 효과인지 모릅니다.
+                const known = trials.filter((t) => t.tilt !== null);
+                if (known.length === 0)
+                  return [
+                    verdict(
+                      "고개 각도를 읽지 못했습니다 — 모델 구성에 rotation이 없습니다. 각도 스윕을 건너뜁니다.",
+                      false,
+                    ),
+                  ];
+                const LIMITS = [10, 15, 20, 25, 30, 40, 999];
+                const tiltRows = LIMITS.map((limit) => {
+                  const kept = known.filter((t) => t.tilt <= limit);
+                  const auto = kept.filter(
+                    (t) => t.score >= MATCH_MIN_SCORE && t.margin >= MATCH_MIN_MARGIN,
+                  );
+                  const risk = auto.filter((t) => t.risk).length;
+                  return {
+                    limit,
+                    kept: kept.length,
+                    dropped: known.length - kept.length,
+                    ok: auto.length - risk,
+                    risk,
+                  };
+                });
+                const loosest = [...tiltRows].reverse().find((r) => r.risk === 0) ?? null;
+                return [
+                  heading(`8-1. 고개 각도로 거르면 — 각도를 읽은 판정 ${known.length}건`),
+                  tiles([
+                    {
+                      value: `${known.length} / ${trials.length}`,
+                      label: "각도를 읽은 판정",
+                      note: "못 읽은 것은 이 표에서 뺍니다",
+                    },
+                    {
+                      value: loosest
+                        ? `${loosest.limit === 999 ? "제한 없음" : `${loosest.limit}°`}`
+                        : "—",
+                      label: "위험 0이 되는 가장 느슨한 각도",
+                      note: loosest
+                        ? `${loosest.dropped}건을 버리고 안전한 자동 ${loosest.ok}건`
+                        : "어떤 각도로도 위험이 0이 안 됩니다",
+                      state: loosest ? "good" : "bad",
+                    },
+                  ]),
+                  table(
+                    ["고개 각도 한계", "남는 판정", "버리는 판정", "안전한 자동", "위험한 자동"],
+                    tiltRows.map((r) => [
+                      r.limit === 999 ? "제한 없음 (지금)" : `${r.limit}° 이내`,
+                      r.kept,
+                      r.dropped,
+                      r.ok,
+                      r.risk === 0 ? "0" : `⚠${r.risk}`,
+                    ]),
+                  ),
+                  verdict(
+                    "**기준값을 지금 값에 묶어 둔 표입니다.** 지금 값은 이미 위험이 0이라 각도가 " +
+                      "치울 위험이 없고, 좋은 자동만 깎입니다. 각도 거르기의 값어치는 아래 8-2에서 봅니다. " +
+                      "각도는 pitch(위아래)와 yaw(좌우) 중 **큰 쪽**입니다. 버린 얼굴은 교사 수동으로 갑니다 — " +
+                      "틀린 자동이 줄 뿐 교사 일이 줄지는 않습니다. " +
+                      (loosest
+                        ? `${loosest.limit === 999 ? "지금도" : `${loosest.limit}°로 조이면`} 위험이 0이고 자동은 ${loosest.ok}건입니다.`
+                        : "각도만으로는 위험이 안 사라집니다."),
+                    loosest !== null,
+                  ),
+                ];
+              })(),
+              ...(() => {
+                // 8-2. **각도를 조이면 기준값을 얼마나 풀 수 있나.**
+                //
+                // 8-1은 기준값을 지금 값에 묶어 두고 각도만 바꿨는데, 지금 값은 이미 위험이
+                // 0이라 각도가 버릴 게 없었습니다 — 좋은 자동만 깎였습니다. 각도를 거르는
+                // 참뜻은 **위험한 판정을 먼저 치워 두고 기준값을 낮추는 것**입니다.
+                //
+                // 그래서 각도 한계마다 "위험 0을 지키는 조합 중 자동이 가장 많은 것"을 다시
+                // 찾습니다. 버린 얼굴은 교사 수동으로 가므로, 자동 수는 **버린 것까지 포함한
+                // 전체 153건 기준**으로 셉니다. 그래야 "걸러서 이득인가"가 정직하게 비교됩니다.
+                const known = trials.filter((t) => t.tilt !== null);
+                if (known.length === 0) return [];
+                const FINE_SCORES = [0.6, 0.64, 0.68, 0.7, 0.72, 0.74, 0.76, 0.78, 0.8, 0.82, 0.84];
+                const FINE_MARGINS = [0.03, 0.05, 0.08, 0.1, 0.15, 0.2, 0.25];
+                const LIMITS2 = [10, 12, 15, 18, 20, 25, 30, 40, 999];
+                const bestFor = (limit) => {
+                  const kept = known.filter((t) => t.tilt <= limit);
+                  let best = null;
+                  for (const s of FINE_SCORES)
+                    for (const m of FINE_MARGINS) {
+                      const auto = kept.filter((t) => t.score >= s && t.margin >= m);
+                      if (auto.some((t) => t.risk)) continue;
+                      if (!best || auto.length > best.ok) best = { s, m, ok: auto.length };
+                    }
+                  return { limit, kept: kept.length, best };
+                };
+                const rows2 = LIMITS2.map(bestFor);
+                const top = [...rows2].sort(
+                  (a, b) => (b.best?.ok ?? 0) - (a.best?.ok ?? 0) || a.limit - b.limit,
+                )[0];
+                const none = rows2[rows2.length - 1];
+                return [
+                  heading("8-2. 각도를 조이면 기준값을 얼마나 풀 수 있나"),
+                  tiles([
+                    {
+                      value: top.limit === 999 ? "제한 없음" : `${top.limit}°`,
+                      label: "자동이 가장 많아지는 각도",
+                      note: top.best
+                        ? `기준 ${top.best.s} / ${top.best.m}에서 ${top.best.ok}건`
+                        : "위험 0인 조합이 없습니다",
+                      state: top.best ? "good" : "bad",
+                    },
+                    {
+                      value: `${top.best?.ok ?? 0} / ${known.length}`,
+                      label: "그때 자동으로 붙는 비율",
+                      note: `지금 ${MATCH_MIN_SCORE} / ${MATCH_MIN_MARGIN} · 각도 제한 없음은 ${cellOf(MATCH_MIN_SCORE, MATCH_MIN_MARGIN).ok}건`,
+                    },
+                    {
+                      value: `${(top.best?.ok ?? 0) - (none.best?.ok ?? 0) > 0 ? "+" : ""}${(top.best?.ok ?? 0) - (none.best?.ok ?? 0)}`,
+                      label: "각도를 걸러서 얻는 것",
+                      note:
+                        (top.best?.ok ?? 0) > (none.best?.ok ?? 0)
+                          ? "각도 거르기가 이득입니다"
+                          : "각도를 걸러도 이득이 없습니다",
+                      state: (top.best?.ok ?? 0) > (none.best?.ok ?? 0) ? "good" : undefined,
+                    },
+                  ]),
+                  table(
+                    [
+                      "고개 각도 한계",
+                      "남는 판정",
+                      "버리는 판정",
+                      "그때 쓸 수 있는 최선 기준",
+                      "안전한 자동 (153건 중)",
+                    ],
+                    rows2.map((r) => [
+                      r.limit === 999 ? "제한 없음" : `${r.limit}° 이내`,
+                      r.kept,
+                      known.length - r.kept,
+                      r.best ? `${r.best.s} / ${r.best.m}` : "—",
+                      r.best ? r.best.ok : 0,
+                    ]),
+                  ),
+                  verdict(
+                    "각도마다 **기준값을 다시 최적화**한 결과입니다. 버린 얼굴은 자동이 될 수 없으므로 " +
+                      "전체 153건을 분모로 셉니다. " +
+                      ((top.best?.ok ?? 0) > (none.best?.ok ?? 0)
+                        ? `${top.limit}°로 거르고 기준을 ${top.best.s} / ${top.best.m}로 풀면 ${top.best.ok}건 — ` +
+                          `각도를 안 거를 때(${none.best?.ok ?? 0}건)보다 ${top.best.ok - (none.best?.ok ?? 0)}건 많습니다.`
+                        : `각도를 안 걸러도 ${none.best?.ok ?? 0}건이 최선입니다 — **각도 거르기는 이득이 없습니다.** ` +
+                          "위험한 판정이 애초에 기준값에 안 걸리기 때문입니다."),
+                    (top.best?.ok ?? 0) > (none.best?.ok ?? 0),
+                  ),
+                ];
+              })(),
+              ...(() => {
+                // 9. **고른 자료로 채점하지 않기.** 8번 격자는 판정 전부로 기준값을 고르고
+                //    **같은 판정으로** "위험 0"을 확인했습니다. 0이 되도록 고른 값이라 0인 게
+                //    당연합니다 — 자랑이 아니라 고른 방식이 만든 결과입니다(#293 엄태은 님 지적).
+                //
+                //    새로 찍은 사진은 마감 안에 못 구하므로, 가진 판정을 **절반으로 갈라**
+                //    한쪽에서 고르고 **고를 때 안 본 나머지 절반**으로 확인합니다. 무작위 분할을
+                //    여러 번 반복해 "처음 보는 판정에서도 위험 0인 비율"을 셉니다.
+                if (trials.length < 20) return [];
+                const REPEATS = 200;
+                // 돌릴 때마다 숫자가 바뀌면 이슈·PR에 적을 수 없어 씨앗을 고정합니다(mulberry32).
+                let seed = 20261108;
+                const rand = () => {
+                  seed = (seed + 0x6d2b79f5) | 0;
+                  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+                  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+                  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+                };
+                const autoOn = (list, s, m) => list.filter((t) => t.score >= s && t.margin >= m);
+                const riskyOn = (list, s, m) => autoOn(list, s, m).filter((t) => t.risk).length;
+                const bestOn = (list) => {
+                  let best = null;
+                  for (const s of SCORES)
+                    for (const m of MARGINS) {
+                      const auto = autoOn(list, s, m);
+                      if (auto.some((t) => t.risk)) continue;
+                      if (!best || auto.length > best.ok) best = { s, m, ok: auto.length };
+                    }
+                  return best;
+                };
+                const picked = new Map();
+                let learnedSafe = 0;
+                let learnedNone = 0;
+                let learnedAuto = 0;
+                let screenSafe = 0;
+                let screenAuto = 0;
+                let codeSafe = 0;
+                let codeAuto = 0;
+                for (let i = 0; i < REPEATS; i += 1) {
+                  const shuffled = [...trials];
+                  for (let j = shuffled.length - 1; j > 0; j -= 1) {
+                    const k = Math.floor(rand() * (j + 1));
+                    [shuffled[j], shuffled[k]] = [shuffled[k], shuffled[j]];
+                  }
+                  const cut = Math.floor(shuffled.length / 2);
+                  const pick = shuffled.slice(0, cut);
+                  const check = shuffled.slice(cut);
+                  const best = bestOn(pick);
+                  if (best === null) learnedNone += 1;
+                  else {
+                    const key = `${best.s} / ${best.m}`;
+                    picked.set(key, (picked.get(key) ?? 0) + 1);
+                    if (riskyOn(check, best.s, best.m) === 0) learnedSafe += 1;
+                    learnedAuto += autoOn(check, best.s, best.m).length;
+                  }
+                  if (riskyOn(check, MATCH_MIN_SCORE, MATCH_MIN_MARGIN) === 0) screenSafe += 1;
+                  screenAuto += autoOn(check, MATCH_MIN_SCORE, MATCH_MIN_MARGIN).length;
+                  if (riskyOn(check, MATCHER_SCORE, MATCHER_MARGIN) === 0) codeSafe += 1;
+                  codeAuto += autoOn(check, MATCHER_SCORE, MATCHER_MARGIN).length;
+                }
+                const learnedRuns = REPEATS - learnedNone;
+                const pct = (n, d) => (d === 0 ? "—" : `${Math.round((n / d) * 100)}%`);
+                const mean = (n, d) => (d === 0 ? "—" : (n / d).toFixed(1));
+                const topPicks = [...picked].sort((a, b) => b[1] - a[1]).slice(0, 5);
+                return [
+                  heading(`9. 고를 때 안 본 절반으로 확인 — ${REPEATS}번 무작위 반반 분할`),
+                  tiles([
+                    {
+                      value: pct(screenSafe, REPEATS),
+                      label: `화면 기준 ${MATCH_MIN_SCORE} / ${MATCH_MIN_MARGIN}`,
+                      note: "안 본 절반에서 틀린 자동이 0건인 비율",
+                      state:
+                        screenSafe === REPEATS
+                          ? "good"
+                          : screenSafe >= REPEATS * 0.95
+                            ? undefined
+                            : "bad",
+                    },
+                    {
+                      value: pct(codeSafe, REPEATS),
+                      label: `지금 코드 ${MATCHER_SCORE} / ${MATCHER_MARGIN}`,
+                      note: "같은 방식으로 잰 비교값",
+                      state: codeSafe === REPEATS ? "good" : undefined,
+                    },
+                    {
+                      value: pct(learnedSafe, learnedRuns),
+                      label: "절반으로 고른 값이 나머지에서 안전",
+                      note: `${learnedRuns}번 중 ${learnedSafe}번 — 고르는 방식 자체를 잽니다`,
+                      state: learnedSafe === learnedRuns ? "good" : undefined,
+                    },
+                  ]),
+                  table(
+                    ["무엇", "틀린 자동 0건", "안 본 절반에서 평균 자동"],
+                    [
+                      [
+                        `화면 ${MATCH_MIN_SCORE} / ${MATCH_MIN_MARGIN}`,
+                        `${screenSafe} / ${REPEATS}`,
+                        mean(screenAuto, REPEATS),
+                      ],
+                      [
+                        `지금 코드 ${MATCHER_SCORE} / ${MATCHER_MARGIN}`,
+                        `${codeSafe} / ${REPEATS}`,
+                        mean(codeAuto, REPEATS),
+                      ],
+                      [
+                        "절반에서 고른 최선",
+                        `${learnedSafe} / ${learnedRuns}`,
+                        mean(learnedAuto, learnedRuns),
+                      ],
+                    ],
+                  ),
+                  table(
+                    ["절반만 보고 고르면 뽑히는 기준값", "뽑힌 횟수"],
+                    topPicks.map(([key, n]) => [key, `${n} / ${learnedRuns}`]),
+                  ),
+                  verdict(
+                    "**새로 찍은 사진이 아닙니다.** 같은 사람·같은 촬영을 둘로 가른 것이라 " +
+                      "새 자료 검증을 대신하지 못합니다. 다만 **고를 때 쓴 판정으로 채점했다는 " +
+                      "부분은 풉니다** — 위 숫자는 전부 고를 때 보지 않은 절반에서 잰 것입니다. " +
+                      (screenSafe === REPEATS
+                        ? `화면 기준 ${MATCH_MIN_SCORE} / ${MATCH_MIN_MARGIN}는 ${REPEATS}번 모두 틀린 자동이 0건이었습니다.`
+                        : `화면 기준 ${MATCH_MIN_SCORE} / ${MATCH_MIN_MARGIN}는 ${REPEATS}번 중 ${REPEATS - screenSafe}번 틀린 자동이 나왔습니다.`),
+                    screenSafe === REPEATS,
+                  ),
+                ];
+              })(),
+              verdict(
+                `**등록 4명으로 잰 숫자입니다.** 반이 15명이면 미등록 점수가 올라가 위험 칸이 늘어납니다 ` +
+                  '(태은 님 실행: "등록 원아가 늘수록 점수 차이가 줄어 자동 분류가 더 줄어듦"). ' +
+                  "이 표로 기준값을 내릴 때는 여유를 두세요.",
+                false,
+              ),
+            );
+            mdEl.value +=
+              `\n### 기준값 스윕 (판정 ${trials.length}건, 등록 4명)\n\n` +
+              `| 점수 | ${MARGINS.map((m) => `차이 ${m.toFixed(2)}`).join(" | ")} |\n` +
+              `|---|${MARGINS.map(() => "---").join("|")}|\n` +
+              SCORES.map((s) => {
+                const cells = MARGINS.map((m) => {
+                  const c = cellOf(s, m);
+                  return `${c.ok} / ${c.risk}`;
+                });
+                return `| ${s.toFixed(2)} | ${cells.join(" | ")} |`;
+              }).join("\n") +
+              `\n\n칸 = 안전한 자동 / 위험한 자동. 지금 ${MATCH_MIN_SCORE}/${MATCH_MIN_MARGIN} = ${now.ok}/${now.risk}` +
+              (best ? ` · 위험 0 최선 ${best.s}/${best.m} = ${best.ok}건` : "") +
+              "\n";
+          }
+          mineStatusEl.textContent =
+            `담긴 사진 ${files.length}장 · 얼굴 ${portraits.length + activity.length}개. ` +
+            "더 고르면 쌓입니다.";
+        } catch (error) {
+          mineOutEl.append(
+            verdict(`멈췄습니다 — ${error?.name ?? "오류"}: ${error?.message ?? error}`, false),
+          );
+          console.error(error);
+        } finally {
+          groupIntoCards(mineOutEl);
+          mineEl.disabled = false;
+          mineRecalcEl.disabled = false;
+        }
+      }
+
+      mineEl.addEventListener("change", () => {
+        for (const file of mineEl.files ?? []) {
+          // 폴더째 고르면 webkitRelativePath에 폴더가 남습니다. 픽스처의 `group/`처럼
+          // 폴더 이름이 무엇인지 알려 주는 경우가 있어 있으면 그쪽을 씁니다.
+          picked.set(`${file.name}:${String(file.size)}`, file);
+        }
+        void analyze();
+      });
+
+      mineRecalcEl.addEventListener("click", () => void analyze());
+      document.getElementById("th-reset").addEventListener("click", () => {
+        thScoreEl.value = String(MATCHER_SCORE);
+        thMarginEl.value = String(MATCHER_MARGIN);
+        void analyze();
+      });
+    </script>
+  </body>
+</html>

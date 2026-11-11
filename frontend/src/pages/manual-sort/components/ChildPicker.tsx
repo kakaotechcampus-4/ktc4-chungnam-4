@@ -48,8 +48,10 @@ export function ChildPicker({ title, childList, initialSelected, onConnect }: Ch
       <ul className="flex flex-col gap-1 overflow-y-auto text-lg text-ink">
         {visible.map((child) => (
           <li key={child.child_id}>
-            <label className="flex cursor-pointer items-center gap-2.5">
+            {/* 이름 줄 어디에 올려도 체크 칸 테두리가 진해져, 누르면 어느 아이가 바뀌는지 보입니다. */}
+            <label className="group flex cursor-pointer items-center gap-2.5">
               <Checkbox
+                className="group-hover:border-ring"
                 checked={selected.has(child.child_id)}
                 onCheckedChange={(value) => toggle(child.child_id, value === true)}
               />

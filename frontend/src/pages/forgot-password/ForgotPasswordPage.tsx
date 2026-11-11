@@ -26,7 +26,7 @@ export function ForgotPasswordPage() {
   const onSubmit = handleSubmit(() => {});
 
   return (
-    <div className="flex w-full max-w-form-sm flex-col items-center">
+    <div className="flex w-full max-w-form-sm flex-col items-center motion-safe:animate-enter">
       <div className="mb-15 flex flex-col items-center text-center">
         <h1 className="text-h2 font-bold text-ink">비밀번호를 재설정할게요</h1>
         <p className="text-nav text-ink-muted">가입하신 이메일 주소로 재설정 링크를 보내드려요</p>
@@ -46,11 +46,19 @@ export function ForgotPasswordPage() {
         </Button>
       </form>
       <nav aria-label="계정 도움" className="mt-6 flex items-center gap-3 text-label">
-        <Link viewTransition to="/login" className="text-ink-muted hover:text-ink">
+        <Link
+          viewTransition
+          to="/login"
+          className="text-ink-muted transition-colors hover:text-ink"
+        >
           로그인으로 돌아가기
         </Link>
         <span aria-hidden="true" className="h-3 w-px bg-line" />
-        <Link viewTransition to="/signup" className="font-bold text-ink">
+        <Link
+          viewTransition
+          to="/signup"
+          className="font-bold text-ink transition-colors hover:text-brand-ink"
+        >
           회원가입
         </Link>
       </nav>

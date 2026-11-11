@@ -64,6 +64,13 @@ export function OnboardingClassNewPage() {
     });
   });
 
+  // 어린이집 이름은 반 목록에 붙어 와서, 반이 하나도 없는 첫 교사는 이름을 알 수 없습니다.
+  // 그 교사는 코드로 들어온 것도 아니라 코드 이야기를 하지 않습니다.
+  const centerLabel = !teacherCenterId
+    ? ""
+    : centerName
+      ? `${centerName} (코드로 확인됨)`
+      : "가입할 때 등록한 어린이집";
   const centerMessage = isPending
     ? "어린이집 정보를 불러오고 있어요"
     : isError
@@ -79,7 +86,7 @@ export function OnboardingClassNewPage() {
         title="우리 반을 만들어 주세요"
         subtitle="어린이집을 확인하고 반 이름과 연령을 입력해 주세요."
       />
-      <FocusCard className="rounded-xl">
+      <FocusCard className="rounded-xl motion-safe:animate-enter">
         <form
           noValidate
           onSubmit={onSubmit}
@@ -93,7 +100,7 @@ export function OnboardingClassNewPage() {
               id={centerId}
               readOnly
               aria-describedby={centerMessage ? `${centerId}-message` : undefined}
-              value={teacherCenterId ? `${centerName ?? "등록한 어린이집"} (코드로 확인됨)` : ""}
+              value={centerLabel}
               className="border text-ink-muted"
             />
             {centerMessage ? (
@@ -119,7 +126,10 @@ export function OnboardingClassNewPage() {
               {...register("name")}
             />
             {errors.name ? (
-              <p id={`${nameId}-error`} className="text-label text-destructive">
+              <p
+                id={`${nameId}-error`}
+                className="text-label text-destructive motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 motion-safe:duration-200"
+              >
                 {errors.name.message}
               </p>
             ) : null}
@@ -134,12 +144,19 @@ export function OnboardingClassNewPage() {
                   <label
                     key={band}
                     className={cn(
-                      "flex flex-1 cursor-pointer flex-col gap-1 rounded-xl border px-4.5 py-4 font-bold transition-colors has-focus-visible:ring-3 has-focus-visible:ring-ring/50",
-                      selected ? "border-brand-ink bg-primary" : "border-line bg-paper",
+                      "flex flex-1 cursor-pointer flex-col gap-1 rounded-xl border px-4.5 py-4 font-bold transition duration-200 ease-soft has-focus-visible:ring-3 has-focus-visible:ring-ring/50 motion-safe:active:scale-99",
+                      selected
+                        ? "border-brand-ink bg-primary"
+                        : "border-line bg-paper hover:border-brand-border",
                     )}
                   >
                     <input type="radio" value={band} className="sr-only" {...register("ageBand")} />
-                    <span className={cn("text-lead", selected ? "text-brand-ink" : "text-ink")}>
+                    <span
+                      className={cn(
+                        "text-lead transition-colors duration-200",
+                        selected ? "text-brand-ink" : "text-ink",
+                      )}
+                    >
                       {AGE_BAND_LABEL_MAP[band].title}
                     </span>
                     <span className="text-caption text-ink-muted">
@@ -149,15 +166,20 @@ export function OnboardingClassNewPage() {
                 );
               })}
             </div>
+            {/* 칸 오류는 FormField의 칸 오류처럼 떠오르기만 합니다.
+                흔들림(nudge)은 서버가 거절한 제출 오류에만 씁니다. */}
             {errors.ageBand ? (
-              <p role="alert" className="text-label text-destructive">
+              <p
+                role="alert"
+                className="text-label text-destructive motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 motion-safe:duration-200"
+              >
                 {errors.ageBand.message}
               </p>
             ) : null}
           </fieldset>
 
           {create.isError ? (
-            <p role="alert" className="text-label text-destructive">
+            <p role="alert" className="text-label text-destructive motion-safe:animate-nudge">
               {create.error.message}
             </p>
           ) : null}

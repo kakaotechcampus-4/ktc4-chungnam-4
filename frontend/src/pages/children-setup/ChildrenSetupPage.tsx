@@ -1,5 +1,6 @@
 // Figma: 1:1384 (후보 A 1:2587)
 import { useQuery } from "@tanstack/react-query";
+import { LoaderCircle } from "lucide-react";
 import { Link } from "react-router";
 
 import { classChildrenQueryOptions, type ClassChildView } from "@/api/organization";
@@ -51,7 +52,9 @@ function ChildSetupCard({ child }: ChildSetupCardProps) {
       </p>
       <div className="flex gap-3">
         <Button asChild className="flex-1">
-          <Link to={`${base}/invite`}>초대 링크</Link>
+          <Link viewTransition to={`${base}/invite`}>
+            초대 링크
+          </Link>
         </Button>
         {locked ? (
           <Button disabled className="flex-1">
@@ -59,12 +62,18 @@ function ChildSetupCard({ child }: ChildSetupCardProps) {
           </Button>
         ) : (
           <Button asChild className="flex-1">
-            <Link to={`${base}/face`}>얼굴 정보 관리</Link>
+            <Link viewTransition to={`${base}/face`}>
+              얼굴 정보 관리
+            </Link>
           </Button>
         )}
       </div>
       <p className="text-label text-ink-muted">{faceGuide(child)}</p>
-      <Link to={base} className="text-body font-bold text-brand-ink hover:underline">
+      <Link
+        viewTransition
+        to={base}
+        className="rounded-xs text-body font-bold text-brand-ink outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+      >
         개인 페이지 보기 →
       </Link>
     </li>
@@ -95,9 +104,12 @@ export function ChildrenSetupPage() {
         <PageHeader eyebrow={EYEBROW} title={TITLE} />
         <FocusCard
           centered
+          className="motion-safe:animate-enter"
           footer={
             <Button asChild size="lg">
-              <Link to="/onboarding/class">반 선택하기</Link>
+              <Link viewTransition to="/onboarding/class">
+                반 선택하기
+              </Link>
             </Button>
           }
         >
@@ -139,7 +151,9 @@ export function ChildrenSetupPage() {
         subtitle={subtitle}
         actions={
           <Button asChild>
-            <Link to="/t/children/new">원아 추가</Link>
+            <Link viewTransition to="/t/children/new">
+              원아 추가
+            </Link>
           </Button>
         }
       />
@@ -148,15 +162,19 @@ export function ChildrenSetupPage() {
           {childrenQuery.error.message}
         </p>
       ) : children === undefined ? (
-        <p role="status" className="text-body text-ink-muted">
+        <p role="status" className="flex items-center gap-2 text-body text-ink-muted">
+          <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
           원아 명단을 불러오고 있어요.
         </p>
       ) : children.length === 0 ? (
         <FocusCard
           centered
+          className="motion-safe:animate-enter"
           footer={
             <Button asChild size="lg">
-              <Link to="/t/children/new">원아 추가하기</Link>
+              <Link viewTransition to="/t/children/new">
+                원아 추가하기
+              </Link>
             </Button>
           }
         >
@@ -166,7 +184,10 @@ export function ChildrenSetupPage() {
           </p>
         </FocusCard>
       ) : (
-        <ul className="grid grid-cols-3 gap-6" aria-label="원아별 동의와 얼굴 정보">
+        <ul
+          className="grid grid-cols-3 gap-6 motion-safe:animate-enter"
+          aria-label="원아별 동의와 얼굴 정보"
+        >
           {children.map((child) => (
             <ChildSetupCard key={child.child_id} child={child} />
           ))}
@@ -175,7 +196,9 @@ export function ChildrenSetupPage() {
       <div className="mt-9 flex items-start justify-between gap-8 pb-10">
         <p className="text-body text-ink-muted">보호자가 동의한 뒤 얼굴 정보를 등록할 수 있어요.</p>
         <Button asChild className="w-50">
-          <Link to="/t/children">원아 명단으로</Link>
+          <Link viewTransition to="/t/children">
+            원아 명단으로
+          </Link>
         </Button>
       </div>
     </>

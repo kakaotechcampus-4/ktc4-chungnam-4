@@ -30,6 +30,14 @@ def sessions(monkeypatch: pytest.MonkeyPatch) -> sessionmaker:
     return factory
 
 
+@pytest.fixture(autouse=True)
+def 반_명단(monkeypatch: pytest.MonkeyPatch) -> dict[uuid.UUID, list[str]]:
+    """반 명단 조회는 organization 테이블 없이 바꿔 끼웁니다. 비어 있으면 이름 없이 부릅니다."""
+    names: dict[uuid.UUID, list[str]] = {}
+    monkeypatch.setattr(service, "get_class_enrolled_child_names", lambda session, class_id: names)
+    return names
+
+
 def _asset(sessions: sessionmaker, *, media_type: str = "video", status: str = "pending") -> str:
     with sessions() as session:
         asset = MediaAsset(
@@ -58,13 +66,20 @@ def _state(sessions: sessionmaker, media_id: str) -> tuple[str, list[tuple]]:
 
 
 def _fake_pipeline(
-    monkeypatch: pytest.MonkeyPatch, chunks: list[audio.AudioChunk], result: object
+    monkeypatch: pytest.MonkeyPatch,
+    chunks: list[audio.AudioChunk],
+    result: object,
+    received: list[list[list[str]]] | None = None,
 ) -> list[int]:
     calls: list[int] = []
     monkeypatch.setattr(service, "_speech_chunks", lambda key: chunks)
 
-    def transcribe(given: list[audio.AudioChunk]) -> list[stt.SpeechSegment]:
+    def transcribe(
+        given: list[audio.AudioChunk], names: list[list[str]] = ()
+    ) -> list[stt.SpeechSegment]:
         calls.append(len(given))
+        if received is not None:
+            received.append(list(names))
         if isinstance(result, Exception):
             raise result
         return result
@@ -91,6 +106,41 @@ def test_발화를_원본_기준_시각으로_저장하고_done이_된다(
     assert _state(sessions, media_id) == ("done", [(4.0, 6.5, "성 쌓자", "video_audio")])
     with sessions() as session:
         assert session.query(TranscriptSegment.avg_logprob).scalar() == -0.3
+
+
+def test_그_반_재원_원아의_호칭과_성명을_STT에_넘긴다(
+    sessions: sessionmaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    media_id = _asset(sessions, media_type="voice_memo")
+    received: list[list[list[str]]] = []
+    _fake_pipeline(
+        monkeypatch, [CHUNK], [stt.SpeechSegment(4.0, 5.0, "하준이가 웃었어요")], received
+    )
+    asked: list[uuid.UUID] = []
+
+    def names(session: object, class_id: uuid.UUID) -> dict[uuid.UUID, list[str]]:
+        asked.append(class_id)
+        return {uuid.uuid4(): ["하준", "김하준"], uuid.uuid4(): ["서아", "이서아"]}
+
+    monkeypatch.setattr(service, "get_class_enrolled_child_names", names)
+
+    service.transcribe_media(media_id)
+
+    assert received == [[["하준", "김하준"], ["서아", "이서아"]]]
+    with sessions() as session:
+        assert asked == [session.get(MediaAsset, uuid.UUID(media_id)).class_id]
+
+
+def test_반에_원아가_없으면_이름_없이_부른다(
+    sessions: sessionmaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    media_id = _asset(sessions)
+    received: list[list[list[str]]] = []
+    _fake_pipeline(monkeypatch, [CHUNK], [stt.SpeechSegment(4.0, 5.0, "성 쌓자")], received)
+
+    service.transcribe_media(media_id)
+
+    assert received == [[]]
 
 
 def test_말소리가_없으면_STT를_부르지_않고_멘트_없음_한_줄로_done이다(

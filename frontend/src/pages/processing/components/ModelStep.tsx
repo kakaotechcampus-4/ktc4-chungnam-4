@@ -45,7 +45,7 @@ export function ModelStep({ onDone, onCancel }: ModelStepProps) {
       onCancel={onCancel}
     >
       {error && (
-        <div role="alert" className="space-y-3">
+        <div role="alert" className="space-y-3 motion-safe:animate-enter">
           <p>{error}</p>
           {/* 취소하면 고른 사진과 날짜가 지워지므로, 이 단계만 다시 돌리는 길을 둡니다(#231 리뷰). */}
           <Button

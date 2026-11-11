@@ -2,6 +2,7 @@ import { LocalThumbnail } from "@/features/classify/LocalThumbnail";
 import { Button } from "@/components/ui/button";
 import type { LocalMedia } from "@/features/upload-queue/upload-queue-store";
 import { formatTime } from "@/lib/datetime";
+import { staggerStyle } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 /** 하루 확인 줄 하나. 사진 한 장이나 발화 하나입니다. */
@@ -44,18 +45,24 @@ export function DayTimeline({ rows, sourceLabel, pending, onRemove, onRestore }:
       </div>
 
       {rows.length === 0 ? (
-        <p className="py-6 text-body text-ink-muted">
+        <p className="py-6 text-body text-ink-muted motion-safe:animate-enter">
           이 아이에게 연결된 사진·발화가 없어요. 오른쪽에 직접 본 일을 남길 수 있어요.
         </p>
       ) : (
+        // 아이를 바꾸면 그 아이의 하루가 위에서부터 차례로 떠올라, 내용이 바뀐 것과 시간 순서를 함께 보여 줍니다.
+        // 뺀 줄은 같은 key로 제자리에 남아 다시 떠오르지 않고, 글자 색만 이어서 흐려집니다.
         <ol>
-          {rows.map((row) => (
-            <li key={row.id} className="flex gap-4 border-b border-line py-4.5">
+          {rows.map((row, index) => (
+            <li
+              key={row.id}
+              className="flex gap-4 border-b border-line py-4.5 motion-safe:animate-enter"
+              style={staggerStyle(index)}
+            >
               <div className="flex w-26 shrink-0 flex-col items-start gap-1.5">
                 <time
                   dateTime={row.at}
                   className={cn(
-                    "text-label font-bold",
+                    "text-label font-bold transition-colors",
                     row.removed ? "text-ink-muted" : "text-brand-ink",
                   )}
                 >
@@ -69,7 +76,12 @@ export function DayTimeline({ rows, sourceLabel, pending, onRemove, onRestore }:
                 <LocalThumbnail item={row.media} className="h-16 w-22 shrink-0 rounded-md" />
               ) : null}
               <div className={cn("flex flex-1 flex-col gap-2", row.removed && "text-ink-muted")}>
-                <p className={cn("text-nav leading-relaxed", !row.removed && "text-ink")}>
+                <p
+                  className={cn(
+                    "text-nav leading-relaxed transition-colors",
+                    !row.removed && "text-ink",
+                  )}
+                >
                   {row.removed ? <span className="sr-only">(뺀 자료) </span> : null}
                   {row.text}
                 </p>

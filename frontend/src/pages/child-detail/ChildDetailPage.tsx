@@ -1,6 +1,6 @@
 // Figma: 1:703
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 
@@ -60,8 +60,11 @@ const EYEBROW = "우리 반 관리 / 원아 개인 페이지";
 function BackButton() {
   return (
     <Button asChild variant="outline">
-      <Link to="/t/children">
-        <ChevronLeft aria-hidden="true" />
+      <Link viewTransition to="/t/children">
+        <ChevronLeft
+          aria-hidden="true"
+          className="motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-soft motion-safe:group-hover/button:-translate-x-1"
+        />
         원아 명단으로
       </Link>
     </Button>
@@ -92,9 +95,12 @@ export function ChildDetailPage() {
           {notFound ? (
             <FocusCard
               centered
+              className="motion-safe:animate-enter"
               footer={
                 <Button asChild size="lg">
-                  <Link to="/t/children">원아 명단으로</Link>
+                  <Link viewTransition to="/t/children">
+                    원아 명단으로
+                  </Link>
                 </Button>
               }
             >
@@ -115,7 +121,8 @@ export function ChildDetailPage() {
     return (
       <div>
         <PageHeader eyebrow={EYEBROW} title="원아 개인 페이지" actions={<BackButton />} />
-        <p role="status" className="text-body text-ink-muted">
+        <p role="status" className="flex items-center gap-2 text-body text-ink-muted">
+          <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
           원아 정보를 불러오고 있어요.
         </p>
       </div>
@@ -140,11 +147,13 @@ export function ChildDetailPage() {
         actions={<BackButton />}
       />
       {notice ? (
-        <p role="status" className="mb-5 text-body text-brand-ink">
+        <p role="status" className="mb-5 text-body text-brand-ink motion-safe:animate-enter">
           {notice}
         </p>
       ) : null}
-      <div className="flex flex-col gap-5">
+      {/* 원아 정보를 받으면 본문이 한 번에 떠올라 화면이 준비됐음을 알립니다.
+          영역 안의 목록·차트는 따로 움직이지 않습니다(두 번 떠오름). */}
+      <div className="flex flex-col gap-5 motion-safe:animate-enter">
         <div className="flex items-start gap-5">
           <section
             aria-labelledby="child-notes-title"
@@ -161,7 +170,11 @@ export function ChildDetailPage() {
                 {overviewQuery.error.message}
               </p>
             ) : !overview ? (
-              <p role="status" className="py-4 text-body text-ink-muted">
+              <p role="status" className="flex items-center gap-2 py-4 text-body text-ink-muted">
+                <LoaderCircle
+                  aria-hidden="true"
+                  className="size-4 shrink-0 motion-safe:animate-spin"
+                />
                 알림장을 불러오고 있어요.
               </p>
             ) : overview.recent_notes.length === 0 ? (
@@ -174,8 +187,9 @@ export function ChildDetailPage() {
               </ul>
             )}
             <Link
+              viewTransition
               to="/t/notes"
-              className="mt-4 self-center text-label font-bold text-ink hover:underline"
+              className="mt-4 self-center rounded-xs text-label font-bold text-ink outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
             >
               지난 알림장 더보기
             </Link>
@@ -221,13 +235,19 @@ export function ChildDetailPage() {
 
         <div className="mt-2 flex items-center gap-5 rounded-xl bg-paper p-5">
           <Button asChild className="w-52.5">
-            <Link to={`${base}/edit`}>기본 정보 수정</Link>
+            <Link viewTransition to={`${base}/edit`}>
+              기본 정보 수정
+            </Link>
           </Button>
           <Button asChild className="w-55">
-            <Link to="/t/children/setup">동의 · 얼굴 정보</Link>
+            <Link viewTransition to="/t/children/setup">
+              동의 · 얼굴 정보
+            </Link>
           </Button>
           <Button asChild className="w-55">
-            <Link to={`${base}/invite`}>학부모 연결 관리</Link>
+            <Link viewTransition to={`${base}/invite`}>
+              학부모 연결 관리
+            </Link>
           </Button>
           <p className="flex gap-2 text-body text-ink-muted">
             <span>
@@ -239,7 +259,11 @@ export function ChildDetailPage() {
             {child.face_feature_agreed ? (
               <>
                 <span aria-hidden="true">·</span>
-                <Link to={`${base}/face/revoke`} className="font-bold text-ink underline">
+                <Link
+                  viewTransition
+                  to={`${base}/face/revoke`}
+                  className="rounded-xs font-bold text-ink underline outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                >
                   얼굴 동의 철회
                 </Link>
               </>

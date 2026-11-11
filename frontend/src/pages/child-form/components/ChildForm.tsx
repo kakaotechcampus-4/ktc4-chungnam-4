@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-import { parseBirthDate } from "../birth-date";
+import { maskBirthDate, parseBirthDate } from "../birth-date";
 
 const schema = z.object({
   name: z.string().trim().min(1, "원아 이름을 입력해 주세요."),
@@ -51,6 +51,7 @@ export function ChildForm({ childId, classes, defaultValues }: ChildFormProps) {
     handleSubmit,
     formState: { errors },
   } = useForm<ChildFormValues>({ resolver: zodResolver(schema), defaultValues });
+  const birthDateField = register("birthDate");
 
   const mutation = useMutation({
     mutationFn: (body: ChildInput) => (childId ? updateChild(childId, body) : createChild(body)),
@@ -78,7 +79,7 @@ export function ChildForm({ childId, classes, defaultValues }: ChildFormProps) {
   return (
     <form onSubmit={(event) => void onSubmit(event)} noValidate>
       <FocusCard
-        className="min-h-140"
+        className="min-h-140 motion-safe:animate-enter"
         footer={
           <>
             <Button type="button" className="w-45" onClick={() => void navigate(cancelPath)}>
@@ -104,8 +105,12 @@ export function ChildForm({ childId, classes, defaultValues }: ChildFormProps) {
               className={FIELD_CLASS}
               {...register("name")}
             />
+            {/* 칸 아래 오류는 공용 FormField(로그인·가입)와 같은 움직임으로 나타납니다. */}
             {errors.name ? (
-              <p id="child-name-error" className="text-label text-destructive">
+              <p
+                id="child-name-error"
+                className="text-label text-destructive motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 motion-safe:duration-200"
+              >
                 {errors.name.message}
               </p>
             ) : null}
@@ -123,10 +128,18 @@ export function ChildForm({ childId, classes, defaultValues }: ChildFormProps) {
               aria-invalid={errors.birthDate ? true : undefined}
               aria-describedby={errors.birthDate ? "child-birth-date-error" : undefined}
               className={FIELD_CLASS}
-              {...register("birthDate")}
+              {...birthDateField}
+              onChange={(event) => {
+                // 숫자만 쳐도 점이 들어가도록, 폼에 넘기기 전에 입력값을 맞춥니다.
+                event.target.value = maskBirthDate(event.target.value);
+                void birthDateField.onChange(event);
+              }}
             />
             {errors.birthDate ? (
-              <p id="child-birth-date-error" className="text-label text-destructive">
+              <p
+                id="child-birth-date-error"
+                className="text-label text-destructive motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 motion-safe:duration-200"
+              >
                 {errors.birthDate.message}
               </p>
             ) : null}
@@ -154,15 +167,18 @@ export function ChildForm({ childId, classes, defaultValues }: ChildFormProps) {
               />
             </div>
             {errors.classId ? (
-              <p className="text-label text-destructive">{errors.classId.message}</p>
+              <p className="text-label text-destructive motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 motion-safe:duration-200">
+                {errors.classId.message}
+              </p>
             ) : null}
           </div>
 
           {isEdit ? null : (
             <p className="text-body text-ink-muted">등록 후 아이별 동의 결과를 확인해 주세요.</p>
           )}
+          {/* 등록·저장을 누른 뒤에 생기는 서버 오류라 짧게 흔들어 눈에 띄게 합니다. */}
           {mutation.error ? (
-            <p role="alert" className="text-body text-destructive">
+            <p role="alert" className="text-body text-destructive motion-safe:animate-nudge">
               {mutation.error.message}
             </p>
           ) : null}

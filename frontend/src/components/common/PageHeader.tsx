@@ -12,6 +12,8 @@ interface PageHeaderProps {
   actions?: ReactNode;
   /** 화면이 뜰 때 초점을 제목으로 옮깁니다. 주소가 그대로인 채 본문만 바뀌는 화면(접근 권한 없음 등)에 씁니다. */
   focusOnMount?: boolean;
+  /** 학부모 화면처럼 휴대폰에서도 쓰는 화면의 낮은 제목 줄입니다. 좁은 화면에서는 제목도 한 단계 작아집니다. */
+  compact?: boolean;
   className?: string;
 }
 
@@ -23,6 +25,7 @@ export function PageHeader({
   subtitle,
   actions,
   focusOnMount = false,
+  compact = false,
   className,
 }: PageHeaderProps) {
   const titleRef = useRef<HTMLHeadingElement>(null);
@@ -32,13 +35,22 @@ export function PageHeader({
   }, [focusOnMount]);
 
   return (
-    <div className={cn("flex items-center justify-between gap-6 pt-11 pb-5.5", className)}>
-      <div className="flex min-h-36 flex-col gap-2">
+    <div
+      className={cn(
+        "flex items-center justify-between gap-6",
+        compact ? "pt-8 pb-6" : "pt-11 pb-5.5",
+        className,
+      )}
+    >
+      <div className={cn("flex flex-col", compact ? "gap-1" : "min-h-36 gap-2")}>
         {eyebrow ? <p className="text-caption text-ink-muted">{eyebrow}</p> : null}
         <h1
           ref={titleRef}
           tabIndex={focusOnMount ? -1 : undefined}
-          className="text-h1 font-bold text-ink outline-none"
+          className={cn(
+            "font-bold text-ink outline-none",
+            compact ? "text-h2 tracking-tight sm:text-h1" : "text-h1",
+          )}
         >
           {title}
         </h1>
