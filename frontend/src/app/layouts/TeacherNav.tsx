@@ -34,6 +34,7 @@ export function TeacherNav({ klass, teacherName }: TeacherNavProps) {
           </p>
         ) : null}
       </div>
+      {/* 메뉴는 화면을 옮기는 링크라 학부모 화면의 링크처럼 겹쳐 바뀝니다(viewTransition). 활성 색도 이어서 바뀝니다. */}
       <nav aria-label="주 메뉴">
         <ul className="flex items-center gap-8">
           {TEACHER_NAV_ITEMS.map((item) => {
@@ -41,10 +42,11 @@ export function TeacherNav({ klass, teacherName }: TeacherNavProps) {
             return (
               <li key={item.to}>
                 <Link
+                  viewTransition
                   to={item.to}
                   aria-current={isActive ? "page" : undefined}
                   className={cn(
-                    "rounded-xs text-nav outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+                    "rounded-xs text-nav outline-none transition-colors duration-200 focus-visible:ring-3 focus-visible:ring-ring/50",
                     isActive ? "font-bold text-brand-ink" : "text-ink-muted hover:text-brand-ink",
                   )}
                 >
@@ -59,10 +61,11 @@ export function TeacherNav({ klass, teacherName }: TeacherNavProps) {
       <p className="w-32 shrink-0 text-right text-label">
         {teacherName ? (
           <Link
+            viewTransition
             to="/t/settings"
             aria-current={pathname === "/t/settings" ? "page" : undefined}
             className={cn(
-              "rounded-xs outline-none hover:text-brand-ink focus-visible:ring-3 focus-visible:ring-ring/50",
+              "rounded-xs outline-none transition-colors duration-200 hover:text-brand-ink focus-visible:ring-3 focus-visible:ring-ring/50",
               pathname === "/t/settings" ? "text-brand-ink" : "text-ink-muted",
             )}
           >

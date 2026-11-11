@@ -89,8 +89,9 @@ export function RevokeNoteButton({
             보호자에게 &quot;선생님이 내용을 고쳤어요&quot;가 보여요.
           </AlertDialogDescription>
         </AlertDialogHeader>
+        {/* 회수하기를 누른 뒤에 생긴 오류라 짧게 흔들어 눈에 띄게 합니다. */}
         {revocation.isError ? (
-          <p role="alert" className="text-body text-destructive">
+          <p role="alert" className="text-body text-destructive motion-safe:animate-nudge">
             {revocation.error.message}
           </p>
         ) : null}
