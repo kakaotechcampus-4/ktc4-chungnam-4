@@ -3,7 +3,10 @@
 //
 // 첫 흐름은 얼굴이 없는 합성 사진을 face_feature 동의가 없는 원아에게 귀속합니다. 미동의 원아가
 // 귀속된 사진은 서버가 외부 LLM 경로에서 빼므로(H-2) AI 초안 대신 교사가 직접 작성해 승인·게시합니다.
-// AI 초안 흐름은 합성 얼굴 픽스처가 준비되면 추가합니다(e2e/README.md).
+// 여기서 확인하는 H-2 관문은 **서버 쪽**(collect_media_for_llm의 ③ 동의 검사)입니다. 브라우저 쪽 관문
+// (미식별 얼굴 → 자동 확정 안 함)은 교사가 확정하면 llm_allowed=true가 되어 E2E로 닿기 어렵고,
+// 단위 테스트(workers/face/matcher.test.ts, features/classify/review-policy.test.ts)가 맡습니다.
+// AI 초안 흐름은 후속으로 추가합니다(e2e/README.md).
 import { expect, test, type APIRequestContext, type Browser, type Page } from "@playwright/test";
 
 import { syntheticActivityPhoto } from "./fixtures/synthetic-photo.ts";
