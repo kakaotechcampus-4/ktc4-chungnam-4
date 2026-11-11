@@ -17,6 +17,10 @@ describe("cn", () => {
     expect(cn("max-w-reading", "max-w-form")).toBe("max-w-form");
     expect(cn("h-nav", "h-10")).toBe("h-10");
     expect(cn("shadow-xs", "shadow-dropdown")).toBe("shadow-dropdown");
+    expect(cn("motion-safe:animate-enter", "motion-safe:animate-rise")).toBe(
+      "motion-safe:animate-rise",
+    );
+    expect(cn("ease-soft", "ease-in-out")).toBe("ease-in-out");
   });
 
   it.each([
@@ -24,6 +28,8 @@ describe("cn", () => {
     ["container", /--container-([a-z0-9-]+):/g],
     ["spacing", /--spacing-([a-z0-9-]+):/g],
     ["shadow", /--shadow-([a-z0-9-]+):/g],
+    ["animate", /--animate-([a-z0-9-]+):/g],
+    ["ease", /--ease-([a-z0-9-]+):/g],
   ] as const)("tokens.css의 %s 토큰이 모두 등록돼 있다", (key, pattern) => {
     // shadow-xs처럼 Tailwind 기본 이름과 같은 것은 등록하지 않아도 됩니다.
     const builtIn = new Set(["xs"]);
