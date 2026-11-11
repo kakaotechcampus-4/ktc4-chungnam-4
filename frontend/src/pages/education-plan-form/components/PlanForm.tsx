@@ -1,4 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
+import { LoaderCircle } from "lucide-react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 
 import { PageHeader } from "@/components/common/PageHeader";
@@ -40,9 +41,14 @@ interface FieldErrorProps {
   message?: string;
 }
 
+// 저장을 한 번 누른 뒤에는 입력할 때마다 다시 검사해 칸 오류가 생겼다 사라집니다. 입력 중에 흔들리지 않게
+// 공용 FormField의 칸 오류처럼 떠오르기만 합니다(흔들림은 저장 실패 안내에만).
 function FieldError({ message }: FieldErrorProps) {
   return message ? (
-    <p role="alert" className="text-label text-destructive">
+    <p
+      role="alert"
+      className="text-label text-destructive motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 motion-safe:duration-200"
+    >
       {message}
     </p>
   ) : null;
@@ -80,7 +86,7 @@ export function PlanForm({
       <form
         noValidate
         onSubmit={(event) => void handleSubmit(onSubmit)(event)}
-        className="flex flex-col gap-5 rounded-2xl bg-paper px-10 py-8 text-ink"
+        className="flex flex-col gap-5 rounded-2xl bg-paper px-10 py-8 text-ink motion-safe:animate-enter"
       >
         <fieldset className="flex items-center gap-6">
           <legend className="sr-only">계획 종류</legend>
@@ -216,13 +222,23 @@ export function PlanForm({
         />
 
         {saveError ? (
-          <p role="alert" className="text-body text-destructive">
+          <p role="alert" className="text-body text-destructive motion-safe:animate-nudge">
             {saveError}
           </p>
         ) : null}
         <div className="flex justify-end">
           <Button type="submit" className="w-55" disabled={isSaving}>
-            {isSaving ? "저장하는 중…" : "계획 저장"}
+            {isSaving ? (
+              <>
+                <LoaderCircle
+                  aria-hidden="true"
+                  className="size-4 shrink-0 motion-safe:animate-spin"
+                />
+                저장하는 중…
+              </>
+            ) : (
+              "계획 저장"
+            )}
           </Button>
         </div>
       </form>

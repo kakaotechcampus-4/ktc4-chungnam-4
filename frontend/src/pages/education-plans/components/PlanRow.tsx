@@ -44,8 +44,9 @@ export function PlanRow({ plan }: PlanRowProps) {
     },
   });
 
+  // 탭을 바꾸면 다른 종류의 줄이 새로 생겨 목록이 바뀐 것을 알게 합니다. 순서를 받지 않아 함께 나타납니다.
   return (
-    <li className="flex h-21 items-center gap-6 text-body">
+    <li className="flex h-21 items-center gap-6 text-body motion-safe:animate-enter">
       <span className="w-55 shrink-0 text-ink-muted">
         {shortDate(plan.start_date)} – {shortDate(plan.end_date)}
       </span>
@@ -55,7 +56,9 @@ export function PlanRow({ plan }: PlanRowProps) {
       </span>
       <div className="flex w-38.5 shrink-0 items-center gap-3">
         <Button asChild variant="secondary" size="sm" className="w-29.5">
-          <Link to={editPath}>계획 보기</Link>
+          <Link viewTransition to={editPath}>
+            계획 보기
+          </Link>
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

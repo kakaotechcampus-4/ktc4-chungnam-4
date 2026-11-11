@@ -1,5 +1,6 @@
 // Figma: 1:1945
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { Check, LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { useParams } from "react-router";
 
@@ -78,17 +79,26 @@ export function ChildInviteLinkPage() {
           {error.message}
         </p>
       ) : !child ? (
-        <p role="status" className="text-body text-ink-muted">
+        <p role="status" className="flex items-center gap-2 text-body text-ink-muted">
+          <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
           초대 링크를 불러오고 있어요.
         </p>
       ) : (
         <div className="pb-10">
           <FocusCard
-            className="min-h-140 justify-between"
+            className="min-h-140 justify-between motion-safe:animate-enter"
             footer={
               <>
+                {/* 복사하면 누른 자리에 체크가 톡 나타나, 아래 안내 줄까지 내려 보지 않아도 됐는지 압니다. */}
                 <Button className="w-57.5" onClick={copyLink} disabled={!invite}>
-                  {copyState === "copied" ? "복사했어요" : "초대 링크 복사"}
+                  {copyState === "copied" ? (
+                    <>
+                      <Check aria-hidden="true" className="size-4 motion-safe:animate-pop" />
+                      복사했어요
+                    </>
+                  ) : (
+                    "초대 링크 복사"
+                  )}
                 </Button>
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
@@ -139,23 +149,24 @@ export function ChildInviteLinkPage() {
               <p className="text-label text-ink-muted">
                 링크는 7일 동안 한 번만 사용할 수 있어요. 새로 만들면 이전 링크는 무효가 됩니다.
               </p>
+              {/* 누른 뒤에 생기는 안내입니다. 완료는 떠오르고, 오류는 짧게 흔들려 눈에 띕니다. */}
               {copyState === "copied" ? (
-                <p role="status" className="text-label text-brand-ink">
+                <p role="status" className="text-label text-brand-ink motion-safe:animate-enter">
                   초대 링크를 복사했어요. 보호자에게 전달해 주세요.
                 </p>
               ) : null}
               {copyState === "failed" ? (
-                <p role="alert" className="text-label text-destructive">
+                <p role="alert" className="text-label text-destructive motion-safe:animate-nudge">
                   링크를 복사하지 못했어요. 브라우저의 클립보드 권한을 확인해 주세요.
                 </p>
               ) : null}
               {regenerate.isSuccess ? (
-                <p role="status" className="text-label text-brand-ink">
+                <p role="status" className="text-label text-brand-ink motion-safe:animate-enter">
                   새 링크를 만들었어요.
                 </p>
               ) : null}
               {regenerate.isError ? (
-                <p role="alert" className="text-label text-destructive">
+                <p role="alert" className="text-label text-destructive motion-safe:animate-nudge">
                   {regenerate.error.message}
                 </p>
               ) : null}

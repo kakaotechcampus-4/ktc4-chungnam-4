@@ -1,6 +1,6 @@
 // Figma: 1:3451 (추출본 Untitled 1:1872)
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { LockKeyhole } from "lucide-react";
+import { LoaderCircle, LockKeyhole } from "lucide-react";
 import { type ReactNode, useRef, useState } from "react";
 import { Link, useLocation } from "react-router";
 
@@ -124,15 +124,20 @@ export function FaceRegisterPage() {
         <PageHeader eyebrow="우리 반 관리 / 얼굴 정보" title={`${child.name} · 얼굴 정보 관리`} />
         <FocusCard
           centered
+          className="motion-safe:animate-enter"
           footer={
             <>
               <Button asChild variant="outline">
-                <Link to="/t/children">우리 반 관리로 돌아가기</Link>
+                <Link viewTransition to="/t/children">
+                  우리 반 관리로 돌아가기
+                </Link>
               </Button>
               {/* 동의가 없어도 이미 있는 정보를 지울 수는 있어야 합니다. */}
               {child.is_face_registered ? (
                 <Button asChild variant="outline">
-                  <Link to="delete">등록 정보 삭제</Link>
+                  <Link viewTransition to="delete">
+                    등록 정보 삭제
+                  </Link>
                 </Button>
               ) : null}
             </>
@@ -154,9 +159,10 @@ export function FaceRegisterPage() {
       <PageHeader eyebrow="우리 반 관리 / 얼굴 정보" title={`${child.name} · 얼굴 정보 관리`} />
 
       <FocusCard
-        className="min-h-140"
+        className="min-h-140 motion-safe:animate-enter"
         footer={
           <>
+            {/* 얼굴 분석 모델을 처음 받는 동안 몇 초 걸릴 수 있어, 버튼 안에서 돌며 기다리는 중임을 알립니다. */}
             <Button
               className="w-70 border-transparent"
               disabled={photos.length === 0 || registration.isPending}
@@ -168,10 +174,22 @@ export function FaceRegisterPage() {
                 })
               }
             >
-              {registration.isPending ? "등록하는 중…" : "얼굴 정보 등록 · 갱신"}
+              {registration.isPending ? (
+                <>
+                  <LoaderCircle
+                    aria-hidden="true"
+                    className="size-4 shrink-0 motion-safe:animate-spin"
+                  />
+                  등록하는 중…
+                </>
+              ) : (
+                "얼굴 정보 등록 · 갱신"
+              )}
             </Button>
             <Button asChild className="w-52.5 border-transparent">
-              <Link to="delete">등록 정보 삭제</Link>
+              <Link viewTransition to="delete">
+                등록 정보 삭제
+              </Link>
             </Button>
           </>
         }
@@ -188,11 +206,12 @@ export function FaceRegisterPage() {
               const preview = previews[index];
               return (
                 <li key={index} className="flex flex-col gap-2">
+                  {/* 빈 칸에 사진이 들어오면 떠오르며 나타나, 여러 장을 한 번에 골라도 어느 칸이 찼는지 보입니다. */}
                   {file && preview ? (
                     <img
                       src={preview}
                       alt={`고른 사진 ${index + 1}`}
-                      className="h-37.5 w-54 rounded-xl bg-neutral-soft object-contain p-1"
+                      className="h-37.5 w-54 rounded-xl bg-neutral-soft object-contain p-1 motion-safe:animate-enter"
                     />
                   ) : (
                     <PhotoPlaceholder label={label} className="h-37.5 w-54 rounded-xl" />
@@ -228,7 +247,7 @@ export function FaceRegisterPage() {
             type="button"
             onClick={() => pick(null)}
             disabled={photos.length === MAX_PHOTOS}
-            className="w-fit rounded-xs text-body font-bold text-ink outline-none hover:text-brand-ink focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-40"
+            className="w-fit rounded-xs text-body font-bold text-ink outline-none transition-colors hover:text-brand-ink focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-40"
           >
             빈 칸에 여러 장 고르기
           </button>
@@ -237,11 +256,14 @@ export function FaceRegisterPage() {
             다시 등록하면 이전에 등록한 얼굴 정보가 이번에 고른 사진으로 모두 바뀌어요.
           </p>
           <div aria-live="polite" className="text-body">
+            {/* 등록을 누른 뒤의 결과라 떠오르며 나타납니다. 오류 줄은 role="alert"가 아니어서 흔들지 않습니다. */}
             {registration.isSuccess ? (
-              <p className="text-brand-ink">얼굴 정보를 등록했어요.</p>
+              <p className="text-brand-ink motion-safe:animate-enter">얼굴 정보를 등록했어요.</p>
             ) : null}
             {registration.error ? (
-              <p className="text-destructive">{registration.error.message}</p>
+              <p className="text-destructive motion-safe:animate-enter">
+                {registration.error.message}
+              </p>
             ) : null}
             {notice && !registration.isSuccess ? <p className="text-brand-ink">{notice}</p> : null}
           </div>
@@ -261,7 +283,7 @@ function SlotButton({ onClick, children }: SlotButtonProps) {
     <button
       type="button"
       onClick={onClick}
-      className="rounded-xs outline-none hover:text-brand-ink focus-visible:ring-3 focus-visible:ring-ring/50"
+      className="rounded-xs outline-none transition-colors hover:text-brand-ink focus-visible:ring-3 focus-visible:ring-ring/50"
     >
       {children}
     </button>

@@ -1,5 +1,6 @@
 import type { EvidenceView } from "@/api/documents";
 import { formatDate, formatWeekday, toKstDate } from "@/lib/datetime";
+import { staggerStyle } from "@/lib/motion";
 
 function dateLabel(capturedAt: string | null) {
   if (capturedAt === null) return "날짜 정보 없음";
@@ -23,14 +24,18 @@ export function ObservationEvidencePanel({ section, evidences }: ObservationEvid
       ) : (
         <>
           <p className="text-caption text-ink-muted">{section}</p>
+          {/* 칸을 바꿔 누를 때마다 근거가 새로 나타나, 이 패널이 누른 칸의 내용으로 바뀐 것을 알게 합니다. */}
           {evidences.length === 0 ? (
-            <p className="text-body text-ink-muted">이 칸에는 근거 알림장이 없어요.</p>
+            <p className="text-body text-ink-muted motion-safe:animate-enter">
+              이 칸에는 근거 알림장이 없어요.
+            </p>
           ) : (
             <ul className="flex flex-col gap-2">
-              {evidences.map((evidence) => (
+              {evidences.map((evidence, index) => (
                 <li
                   key={evidence.evidence_id}
-                  className="flex flex-col gap-1.5 rounded-md border border-line bg-canvas px-3.5 py-3"
+                  className="flex flex-col gap-1.5 rounded-md border border-line bg-canvas px-3.5 py-3 motion-safe:animate-enter"
+                  style={staggerStyle(index)}
                 >
                   {evidence.source_type === "parent_note" ? (
                     <p className="text-label font-bold text-ink">

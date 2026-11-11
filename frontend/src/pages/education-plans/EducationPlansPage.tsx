@@ -1,5 +1,6 @@
 // Figma: 1:2140 (빈 상태 1:1984)
 import { useQuery } from "@tanstack/react-query";
+import { LoaderCircle } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
 
@@ -28,7 +29,10 @@ interface StatusMessageProps {
 
 function StatusMessage({ children, alert = false }: StatusMessageProps) {
   return (
-    <p role={alert ? "alert" : "status"} className="py-10 text-center text-body text-ink-muted">
+    <p
+      role={alert ? "alert" : "status"}
+      className="flex items-center justify-center gap-2 py-10 text-center text-body text-ink-muted"
+    >
       {children}
     </p>
   );
@@ -52,7 +56,10 @@ export function EducationPlansPage() {
     return (
       <>
         <PageHeader eyebrow={EYEBROW} title={TITLE} />
-        <StatusMessage>반 정보를 불러오고 있어요.</StatusMessage>
+        <StatusMessage>
+          <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
+          {"반 정보를 불러오고 있어요."}
+        </StatusMessage>
       </>
     );
   }
@@ -76,7 +83,7 @@ export function EducationPlansPage() {
           title="우리 반의 배움을 계획해요"
           subtitle={`${currentClass.name} · ${formatYearMonth(kstToday())}`}
         />
-        <FocusCard centered className="min-h-140 justify-center">
+        <FocusCard centered className="min-h-140 justify-center motion-safe:animate-enter">
           <h2 className="text-h3 font-bold text-ink">아직 담긴 교육 계획이 없어요</h2>
           <p className="text-lead text-ink-muted">
             이번 주와 이번 달의 활동을 함께 정리해 보세요.
@@ -84,7 +91,9 @@ export function EducationPlansPage() {
             계획을 등록하면 하루 기록을 살펴볼 때 참고할 수 있어요.
           </p>
           <Button asChild className="w-65">
-            <Link to={newPlanPath}>첫 교육 계획 만들기</Link>
+            <Link viewTransition to={newPlanPath}>
+              첫 교육 계획 만들기
+            </Link>
           </Button>
         </FocusCard>
       </>
@@ -117,7 +126,9 @@ export function EducationPlansPage() {
           </TabsList>
         </Tabs>
         <Button asChild className="w-40">
-          <Link to={newPlanPath}>+ 새 계획</Link>
+          <Link viewTransition to={newPlanPath}>
+            + 새 계획
+          </Link>
         </Button>
       </div>
 
@@ -129,7 +140,10 @@ export function EducationPlansPage() {
         </div>
 
         {selected.isPending ? (
-          <StatusMessage>계획을 불러오고 있어요.</StatusMessage>
+          <StatusMessage>
+            <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
+            계획을 불러오고 있어요.
+          </StatusMessage>
         ) : selected.isError ? (
           <StatusMessage alert>{selected.error.message}</StatusMessage>
         ) : selected.data.length === 0 ? (
