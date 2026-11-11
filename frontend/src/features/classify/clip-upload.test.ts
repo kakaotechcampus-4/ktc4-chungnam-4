@@ -20,13 +20,11 @@ describe("클립의 활동 날짜", () => {
     "다른 날 수정한 %s도 실제 시각을 보낸다 (기록 날짜는 업로드일, C-0)",
     async (extension) => {
       useUploadQueue.getState().setRecordDate("2026-10-30");
-      useUploadQueue
-        .getState()
-        .addFiles([
-          new File(["x"], `clip.${extension}`, {
-            lastModified: Date.parse("2020-01-01T00:00:00Z"),
-          }),
-        ]);
+      useUploadQueue.getState().addFiles([
+        new File(["x"], `clip.${extension}`, {
+          lastModified: Date.parse("2020-01-01T00:00:00Z"),
+        }),
+      ]);
       await startClipUploads("class");
       expect(completeUpload).toHaveBeenCalledWith(
         expect.objectContaining({ captured_at: "2020-01-01T00:00:00.000Z" }),
