@@ -106,7 +106,8 @@ function EvidenceClip({ clip, evidence, startMs, onFailed }: EvidenceClipProps) 
         </span>
       </button>
       {failed ? (
-        <p role="alert" className="text-caption text-destructive">
+        // 누른 뒤에 생긴 실패라 좁은 패널에서도 눈에 띄게 짧게 흔듭니다.
+        <p role="alert" className="text-caption text-destructive motion-safe:animate-nudge">
           재생하지 못했어요. 다시 눌러 주세요.
         </p>
       ) : null}
@@ -164,7 +165,7 @@ export function EvidencePanel({ sentence, media, onClipFailed, onClose }: Eviden
             type="button"
             onClick={onClose}
             aria-label="근거 상세 닫기"
-            className="text-ink-muted outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            className="text-ink-muted outline-none transition-colors hover:text-ink focus-visible:ring-3 focus-visible:ring-ring/50"
           >
             <X className="size-4" />
           </button>
@@ -176,15 +177,17 @@ export function EvidencePanel({ sentence, media, onClipFailed, onClose }: Eviden
           문장에 마우스를 올리면 그 문장의 근거를 볼 수 있어요.
         </p>
       ) : (
+        // 닫혀 있다가 문장을 처음 고를 때만 떠오릅니다. 다른 문장으로 옮길 때는 같은 자리를 다시 써서
+        // 움직이지 않습니다 — 문장을 훑을 때마다 패널이 출렁이면 근거를 읽기 어렵습니다.
         <>
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2 motion-safe:animate-enter">
             <p className="text-caption text-ink-muted">선택한 문장</p>
             <div className="rounded-md bg-brand px-3.5 py-3">
               <p className="text-body font-bold text-ink">{sentence.text}</p>
             </div>
           </div>
 
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2 motion-safe:animate-enter">
             <p className="text-caption text-ink-muted">근거</p>
             {sentence.evidences.map((evidence) => (
               <EvidenceCard
@@ -195,7 +198,7 @@ export function EvidencePanel({ sentence, media, onClipFailed, onClose }: Eviden
               />
             ))}
           </div>
-          <p className="text-caption text-ink-muted">
+          <p className="text-caption text-ink-muted motion-safe:animate-enter">
             {hasClip
               ? "근거를 눌러 원본을 들으며 문장이 정확한지 확인해 보세요."
               : "문장이 근거와 맞는지 확인해 보세요."}

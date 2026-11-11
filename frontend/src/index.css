@@ -11,4 +11,17 @@
   ::view-transition-new(*) {
     animation: none !important;
   }
+
+  /* motion-safe:로 감싸지 않은 효과(대화 상자 열림, 도는 아이콘 등)도 바로 끝나게 합니다.
+     늦게 나타나는 효과가 기다리지 않게 지연도 없앱니다. */
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
 }

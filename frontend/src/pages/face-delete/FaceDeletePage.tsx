@@ -1,5 +1,6 @@
 // Figma: 추출본 Untitled 1:1895 (확정 파일 노드는 classify.ts 목록에 없음)
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { LoaderCircle } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 
 import { deleteFaceEmbedding } from "@/api/face";
@@ -56,18 +57,30 @@ export function FaceDeletePage() {
       />
 
       <FocusCard
-        className="min-h-140"
+        className="min-h-140 motion-safe:animate-enter"
         footer={
           <>
             <Button asChild className="w-25 border-transparent">
-              <Link to={faceHome}>취소</Link>
+              <Link viewTransition to={faceHome}>
+                취소
+              </Link>
             </Button>
             <Button
               className="w-45 border-transparent"
               disabled={removal.isPending}
               onClick={remove}
             >
-              {removal.isPending ? "삭제하는 중…" : "얼굴 정보 삭제"}
+              {removal.isPending ? (
+                <>
+                  <LoaderCircle
+                    aria-hidden="true"
+                    className="size-4 shrink-0 motion-safe:animate-spin"
+                  />
+                  삭제하는 중…
+                </>
+              ) : (
+                "얼굴 정보 삭제"
+              )}
             </Button>
           </>
         }
@@ -96,13 +109,19 @@ export function FaceDeletePage() {
           {/* 삭제는 동의를 남기고, 철회는 동의까지 없앱니다. 보호자가 철회를 요청한 경우의 길입니다(FR-22). */}
           <p className="text-body text-ink-muted">
             보호자가 얼굴 특징정보 동의 철회를 요청했다면{" "}
-            <Link to="../revoke" relative="path" className="font-bold text-ink underline">
+            <Link
+              viewTransition
+              to="../revoke"
+              relative="path"
+              className="rounded-xs font-bold text-ink underline outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
               동의 철회
             </Link>
             로 진행해 주세요.
           </p>
+          {/* 삭제를 누른 뒤에 생기는 오류라 짧게 흔들어 눈에 띄게 합니다. */}
           {removal.error ? (
-            <p role="alert" className="text-body text-destructive">
+            <p role="alert" className="text-body text-destructive motion-safe:animate-nudge">
               {removal.error.message}
             </p>
           ) : null}

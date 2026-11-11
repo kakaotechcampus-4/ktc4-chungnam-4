@@ -48,7 +48,7 @@ export function SegmentPlayer({ clip, start, end }: SegmentPlayerProps) {
         onClick={toggle}
         disabled={!url}
         aria-label={playing ? "멈추기" : "발화 듣기"}
-        className="rounded-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-40"
+        className="rounded-xs outline-none transition hover:text-brand-ink focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-40 motion-safe:active:scale-90"
       >
         {playing ? (
           <Square aria-hidden="true" className="size-5 fill-current" />

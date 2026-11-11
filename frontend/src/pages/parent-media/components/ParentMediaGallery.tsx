@@ -1,5 +1,5 @@
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
-import { Download, Images, SearchX } from "lucide-react";
+import { Download, Images, LoaderCircle, SearchX } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import {
@@ -14,6 +14,7 @@ import { useParentSearch } from "@/features/parent/use-parent-search";
 import { useRefetchOnExpiry } from "@/features/parent/use-refetch-on-expiry";
 import { ApiError } from "@/lib/api-client";
 import { formatDate } from "@/lib/datetime";
+import { staggerStyle } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 import { MediaTile } from "./MediaTile";
@@ -30,9 +31,6 @@ const FILTER_LABEL_MAP: Record<MediaFilter, string> = { all: "전체", photo: "�
 const FILTERS: MediaFilter[] = ["all", "photo", "video"];
 const MEDIA_GRID_CLASS = "grid grid-cols-3 gap-1.5 sm:grid-cols-4 sm:gap-2 lg:grid-cols-6";
 const CARD_CLASS = "rounded-3xl border border-line/70 bg-paper shadow-card";
-/** 날짜 묶음이 차례로 올라오는 간격. 뒤쪽까지 오래 기다리지 않게 앞 몇 개만 늦춥니다. */
-const STAGGER_MS = 70;
-const STAGGER_LIMIT = 6;
 
 function matchesFilter(item: ParentMediaItemView, filter: MediaFilter) {
   return filter === "all" || item.type === filter;
@@ -111,7 +109,10 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
     return (
       <section className="flex flex-col gap-6">
         {header}
-        <div role="alert" className={cn(CARD_CLASS, "flex flex-col items-start gap-3 p-6")}>
+        <div
+          role="alert"
+          className={cn(CARD_CLASS, "flex flex-col items-start gap-3 p-6 motion-safe:animate-rise")}
+        >
           <p className="text-body text-ink">{failureText(query.error)}</p>
           {!(query.error instanceof ApiError && query.error.code === "CHILD_ACCESS_EXPIRED") && (
             <Button size="sm" variant="outline" onClick={() => void query.refetch()}>
@@ -189,7 +190,7 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
       </div>
 
       {saver.errorText && viewerIndex === null && (
-        <p role="alert" className="text-label text-destructive">
+        <p role="alert" className="text-label text-destructive motion-safe:animate-nudge">
           {saver.errorText}
         </p>
       )}
@@ -209,7 +210,7 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
           </Button>
         </div>
       ) : days.length === 0 && !query.hasNextPage ? (
-        <p className="py-10 text-center text-body text-ink-muted">
+        <p className="py-10 text-center text-body text-ink-muted motion-safe:animate-rise">
           {FILTER_LABEL_MAP[filter]}이 아직 없어요.
         </p>
       ) : null}
@@ -227,7 +228,7 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
               key={day.parent_note_id}
               aria-label={formatDate(day.record_date)}
               className={cn(CARD_CLASS, "p-4 motion-safe:animate-rise sm:p-6")}
-              style={{ animationDelay: `${Math.min(dayIndex, STAGGER_LIMIT) * STAGGER_MS}ms` }}
+              style={staggerStyle(dayIndex)}
             >
               <div className="mb-3 flex items-center gap-2">
                 <h2 className="text-nav font-bold text-ink">
@@ -267,7 +268,17 @@ export function ParentMediaGallery({ childId }: ParentMediaGalleryProps) {
           disabled={query.isFetchingNextPage}
           onClick={() => void query.fetchNextPage()}
         >
-          {query.isFetchingNextPage ? "불러오는 중…" : "이전 날짜 더 보기"}
+          {query.isFetchingNextPage ? (
+            <>
+              <LoaderCircle
+                aria-hidden="true"
+                className="size-4 shrink-0 motion-safe:animate-spin"
+              />
+              불러오는 중…
+            </>
+          ) : (
+            "이전 날짜 더 보기"
+          )}
         </Button>
       )}
 

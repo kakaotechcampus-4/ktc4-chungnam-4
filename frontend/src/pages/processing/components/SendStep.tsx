@@ -162,7 +162,7 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
       onCancel={onCancel}
     >
       {rejected.length > 0 ? (
-        <div role="alert" className="space-y-3 text-body text-coral-ink">
+        <div role="alert" className="space-y-3 text-body text-coral-ink motion-safe:animate-enter">
           <p>올리지 못한 파일 {rejected.length}개를 빼고 나머지를 전송했어요.</p>
           <ul>
             {rejected.map((file, index) => (
@@ -176,7 +176,7 @@ export function SendStep({ onDone, onCancel }: SendStepProps) {
       ) : null}
       {/* TODO(정은): 단계 재시도는 처리 실패 화면에서 붙입니다. */}
       {send.error ? (
-        <p role="alert" className="text-body text-coral-ink">
+        <p role="alert" className="text-body text-coral-ink motion-safe:animate-enter">
           {send.error.message}
         </p>
       ) : null}

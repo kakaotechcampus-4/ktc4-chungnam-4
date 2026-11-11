@@ -34,8 +34,10 @@ export function ParentNotePublishedPage() {
         title={recordDate === today ? "오늘의 기록을 전달했어요" : "기록을 전달했어요"}
         subtitle={formatDate(recordDate, { weekday: false })}
       />
+      {/* 게시를 마친 결과입니다. 카드가 짧게 올라와 완료 안내가 눈에 들어오게 합니다. */}
       <FocusCard
         centered
+        className="motion-safe:animate-enter"
         footer={<Button onClick={() => navigate("/t/notes")}>게시판에서 확인</Button>}
       >
         <h2 className="text-h3 font-bold text-ink">{publishedCount}명의 알림장을 게시했어요</h2>

@@ -54,7 +54,7 @@ export function ClassifyStep({ onDone, onCancel }: ClassifyStepProps) {
       onCancel={onCancel}
     >
       {error && (
-        <div role="alert" className="space-y-3">
+        <div role="alert" className="space-y-3 motion-safe:animate-enter">
           <p>{error.message}</p>
           {/* 취소하면 고른 사진과 날짜가 지워지므로, 기준 얼굴만 다시 받아 분류를 이어 가게 합니다(#231 리뷰). */}
           <Button disabled={isFetching} onClick={() => void refetch()}>

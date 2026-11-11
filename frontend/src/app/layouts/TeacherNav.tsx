@@ -1,7 +1,7 @@
-import { ChevronDown } from "lucide-react";
-import { Link, useLocation } from "react-router";
+import { Link, matchPath, useLocation } from "react-router";
 
 import { BrandLogo } from "@/components/common/BrandLogo";
+import { ClassSwitcher } from "@/features/class-context/ClassSwitcher";
 import { cn } from "@/lib/utils";
 
 import { activeNavItem, TEACHER_NAV_ITEMS } from "./teacher-nav";
@@ -19,21 +19,18 @@ interface TeacherNavProps {
 export function TeacherNav({ klass, teacherName }: TeacherNavProps) {
   const { pathname } = useLocation();
   const active = activeNavItem(pathname);
+  // 반을 바꾸면 보던 메뉴의 첫 화면으로 갑니다. 대시보드에서 바꾸면 대시보드에 남습니다.
+  const switchTo = matchPath({ path: "/t/dashboard", end: false }, pathname)
+    ? "/t/dashboard"
+    : (active?.to ?? "/t/dashboard");
 
   return (
     <div className="flex h-nav items-center justify-between">
       <div className="flex min-w-72 shrink-0 items-center gap-4">
         <BrandLogo to="/t" />
-        {/* Figma는 "⌄" 글자인데 번들한 Noto에 없어 OS마다 다르게 그려집니다. 같은 크기의 아이콘으로 바꿨습니다. */}
-        {klass ? (
-          <p className="flex items-center text-body whitespace-pre text-ink-muted">
-            {klass.centerName}
-            {"  /  "}
-            {klass.name}
-            <ChevronDown aria-hidden="true" strokeWidth={2.5} className="size-2.5 translate-y-1" />
-          </p>
-        ) : null}
+        {klass ? <ClassSwitcher to={switchTo} /> : null}
       </div>
+      {/* 메뉴는 화면을 옮기는 링크라 학부모 화면의 링크처럼 겹쳐 바뀝니다(viewTransition). 활성 색도 이어서 바뀝니다. */}
       <nav aria-label="주 메뉴">
         <ul className="flex items-center gap-8">
           {TEACHER_NAV_ITEMS.map((item) => {
@@ -41,10 +38,11 @@ export function TeacherNav({ klass, teacherName }: TeacherNavProps) {
             return (
               <li key={item.to}>
                 <Link
+                  viewTransition
                   to={item.to}
                   aria-current={isActive ? "page" : undefined}
                   className={cn(
-                    "rounded-xs text-nav outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+                    "rounded-xs text-nav outline-none transition-colors duration-200 focus-visible:ring-3 focus-visible:ring-ring/50",
                     isActive ? "font-bold text-brand-ink" : "text-ink-muted hover:text-brand-ink",
                   )}
                 >
@@ -59,10 +57,11 @@ export function TeacherNav({ klass, teacherName }: TeacherNavProps) {
       <p className="w-32 shrink-0 text-right text-label">
         {teacherName ? (
           <Link
+            viewTransition
             to="/t/settings"
             aria-current={pathname === "/t/settings" ? "page" : undefined}
             className={cn(
-              "rounded-xs outline-none hover:text-brand-ink focus-visible:ring-3 focus-visible:ring-ring/50",
+              "rounded-xs outline-none transition-colors duration-200 hover:text-brand-ink focus-visible:ring-3 focus-visible:ring-ring/50",
               pathname === "/t/settings" ? "text-brand-ink" : "text-ink-muted",
             )}
           >

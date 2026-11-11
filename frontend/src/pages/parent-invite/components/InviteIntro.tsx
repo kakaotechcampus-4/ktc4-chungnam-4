@@ -1,6 +1,7 @@
 import { ArrowRight, LockKeyhole } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { staggerStyle } from "@/lib/motion";
 
 interface InviteIntroProps {
   /** 문장에 넣는 호칭. 예: 도윤이 */
@@ -50,7 +51,7 @@ export function InviteIntro({ call, centerName, className, onStart, onLogin }: I
       <div
         aria-hidden="true"
         className="rounded-3xl border border-line/70 bg-paper p-4 shadow-card-hover transition duration-500 ease-soft hover:-translate-y-1 hover:-rotate-1 motion-safe:animate-rise"
-        style={{ animationDelay: "120ms" }}
+        style={staggerStyle(1)}
       >
         <div className="grid aspect-16/10 grid-cols-3 grid-rows-2 gap-1.5 overflow-hidden rounded-2xl">
           <div className="col-span-2 row-span-2 bg-leaf-soft" />

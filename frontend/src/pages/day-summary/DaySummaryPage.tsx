@@ -1,5 +1,5 @@
 // Figma: 원안 1:3115 (추출본 Untitled 1:1618) · 후보 A 추출본 Untitled 1:3144 (타임라인·근거 열 미완성) · 추가 근거 1:3095
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 
@@ -208,8 +208,13 @@ export function DaySummaryPage() {
         actions={<ChildNav childList={withData} currentId={child.child_id} />}
       />
 
+      {/* 폴링으로 켜졌다 꺼지는 줄이라 등장 효과는 두지 않고, 도는 표시로 아직 진행 중임만 알립니다. */}
       {transcripts.workingCount > 0 ? (
-        <p role="status" className="mb-4 rounded-md bg-tint-2 px-4 py-3 text-body text-ink">
+        <p
+          role="status"
+          className="mb-4 flex items-center gap-2 rounded-md bg-tint-2 px-4 py-3 text-body text-ink"
+        >
+          <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
           영상·음성을 글로 바꾸고 있어요. 끝나면 이 아이의 발화도 여기에 보여요.
         </p>
       ) : null}
@@ -221,8 +226,9 @@ export function DaySummaryPage() {
           발화를 불러오지 못했어요. ({transcripts.error.message})
         </p>
       ) : null}
+      {/* 빼기·되돌리기를 누른 뒤 저장이 실패한 것이라 짧게 흔들어 알립니다. */}
       {update.error ? (
-        <p role="alert" className="mb-4 text-body text-destructive">
+        <p role="alert" className="mb-4 text-body text-destructive motion-safe:animate-nudge">
           {update.error.message}
         </p>
       ) : null}
@@ -251,8 +257,9 @@ export function DaySummaryPage() {
               전송하면 바로 관찰일지와 알림장 초안을 만들어요.
             </p>
           </div>
+          {/* 다른 화면으로 돌아가는 링크라 화면이 겹쳐 바뀝니다(viewTransition). */}
           <Button asChild size="lg" className="px-7 text-lead">
-            <Link to={CLASSIFICATION}>
+            <Link viewTransition to={CLASSIFICATION}>
               <ChevronLeft aria-hidden="true" />
               분류 결과로 돌아가기
             </Link>
@@ -278,8 +285,10 @@ function ChildNav({ childList, currentId }: ChildNavProps) {
             key={entry.child_id}
             to={`/t/today/children/${entry.child_id}/summary`}
             aria-current={active ? "page" : undefined}
+            // 같은 화면 안에서 아이만 바꾸는 링크라 화면 전환(viewTransition)은 두지 않습니다.
+            // 누르면 살짝 눌리고, 고른 칸의 색은 이어서 바뀝니다.
             className={cn(
-              "rounded-full border px-4 py-1.5 text-label outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+              "rounded-full border px-4 py-1.5 text-label outline-none transition duration-200 ease-soft focus-visible:ring-3 focus-visible:ring-ring/50 motion-safe:active:scale-95",
               active
                 ? "border-brand-border bg-brand font-bold text-brand-ink"
                 : "border-line bg-paper text-ink hover:bg-tint-2",

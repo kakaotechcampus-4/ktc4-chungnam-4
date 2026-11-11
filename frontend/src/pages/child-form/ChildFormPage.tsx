@@ -1,5 +1,6 @@
 // Figma: 1:1917
 import { useQuery } from "@tanstack/react-query";
+import { LoaderCircle } from "lucide-react";
 import { useParams } from "react-router";
 
 import { childQueryOptions } from "@/api/organization";
@@ -42,7 +43,12 @@ export function ChildFormPage() {
       );
     }
     if (pending) {
-      return <p className="text-body text-ink-muted">정보를 불러오는 중이에요.</p>;
+      return (
+        <p className="flex items-center gap-2 text-body text-ink-muted">
+          <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
+          정보를 불러오는 중이에요.
+        </p>
+      );
     }
     if (isEdit && childQuery.data) {
       const child = childQuery.data;

@@ -1,17 +1,21 @@
 // Figma: 1:499
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Flower, Flower2, Plus, Sprout, Sun, type LucideIcon } from "lucide-react";
+import { Flower, Flower2, LoaderCircle, Plus, Sprout, Sun, type LucideIcon } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 
 import { type ClassSummaryView, organizationKeys } from "@/api/organization";
 import { selectClass } from "@/features/class-context/current-class-store";
 import { useTeacherCenter } from "@/features/organization/use-teacher-center";
+import { staggerStyle } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 // Figma의 반 아이콘(🌼 ☀️ 🌱 🌷)을 반 순서대로 돌아가며 씁니다.
 const CLASS_ICONS: readonly LucideIcon[] = [Flower2, Sun, Sprout, Flower];
 
 const CARD_CLASS = "relative flex min-h-49 flex-col rounded-xl border border-line bg-paper p-6";
+// 누를 수 있는 카드임을 알리게 올리면 살짝 뜨고, 누르면 내려앉습니다.
+const CARD_INTERACTIVE_CLASS =
+  "transition duration-200 ease-soft hover:shadow-card-hover motion-safe:hover:-translate-y-0.5 motion-safe:active:translate-y-0 motion-safe:active:scale-99";
 
 // 즐겨찾기한 반이 먼저, 그 안에서는 서버 순서를 지킵니다.
 function sortFavoritesFirst(classes: ClassSummaryView[]) {
@@ -55,17 +59,18 @@ export function OnboardingClassSelectPage() {
       </p>
 
       {isPending ? (
-        <p role="status" className="mt-8 text-body text-ink-muted">
-          반 목록을 불러오고 있어요
+        <p role="status" className="mt-8 flex items-center gap-2 text-body text-ink-muted">
+          <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
+          {"반 목록을 불러오고 있어요"}
         </p>
       ) : isError && error ? (
-        <p role="alert" className="mt-8 text-body text-destructive">
+        <p role="alert" className="mt-8 text-body text-destructive motion-safe:animate-enter">
           {error.message}
         </p>
       ) : (
         <>
           {assign.isError ? (
-            <p role="alert" className="mt-4 text-label text-destructive">
+            <p role="alert" className="mt-4 text-label text-destructive motion-safe:animate-nudge">
               {assign.error?.message}
             </p>
           ) : null}
@@ -75,7 +80,16 @@ export function OnboardingClassSelectPage() {
               return (
                 <li
                   key={klass.class_id}
-                  className={cn(CARD_CLASS, "transition-colors hover:border-brand-border")}
+                  className={cn(
+                    CARD_CLASS,
+                    CARD_INTERACTIVE_CLASS,
+                    "motion-safe:animate-enter",
+                    // 고른 반은 다음 화면으로 넘어갈 때까지 선택된 모양으로 남아, 무엇을 눌렀는지 보입니다.
+                    assign.isPending && assign.variables === klass.class_id
+                      ? "border-brand-ink bg-primary"
+                      : "hover:border-brand-border",
+                  )}
+                  style={staggerStyle(index)}
                 >
                   <div className="flex items-start justify-between">
                     <span className="flex size-11 items-center justify-center rounded-md bg-canvas text-brand-ink">
@@ -101,12 +115,14 @@ export function OnboardingClassSelectPage() {
                 </li>
               );
             })}
-            <li>
+            <li className="motion-safe:animate-enter" style={staggerStyle(classes.length)}>
               <Link
+                viewTransition
                 to="/onboarding/class/new"
                 className={cn(
                   CARD_CLASS,
-                  "h-full items-center justify-center gap-2.5 border-dashed text-center transition-colors hover:border-brand-border",
+                  CARD_INTERACTIVE_CLASS,
+                  "h-full items-center justify-center gap-2.5 border-dashed text-center outline-none hover:border-brand-border focus-visible:ring-3 focus-visible:ring-ring/50",
                 )}
               >
                 <span className="flex size-10 items-center justify-center rounded-md bg-canvas text-ink-muted">

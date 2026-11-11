@@ -1,5 +1,6 @@
 // Figma: 159:3788 (관찰일지 · 아이 목록)
 import { useQuery } from "@tanstack/react-query";
+import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 
@@ -70,7 +71,10 @@ export function ObservationLogsPage() {
     return (
       <>
         {header}
-        <p className="text-body text-ink-muted">관찰일지를 불러오는 중이에요.</p>
+        <p className="flex items-center gap-2 text-body text-ink-muted">
+          <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
+          관찰일지를 불러오는 중이에요.
+        </p>
       </>
     );
   }
@@ -95,7 +99,7 @@ export function ObservationLogsPage() {
           // 입력을 지우거나 month를 지원하지 않는 브라우저에서 치는 중간값("2026-1")은 조회할 수 없어 이전 값을 유지합니다.
           if (MONTH_PATTERN.test(event.target.value)) setMonth(event.target.value);
         }}
-        className="ml-3 rounded-md border border-line bg-paper p-2"
+        className="ml-3 rounded-md border border-line bg-paper p-2 outline-none transition-shadow focus-visible:border-brand-ink focus-visible:ring-3 focus-visible:ring-brand-ink/20"
       />
     </label>
   );
@@ -104,8 +108,18 @@ export function ObservationLogsPage() {
       <>
         {header}
         <div className="mb-4">{monthPicker}</div>
-        <p className="text-body text-ink-muted">
-          {logsQuery.isError ? failureText(logsQuery.error) : "관찰일지를 불러오는 중이에요."}
+        <p className="flex items-center gap-2 text-body text-ink-muted">
+          {logsQuery.isError ? (
+            failureText(logsQuery.error)
+          ) : (
+            <>
+              <LoaderCircle
+                aria-hidden="true"
+                className="size-4 shrink-0 motion-safe:animate-spin"
+              />
+              관찰일지를 불러오는 중이에요.
+            </>
+          )}
         </p>
       </>
     );
@@ -128,7 +142,8 @@ export function ObservationLogsPage() {
       {rows.length === 0 ? (
         <p className="text-body text-ink-muted">아직 반에 등록된 아이가 없어요.</p>
       ) : (
-        <ul className="divide-y divide-line overflow-hidden rounded-xl bg-paper">
+        // 명단을 새로 받아 오면(첫 화면, 아직 받지 않은 달) 한 번 떠오릅니다. 이미 받은 달로 돌아가면 그대로입니다.
+        <ul className="divide-y divide-line overflow-hidden rounded-xl bg-paper motion-safe:animate-enter">
           {rows.map((item) => {
             const name = names.get(item.child_id) ?? "";
             const log = item.observation_log;
@@ -157,21 +172,39 @@ export function ObservationLogsPage() {
                       자료가 적어 일부 칸이 비어 있을 수 있어요
                     </span>
                   ) : null}
+                  {/* 단계 문구는 폴링으로 바뀌므로 등장 효과 대신 도는 아이콘으로 작업이 살아 있음을 보여 줍니다. */}
                   {running && !generation.pollError ? (
-                    <span role="status" className="text-caption text-ink-muted">
+                    <span
+                      role="status"
+                      className="flex items-center gap-1.5 text-caption text-ink-muted"
+                    >
+                      <LoaderCircle
+                        aria-hidden="true"
+                        className="size-3.5 shrink-0 motion-safe:animate-spin"
+                      />
                       {generation.stageLabel}
                     </span>
                   ) : null}
                   {mine && generation.pollError ? (
-                    <span role="alert" className="text-caption text-destructive">
+                    <span
+                      role="alert"
+                      className="text-caption text-destructive motion-safe:animate-enter"
+                    >
                       진행 상태를 불러오지 못했어요. 작업은 계속될 수 있어요.{" "}
-                      <button type="button" className="underline" onClick={generation.recheck}>
+                      <button
+                        type="button"
+                        className="underline hover:decoration-2"
+                        onClick={generation.recheck}
+                      >
                         상태 다시 확인
                       </button>
                     </span>
                   ) : null}
                   {mine && !generation.busy && generation.failure ? (
-                    <span role="alert" className="text-caption text-destructive">
+                    <span
+                      role="alert"
+                      className="text-caption text-destructive motion-safe:animate-enter"
+                    >
                       {generation.failure}
                     </span>
                   ) : null}
@@ -179,6 +212,7 @@ export function ObservationLogsPage() {
                 {log ? (
                   <Button asChild variant="outline">
                     <Link
+                      viewTransition
                       to={`/t/observations/${encodeURIComponent(log.draft_id)}`}
                       aria-label={`${name} 관찰일지 보기`}
                     >

@@ -1,6 +1,6 @@
 // Figma: 159:3882 (관찰일지 · 생성 결과)
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams } from "react-router";
 
@@ -28,6 +28,7 @@ import { useCurrentClass } from "@/features/class-context/use-current-class";
 import { useObservationGeneration } from "@/features/documents/use-observation-generation";
 import { ApiError } from "@/lib/api-client";
 import { formatDate, toKstDate } from "@/lib/datetime";
+import { staggerStyle } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 import { ObservationEvidencePanel } from "./components/ObservationEvidencePanel";
@@ -40,6 +41,7 @@ function failureText(error: unknown) {
 
 const backLink = (
   <Link
+    viewTransition
     to="/t/observations"
     className="mb-2 inline-flex items-center gap-1 text-body text-ink-muted hover:underline"
   >
@@ -81,8 +83,18 @@ export function ObservationLogDetailPage() {
       <>
         <PageHeader eyebrow="관찰일지" title="관찰일지" />
         {backLink}
-        <p className="text-body text-ink-muted">
-          {draftQuery.isError ? failureText(draftQuery.error) : "관찰일지를 불러오는 중이에요."}
+        <p className="flex items-center gap-2 text-body text-ink-muted">
+          {draftQuery.isError ? (
+            failureText(draftQuery.error)
+          ) : (
+            <>
+              <LoaderCircle
+                aria-hidden="true"
+                className="size-4 shrink-0 motion-safe:animate-spin"
+              />
+              관찰일지를 불러오는 중이에요.
+            </>
+          )}
         </p>
       </>
     );
@@ -188,39 +200,45 @@ export function ObservationLogDetailPage() {
           {regenerateBlockedReason}
         </p>
       ) : null}
+      {/* 단계 문구는 폴링으로 바뀌므로 등장 효과 대신 도는 아이콘으로 작업이 살아 있음을 보여 줍니다. */}
       {mine && generation.busy && !generation.pollError ? (
-        <p role="status" className="mb-3 text-body text-ink-muted">
+        <p role="status" className="mb-3 flex items-center gap-2 text-body text-ink-muted">
+          <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
           {generation.stageLabel}
         </p>
       ) : null}
       {actionError ? (
-        <p role="alert" className="mb-3 text-body text-destructive">
+        <p role="alert" className="mb-3 text-body text-destructive motion-safe:animate-nudge">
           {actionError}
         </p>
       ) : null}
       {mine && generation.pollError ? (
-        <p role="alert" className="mb-3 text-body text-destructive">
+        <p role="alert" className="mb-3 text-body text-destructive motion-safe:animate-enter">
           진행 상태를 불러오지 못했어요. 작업은 계속될 수 있어요.{" "}
-          <button type="button" className="underline" onClick={generation.recheck}>
+          <button
+            type="button"
+            className="underline hover:decoration-2"
+            onClick={generation.recheck}
+          >
             상태 다시 확인
           </button>
         </p>
       ) : null}
       {mine && !generation.busy && generation.failure ? (
-        <p role="alert" className="mb-3 text-body text-destructive">
+        <p role="alert" className="mb-3 text-body text-destructive motion-safe:animate-enter">
           {generation.failure}
         </p>
       ) : null}
       <div className="grid gap-4 lg:grid-cols-3">
         <ul className="divide-y divide-line overflow-hidden rounded-xl bg-paper lg:col-span-2">
-          {rows.map((row) => (
-            <li key={row.key}>
+          {rows.map((row, index) => (
+            <li key={row.key} className="motion-safe:animate-enter" style={staggerStyle(index)}>
               <button
                 type="button"
                 aria-pressed={row.key === selected?.key}
                 onClick={() => setSelectedKey(row.key)}
                 className={cn(
-                  "grid w-full gap-2 px-6 py-5 text-left outline-none hover:bg-tint-2 focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/50 sm:grid-cols-4",
+                  "grid w-full gap-2 px-6 py-5 text-left outline-none transition-colors duration-200 hover:bg-tint-2 focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/50 sm:grid-cols-4",
                   row.key === selected?.key && "bg-tint-2",
                 )}
               >

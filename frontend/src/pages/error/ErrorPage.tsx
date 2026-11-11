@@ -19,10 +19,13 @@ export function ErrorPage({ error }: ErrorPageProps) {
       <main className="mx-auto max-w-app py-11">
         <FocusCard
           centered
+          className="motion-safe:animate-enter"
           footer={
             <>
               <Button asChild variant="outline" size="lg">
-                <Link to="/">처음으로</Link>
+                <Link viewTransition to="/">
+                  처음으로
+                </Link>
               </Button>
               <Button size="lg" onClick={() => window.location.reload()}>
                 다시 시도

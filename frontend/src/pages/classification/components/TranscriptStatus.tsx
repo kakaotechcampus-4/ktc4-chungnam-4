@@ -1,3 +1,5 @@
+import { LoaderCircle } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 
 interface TranscriptStatusProps {
@@ -36,8 +38,13 @@ export function TranscriptStatus({
     );
   }
   if (workingCount > 0) {
+    // 폴링으로 숫자가 바뀌다 꺼지는 줄이라 등장 효과는 두지 않고, 도는 표시로 아직 진행 중임만 알립니다.
     return (
-      <p role="status" className="mb-3 rounded-md bg-tint-2 px-4 py-3 text-body text-ink">
+      <p
+        role="status"
+        className="mb-3 flex items-center gap-2 rounded-md bg-tint-2 px-4 py-3 text-body text-ink"
+      >
+        <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
         영상·음성 {workingCount}개를 글로 바꾸고 있어요. 끝나면 발화를 아이에게 연결할 수 있어요.
       </p>
     );

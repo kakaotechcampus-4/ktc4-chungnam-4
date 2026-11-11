@@ -61,7 +61,7 @@ export function TodayUploading({
         ) : null}
       </div>
 
-      <section className="flex flex-col gap-5.5 rounded-2xl bg-paper px-9 py-8">
+      <section className="flex flex-col gap-5.5 rounded-2xl bg-paper px-9 py-8 motion-safe:animate-enter">
         <div className="flex items-center justify-between gap-6">
           <div className="flex flex-col gap-2.5 font-bold">
             <h2 className="text-h3 text-ink">
@@ -87,7 +87,10 @@ export function TodayUploading({
           aria-valuenow={percent}
           className="h-2.5 w-full overflow-hidden rounded-full bg-neutral-soft"
         >
-          <div className="h-full rounded-full bg-ink" style={{ width: `${percent}%` }} />
+          <div
+            className="h-full rounded-full bg-ink motion-safe:transition-all motion-safe:duration-500 motion-safe:ease-soft"
+            style={{ width: `${percent}%` }}
+          />
         </div>
 
         <div className="flex items-center gap-2.5">

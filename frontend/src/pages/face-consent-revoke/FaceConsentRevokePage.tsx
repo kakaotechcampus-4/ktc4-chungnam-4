@@ -1,5 +1,6 @@
 // Figma: 없음 — 얼굴 정보 삭제(추출본 1:1895)와 같은 모양으로 만들었습니다(FR-22, #225 ⑥).
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { LoaderCircle } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 
 import { mediaKeys } from "@/api/media";
@@ -51,18 +52,30 @@ export function FaceConsentRevokePage() {
       />
 
       <FocusCard
-        className="min-h-140"
+        className="min-h-140 motion-safe:animate-enter"
         footer={
           <>
             <Button asChild className="w-25 border-transparent">
-              <Link to={faceHome}>취소</Link>
+              <Link viewTransition to={faceHome}>
+                취소
+              </Link>
             </Button>
             <Button
               className="w-45 border-transparent"
               disabled={!child.face_feature_agreed || revoke.isPending}
               onClick={submit}
             >
-              {revoke.isPending ? "철회하는 중…" : "동의 철회"}
+              {revoke.isPending ? (
+                <>
+                  <LoaderCircle
+                    aria-hidden="true"
+                    className="size-4 shrink-0 motion-safe:animate-spin"
+                  />
+                  철회하는 중…
+                </>
+              ) : (
+                "동의 철회"
+              )}
             </Button>
           </>
         }
@@ -89,8 +102,9 @@ export function FaceConsentRevokePage() {
               얼굴 특징정보 동의가 없어 철회할 것이 없어요.
             </p>
           )}
+          {/* 철회를 누른 뒤에 생기는 오류라 짧게 흔들어 눈에 띄게 합니다. */}
           {revoke.error ? (
-            <p role="alert" className="text-body text-destructive">
+            <p role="alert" className="text-body text-destructive motion-safe:animate-nudge">
               {revoke.error.message}
             </p>
           ) : null}

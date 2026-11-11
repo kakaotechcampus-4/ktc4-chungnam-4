@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -132,16 +133,33 @@ export function EvidenceCard({ child, recordDate }: EvidenceCardProps) {
         </p>
         {/* TODO(김동건): 음성으로 남기기·관련 사진 연결(Figma 1:3095)은 모양이 정해지면 붙입니다. */}
         <div className="flex items-center justify-between gap-3">
-          <p aria-live="polite" className="text-caption text-ink-muted">
+          {/* 저장이 끝난 순간에만 안내가 떠오릅니다. 같은 줄을 계속 쓰므로 저장할 때마다 클래스를 다시 붙여 다시 움직입니다. */}
+          <p
+            aria-live="polite"
+            className={cn("text-caption text-ink-muted", savedNow && "motion-safe:animate-enter")}
+          >
             {savedNow ? "저장했어요." : null}
             {!savedNow && editing ? "저장하면 남겨 둔 근거가 이 내용으로 바뀌어요." : null}
           </p>
           <Button type="submit" disabled={!canSave}>
-            {saving.isPending ? "저장하는 중…" : editing ? "근거 수정" : "근거 저장"}
+            {saving.isPending ? (
+              <>
+                <LoaderCircle
+                  aria-hidden="true"
+                  className="size-4 shrink-0 motion-safe:animate-spin"
+                />
+                저장하는 중…
+              </>
+            ) : editing ? (
+              "근거 수정"
+            ) : (
+              "근거 저장"
+            )}
           </Button>
         </div>
         {saving.error ? (
-          <p role="alert" className="text-body text-destructive">
+          // 저장을 누른 뒤의 실패라 짧게 흔들어 알립니다.
+          <p role="alert" className="text-body text-destructive motion-safe:animate-nudge">
             {saving.error.message}
           </p>
         ) : null}

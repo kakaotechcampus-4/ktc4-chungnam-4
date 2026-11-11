@@ -34,7 +34,9 @@ export function ReassignView({ photoId }: ReassignViewProps) {
       subtitle="잘못 연결된 아이는 빼고, 빠진 아이는 더해 주세요."
       actions={
         <Button asChild variant="outline">
-          <Link to={CLASSIFICATION}>분류 결과로</Link>
+          <Link viewTransition to={CLASSIFICATION}>
+            분류 결과로
+          </Link>
         </Button>
       }
     />
@@ -47,9 +49,12 @@ export function ReassignView({ photoId }: ReassignViewProps) {
         {header}
         <FocusCard
           centered
+          className="motion-safe:animate-enter"
           footer={
             <Button asChild size="lg">
-              <Link to={CLASSIFICATION}>분류 결과로 돌아가기</Link>
+              <Link viewTransition to={CLASSIFICATION}>
+                분류 결과로 돌아가기
+              </Link>
             </Button>
           }
         >
@@ -96,7 +101,9 @@ export function ReassignView({ photoId }: ReassignViewProps) {
           이 자료 제외
         </Button>
         <Button asChild className="w-45 border-transparent">
-          <Link to={CLASSIFICATION}>취소</Link>
+          <Link viewTransition to={CLASSIFICATION}>
+            취소
+          </Link>
         </Button>
       </div>
     </div>

@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { LoaderCircle } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import { childDraftsQueryOptions } from "@/api/documents";
@@ -62,7 +63,10 @@ export function RevokedNotesDialog({
         </AlertDialogHeader>
 
         {notesQuery.isPending ? (
-          <p className="text-body text-ink-muted">회수함을 불러오는 중이에요.</p>
+          <p className="flex items-center gap-2 text-body text-ink-muted">
+            <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
+            회수함을 불러오는 중이에요.
+          </p>
         ) : notesQuery.isError ? (
           <p role="alert" className="text-body text-destructive">
             {notesQuery.error instanceof ApiError
@@ -82,7 +86,7 @@ export function RevokedNotesDialog({
                       `/t/today/review/${childId}?record_date=${encodeURIComponent(note.record_date)}`,
                     )
                   }
-                  className="flex w-full flex-col gap-1 rounded-md border border-line bg-canvas px-4 py-3 text-left outline-none hover:bg-tint-2 focus-visible:ring-3 focus-visible:ring-ring/50"
+                  className="flex w-full flex-col gap-1 rounded-md border border-line bg-canvas px-4 py-3 text-left outline-none transition-colors duration-200 hover:bg-tint-2 focus-visible:ring-3 focus-visible:ring-ring/50"
                 >
                   {/* 두 날의 회수본이 함께 있을 수 있어 날짜가 첫 줄입니다. */}
                   <span className="text-body font-bold text-ink">

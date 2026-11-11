@@ -1,5 +1,6 @@
 // Figma: 1:2886
 import { useQuery } from "@tanstack/react-query";
+import { LoaderCircle } from "lucide-react";
 import { Link } from "react-router";
 
 import { classDraftsQueryOptions } from "@/api/documents";
@@ -90,7 +91,7 @@ export function DashboardPage() {
       subtitle={subtitle}
       actions={
         <Button asChild size="lg" className="w-60">
-          <Link to={currentClass ? "/t/today" : "/onboarding/class"}>
+          <Link viewTransition to={currentClass ? "/t/today" : "/onboarding/class"}>
             {currentClass ? "오늘의 기록 이어하기" : "반 준비하기"}
           </Link>
         </Button>
@@ -102,7 +103,10 @@ export function DashboardPage() {
     return (
       <>
         {header()}
-        <p className="text-body text-ink-muted">반 정보를 불러오는 중이에요.</p>
+        <p className="flex items-center gap-2 text-body text-ink-muted">
+          <LoaderCircle aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
+          {"반 정보를 불러오는 중이에요."}
+        </p>
       </>
     );
   }
@@ -183,7 +187,8 @@ export function DashboardPage() {
           {rows.length === 0 ? (
             <p className="py-5 text-body text-ink-muted">아직 반에 등록된 원아가 없어요.</p>
           ) : (
-            <ul>
+            // 매일 처음 여는 화면이라 줄마다 늦추지 않고 명단을 한 번에 띄웁니다.
+            <ul className="motion-safe:animate-enter">
               {rows.map(({ child, state, reason }) => (
                 <li key={child.child_id} className="flex h-16 items-center gap-5">
                   <span
@@ -214,6 +219,7 @@ export function DashboardPage() {
                     <Button asChild variant="secondary" size="sm" className="w-32">
                       {/* 기록 전인 아이도 초안 검토로 보냅니다. 초안이 없으면 그 자리에서 직접 씁니다. */}
                       <Link
+                        viewTransition
                         to={`/t/today/review/${child.child_id}`}
                         aria-label={`${child.name} ${STATE_ACTION_MAP[state]}`}
                       >

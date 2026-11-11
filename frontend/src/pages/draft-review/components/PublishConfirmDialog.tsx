@@ -69,7 +69,7 @@ export function PublishConfirmDialog({
             const included = !excludedChildIds.has(target.childId);
             return (
               <li key={target.childId}>
-                <label className="flex items-center gap-2.5 rounded-md p-2 text-body text-ink hover:bg-tint-2">
+                <label className="flex items-center gap-2.5 rounded-md p-2 text-body text-ink transition-colors duration-200 hover:bg-tint-2">
                   <Checkbox
                     checked={included}
                     onCheckedChange={() => onToggle(target.childId)}
@@ -82,7 +82,7 @@ export function PublishConfirmDialog({
           })}
         </ul>
         {/* 사진은 반 전체에 한 번만 정합니다. 게시 뒤에는 고칠 수 없으므로 여기서 결정합니다. */}
-        <label className="flex items-center gap-2.5 rounded-md p-2 text-body text-ink hover:bg-tint-2">
+        <label className="flex items-center gap-2.5 rounded-md p-2 text-body text-ink transition-colors duration-200 hover:bg-tint-2">
           <Checkbox
             checked={includePhotos}
             onCheckedChange={(value) => onIncludePhotosChange(value === true)}
