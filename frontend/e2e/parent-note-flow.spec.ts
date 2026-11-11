@@ -1,9 +1,9 @@
 // 교사가 사진을 올려 알림장을 게시하고, 학부모가 자기 자녀의 알림장을 읽기까지의 E2E입니다.
 // 화면·API·DB·Redis·Celery worker·S3를 실제로 연결하고 외부 AI만 가짜 서버로 바꿉니다.
 //
-// 첫 흐름은 얼굴이 없는 합성 사진을 씁니다. 얼굴을 식별하지 못한 사진은 외부 LLM 경로에서
-// 빠지므로(H-2) AI 초안 대신 교사가 직접 작성해 승인·게시합니다. AI 초안 흐름은 합성 얼굴
-// 픽스처가 준비되면 추가합니다(e2e/README.md).
+// 첫 흐름은 얼굴이 없는 합성 사진을 face_feature 동의가 없는 원아에게 귀속합니다. 미동의 원아가
+// 귀속된 사진은 서버가 외부 LLM 경로에서 빼므로(H-2) AI 초안 대신 교사가 직접 작성해 승인·게시합니다.
+// AI 초안 흐름은 합성 얼굴 픽스처가 준비되면 추가합니다(e2e/README.md).
 import { expect, test, type APIRequestContext, type Browser, type Page } from "@playwright/test";
 
 import { syntheticActivityPhoto } from "./fixtures/synthetic-photo.ts";
@@ -43,7 +43,7 @@ test.beforeEach(async ({ request }) => {
 
 test("교사가 게시한 알림장만 그 자녀의 보호자에게 보인다", async ({ browser, request }) => {
   const teacher = await newSession(browser, SEED.teacher);
-  const parent = await newSession(browser, SEED.parentOfFirstChild);
+  const parent = await newSession(browser, SEED.parentOfNoConsentChild);
 
   // 1. 반 선택 → 자료 올리기
   await teacher.getByRole("link", { name: SEED.className }).click();
@@ -59,26 +59,24 @@ test("교사가 게시한 알림장만 그 자녀의 보호자에게 보인다",
   ).toBeVisible({ timeout: 120_000 });
   await teacher.getByRole("link", { name: "자료 분류하기 →" }).click();
 
-  // 3. 교사가 직접 아이를 지정해 확정한다
+  // 3. 교사가 직접 아이를 지정해 확정한다. 교사가 고른 사진은 귀속이 끝난 것이라 llm_allowed=true로 간다
   await expect(
     teacher.getByRole("heading", { name: "아이를 정하지 못한 자료를 확인해 주세요" }),
   ).toBeVisible();
-  await teacher.getByRole("checkbox", { name: SEED.firstChildName }).click();
+  await teacher.getByRole("checkbox", { name: SEED.noConsentChildName }).click();
   await teacher.getByRole("button", { name: "선택한 아이에게 연결" }).click();
   await expect(teacher.getByText("미분류 사진을 모두 정리했어요.")).toBeVisible();
   await teacher.getByRole("checkbox", { name: "아이 분류를 확인했어요" }).click();
   await teacher.getByRole("button", { name: "확인한 자료로 계속" }).click();
 
-  // 4. S3 전송 → 생성 작업(Celery). 미식별 얼굴 사진이라 근거 부족으로 끝난다
+  // 4. S3 전송 → 생성 작업(Celery). 미동의 원아라 서버가 사진을 LLM 경로에서 빼고 자동 생성에서 제외한다
   await expect(teacher.getByText("처리가 끝났어요. 확인이 필요해요")).toBeVisible({
     timeout: 90_000,
   });
   await expect(
-    teacher.getByText(
-      "초안을 만들 수 있는 근거가 부족해요. 동의 상태와 사진 분류를 확인해 주세요.",
-    ),
+    teacher.getByText("AI 분석 동의가 없는 아이는 자동 생성에서 제외했어요."),
   ).toBeVisible();
-  // H-2: 얼굴을 식별하지 못한 사진은 외부 LLM으로 한 번도 가지 않는다
+  // H-2: 미동의 원아가 귀속된 사진은 외부 LLM으로 한 번도 가지 않는다
   expect(await fakeLlmRequests(request)).toEqual([]);
   await teacher.getByRole("button", { name: "결과 확인하기" }).click();
 
@@ -91,14 +89,14 @@ test("교사가 게시한 알림장만 그 자녀의 보호자에게 보인다",
 
   // 6. 승인 전: 보호자에게 보이지 않는다
   await parent.goto("/p");
-  await expect(parent.getByText("아직 게시된 알림장이 없어요.")).toBeVisible();
+  await expect(parent.getByRole("heading", { name: "아직 도착한 알림장이 없어요" })).toBeVisible();
 
   // 7. 승인만 하고 게시하지 않으면 여전히 보이지 않는다
   await teacher.getByRole("checkbox", { name: "사진과 본문을 확인했어요" }).click();
   await teacher.getByRole("button", { name: "검토 완료하고 승인하기" }).click();
   await expect(teacher.getByRole("button", { name: "다시 검토하기" })).toBeVisible();
   await parent.reload();
-  await expect(parent.getByText("아직 게시된 알림장이 없어요.")).toBeVisible();
+  await expect(parent.getByRole("heading", { name: "아직 도착한 알림장이 없어요" })).toBeVisible();
 
   // 8. 게시
   await teacher.getByRole("button", { name: "게시하기" }).click();
@@ -111,13 +109,13 @@ test("교사가 게시한 알림장만 그 자녀의 보호자에게 보인다",
   await parent.reload();
   await parent.getByRole("link", { name: new RegExp(NOTE_TEXT) }).click();
   await expect(parent).toHaveURL(new RegExp(`/p/children/${childId}/notes/[^/]+$`));
-  await expect(parent.getByRole("heading", { name: /알림장$/ })).toBeVisible();
+  await expect(parent.getByRole("link", { name: "알림장 목록" })).toBeVisible();
   await expect(parent.getByText(NOTE_TEXT)).toBeVisible();
   const noteUrl = new URL(parent.url()).pathname;
 
   // 10. 다른 원아의 보호자는 같은 주소로 열어도 볼 수 없다(H-1)
   // 서버는 남의 알림장이 있는지조차 알려 주지 않으려고 403 대신 404로 답합니다.
-  const otherParent = await newSession(browser, SEED.parentOfSecondChild);
+  const otherParent = await newSession(browser, SEED.parentOfOtherChild);
   await otherParent.goto(noteUrl);
   await expect(otherParent.getByRole("alert")).toHaveText("알림장을 찾을 수 없습니다.");
   await expect(otherParent.getByText(NOTE_TEXT)).toHaveCount(0);

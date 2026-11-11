@@ -17,14 +17,17 @@ export const WEB_URL = `http://localhost:${PORTS.web}`;
 export const FAKE_LLM_URL = `http://127.0.0.1:${PORTS.fakeLlm}`;
 
 // backend/scripts/seed_photo_demo.py가 만드는 계정·원아입니다.
-// 보호자 N은 원아 N번째(CHILD_NAMES 순서)와 연결됩니다.
+// 보호자 N은 원아 N번째(CHILD_NAMES 순서)와 연결됩니다. 네 번째 원아(정예린)만 ③ 얼굴특징정보처리
+// (face_feature) 동의가 없어, 서버가 그 원아가 귀속된 사진을 LLM 경로에서 뺍니다(H-2).
 export const SEED = {
   className: "합성 햇살반",
   teacher: { email: "photo-demo.teacher@example.com", password: "e2e-teacher-password" },
-  parentOfFirstChild: { email: "photo-demo.parent1@example.com", password: "e2e-parent-password" },
-  parentOfSecondChild: { email: "photo-demo.parent2@example.com", password: "e2e-parent-password" },
-  firstChildName: "김도윤",
-  secondChildName: "박서아",
+  noConsentChildName: "정예린",
+  parentOfNoConsentChild: {
+    email: "photo-demo.parent4@example.com",
+    password: "e2e-parent-password",
+  },
+  parentOfOtherChild: { email: "photo-demo.parent1@example.com", password: "e2e-parent-password" },
 } as const;
 
 /**
@@ -63,7 +66,7 @@ export function backendEnv(): Record<string, string> {
     STT_GATEWAY_BASE_URL: `${FAKE_LLM_URL}/stt/v1`,
     STT_API_KEY: "e2e-fake-key",
     DEMO_TEACHER_PASSWORD: SEED.teacher.password,
-    DEMO_PARENT_PASSWORD: SEED.parentOfFirstChild.password,
+    DEMO_PARENT_PASSWORD: SEED.parentOfNoConsentChild.password,
     E2E_API_PORT: String(PORTS.api),
   };
 }
