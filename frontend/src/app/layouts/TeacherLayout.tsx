@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Outlet } from "react-router";
 
 import { isTeacher, meQueryOptions } from "@/api/auth";
+import { useClassSwitchOnArrival } from "@/features/class-context/class-switch";
 import { useCurrentClass } from "@/features/class-context/use-current-class";
 import { hasUnsentWork, useUploadQueue } from "@/features/upload-queue/upload-queue-store";
 import { useWarnBeforeUnload } from "@/lib/use-warn-before-unload";
@@ -22,6 +23,8 @@ export function TeacherLayout() {
   const teacherName = isTeacher(me) ? me.name : null;
   // 올리기 전의 자료는 메모리에만 있어 새로고침하면 분류까지 처음부터 다시 해야 합니다.
   useWarnBeforeUnload(useUploadQueue((state) => hasUnsentWork(state.items)));
+  // 헤더에서 다른 반을 골라 도착했으면 그때 반을 바꿉니다. 떠나는 이동이 막히면 반도 그대로입니다.
+  useClassSwitchOnArrival();
 
   return (
     <div className="px-6">

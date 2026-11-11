@@ -11,7 +11,7 @@ import {
 import { hasUnsentWork, useUploadQueue } from "@/features/upload-queue/upload-queue-store";
 import { cn } from "@/lib/utils";
 
-import { selectClass } from "./current-class-store";
+import { classSwitchState } from "./class-switch";
 import { useCurrentClass } from "./use-current-class";
 
 interface ClassSwitcherProps {
@@ -24,6 +24,7 @@ const ITEM_CLASS = "gap-3 rounded-xl p-2 transition-colors duration-200";
 // 교사 헤더의 "어린이집 / 반 ⌄"입니다. 누르면 같은 어린이집의 다른 반으로 바꿉니다(FR-25).
 // 같은 어린이집 교사는 모든 반을 봅니다(docs/api/organization.md GET /classes).
 // - 다른 반을 고르면 보던 메뉴의 첫 화면으로 갑니다. 원아 상세처럼 반에 딸린 화면은 다른 반에서 열 수 없습니다.
+// - 반은 이동이 끝난 뒤에 바뀝니다(class-switch.ts). 떠나는 이동이 막히면 반도 그대로입니다.
 // - 올리지 않은 자료가 있으면 바꾸지 않습니다. 큐의 자료는 지금 반 아이들에게 연결한 것이라 다른 반으로 보내면 안 됩니다.
 export function ClassSwitcher({ to }: ClassSwitcherProps) {
   const { currentClass, classes } = useCurrentClass();
@@ -78,7 +79,7 @@ export function ClassSwitcher({ to }: ClassSwitcherProps) {
           }
           return (
             <DropdownMenuItem key={klass.class_id} asChild className={ITEM_CLASS}>
-              <Link viewTransition to={to} onClick={() => selectClass(klass.class_id)}>
+              <Link viewTransition to={to} state={classSwitchState(klass.class_id)}>
                 {label}
               </Link>
             </DropdownMenuItem>

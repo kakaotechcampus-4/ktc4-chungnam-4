@@ -1,6 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
+import { useBlocker } from "react-router";
 
 import { authKeys } from "@/api/auth";
 import { organizationKeys } from "@/api/organization";
@@ -19,6 +20,24 @@ function renderAt(path: string) {
   return renderRoutes(
     [{ path: "/t", Component: TeacherLayout, children: [{ path: "*", element: <p>본문</p> }] }],
     { initialEntry: path },
+  );
+}
+
+/** 떠나는 이동을 막는 화면입니다. 초안 검토 화면의 회수본 경고(useBlocker)와 같습니다. */
+function LeaveGuardPage() {
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) => currentLocation.pathname !== nextLocation.pathname,
+  );
+  if (blocker.state !== "blocked") return <p>고치는 중</p>;
+  return (
+    <>
+      <button type="button" onClick={() => blocker.reset()}>
+        계속 고치기
+      </button>
+      <button type="button" onClick={() => blocker.proceed()}>
+        나가기
+      </button>
+    </>
   );
 }
 
@@ -153,6 +172,66 @@ describe("TeacherLayout", () => {
       "aria-current",
       "true",
     );
+  });
+
+  // #326 리뷰: 반을 먼저 바꾸면, 떠나는 이동이 막혔을 때 반만 바뀐 채 그 화면이 다른 반의 데이터로 바뀌었습니다.
+  it("떠나는 이동이 막히면 반을 바꾸지 않고, 나가기를 고르면 도착한 뒤에 바꾼다", async () => {
+    const user = userEvent.setup();
+    const star = { ...SUNSHINE_CLASS, class_id: fixtureId("class", 2), name: "별님반" };
+    server.use(http.get(apiPath("/classes"), () => listResponse([SUNSHINE_CLASS, star])));
+    const { router } = renderRoutes(
+      [
+        {
+          path: "/t",
+          Component: TeacherLayout,
+          children: [
+            { path: "review", element: <LeaveGuardPage /> },
+            { path: "*", element: <p>본문</p> },
+          ],
+        },
+      ],
+      { initialEntry: "/t/review" },
+    );
+
+    await openClassMenu(user, /햇살반/);
+    await user.click(await screen.findByRole("menuitem", { name: /별님반/ }));
+    await user.click(await screen.findByRole("button", { name: "계속 고치기" }));
+
+    expect(router.state.location.pathname).toBe("/t/review");
+    expect(useCurrentClassStore.getState().selectedClassId).toBeNull();
+    expect(screen.getByRole("button", { name: /햇살반/ })).toBeInTheDocument();
+
+    await openClassMenu(user, /햇살반/);
+    await user.click(await screen.findByRole("menuitem", { name: /별님반/ }));
+    await user.click(await screen.findByRole("button", { name: "나가기" }));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/t/dashboard"));
+    expect(useCurrentClassStore.getState().selectedClassId).toBe(star.class_id);
+    expect(await screen.findByText("햇살어린이집 / 별님반")).toBeInTheDocument();
+  });
+
+  it("뒤로 가기로 반을 바꿨던 기록에 돌아와도 반을 다시 바꾸지 않는다", async () => {
+    const user = userEvent.setup();
+    const star = { ...SUNSHINE_CLASS, class_id: fixtureId("class", 2), name: "별님반" };
+    server.use(http.get(apiPath("/classes"), () => listResponse([SUNSHINE_CLASS, star])));
+    const { router } = renderAt("/t/notes/child-1");
+
+    // /t/notes/child-1 → /t/notes(별님반으로 바꾼 기록)
+    await openClassMenu(user, /햇살반/);
+    await user.click(await screen.findByRole("menuitem", { name: /별님반/ }));
+    expect(await screen.findByText("햇살어린이집 / 별님반")).toBeInTheDocument();
+
+    // /t/plans로 옮긴 뒤 다시 햇살반으로 바꿉니다.
+    await act(() => router.navigate("/t/plans"));
+    await openClassMenu(user, /별님반/);
+    await user.click(await screen.findByRole("menuitem", { name: /햇살반/ }));
+    expect(await screen.findByText("햇살어린이집 / 햇살반")).toBeInTheDocument();
+
+    // 별님반으로 바꿨던 기록(/t/notes)으로 돌아가도 반은 햇살반 그대로입니다.
+    await act(() => router.navigate(-1));
+    expect(router.state.location.pathname).toBe("/t/notes");
+    expect(useCurrentClassStore.getState().selectedClassId).toBe(SUNSHINE_CLASS.class_id);
+    expect(screen.getByText("햇살어린이집 / 햇살반")).toBeInTheDocument();
   });
 
   it("교사 이름을 /me에서 받아 보여 준다", async () => {
