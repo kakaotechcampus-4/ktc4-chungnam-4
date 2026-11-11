@@ -27,3 +27,9 @@ public/models/
 *.njsproj
 *.sln
 *.sw?
+
+# Playwright E2E 결과물. 실패 기록은 CI 첨부 결과물로 남기고 커밋하지 않습니다.
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
